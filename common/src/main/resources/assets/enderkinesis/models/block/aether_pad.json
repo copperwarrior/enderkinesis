@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "enderkinesis:block/aether_pad_front",
+    "north":    "enderkinesis:block/aether_pad_front",
+    "south":    "enderkinesis:block/aether_pad_back",
+    "east":     "enderkinesis:block/aether_pad_side",
+    "west":     "enderkinesis:block/aether_pad_side",
+    "up":       "enderkinesis:block/aether_pad_side",
+    "down":     "enderkinesis:block/aether_pad_side"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "has_precipitation": false,
+  "temperature": 0.7,
+  "downfall": 0.9,
+  "effects": {
+    "sky_color": 5799564,
+    "fog_color": 3758195,
+    "water_color": 991270,
+    "water_fog_color": 991270,
+    "foliage_color": 3034457,
+    "grass_color": 3034457,
+    "music": {
+      "sound": "enderkinesis:music.wohlonnogondonia",
+      "min_delay": 12000,
+      "max_delay": 24000,
+      "replace_current_music": false
+    }
+  },
+  "spawners": {
+    "monster": [],
+    "creature": [],
+    "ambient": [],
+    "axolotls": [],
+    "underground_water_creature": [],
+    "water_creature": [],
+    "water_ambient": [],
+    "misc": []
+  },
+  "spawn_costs": {},
+  "carvers": {
+    "air": []
+  },
+  "features": [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [ "enderkinesis:wogor_forest", "enderkinesis:wogor_forest_water" ],
+    []
+  ]
+}

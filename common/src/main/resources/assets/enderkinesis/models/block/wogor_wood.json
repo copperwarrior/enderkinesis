@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/cube_column",
+  "textures": {
+    "end": "enderkinesis:block/wogor_log",
+    "side": "enderkinesis:block/wogor_log"
+  }
+}

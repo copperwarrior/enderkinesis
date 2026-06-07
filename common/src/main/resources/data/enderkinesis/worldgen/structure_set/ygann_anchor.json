@@ -1,0 +1,11 @@
+{
+  "structures": [
+    { "structure": "enderkinesis:ygann_anchor", "weight": 1 }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "salt": 1429876213,
+    "spacing": 40,
+    "separation": 10
+  }
+}

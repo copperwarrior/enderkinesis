@@ -1,0 +1,6 @@
+{
+  "type": "forge:add_features",
+  "biomes": "#enderkinesis:geode_can_spawn_in",
+  "features": "enderkinesis:crepusculite_geode",
+  "step": "underground_decoration"
+}

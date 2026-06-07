@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "axis=y": { "model": "enderkinesis:block/wogor_wood" },
+    "axis=z": { "model": "enderkinesis:block/wogor_wood", "x": 90 },
+    "axis=x": { "model": "enderkinesis:block/wogor_wood", "x": 90, "y": 90 }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "variants": {
+    "facing=down,orb_role=unbound":  { "model": "enderkinesis:block/orb_pedestal_unbound" },
+    "facing=down,orb_role=send":     { "model": "enderkinesis:block/orb_pedestal_send" },
+    "facing=down,orb_role=receive":  { "model": "enderkinesis:block/orb_pedestal_receive" },
+
+    "facing=up,orb_role=unbound":    { "model": "enderkinesis:block/orb_pedestal_unbound", "x": 180 },
+    "facing=up,orb_role=send":       { "model": "enderkinesis:block/orb_pedestal_send",    "x": 180 },
+    "facing=up,orb_role=receive":    { "model": "enderkinesis:block/orb_pedestal_receive", "x": 180 },
+
+    "facing=north,orb_role=unbound": { "model": "enderkinesis:block/orb_pedestal_unbound", "x": 270 },
+    "facing=north,orb_role=send":    { "model": "enderkinesis:block/orb_pedestal_send",    "x": 270 },
+    "facing=north,orb_role=receive": { "model": "enderkinesis:block/orb_pedestal_receive", "x": 270 },
+
+    "facing=south,orb_role=unbound": { "model": "enderkinesis:block/orb_pedestal_unbound", "x": 90 },
+    "facing=south,orb_role=send":    { "model": "enderkinesis:block/orb_pedestal_send",    "x": 90 },
+    "facing=south,orb_role=receive": { "model": "enderkinesis:block/orb_pedestal_receive", "x": 90 },
+
+    "facing=east,orb_role=unbound":  { "model": "enderkinesis:block/orb_pedestal_unbound", "x": 90, "y": 270 },
+    "facing=east,orb_role=send":     { "model": "enderkinesis:block/orb_pedestal_send",    "x": 90, "y": 270 },
+    "facing=east,orb_role=receive":  { "model": "enderkinesis:block/orb_pedestal_receive", "x": 90, "y": 270 },
+
+    "facing=west,orb_role=unbound":  { "model": "enderkinesis:block/orb_pedestal_unbound", "x": 90, "y": 90 },
+    "facing=west,orb_role=send":     { "model": "enderkinesis:block/orb_pedestal_send",    "x": 90, "y": 90 },
+    "facing=west,orb_role=receive":  { "model": "enderkinesis:block/orb_pedestal_receive", "x": 90, "y": 90 }
+  }
+}

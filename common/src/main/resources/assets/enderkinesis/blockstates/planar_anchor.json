@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=x,powered=false,targeted=false": { "model": "enderkinesis:block/planar_anchor_inactive", "x": 90, "y": 90 },
+    "axis=x,powered=false,targeted=true":  { "model": "enderkinesis:block/planar_anchor",          "x": 90, "y": 90 },
+    "axis=x,powered=true,targeted=false":  { "model": "enderkinesis:block/planar_anchor",          "x": 90, "y": 90 },
+    "axis=x,powered=true,targeted=true":   { "model": "enderkinesis:block/planar_anchor",          "x": 90, "y": 90 },
+    "axis=y,powered=false,targeted=false": { "model": "enderkinesis:block/planar_anchor_inactive" },
+    "axis=y,powered=false,targeted=true":  { "model": "enderkinesis:block/planar_anchor" },
+    "axis=y,powered=true,targeted=false":  { "model": "enderkinesis:block/planar_anchor" },
+    "axis=y,powered=true,targeted=true":   { "model": "enderkinesis:block/planar_anchor" },
+    "axis=z,powered=false,targeted=false": { "model": "enderkinesis:block/planar_anchor_inactive", "x": 90 },
+    "axis=z,powered=false,targeted=true":  { "model": "enderkinesis:block/planar_anchor",          "x": 90 },
+    "axis=z,powered=true,targeted=false":  { "model": "enderkinesis:block/planar_anchor",          "x": 90 },
+    "axis=z,powered=true,targeted=true":   { "model": "enderkinesis:block/planar_anchor",          "x": 90 }
+  }
+}

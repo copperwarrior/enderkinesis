@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "type=bottom": { "model": "enderkinesis:block/ancrite_slab" },
+    "type=double": { "model": "enderkinesis:block/ancrite_block" },
+    "type=top":    { "model": "enderkinesis:block/ancrite_slab_top" }
+  }
+}

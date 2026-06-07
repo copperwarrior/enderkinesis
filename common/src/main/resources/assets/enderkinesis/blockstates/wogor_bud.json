@@ -1,0 +1,24 @@
+{
+  "variants": {
+    "age=0,facing=down":  { "model": "enderkinesis:block/wogor_bud_0" },
+    "age=0,facing=up":    { "model": "enderkinesis:block/wogor_bud_0", "x": 180, "uvlock": true },
+    "age=0,facing=north": { "model": "enderkinesis:block/wogor_bud_0", "x": 270, "uvlock": true },
+    "age=0,facing=south": { "model": "enderkinesis:block/wogor_bud_0", "x": 90,  "uvlock": true },
+    "age=0,facing=east":  { "model": "enderkinesis:block/wogor_bud_0", "x": 90, "y": 270, "uvlock": true },
+    "age=0,facing=west":  { "model": "enderkinesis:block/wogor_bud_0", "x": 90, "y": 90,  "uvlock": true },
+
+    "age=1,facing=down":  { "model": "enderkinesis:block/wogor_bud_1" },
+    "age=1,facing=up":    { "model": "enderkinesis:block/wogor_bud_1", "x": 180, "uvlock": true },
+    "age=1,facing=north": { "model": "enderkinesis:block/wogor_bud_1", "x": 270, "uvlock": true },
+    "age=1,facing=south": { "model": "enderkinesis:block/wogor_bud_1", "x": 90,  "uvlock": true },
+    "age=1,facing=east":  { "model": "enderkinesis:block/wogor_bud_1", "x": 90, "y": 270, "uvlock": true },
+    "age=1,facing=west":  { "model": "enderkinesis:block/wogor_bud_1", "x": 90, "y": 90,  "uvlock": true },
+
+    "age=2,facing=down":  { "model": "enderkinesis:block/wogor_bud_2" },
+    "age=2,facing=up":    { "model": "enderkinesis:block/wogor_bud_2", "x": 180, "uvlock": true },
+    "age=2,facing=north": { "model": "enderkinesis:block/wogor_bud_2", "x": 270, "uvlock": true },
+    "age=2,facing=south": { "model": "enderkinesis:block/wogor_bud_2", "x": 90,  "uvlock": true },
+    "age=2,facing=east":  { "model": "enderkinesis:block/wogor_bud_2", "x": 90, "y": 270, "uvlock": true },
+    "age=2,facing=west":  { "model": "enderkinesis:block/wogor_bud_2", "x": 90, "y": 90,  "uvlock": true }
+  }
+}

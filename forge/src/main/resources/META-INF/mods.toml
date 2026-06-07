@@ -1,0 +1,49 @@
+modLoader = "kotlinforforge"
+loaderVersion = "[4,)"
+issueTrackerURL = "https://github.com/copperwarrior/enderkinesis/issues"
+license = "Apache-2.0"
+
+[[mods]]
+modId = "enderkinesis"
+version = "${version}"
+displayName = "Enderkinesis"
+authors = "Shipwrights, Copper"
+description = '''
+There are forces older than time itself. Push your ship with them!
+'''
+logoFile = "icon.png"
+
+[[dependencies.enderkinesis]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.enderkinesis]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.enderkinesis]]
+modId = "kotlinforforge"
+mandatory = true
+versionRange = "[4,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.enderkinesis]]
+modId = "architectury"
+mandatory = true
+versionRange = "[9.1.12,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.enderkinesis]]
+modId = "valkyrienskies"
+mandatory = true
+versionRange = "[2.4.0,)"
+ordering = "AFTER"
+side = "BOTH"

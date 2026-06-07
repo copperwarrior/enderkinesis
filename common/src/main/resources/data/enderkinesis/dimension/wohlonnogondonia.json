@@ -1,0 +1,10 @@
+{
+  "type": "enderkinesis:wohlonnogondonia",
+  "generator": {
+    "type": "enderkinesis:wohlonnogondonia",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "enderkinesis:wohlonnogondonia"
+    }
+  }
+}

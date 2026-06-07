@@ -1,0 +1,11 @@
+{
+  "structures": [
+    { "structure": "enderkinesis:roaming_end_ship", "weight": 1 }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "salt": 718041390,
+    "spacing": 32,
+    "separation": 8
+  }
+}

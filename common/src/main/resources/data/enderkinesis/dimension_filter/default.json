@@ -1,0 +1,12 @@
+{
+  "allow": [
+    "minecraft:overworld",
+    "minecraft:the_nether",
+    "minecraft:the_end",
+    "enderkinesis:.*"
+  ],
+  "deny": [
+    "enderkinesis:sselith_repertory",
+    "enderkinesis:ygann_abyss"
+  ]
+}

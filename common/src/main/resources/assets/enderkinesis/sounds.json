@@ -1,0 +1,97 @@
+{
+  "music_disc.mystery": {
+    "category": "record",
+    "sounds": [
+      { "name": "enderkinesis:records/mystery", "stream": true }
+    ]
+  },
+  "music.wohlonnogondonia": {
+    "category": "music",
+    "sounds": [
+      { "name": "enderkinesis:music/wohlonnogondonia", "stream": true }
+    ]
+  },
+  "entity.cataloger.footstep1": {
+    "category": "neutral",
+    "sounds": [
+      { "name": "enderkinesis:entity/cataloger/footstep/sselith1", "stream": false }
+    ]
+  },
+  "entity.cataloger.footstep2": {
+    "category": "neutral",
+    "sounds": [
+      { "name": "enderkinesis:entity/cataloger/footstep/sselith2", "stream": false }
+    ]
+  },
+  "entity.cataloger.footstep3": {
+    "category": "neutral",
+    "sounds": [
+      { "name": "enderkinesis:entity/cataloger/footstep/sselith3", "stream": false }
+    ]
+  },
+  "entity.cataloger.footstep4": {
+    "category": "neutral",
+    "sounds": [
+      { "name": "enderkinesis:entity/cataloger/footstep/sselith4", "stream": false }
+    ]
+  },
+  "entity.cataloger.footstep5": {
+    "category": "neutral",
+    "sounds": [
+      { "name": "enderkinesis:entity/cataloger/footstep/sselith5", "stream": false }
+    ]
+  },
+  "entity.cataloger.footstep6": {
+    "category": "neutral",
+    "sounds": [
+      { "name": "enderkinesis:entity/cataloger/footstep/sselith6", "stream": false }
+    ]
+  },
+  "ambient.ygann_abyss.drone": {
+    "category": "ambient",
+    "subtitle": "subtitles.enderkinesis.ygann_abyss.drone",
+    "sounds": [
+      { "name": "enderkinesis:ambient/ygann_abyss/ambience_1", "stream": true },
+      { "name": "enderkinesis:ambient/ygann_abyss/ambience_2", "stream": true }
+    ]
+  },
+  "ambient.ygann_abyss.loop": {
+    "category": "ambient",
+    "sounds": [
+      { "name": "enderkinesis:ambient/ygann_abyss/ambience_loop", "stream": true }
+    ]
+  },
+  "ambient.ygann_abyss.chant": {
+    "category": "ambient",
+    "subtitle": "subtitles.enderkinesis.ygann_abyss.chant",
+    "sounds": [
+      { "name": "enderkinesis:ambient/ygann_abyss/chant_1", "stream": true },
+      { "name": "enderkinesis:ambient/ygann_abyss/chant_2", "stream": true },
+      { "name": "enderkinesis:ambient/ygann_abyss/chant_3", "stream": true },
+      { "name": "enderkinesis:ambient/ygann_abyss/chant_4", "stream": true },
+      { "name": "enderkinesis:ambient/ygann_abyss/chant_5", "stream": true }
+    ]
+  },
+  "ambient.sselith_repertory.murmur": {
+    "category": "ambient",
+    "subtitle": "subtitles.enderkinesis.sselith_repertory.murmur",
+    "sounds": [
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_1", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_1r", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_2", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_2r", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_3", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_3r", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_4", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_4r", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_5", "stream": true },
+      { "name": "enderkinesis:ambient/sselith_repertory/ambience_5r", "stream": true }
+    ]
+  },
+  "music.ygann_abyss.silence": {
+    "category": "music",
+    "sounds": [
+      { "name": "enderkinesis:music/ygann_abyss/silence", "stream": true }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "ambientocclusion": false,
+  "textures": {
+    "wood":     "enderkinesis:block/wogor_log",
+    "particle": "enderkinesis:block/wogor_log"
+  },
+  "elements": [
+    {
+      "from": [4, 0, 4],
+      "to":   [12, 8, 12],
+      "faces": {
+        "down":  { "uv": [4, 4, 12, 12], "texture": "#wood", "cullface": "down" },
+        "up":    { "uv": [4, 4, 12, 12], "texture": "#wood" },
+        "north": { "uv": [4, 8, 12, 16], "texture": "#wood" },
+        "south": { "uv": [4, 8, 12, 16], "texture": "#wood" },
+        "west":  { "uv": [4, 8, 12, 16], "texture": "#wood" },
+        "east":  { "uv": [4, 8, 12, 16], "texture": "#wood" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "type": "enderkinesis:ygann_abyss",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "layers": [],
+      "biome": "enderkinesis:ygann_abyss",
+      "features": false,
+      "lakes": false
+    }
+  }
+}

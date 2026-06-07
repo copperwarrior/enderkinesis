@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=north": { "model": "enderkinesis:block/shulker_puffer" },
+    "facing=south": { "model": "enderkinesis:block/shulker_puffer", "y": 180 },
+    "facing=west":  { "model": "enderkinesis:block/shulker_puffer", "y": 270 },
+    "facing=east":  { "model": "enderkinesis:block/shulker_puffer", "y": 90 },
+    "facing=up":    { "model": "enderkinesis:block/shulker_puffer", "x": 270 },
+    "facing=down":  { "model": "enderkinesis:block/shulker_puffer", "x": 90 }
+  }
+}

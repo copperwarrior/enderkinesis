@@ -1,0 +1,14 @@
+{
+  "_comment": "Self-contained built-in resource pack that ships translations to the synthetic 'en_se' (Sselith) locale and registers en_se with Minecraft's language picker. Lives in resourcepacks/sselith/ inside the mod resources rather than at the mod root: Fabric's composite 'Mod resources' PackResources mints its own synthetic pack.mcmeta with only pack_format + description, so a 'language' block in the mod's TOP-LEVEL pack.mcmeta is silently dropped before LanguageManager ever sees it. Built-in resource packs registered via ResourceManagerHelper.registerBuiltinResourcePack(..., ALWAYS_ENABLED) (Fabric) / AddPackFindersEvent (Forge) are exposed as their own top-level PackResources, so this pack.mcmeta is read directly. See [[sselith-translator]] memory for the full pipeline.",
+  "pack": {
+    "description": "Sselith translation",
+    "pack_format": 15
+  },
+  "language": {
+    "en_se": {
+      "name": "Sselith",
+      "region": "Sselith Repertory",
+      "bidirectional": false
+    }
+  }
+}

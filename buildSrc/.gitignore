@@ -1,0 +1,6 @@
+build/
+.gradle/
+
+# OpenNLP model binaries — large (~20 MB combined), fetched at build time by
+# the :common:downloadSselithModels Gradle task.
+src/main/resources/models/

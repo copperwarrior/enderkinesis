@@ -1,0 +1,103 @@
+Enderkinesis Asset License
+==========================
+
+Copyright (C) 2025-2026 Grant Voelker. All Rights Reserved.
+
+The source code of Enderkinesis is licensed under the Apache License,
+Version 2.0 (see the file LICENSE). These terms apply ONLY to the asset
+files listed below, which are NOT covered by that Apache License grant.
+
+
+1. SCOPE
+--------
+
+These terms apply to the following files ("the Asset Files"):
+
+  - Every file under common/src/main/resources/assets/enderkinesis/,
+    including but not limited to *.png textures, item and block model
+    *.json files, blockstate *.json files, particle definition *.json
+    files, language *.json files, *.ogg sound files, and *.md texts.
+  - Every *.nbt file under common/src/main/resources/data/
+    (placed-block structure data, e.g., roaming_end_ship.nbt).
+  - icon_big.png at the project root.
+  - almanackal_awakening.md at the project root.
+
+All other files in this repository are covered by the Apache License,
+Version 2.0 in the file LICENSE.
+
+
+2. GRANT
+--------
+
+Subject to the restrictions in Section 3, the copyright holder grants
+to you a limited, perpetual, worldwide, royalty-free, non-exclusive,
+non-sublicensable license to convey unmodified copies of the Asset
+Files SOLELY as bundled inside an Enderkinesis mod jar (whether the
+mod jar is unmodified or has been modified in compliance with the
+Apache License on the code).
+
+This grant exists so that:
+
+  - Modpack authors may include the Enderkinesis mod jar in their
+    modpacks on CurseForge, Modrinth, Prism, or similar platforms
+    without seeking per-pack permission;
+  - Forks and ports of the code that ship the Asset Files inside the
+    resulting mod jar do not need a separate asset license, provided
+    they comply with both the Apache License on the code and the
+    restrictions below.
+
+
+3. RESTRICTIONS
+---------------
+
+Without prior written permission from the copyright holder, you may
+NOT:
+
+  (a) Extract the Asset Files from a mod jar and redistribute them
+      independently of a mod jar (for example, as a standalone
+      resource pack, asset library, or download).
+
+  (b) Modify, retexture, recolor, retranslate, rewrite, remix, or
+      otherwise alter the Asset Files and redistribute the result —
+      whether bundled in a mod jar or otherwise.
+
+  (c) Use the Asset Files as art, audio, or text within any other
+      software, game, application, resource pack, texture pack, or
+      media work.
+
+  (d) Use the Asset Files in marketing, advertising, or promotional
+      material for any product or service other than to accurately
+      describe the Enderkinesis mod itself.
+
+
+4. NOMINATIVE USE
+-----------------
+
+Nothing in this license restricts:
+
+  - Reproducing screenshots, gameplay footage, or short excerpts of
+    the Asset Files for the purpose of reviewing, describing, or
+    documenting the Enderkinesis mod (including in articles, videos,
+    wikis, and modpack descriptions).
+  - Loading the Asset Files into a development environment, decompiler,
+    or asset viewer for the purpose of studying or debugging the
+    Enderkinesis mod or a derivative work of its code.
+
+
+5. NO WARRANTY
+--------------
+
+The Asset Files are provided "AS IS", without warranty of any kind,
+express or implied. In no event shall the copyright holder be liable
+for any claim, damages, or other liability arising from the use of
+the Asset Files.
+
+
+6. CONTACT
+----------
+
+To request a license grant broader than what is provided above (for
+example, to use Asset Files in another project, to publish a fan
+translation as a standalone resource pack, or to remix the lore), please
+open an issue on the project's source repository or contact the
+copyright holder directly.

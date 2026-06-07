@@ -1,0 +1,152 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        // Make sure this version matches the one included in Kotlin for Forge
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+        // OPTIONAL Gradle plugin for Kotlin Serialization
+        classpath 'org.jetbrains.kotlin:kotlin-serialization:1.9.22'
+    }
+}
+
+plugins {
+    id "com.github.johnrengelman.shadow" version "7.1.2"
+    id "com.matthewprenger.cursegradle"
+    id "com.modrinth.minotaur"
+}
+
+architectury {
+    platformSetupLoomIde()
+    forge()
+}
+
+configurations {
+    common
+    shadowCommon // Don't use shadow from the shadow plugin because we don't want IDEA to index this.
+    compileClasspath.extendsFrom common
+    runtimeClasspath.extendsFrom common
+    developmentForge.extendsFrom common
+}
+
+repositories {
+    // Mavens for forge exclusive dependencies
+    maven {
+        name = 'Forge Maven'
+        url = 'https://maven.minecraftforge.net/'
+    }
+}
+
+dependencies {
+    forge("net.minecraftforge:forge:${minecraft_version}-${forge_version}")
+    common(project(path: ":common", configuration: "namedElements")) { transitive = false }
+    shadowCommon(project(path: ":common", configuration: "transformProductionForge")) { transitive = false }
+
+    include(modApi("dev.architectury:architectury-forge:${rootProject.architectury_api_version}"))
+    implementation(include((("io.github.llamalad7:mixinextras-forge:0.4.1"))))
+
+    modApi("org.valkyrienskies:valkyrienskies-120-forge:${rootProject.vs2_version}") { transitive = false
+        exclude group: 'org.valkyrienskies.core', module: ''
+        exclude group: "com.simibubi"
+        exclude group: "io.github.fabricators_of_create"
+        exclude group: "dev.engine-room"
+        exclude group: "dev.engine_room"
+    }
+    implementation("org.valkyrienskies.core:api:${rootProject.vscore_version}") { transitive = false
+        exclude group: 'org.joml', module: ''
+    }
+    implementation("org.valkyrienskies.core:util:${rootProject.vscore_version}") { transitive = false
+        exclude group: 'org.joml', module: ''
+    }
+    implementation("org.valkyrienskies.core:internal:${rootProject.vscore_version}") { transitive = false
+        exclude group: 'org.joml', module: ''
+    }
+
+    // Kotlin
+    implementation("thedarkcolour:kotlinforforge:${rootProject.kotlin_forge}")
+
+    compileOnly("org.joml:joml:1.10.4")
+    compileOnly("org.joml:joml-primitives:1.10.0")
+
+}
+
+processResources {
+    filesMatching("META-INF/mods.toml") {
+        expand "version": version
+    }
+
+    // Mirror common's Sselith pack into this module for dev: Forge sees only the module
+    // containing META-INF/mods.toml as the mod root, so onAddPackFinders' modFile.findResource
+    // for resourcepacks/sselith/ would miss common's resources.
+    from(rootProject.file("common/src/main/resources/resourcepacks")) {
+        into "resourcepacks"
+    }
+    from(project(":common").layout.buildDirectory.dir("generated/sselith/resourcepacks")) {
+        into "resourcepacks"
+    }
+    dependsOn project(":common").tasks.named("translateLangJson")
+}
+
+loom {
+    forge {
+        mixinConfig "enderkinesis-common.mixins.json"
+        mixinConfig "enderkinesis.mixins.json"
+    }
+    mixin {
+        defaultRefmapName = "enderkinesis-refmap.json"
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // Minecraft 1.18 (1.18-pre2) upwards uses Java 17.
+    it.options.release = 17
+}
+
+shadowJar {
+    exclude "fabric.mod.json"
+    exclude "architectury.common.json"
+
+    configurations = [project.configurations.shadowCommon]
+    archiveClassifier.set "dev-shadow"
+    // resourcepacks/sselith/ ends up in both this module's processResources output (dev mirror)
+    // and common's shaded jar; skip the duplicate so shadowJar merges cleanly.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+remapJar {
+    input.set shadowJar.archiveFile
+    dependsOn shadowJar
+    archiveClassifier.set null
+}
+
+jar {
+    archiveClassifier.set "dev"
+}
+
+sourcesJar {
+    def commonSources = project(":common").sourcesJar
+    dependsOn commonSources
+    from commonSources.archiveFile.map { zipTree(it) }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+components.java {
+    withVariantsFromConfiguration(project.configurations.shadowRuntimeElements) {
+        skip()
+    }
+}
+
+
+publishing {
+    publications {
+        mavenForge(MavenPublication) {
+            artifactId = rootProject.archives_base_name + "-" + project.name
+            from components.java
+        }
+    }
+
+    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+    repositories {
+        // Add repositories to publish to here.
+    }
+}

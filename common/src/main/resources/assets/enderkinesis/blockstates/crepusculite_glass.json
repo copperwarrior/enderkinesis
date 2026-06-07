@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "lit=false": { "model": "enderkinesis:block/crepusculite_glass" },
+    "lit=true":  { "model": "enderkinesis:block/crepusculite_glass" }
+  }
+}

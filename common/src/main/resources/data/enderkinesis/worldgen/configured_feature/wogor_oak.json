@@ -1,0 +1,42 @@
+{
+  "type": "minecraft:tree",
+  "config": {
+    "trunk_provider": {
+      "type": "minecraft:simple_state_provider",
+      "state": { "Name": "enderkinesis:wogor_log", "Properties": { "axis": "y" } }
+    },
+    "foliage_provider": {
+      "type": "minecraft:simple_state_provider",
+      "state": {
+        "Name": "minecraft:mangrove_leaves",
+        "Properties": { "persistent": "true", "waterlogged": "false", "distance": "1" }
+      }
+    },
+    "dirt_provider": {
+      "type": "minecraft:simple_state_provider",
+      "state": { "Name": "minecraft:mud" }
+    },
+    "trunk_placer": {
+      "type": "minecraft:straight_trunk_placer",
+      "base_height": 5,
+      "height_rand_a": 2,
+      "height_rand_b": 0
+    },
+    "foliage_placer": {
+      "type": "minecraft:blob_foliage_placer",
+      "radius": 2,
+      "offset": 0,
+      "height": 3
+    },
+    "minimum_size": {
+      "type": "minecraft:two_layers_feature_size",
+      "min_clipped_height": 0,
+      "limit": 1,
+      "lower_size": 0,
+      "upper_size": 1
+    },
+    "decorators": [],
+    "force_dirt": false,
+    "ignore_vines": false
+  }
+}

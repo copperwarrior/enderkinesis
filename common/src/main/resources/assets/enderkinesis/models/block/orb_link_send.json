@@ -1,0 +1,6 @@
+{
+  "parent": "enderkinesis:block/orb_link_base",
+  "textures": {
+    "all": "enderkinesis:block/orb_transmitter"
+  }
+}

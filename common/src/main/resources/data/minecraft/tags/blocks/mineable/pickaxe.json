@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "enderkinesis:ancrite_block",
+    "enderkinesis:raw_ancrite",
+    "enderkinesis:refined_ancrite",
+    "enderkinesis:ancrite_grate",
+    "enderkinesis:ancrite_bars",
+    "enderkinesis:ancrite_stairs",
+    "enderkinesis:ancrite_slab",
+    "enderkinesis:ancrite_wall",
+    "enderkinesis:refined_ancrite_stairs",
+    "enderkinesis:refined_ancrite_slab",
+    "enderkinesis:refined_ancrite_wall",
+    "enderkinesis:ancrite_beam",
+    "enderkinesis:ender_astrolabe"
+  ]
+}

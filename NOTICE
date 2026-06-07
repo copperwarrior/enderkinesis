@@ -1,0 +1,22 @@
+Enderkinesis
+Copyright (C) 2025-2026 Grant Voelker
+
+This product includes software developed by Grant Voelker and the Enderkinesis
+contributors.
+
+The source code in this work is licensed under the Apache License, Version 2.0;
+the full text is in the file LICENSE in this distribution.
+
+The asset files bundled with this work (textures, models, blockstates, particle
+definitions, language files, icons, lore texts, and *.nbt structure data) are
+NOT covered by the Apache License. They are All Rights Reserved and are
+distributed under a separate set of terms, set out in the file LICENSE-ASSETS
+in this distribution. In particular, the asset files may be conveyed only as
+bundled inside the Enderkinesis mod jar (which makes the mod usable in
+modpacks); they may not be extracted, modified, or redistributed independently
+without prior written permission from the copyright holder.
+
+The name "Enderkinesis" and the Enderkinesis logo are not licensed for use to
+identify, endorse, or promote derivative works, except as required for
+reasonable and customary use in describing the origin of the work (Apache
+License, Section 6).

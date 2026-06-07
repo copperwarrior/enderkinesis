@@ -1,0 +1,12 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:all_signs",
+    "#minecraft:banners",
+    "minecraft:lectern",
+    "minecraft:enchanting_table",
+    "minecraft:chiseled_bookshelf",
+    "minecraft:gold_block",
+    "enderkinesis:orb_of_linking"
+  ]
+}

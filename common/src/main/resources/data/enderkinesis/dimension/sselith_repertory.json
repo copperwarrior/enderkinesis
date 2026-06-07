@@ -1,0 +1,10 @@
+{
+  "type": "enderkinesis:sselith_repertory",
+  "generator": {
+    "type": "enderkinesis:sselith_repertory",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "enderkinesis:sselith_repertory"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "processors": [
+    { "processor_type": "enderkinesis:enderman_holdable_on_purpur" },
+    { "processor_type": "enderkinesis:seed_lectern_almanac" },
+    { "processor_type": "enderkinesis:shipify_roaming_end_ship" }
+  ]
+}

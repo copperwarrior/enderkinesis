@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "#enderkinesis:converts_to_mud",
+    "minecraft:water",
+    "minecraft:lava",
+    "#minecraft:leaves",
+    "#minecraft:base_stone_overworld"
+  ]
+}

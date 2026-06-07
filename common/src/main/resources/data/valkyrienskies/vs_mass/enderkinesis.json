@@ -1,0 +1,30 @@
+[
+  {
+    "block": "enderkinesis:purpur_ballast",
+    "mass": 3500.0,
+    "friction": 0.6
+  },
+
+  { "block": "enderkinesis:crepusculite_ore",     "mass": 200.0 },
+  { "block": "enderkinesis:crepusculite_block",   "mass": 200.0 },
+  { "block": "enderkinesis:crepusculite_lattice", "mass": 200.0 },
+  { "block": "enderkinesis:crepusculite_glass",   "mass": 100.0 },
+
+  { "block": "enderkinesis:ancrite_block",   "mass": 4000.0 },
+  { "block": "enderkinesis:raw_ancrite",     "mass": 4000.0 },
+  { "block": "enderkinesis:refined_ancrite", "mass": 4000.0 },
+
+  { "block": "enderkinesis:ancrite_stairs",          "mass": 3000.0 },
+  { "block": "enderkinesis:ancrite_slab",            "mass": 2000.0 },
+  { "block": "enderkinesis:ancrite_wall",            "mass": 1000.0 },
+  { "block": "enderkinesis:refined_ancrite_stairs",  "mass": 3000.0 },
+  { "block": "enderkinesis:refined_ancrite_slab",    "mass": 2000.0 },
+  { "block": "enderkinesis:refined_ancrite_wall",    "mass": 1000.0 },
+
+  { "block": "enderkinesis:ancrite_grate",  "mass": 2500.0 },
+  { "block": "enderkinesis:ancrite_bars",   "mass":  200.0 },
+  { "block": "enderkinesis:ancrite_chain",  "mass":  300.0 },
+  { "block": "enderkinesis:ancrite_beam",   "mass": 1000.0 },
+
+  { "block": "enderkinesis:orb_of_linking", "mass":  100.0 }
+]

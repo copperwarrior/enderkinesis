@@ -1,0 +1,6 @@
+{
+  "values": [
+    "minecraft:small_end_islands",
+    { "id": "betterend:ice_starfield", "required": false }
+  ]
+}

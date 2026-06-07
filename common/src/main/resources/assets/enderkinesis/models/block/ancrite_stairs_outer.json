@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/outer_stairs",
+  "textures": {
+    "bottom": "enderkinesis:block/ancrite_block",
+    "top": "enderkinesis:block/ancrite_block",
+    "side": "enderkinesis:block/ancrite_block"
+  }
+}

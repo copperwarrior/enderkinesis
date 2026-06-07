@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "axis=y": { "model": "enderkinesis:block/ancrite_beam" },
+    "axis=z": { "model": "enderkinesis:block/ancrite_beam", "x": 90 },
+    "axis=x": { "model": "enderkinesis:block/ancrite_beam", "x": 90, "y": 90 }
+  }
+}

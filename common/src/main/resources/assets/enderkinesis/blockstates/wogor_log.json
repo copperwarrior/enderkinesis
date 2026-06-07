@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "axis=y": { "model": "enderkinesis:block/wogor_log" },
+    "axis=z": { "model": "enderkinesis:block/wogor_log_horizontal", "x": 90 },
+    "axis=x": { "model": "enderkinesis:block/wogor_log_horizontal", "x": 90, "y": 90 }
+  }
+}

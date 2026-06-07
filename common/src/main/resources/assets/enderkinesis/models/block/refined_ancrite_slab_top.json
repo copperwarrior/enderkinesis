@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/slab_top",
+  "textures": {
+    "bottom": "enderkinesis:block/refined_ancrite",
+    "top": "enderkinesis:block/refined_ancrite",
+    "side": "enderkinesis:block/refined_ancrite"
+  }
+}

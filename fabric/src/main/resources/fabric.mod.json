@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "enderkinesis",
+  "version": "${version}",
+  "name": "Enderkinesis",
+  "description": "There are forces older than time itself. Push your ship with them!",
+  "authors": [
+    "Shipwrights",
+    "Copper"
+  ],
+  "contact": {
+    "homepage": "https://github.com/copperwarrior/enderkinesis",
+    "sources": "https://github.com/copperwarrior/enderkinesis",
+    "issues": "https://github.com/copperwarrior/enderkinesis/issues"
+  },
+  "license": "Apache-2.0",
+  "icon": "assets/enderkinesis/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "org.shipwrights.enderkinesis.fabric.EnderkinesisModFabric"
+    ],
+    "client": [
+      "org.shipwrights.enderkinesis.fabric.client.EnderkinesisModFabricClient"
+    ]
+  },
+  "mixins": [
+    "enderkinesis-common.mixins.json",
+    "enderkinesis.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${fabric_loader_version}",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "fabric-language-kotlin": "*",
+    "architectury": ">=9.1.12",
+    "fabric-api": "*",
+    "valkyrienskies": ">=2.4.0"
+  }
+}

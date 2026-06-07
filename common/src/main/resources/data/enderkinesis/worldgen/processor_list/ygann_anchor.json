@@ -1,0 +1,5 @@
+{
+  "processors": [
+    { "processor_type": "enderkinesis:shipify_ygann_anchor" }
+  ]
+}

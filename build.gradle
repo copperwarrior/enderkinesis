@@ -1,0 +1,135 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+
+plugins {
+    id 'dev.architectury.loom' version '1.3.355' apply false
+    id 'architectury-plugin' version '3.4.146'
+    id "org.jetbrains.kotlin.jvm" version "$kotlin_version" apply false
+
+    id 'com.matthewprenger.cursegradle' version '1.4.0' apply false
+    id "com.modrinth.minotaur" version "2.4.5" apply false
+}
+
+// Version determinance in line with VS conventions. Released builds (CI sets
+// `CustomReleaseVersion`) get a clean `1.0.0` style version; local dev builds get a
+// `1.0.0+abcdef0123` suffix tying the artifact to a specific commit.
+//
+// On a fresh repo with no commits yet, `git rev-parse HEAD` exits non-zero but the old
+// implementation silently captured the literal string "HEAD" from stderr and produced
+// `1.0.0+HEAD`. That suffix gets baked into the architectury-inject directory name
+// inside the jar (e.g. `architectury_inject_..._enderkinesis100HEADdevjar/`), which is
+// looked up by class name at runtime — a malformed suffix will reliably refuse to load.
+if (project.hasProperty("CustomReleaseVersion")) {
+    // Remove release/ from the version if present
+    version = project.property("CustomReleaseVersion").replaceFirst("^release/", "")
+} else {
+    String gitRevision = null
+    try {
+        def stdout = new ByteArrayOutputStream()
+        def stderr = new ByteArrayOutputStream()
+        def result = exec {
+            commandLine 'git', 'rev-parse', '--short=10', 'HEAD'
+            standardOutput = stdout
+            errorOutput = stderr
+            ignoreExitValue = true
+        }
+        if (result.exitValue == 0) {
+            String trimmed = stdout.toString().trim()
+            if (!trimmed.isEmpty()) gitRevision = trimmed
+        }
+    } catch (Exception ignored) {
+        // git not on PATH, or some other failure — fall through to no-suffix version
+    }
+    version = gitRevision != null ? "${mod_version}+${gitRevision}" : mod_version.toString()
+}
+
+architectury {
+    minecraft = project.minecraft_version
+}
+
+allprojects {
+    apply plugin: "java"
+    apply plugin: "kotlin"
+    apply plugin: "architectury-plugin"
+    apply plugin: "maven-publish"
+
+    archivesBaseName = rootProject.archives_base_name
+    version = rootProject.version
+    group = rootProject.maven_group
+
+    // Copied from VS oddities. Forces arch to use the right version (which it doesn't for some reason on some machines)
+    configurations.configureEach {
+        resolutionStrategy.force "org.lwjgl:lwjgl-stb:3.3.1"
+        resolutionStrategy.force "org.lwjgl:lwjgl-opengl:3.3.1"
+        resolutionStrategy.force "org.lwjgl:lwjgl-openal:3.3.1"
+        resolutionStrategy.force "org.lwjgl:lwjgl-tinyfd:3.3.1"
+        resolutionStrategy.force "org.lwjgl:lwjgl-jemalloc:3.3.1"
+        resolutionStrategy.force "org.lwjgl:lwjgl-glfw:3.3.1"
+        resolutionStrategy.force "org.lwjgl:lwjgl:3.3.1"
+    }
+
+    repositories {
+        //Add any repositories to fetch dependencies from here.
+        //Most dependencies are mirrored to the VS Maven, so by default only it is included alongside mavenLocal and KFF.
+        mavenLocal()
+        maven {
+            name = "Valkyrien Skies Internal"
+            url = project.vs_maven_url ?: 'https://maven.valkyrienskies.org'
+            if (project.vs_maven_username && project.vs_maven_password) {
+                credentials {
+                    username = project.vs_maven_username
+                    password = project.vs_maven_password
+                }
+            }
+        }
+        maven {
+            name = 'Kotlin for Forge'
+            url = 'https://thedarkcolour.github.io/KotlinForForge/'
+            content { includeGroup "thedarkcolour" }
+        }
+        maven {
+            name = 'Modrinth'
+            url = 'https://api.modrinth.com/maven'
+            content { includeGroup "maven.modrinth" }
+        }
+    }
+
+    java {
+        withSourcesJar()
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = "UTF-8"
+
+        options.release = 17
+    }
+
+    tasks.withType(KotlinJvmCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = "17"
+            freeCompilerArgs += "-Xjvm-default=all"
+
+        }
+    }
+
+    String buildNumber = System.getenv("GITHUB_RUN_NUMBER")
+}
+
+subprojects {
+    apply plugin: 'dev.architectury.loom'
+    apply plugin: "org.jetbrains.kotlin.jvm"
+
+    repositories {
+        //Add repositories here if necessary.
+    }
+
+    loom {
+        silentMojangMappingsLicense()
+    }
+
+    dependencies {
+        minecraft "net.minecraft:minecraft:$rootProject.minecraft_version"
+        mappings loom.officialMojangMappings()
+    }
+
+
+}

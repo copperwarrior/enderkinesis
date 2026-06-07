@@ -1,0 +1,7 @@
+{
+  "multipart": [
+    { "when": { "axis": "x" }, "apply": { "model": "enderkinesis:block/ancrite_chain", "x": 90, "y": 90 } },
+    { "when": { "axis": "y" }, "apply": { "model": "enderkinesis:block/ancrite_chain" } },
+    { "when": { "axis": "z" }, "apply": { "model": "enderkinesis:block/ancrite_chain", "x": 90 } }
+  ]
+}

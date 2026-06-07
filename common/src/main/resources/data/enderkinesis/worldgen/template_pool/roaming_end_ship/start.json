@@ -1,0 +1,15 @@
+{
+  "name": "enderkinesis:roaming_end_ship/start",
+  "fallback": "minecraft:empty",
+  "elements": [
+    {
+      "weight": 1,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "enderkinesis:roaming_end_ship",
+        "projection": "rigid",
+        "processors": "enderkinesis:roaming_end_ship"
+      }
+    }
+  ]
+}
