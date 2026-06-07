@@ -16,11 +16,13 @@ These terms apply to the following files ("the Asset Files"):
   - Every file under common/src/main/resources/assets/enderkinesis/,
     including but not limited to *.png textures, item and block model
     *.json files, blockstate *.json files, particle definition *.json
-    files, language *.json files, *.ogg sound files, and *.md texts.
+    files, language *.json files, *.ogg sound files, *.vsh and *.fsh
+    shader sources together with their accompanying shader *.json
+    metadata, every *.md text, and every *.json file carrying lore or
+    translation content.
   - Every *.nbt file under common/src/main/resources/data/
     (placed-block structure data, e.g., roaming_end_ship.nbt).
   - icon_big.png at the project root.
-  - almanackal_awakening.md at the project root.
 
 All other files in this repository are covered by the Apache License,
 Version 2.0 in the file LICENSE.
@@ -58,8 +60,10 @@ NOT:
       resource pack, asset library, or download).
 
   (b) Modify, retexture, recolor, retranslate, rewrite, remix, or
-      otherwise alter the Asset Files and redistribute the result —
-      whether bundled in a mod jar or otherwise.
+      otherwise alter the Asset Files and redistribute the result,
+      EXCEPT where the modified Asset Files carry a notice
+      identifying them as derived from the Enderkinesis Asset Files
+      and indicating that they have been modified.
 
   (c) Use the Asset Files as art, audio, or text within any other
       software, game, application, resource pack, texture pack, or
