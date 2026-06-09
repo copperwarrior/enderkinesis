@@ -9,16 +9,20 @@ import net.minecraft.core.particles.SimpleParticleType
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.registry.EKParticles
 
+/* Fireflies spawn in any Wohlon biome cell — Wohlon dimension *or* the Overworld
+ * Wohlon biome — based on the biome at the player's foot position. */
+
 /**
  * Client-side ambient firefly spawner for Wohlonnogondonia.
  *
  * Per-tick budget:
- *  - Fires only while the local player is in [Wohlonnogondonia.LEVEL_KEY].
+ *  - Fires only while the local player is standing in a Wohlon biome cell
+ *    (dimension or Overworld biome — same biome key).
  *  - One spawn attempt every [TICK_INTERVAL] ticks. With a per-attempt success rate of
  *    ~10 % (most random positions don't satisfy "air voxel adjacent to a solid block"),
- *    typical steady-state spawn rate is ~0.5/s; multiplied by the particle's
- *    ~15–30 s lifetime that produces roughly 5–15 alive fireflies in the player's
- *    visible volume — what the design brief asked for ("low density").
+ *    typical steady-state spawn rate is ~1/s; multiplied by the particle's
+ *    ~15–30 s lifetime that produces roughly 15–30 alive fireflies in the player's
+ *    visible volume.
  *
  * Spawn rule:
  *  - Pick a random voxel within an asymmetric box around the player ([SPAWN_RADIUS_XZ]
@@ -42,9 +46,9 @@ object WohlonnogondoniaFireflies {
     private const val SPAWN_RADIUS_XZ: Int = 12
     private const val SPAWN_RADIUS_Y: Int = 6
 
-    /** Ticks between spawn attempts. 4 ticks (5 attempts/s) × ~10 % success ≈ 0.5
-     *  spawns/s. Tune lower (more frequent) for denser fields; higher for sparser. */
-    private const val TICK_INTERVAL: Int = 4
+    /** Ticks between spawn attempts. 2 ticks (10 attempts/s) × ~10 % success ≈ 1
+     *  spawn/s. Tune lower (more frequent) for denser fields; higher for sparser. */
+    private const val TICK_INTERVAL: Int = 2
 
     private var tickCounter: Int = 0
 
@@ -53,11 +57,8 @@ object WohlonnogondoniaFireflies {
     }
 
     private fun tick(level: ClientLevel) {
-        if (level.dimension() != Wohlonnogondonia.LEVEL_KEY) {
-            tickCounter = 0
-            return
-        }
         val player = Minecraft.getInstance().player ?: return
+        if (!level.getBiome(player.blockPosition()).`is`(Wohlonnogondonia.BIOME_KEY)) return
         if (++tickCounter < TICK_INTERVAL) return
         tickCounter = 0
 

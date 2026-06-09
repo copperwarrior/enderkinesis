@@ -48,6 +48,20 @@ object EKSounds {
      *  `assets/enderkinesis/sounds/records/mystery.ogg`. */
     val MUSIC_DISC_MYSTERY: RegistrySupplier<SoundEvent> = ambient("music_disc.mystery")
 
+    /** Prismatic-goat-horn cave-ambience instruments. 19 entries —
+     *  matching the 19 vanilla cave ambient OGG files at
+     *  `minecraft:ambient/cave/cave{1..19}` (verified against the
+     *  1.20.1 asset index). Each sound event indirects to the
+     *  vanilla OGG via `assets/enderkinesis/sounds.json` — we ship
+     *  no audio of our own, just the registration. Each backs one
+     *  `data/enderkinesis/instrument/cave_{N}.json` record; the
+     *  prismatic goat picks one at random per-goat (UUID-seeded)
+     *  the same way vanilla picks from `REGULAR_GOAT_HORNS`. */
+    val PRISMATIC_HORN_CAVES: List<RegistrySupplier<SoundEvent>> = (1..19).map { idx ->
+        val name = "horn.cave_$idx"
+        SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }
+    }
+
     private fun ambient(name: String): RegistrySupplier<SoundEvent> =
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }
 

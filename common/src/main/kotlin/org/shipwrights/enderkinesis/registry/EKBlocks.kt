@@ -21,6 +21,7 @@ import org.shipwrights.enderkinesis.block.AncriteBeamBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteGlassBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
 import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
+import org.shipwrights.enderkinesis.block.EyeroscopeBlock
 import org.shipwrights.enderkinesis.block.HeartCandleBlock
 import org.shipwrights.enderkinesis.block.HeartOfTheWildBlock
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
@@ -89,6 +90,20 @@ object EKBlocks {
     /** Ender Astrolabe — moves a ship (and crew) between dimensions. */
     val ENDER_ASTROLABE: RegistrySupplier<Block> = BLOCKS.register("ender_astrolabe") {
         EnderAstrolabeBlock(crepusculiteProps().strength(3.5f, 7.0f).noOcclusion())
+    }
+
+    /** Eyeroscope — right-click sets a world-frame target yaw; the BE slowly turns its host
+     *  ship to that heading via a PD torque on the physics tick. Until the art pass, this
+     *  block reuses the vanilla end-portal-frame look (see `models/block/eyeroscope.json`),
+     *  with a levitating, bobbing ender-eye drawn by the BER. */
+    val EYEROSCOPE: RegistrySupplier<Block> = BLOCKS.register("eyeroscope") {
+        EyeroscopeBlock(
+            crepusculiteProps().strength(3.5f, 7.0f)
+                // End-portal-frame model isn't a full cube — its top is a partial-height slab,
+                // so [noOcclusion] keeps neighbouring blocks from culling their adjacent faces
+                // against it (same fix as on the astrolabe / planar anchor).
+                .noOcclusion()
+        )
     }
 
     /** Void Harness — when powered, applies an XZ-plane pull force toward the harness's
@@ -301,7 +316,14 @@ object EKBlocks {
         HeartOfTheWildBlock(
             BlockBehaviour.Properties.copy(Blocks.SEA_LANTERN)
                 .mapColor(MapColor.PLANT)
-                .strength(0.6f, 1.5f)
+                // Hardness 0.6 = breakable in survival like sea
+                // lantern; blast resistance 3_600_000 = bedrock-tier
+                // (vanilla 1.20.1 has no per-state explosion hook,
+                // so the value is block-wide — both normal AND
+                // Mother hearts ignore explosions. The Mother
+                // heart's additional indestructibility is the
+                // [HeartOfTheWildBlock.getDestroyProgress] override.
+                .strength(0.6f, 3_600_000f)
                 .sound(SoundType.GLASS)
                 .lightLevel { 12 }
         )
@@ -337,14 +359,27 @@ object EKBlocks {
      *  texture on every face (no end-grain). This is the block the
      *  chunk-generator paints for thick trunks, branches and roots, where
      *  exposed log ends would otherwise show ring textures and break the
-     *  bark continuity. */
+     *  bark continuity.
+     *
+     *  Random ticks drive the [WogorVineNoise]-gated vine spread on
+     *  open horizontal side faces. */
     val WOGOR_WOOD: RegistrySupplier<Block> = BLOCKS.register("wogor_wood") {
-        RotatedPillarBlock(wogorWoodProps())
+        org.shipwrights.enderkinesis.block.WogorWoodBlock(wogorWoodProps().randomTicks())
     }
 
     /** Wogor planks — generic plank block. */
     val WOGOR_PLANKS: RegistrySupplier<Block> = BLOCKS.register("wogor_planks") {
         Block(wogorWoodProps())
+    }
+
+    /** Wogor leaves — currently a duplicate of vanilla mangrove leaves.
+     *  Copies the mangrove block's `BlockBehaviour.Properties` wholesale
+     *  so the decay distance, random-tick rate, suffocation/spawn rules,
+     *  and lava-ignite behaviour all match exactly. */
+    val WOGOR_LEAVES: RegistrySupplier<Block> = BLOCKS.register("wogor_leaves") {
+        org.shipwrights.enderkinesis.block.WogorLeavesBlock(
+            BlockBehaviour.Properties.copy(Blocks.MANGROVE_LEAVES)
+        )
     }
 
     fun register() = BLOCKS.register()

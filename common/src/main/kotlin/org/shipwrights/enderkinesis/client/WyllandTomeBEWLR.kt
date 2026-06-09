@@ -62,17 +62,13 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
     /** Sub-model resource locations, exposed so the per-platform
      *  client init code can register them with the model loader
      *  and then capture the baked results into the fields below.
-     *  - `ICON_MODEL_LOC`: flat 2D `item/generated` icon used for
-     *    every NON-hand context (inventory, hotbar, ground entity,
-     *    GUI, item frame, fixed).
+     *  - `ICON_MODEL_LOC`: flat 2D `item/generated` icon drawn in
+     *    every non-hand context (inventory, ground entity, item
+     *    frame, head slot, NONE). Matches what every vanilla item
+     *    shows in those slots.
      *  - `STATIC_MODEL_LOC` + `PAGE3_MODEL_LOC` + `PAGE4_MODEL_LOC`:
-     *    composing the 3D open tome rendered in hand contexts.
-     *  - `CLOSED_MODEL_LOC`: legacy 3D closed model. No longer
-     *    rendered now that the icon replaces it everywhere
-     *    non-hand, but kept registered + captured for now in case
-     *    we want to fall back. */
+     *    composing the 3D open tome rendered in hand contexts. */
     @JvmField val ICON_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_icon")
-    @JvmField val CLOSED_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_closed")
     @JvmField val STATIC_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_static")
     @JvmField val PAGE3_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_page3")
     @JvmField val PAGE4_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_page4")
@@ -88,7 +84,6 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
      *  extra models are keyed). Capturing the bake result is
      *  simpler and avoids an accessor mixin into a private field. */
     @Volatile @JvmField var iconModel: BakedModel? = null
-    @Volatile @JvmField var closedModel: BakedModel? = null
     @Volatile @JvmField var staticModel: BakedModel? = null
     @Volatile @JvmField var page3Model: BakedModel? = null
     @Volatile @JvmField var page4Model: BakedModel? = null
@@ -127,61 +122,48 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         packedLight: Int,
         packedOverlay: Int,
     ) {
-        when {
-            // GUI = inventory slots, hotbar slots, recipe outputs.
-            // Use the flat texture-only icon — what every vanilla
-            // item shows in those contexts. The wylland_tome.json's
-            // `gui` display transform is a flat-icon transform
-            // (zero rotation, scale 1) so the icon quad renders as
-            // a clean square in the slot.
-            displayContext == ItemDisplayContext.GUI -> {
-                iconModel?.let {
-                    renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
-                }
+        // Custom 3D rendering only in first/third person hand —
+        // everything else (GUI, GROUND, FIXED, HEAD, NONE) draws
+        // the flat 2D icon, matching the inventory/item-frame look
+        // of any vanilla `item/generated` item.
+        //
+        // The BEWLR is still *dispatched* in every context (Fabric
+        // BIRR is keyed on the item, not the context; Forge's
+        // `IClientItemExtensions.getCustomRenderer` fires whenever
+        // the registered model is `builtin/entity`). We can't
+        // sidestep that without per-loader mixin glue, but having
+        // the BEWLR draw the same flat icon vanilla would gives
+        // an indistinguishable result.
+        //
+        // wylland_tome.json must also declare `"gui_light": "front"` —
+        // vanilla's GUI lighting setup is keyed on the *registered*
+        // model's `usesBlockLight()` and runs before this method,
+        // so we can't fix the lighting from inside the BEWLR. With
+        // `builtin/entity`'s default of `side`, the flat icon gets
+        // lit from above by a 3D rig and reads visibly dark.
+        if (isHandContext(displayContext)) {
+            staticModel?.let {
+                renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
             }
-            // GROUND (dropped item entity), FIXED (item frame), HEAD
-            // (worn in the head slot) — the closed 3D book model.
-            // These contexts read as a real object in the world, so
-            // the silhouette should be a closed book, not a flat
-            // sprite. wylland_tome.json keeps its 3D-book-tuned
-            // display transforms for these contexts.
-            displayContext == ItemDisplayContext.GROUND ||
-            displayContext == ItemDisplayContext.FIXED ||
-            displayContext == ItemDisplayContext.HEAD -> {
-                closedModel?.let {
-                    renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
-                }
-            }
-            // First/third person hand contexts — open animated tome.
-            isHandContext(displayContext) -> {
-                staticModel?.let {
-                    renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
-                }
-                val grabbing = WyllandTomeClient.isGrabbing()
-                val (page3Offset, page4Offset) = currentPageOffsets(grabbing)
-                if (!grabbing) {
-                    page3Model?.let { model ->
-                        poseStack.pushPose()
-                        rotateAroundPivot(poseStack, page3Offset)
-                        renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
-                        poseStack.popPose()
-                    }
-                }
-                page4Model?.let { model ->
+            val grabbing = WyllandTomeClient.isGrabbing()
+            val (page3Offset, page4Offset) = currentPageOffsets(grabbing)
+            if (!grabbing) {
+                page3Model?.let { model ->
                     poseStack.pushPose()
-                    rotateAroundPivot(poseStack, page4Offset)
+                    rotateAroundPivot(poseStack, page3Offset)
                     renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
                     poseStack.popPose()
                 }
             }
-            // NONE / fallback — flat icon. NONE is the "no specific
-            // display context" path used by mods that render items
-            // out-of-band; rendering the flat icon there matches
-            // vanilla behaviour for `item/generated` items.
-            else -> {
-                iconModel?.let {
-                    renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
-                }
+            page4Model?.let { model ->
+                poseStack.pushPose()
+                rotateAroundPivot(poseStack, page4Offset)
+                renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
+                poseStack.popPose()
+            }
+        } else {
+            iconModel?.let {
+                renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
             }
         }
     }

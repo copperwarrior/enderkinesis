@@ -18,6 +18,8 @@ import org.shipwrights.enderkinesis.client.SselithDimensionEffects
 import org.shipwrights.enderkinesis.client.WohlonnogondoniaDimensionEffects
 import org.shipwrights.enderkinesis.client.WyllandTomeBEWLR
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
+import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
+import org.shipwrights.enderkinesis.client.model.PrismaticGoatModel
 import org.shipwrights.enderkinesis.registry.EKItems
 
 class EnderkinesisModFabricClient : ClientModInitializer {
@@ -36,6 +38,20 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         // EntityModelLayerRegistry; the supplier is invoked once at bake time.
         EntityModelLayerRegistry.registerModelLayer(CatalogerModel.LAYER_LOCATION) {
             CatalogerModel.createBodyLayer()
+        }
+
+        // Heart of the Wild — block-entity model registered the same way.
+        // Drawn by [HeartOfTheWildRenderer] (registered in the common
+        // client init through Architectury's BlockEntityRendererRegistry).
+        EntityModelLayerRegistry.registerModelLayer(HeartOfTheWildModel.LAYER_LOCATION) {
+            HeartOfTheWildModel.createBodyLayer()
+        }
+
+        // Prismatic Goat — entity model. Drawn by [PrismaticGoatRenderer]
+        // (registered in the common client init through
+        // Architectury's EntityRendererRegistry).
+        EntityModelLayerRegistry.registerModelLayer(PrismaticGoatModel.LAYER_LOCATION) {
+            PrismaticGoatModel.createBodyLayer()
         }
 
         // Register the custom Sselith DimensionSpecialEffects. The dimension_type
@@ -66,7 +82,6 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         ModelLoadingPlugin.register { ctx ->
             ctx.addModels(
                 WyllandTomeBEWLR.ICON_MODEL_LOC,
-                WyllandTomeBEWLR.CLOSED_MODEL_LOC,
                 WyllandTomeBEWLR.STATIC_MODEL_LOC,
                 WyllandTomeBEWLR.PAGE3_MODEL_LOC,
                 WyllandTomeBEWLR.PAGE4_MODEL_LOC,
@@ -75,7 +90,6 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 ModelModifier.AfterBake { model, modelCtx ->
                     when (modelCtx.id()) {
                         WyllandTomeBEWLR.ICON_MODEL_LOC -> WyllandTomeBEWLR.iconModel = model
-                        WyllandTomeBEWLR.CLOSED_MODEL_LOC -> WyllandTomeBEWLR.closedModel = model
                         WyllandTomeBEWLR.STATIC_MODEL_LOC -> WyllandTomeBEWLR.staticModel = model
                         WyllandTomeBEWLR.PAGE3_MODEL_LOC -> WyllandTomeBEWLR.page3Model = model
                         WyllandTomeBEWLR.PAGE4_MODEL_LOC -> WyllandTomeBEWLR.page4Model = model

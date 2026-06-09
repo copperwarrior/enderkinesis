@@ -4,10 +4,14 @@ import dev.architectury.core.item.ArchitecturySpawnEggItem
 import dev.architectury.registry.registries.DeferredRegister
 import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
+import net.minecraft.tags.TagKey
 import net.minecraft.world.item.BlockItem
+import net.minecraft.world.item.Instrument
+import net.minecraft.world.item.InstrumentItem
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.RecordItem
 import net.minecraft.world.item.Rarity
+import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.AlmanacOfEverywhereItem
 import org.shipwrights.enderkinesis.item.GuideToStratusItem
@@ -134,6 +138,7 @@ object EKItems {
     val CREPUSCULITE_GLASS_ITEM = blockItem("crepusculite_glass", EKBlocks.CREPUSCULITE_GLASS)
     val CREPUSCULITE_LATTICE_ITEM = blockItem("crepusculite_lattice", EKBlocks.CREPUSCULITE_LATTICE)
     val ENDER_ASTROLABE_ITEM = blockItem("ender_astrolabe", EKBlocks.ENDER_ASTROLABE)
+    val EYEROSCOPE_ITEM = blockItem("eyeroscope", EKBlocks.EYEROSCOPE)
     val PURPUR_BALLAST_ITEM = blockItem("purpur_ballast", EKBlocks.PURPUR_BALLAST)
     val PLANAR_ANCHOR_ITEM = blockItem("planar_anchor", EKBlocks.PLANAR_ANCHOR)
     val ANCRITE_CHAIN_ITEM = blockItem("ancrite_chain", EKBlocks.ANCRITE_CHAIN)
@@ -162,6 +167,32 @@ object EKItems {
     val WOGOR_LOG_ITEM = blockItem("wogor_log", EKBlocks.WOGOR_LOG)
     val WOGOR_WOOD_ITEM = blockItem("wogor_wood", EKBlocks.WOGOR_WOOD)
     val WOGOR_PLANKS_ITEM = blockItem("wogor_planks", EKBlocks.WOGOR_PLANKS)
+    val WOGOR_LEAVES_ITEM = blockItem("wogor_leaves", EKBlocks.WOGOR_LEAVES)
+
+    /** Tag of [Instrument] records — the 19 cave-ambience variants
+     *  that the prismatic-goat horn picks from. Wired to
+     *  `data/enderkinesis/tags/instrument/prismatic_goat_horns.json`,
+     *  which lists `enderkinesis:cave_1` through `cave_19`. Used by
+     *  both [PRISMATIC_GOAT_HORN]'s tag-based creative variant
+     *  enumeration and [org.shipwrights.enderkinesis.entity.PrismaticGoat.createHorn]'s
+     *  UUID-seeded random pick. */
+    val PRISMATIC_GOAT_HORNS_TAG: TagKey<Instrument> = TagKey.create(
+        Registries.INSTRUMENT,
+        ResourceLocation(EnderkinesisMod.MOD_ID, "prismatic_goat_horns"),
+    )
+
+    /** Prismatic goat horn — single [InstrumentItem] whose specific
+     *  cave-ambience variant is keyed by the `instrument` NBT tag
+     *  (just like vanilla `goat_horn`: one item, 8 NBT-distinguished
+     *  variants → one item, 19 NBT-distinguished variants here).
+     *  Dropped by prismatic goats on ram impact; right-click to
+     *  broadcast the cave noise across [Instrument.range] blocks
+     *  for [Instrument.useDuration] ticks. Stacks to 1 to match
+     *  vanilla horn behaviour. */
+    val PRISMATIC_GOAT_HORN: RegistrySupplier<Item> =
+        ITEMS.register("prismatic_goat_horn") {
+            InstrumentItem(props().stacksTo(1).rarity(Rarity.UNCOMMON), PRISMATIC_GOAT_HORNS_TAG)
+        }
 
     /** Music Disc — Mystery. "Enter the Mystery" by Tomato. 120 s
      *  long ⇒ 2400 ticks at 20 tps; back-buffered by

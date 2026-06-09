@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.block
 
+import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceLocation
@@ -34,6 +35,8 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
  *    cross-dimension transfer for players vs. mobs.
  */
 object WohlonnogondoniaPortalRitual {
+
+    private val LOG = LogUtils.getLogger()
 
     /** A single slot in the ritual pattern: position offset from
      *  the heart candle (X east, Z south) and the exact candle
@@ -154,22 +157,32 @@ object WohlonnogondoniaPortalRitual {
      *    and "found" mud underneath, but the skipped log was
      *    still physically present in the player's body space. */
     fun pickLandingSpot(wohlonLevel: ServerLevel): Vec3? {
-        // Pre-load. Each `getChunk` returns synchronously after
-        // running the chunkgen pipeline; subsequent getBlockState
-        // calls into the same chunk are then O(1) array reads.
-        for (cx in -1..0) {
-            for (cz in -1..0) {
+        // Pre-load a wider patch so the ring at 35-50 blocks out
+        // (past the Mother Tree's trunk + buttress, into the open
+        // swamp surface) has chunks ready. Each `getChunk` runs the
+        // chunkgen pipeline synchronously; subsequent reads in the
+        // same chunk are O(1) array lookups.
+        for (cx in -3..3) {
+            for (cz in -3..3) {
                 wohlonLevel.getChunk(cx, cz)
             }
         }
 
         val random = wohlonLevel.random
-        repeat(30) {
+        repeat(50) {
             val theta = random.nextDouble() * 2.0 * Math.PI
-            val r = 8.0 + random.nextDouble() * 4.0
+            // Ring 35–50 blocks from origin. The Mother Tree's trunk
+            // base is up to `MAX_THICKNESS + buttressFlare` ≈ 24
+            // blocks radius of wood; below ~30 the column is logs
+            // every Y and the LOGS filter never finds non-wood.
+            // 35–50 lands the player on open swamp surface with the
+            // Mother Tree clearly visible above them.
+            val r = 35.0 + random.nextDouble() * 15.0
             val x = (Math.cos(theta) * r).toInt()
             val z = (Math.sin(theta) * r).toInt()
-            for (y in 100 downTo 50) {
+            // Wider Y sweep so we don't miss the actual surface if
+            // it sits outside the old narrow band.
+            for (y in 150 downTo 0) {
                 val state = wohlonLevel.getBlockState(BlockPos(x, y, z))
                 if (state.isAir) continue
                 if (state.`is`(BlockTags.LOGS)) continue
@@ -193,8 +206,10 @@ object WohlonnogondoniaPortalRitual {
 
     /** Air, leaves (transparent, walk-through), or any non-
      *  fully-occluding block. Used to verify a candidate
-     *  landing spot has clearance for the player's hitbox. */
-    private fun isPassable(state: BlockState): Boolean {
+     *  landing spot has clearance for the player's hitbox. Public so
+     *  [WohlonnogondoniaPortalManager]'s async search can reuse the
+     *  exact same predicate. */
+    fun isPassable(state: BlockState): Boolean {
         return state.isAir ||
             state.`is`(BlockTags.LEAVES) ||
             !state.canOcclude()
@@ -215,27 +230,62 @@ object WohlonnogondoniaPortalRitual {
      *  can later send the same player back to the exact portal
      *  they came in at. */
     fun teleportToMotherTree(entity: Entity, currentLevel: ServerLevel, sourcePortalPos: BlockPos?) {
-        val server = currentLevel.server
-        val wohlonLevel = server.getLevel(Wohlonnogondonia.LEVEL_KEY) ?: return
-        val target = pickLandingSpot(wohlonLevel) ?: return
-
-        if (entity is ServerPlayer) {
-            if (sourcePortalPos != null) {
-                WohlonnogondoniaPortalManager.recordPlayerEntry(
-                    server, entity.uuid, currentLevel.dimension(), sourcePortalPos,
-                )
-            }
-            entity.teleportTo(
-                wohlonLevel,
-                target.x, target.y, target.z,
-                entity.yRot, entity.xRot,
-            )
-        } else if (currentLevel.dimension() == Wohlonnogondonia.LEVEL_KEY) {
-            entity.teleportTo(target.x, target.y, target.z)
-        } else {
-            val moved = entity.changeDimension(wohlonLevel) ?: return
-            moved.teleportTo(target.x, target.y, target.z)
+        // Refuse the trip while [WohlonnogondoniaCatastrophe] is
+        // mid-wipe — region files are being closed and the dim
+        // directory deleted; sending an entity in would land it in
+        // a half-torn-down level. Lifted automatically once the
+        // wipe completes.
+        if (WohlonnogondoniaCatastrophe.isWipeInProgress()) {
+            LOG.warn("WohlonPortal: aborting teleport — Wohlonnogondonia is being wiped.")
+            return
         }
+        val server = currentLevel.server
+        val wohlonLevel = server.getLevel(Wohlonnogondonia.LEVEL_KEY) ?: run {
+            LOG.warn("WohlonPortal: aborting teleport — wohlon dimension level not loaded")
+            return
+        }
+        // Prefer the pre-computed landing the async search found at
+        // portal-registration time. Falls back to a live `pickLandingSpot`
+        // if the search hasn't finished yet OR if the portal predates
+        // the landing-storage feature.
+        val stored = sourcePortalPos?.let {
+            WohlonnogondoniaPortalManager.getStoredLanding(currentLevel, it)
+        }
+        val target: Vec3 = if (stored != null) {
+            Vec3(stored.x + 0.5, (stored.y + 1).toDouble(), stored.z + 0.5)
+        } else {
+            pickLandingSpot(wohlonLevel) ?: run {
+                LOG.warn("WohlonPortal: aborting teleport — no stored landing and live pickLandingSpot returned null")
+                return
+            }
+        }
+        LOG.info(
+            "WohlonPortal: teleporting {} ({}) to {} (stored landing? {})",
+            entity.type.toShortString(), entity.uuid, target, stored != null,
+        )
+
+        // Players record their outbound portal so the heart return knows
+        // where to send them back. Non-players have no return.
+        if (entity is ServerPlayer && sourcePortalPos != null) {
+            WohlonnogondoniaPortalManager.recordPlayerEntry(
+                server, entity.uuid, currentLevel.dimension(), sourcePortalPos,
+            )
+        }
+
+        // Unified teleport via `Entity.teleportTo(ServerLevel, ...)`.
+        // Avoids `Entity.changeDimension`, whose vanilla
+        // `findDimensionEntryPoint` returns null for any dim that
+        // isn't Nether, End, or Overworld-from-End — silently dropping
+        // every non-player entity that hit our portal. The
+        // (ServerLevel, …) overload does a direct cross-dim transfer
+        // via `getType().create(level) + restoreFrom`, no portal-info
+        // lookup. Players' override handles their connection state.
+        entity.teleportTo(
+            wohlonLevel,
+            target.x, target.y, target.z,
+            java.util.Collections.emptySet(),
+            entity.yRot, entity.xRot,
+        )
     }
 
     /** Heart return-portal dispatch.
@@ -254,12 +304,20 @@ object WohlonnogondoniaPortalRitual {
      *    portal" per design. */
     fun teleportFromHeart(entity: Entity, currentLevel: ServerLevel) {
         val server = currentLevel.server
+        // gameTime for the cooldown is read on the SOURCE dim (any
+        // dim works in practice — server tick advances all dims in
+        // lockstep — but the source dim is the one whose
+        // scanAndTeleport will consult the cooldown).
+        val now = server.overworld().gameTime
 
         if (entity is ServerPlayer) {
             val record = WohlonnogondoniaPortalManager.getPlayerEntry(server, entity.uuid)
             if (record != null) {
                 val targetLevel = server.getLevel(record.dim)
                 if (targetLevel != null) {
+                    // Stamp the cooldown BEFORE teleport so the
+                    // source-dim scan that fires next tick sees it.
+                    WohlonnogondoniaPortalManager.noteReturnedEntity(entity.uuid, now)
                     entity.teleportTo(
                         targetLevel,
                         record.pos.x + 0.5, record.pos.y.toDouble(), record.pos.z + 0.5,
@@ -280,13 +338,13 @@ object WohlonnogondoniaPortalRitual {
         val ty = targetPos.y.toDouble()
         val tz = targetPos.z + 0.5
 
-        if (entity is ServerPlayer) {
-            entity.teleportTo(targetLevel, tx, ty, tz, entity.yRot, entity.xRot)
-        } else if (currentLevel.dimension() == targetLevel.dimension()) {
-            entity.teleportTo(tx, ty, tz)
-        } else {
-            val moved = entity.changeDimension(targetLevel) ?: return
-            moved.teleportTo(tx, ty, tz)
-        }
+        WohlonnogondoniaPortalManager.noteReturnedEntity(entity.uuid, now)
+        // Unified teleport — see comment in `teleportToMotherTree`.
+        entity.teleportTo(
+            targetLevel,
+            tx, ty, tz,
+            java.util.Collections.emptySet(),
+            entity.yRot, entity.xRot,
+        )
     }
 }

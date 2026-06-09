@@ -4,7 +4,7 @@
   "downfall": 0.9,
   "effects": {
     "sky_color": 5799564,
-    "fog_color": 3758195,
+    "fog_color": 5799564,
     "water_color": 991270,
     "water_fog_color": 991270,
     "foliage_color": 3034457,
@@ -18,7 +18,9 @@
   },
   "spawners": {
     "monster": [],
-    "creature": [],
+    "creature": [
+      { "type": "enderkinesis:prismatic_goat", "weight": 6, "minCount": 2, "maxCount": 4 }
+    ],
     "ambient": [],
     "axolotls": [],
     "underground_water_creature": [],

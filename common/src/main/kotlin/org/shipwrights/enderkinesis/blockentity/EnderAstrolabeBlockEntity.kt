@@ -630,15 +630,41 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         val createdAtTick = level.gameTime
         val listenerRef = java.util.concurrent.atomic.AtomicReference<
             dev.architectury.event.events.common.TickEvent.Server?>(null)
+        // Defensive unfreeze closure: restores every captured rider's `noGravity` to whatever
+        // it was before the teleport began. Looks up entities by UUID in both source and
+        // destination dims because a rider can be in either (mid-teleport, post-teleport,
+        // teleportTo silently failed, etc.). Idempotent — safe to call multiple times.
+        val unfreezeAll: (ServerLevel?, ServerLevel?) -> Unit = { src, dst ->
+            for ((uuid, _) in capturedRiders) {
+                val entity = dst?.getEntity(uuid) ?: src?.getEntity(uuid) ?: continue
+                val restored = capturedFrozenStates[uuid] ?: false
+                entity.isNoGravity = restored
+                entity.deltaMovement = Vec3.ZERO
+            }
+        }
+        val unregisterSelf: () -> Unit = {
+            listenerRef.get()?.let {
+                dev.architectury.event.events.common.TickEvent.SERVER_POST.unregister(it)
+            }
+        }
+
         val listener = dev.architectury.event.events.common.TickEvent.Server { srv ->
             val sourceLvl = srv.getLevel(sourceDimKey)
             val targetLvl = srv.getLevel(targetDimKey)
             if (sourceLvl == null || targetLvl == null) {
-                listenerRef.get()?.let {
-                    dev.architectury.event.events.common.TickEvent.SERVER_POST.unregister(it)
-                }
+                // Either dim went away while we were waiting (shouldn't normally happen, but
+                // a defensive listener that just unregisters here would *leak* every frozen
+                // rider's noGravity = true). Unfreeze on whichever level is still live before
+                // dropping out — better to over-restore than to leave the player floating.
+                LOG.warn("[EK astrolabe] post-teleport listener saw a null level (src={}, dst={}); " +
+                    "force-unfreezing {} riders before unregistering",
+                    sourceLvl?.dimension()?.location(), targetLvl?.dimension()?.location(),
+                    riders.size)
+                unfreezeAll(sourceLvl, targetLvl)
+                unregisterSelf()
                 return@Server
             }
+            try {
 
             // Re-apply the freeze each tick. The captured rider might be in either dim
             // depending on whether the ship has finished teleporting yet — look in both.
@@ -717,14 +743,17 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 if (passenger.startRiding(vehicle, true)) remountedCount++
             }
 
-            // Step 3: unfreeze — restore each entity's original `noGravity` state.
+            // Step 3: unfreeze — restore each entity's original `noGravity` state. Look in
+            // BOTH dims (not just target), because Step 1's teleportTo can silently fail or
+            // partially complete and leave the entity in source — if we only checked target
+            // those entities would stay floating forever, which is exactly the
+            // "I can't go down" bug.
+            unfreezeAll(sourceLvl, targetLvl)
             for ((uuid, _) in capturedRiders) {
-                val entity = targetLvl.getEntity(uuid) ?: continue
-                val restored = capturedFrozenStates[uuid] ?: false
-                entity.isNoGravity = restored
+                val entity = targetLvl.getEntity(uuid) ?: sourceLvl.getEntity(uuid) ?: continue
                 LOG.info(
                     "[EK astrolabe] unfreeze rider uuid={} finalPos={} restoredNoGravity={} onGround={}",
-                    uuid, entity.position(), restored, entity.onGround(),
+                    uuid, entity.position(), entity.isNoGravity, entity.onGround(),
                 )
             }
 
@@ -735,8 +764,15 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             LOG.info("[EK astrolabe] post-teleport unfreeze: remount={}/{} pairs, elapsed={}t",
                 remountedCount, ridingLinks.size, elapsed)
 
-            listenerRef.get()?.let {
-                dev.architectury.event.events.common.TickEvent.SERVER_POST.unregister(it)
+            unregisterSelf()
+            } catch (t: Throwable) {
+                // Anything between the ship-loaded gate and unfreeze (logging, particles,
+                // VS2 lookups) that throws would otherwise leave riders stuck at
+                // noGravity = true. Catch, force-unfreeze, log, and unregister.
+                LOG.error("[EK astrolabe] post-teleport listener threw — force-unfreezing " +
+                    "{} riders to avoid stranding them", riders.size, t)
+                unfreezeAll(sourceLvl, targetLvl)
+                unregisterSelf()
             }
         }
         listenerRef.set(listener)

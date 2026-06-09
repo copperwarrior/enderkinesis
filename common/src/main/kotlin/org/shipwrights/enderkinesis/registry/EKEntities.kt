@@ -13,6 +13,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.Cataloger
+import org.shipwrights.enderkinesis.entity.PrismaticGoat
 import org.shipwrights.enderkinesis.mixin.SpawnPlacementsInvoker
 
 /** All entity types added by Enderkinesis. */
@@ -30,10 +31,26 @@ object EKEntities {
                 .build(Cataloger.ID.toString())
         }
 
+    /** Prismatic Goat — passive quadruped that spawns in Wohlon
+     *  biomes. Vanilla-goat-sized bbox so existing pathfinder budgets
+     *  and collision math fit without tuning. */
+    val PRISMATIC_GOAT: RegistrySupplier<EntityType<PrismaticGoat>> =
+        ENTITIES.register(PrismaticGoat.ID_PATH) {
+            EntityType.Builder.of(::PrismaticGoat, MobCategory.CREATURE)
+                .sized(0.9f, 1.3f)        // vanilla goat dims
+                .clientTrackingRange(10)
+                .build(PrismaticGoat.ID.toString())
+        }
+
     fun register() {
         ENTITIES.register()
         // Attributes — without this every Cataloger crashes on creation.
         EntityAttributeRegistry.register(CATALOGER) { Cataloger.createAttributes() }
+        // Vanilla goat attributes verbatim — `PrismaticGoat`
+        // extends `Goat` directly, so its base stats match.
+        EntityAttributeRegistry.register(PRISMATIC_GOAT) {
+            net.minecraft.world.entity.animal.goat.Goat.createAttributes()
+        }
         // Spawn placement — only spawns on top of solid ground. Light-independent
         // (Sselith's dim ambient would otherwise suppress every spawn), and not
         // tied to Animal because the cataloger isn't one.
@@ -49,6 +66,23 @@ object EKEntities {
             // (also POLISHED_DEEPSLATE / CHISELED_DEEPSLATE axial markers).
             val belowState: BlockState = level.getBlockState(pos.below())
             belowState.`is`(Blocks.POLISHED_DEEPSLATE) || belowState.`is`(Blocks.CHISELED_DEEPSLATE)
+        }
+
+        // Prismatic Goat spawn placement — accept any solid ground.
+        // Wohlon spans two surface palettes (vanilla grass in the
+        // Overworld biome, mud in the Wohlonnogondonia dimension); a
+        // strict block-tag check would gate one of them out. The
+        // biome JSON's `spawners.creature` entry handles "only
+        // spawn in Wohlon".
+        @Suppress("UNCHECKED_CAST")
+        val goatType = PRISMATIC_GOAT.get() as EntityType<Mob>
+        SpawnPlacementsInvoker.`enderkinesis$register`(
+            goatType,
+            SpawnPlacements.Type.ON_GROUND,
+            Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+        ) { _, level, _, pos, _ ->
+            val below = level.getBlockState(pos.below())
+            !below.isAir && below.isFaceSturdy(level, pos.below(), net.minecraft.core.Direction.UP)
         }
     }
 }

@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=south": { "model": "enderkinesis:block/eyeroscope", "y": 180 },
+    "facing=west":  { "model": "enderkinesis:block/eyeroscope", "y": 270 },
+    "facing=north": { "model": "enderkinesis:block/eyeroscope" },
+    "facing=east":  { "model": "enderkinesis:block/eyeroscope", "y": 90 }
+  }
+}

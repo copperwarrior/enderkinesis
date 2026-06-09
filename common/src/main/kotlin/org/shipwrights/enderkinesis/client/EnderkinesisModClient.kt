@@ -7,12 +7,16 @@ import dev.architectury.registry.client.rendering.BlockEntityRendererRegistry
 import dev.architectury.registry.client.rendering.ColorHandlerRegistry
 import dev.architectury.registry.client.rendering.RenderTypeRegistry
 import net.minecraft.client.color.block.BlockColor
+import net.minecraft.client.color.item.ItemColor
+import net.minecraft.client.renderer.BiomeColors
 import net.minecraft.client.renderer.RenderType
+import net.minecraft.world.level.FoliageColor
 import org.shipwrights.enderkinesis.block.AncriteChainBlock
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
+import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
@@ -42,6 +46,36 @@ object EnderkinesisModClient {
             EKBlocks.ANCRITE_CHAIN.get()
         )
 
+        // Wogor leaves: tinted by the biome's foliage color, same as vanilla oak / birch /
+        // dark-oak / jungle leaves. Vanilla mangrove leaves (which we cloned at the block level)
+        // *don't* register a BlockColor — they're a fixed mangrove green — so cloning that block
+        // inherited "no tint handler", which left our wogor leaves rendering at the texture's
+        // raw colors regardless of biome. The model's parent `minecraft:block/leaves` already
+        // sets `tintindex: 0` on every face, so the renderer is asking for a tint per pixel —
+        // we just need to answer that ask. `BiomeColors.getAverageFoliageColor` does the 3x3
+        // biome blend automatically.
+        ColorHandlerRegistry.registerBlockColors(
+            BlockColor { _, level, pos, _ ->
+                if (level != null && pos != null) {
+                    BiomeColors.getAverageFoliageColor(level, pos)
+                } else {
+                    FoliageColor.getDefaultColor()
+                }
+            },
+            EKBlocks.WOGOR_LEAVES.get()
+        )
+
+        // Wogor leaves item: the inventory icon has no world context, so we can't look up a
+        // biome. Vanilla leaves items fall back to `FoliageColor.getDefaultColor()` (the
+        // default foliage green). Matching that here gives the item a sensible tint in the
+        // creative tab and player inventory.
+        ColorHandlerRegistry.registerItemColors(
+            ItemColor { _, tintIndex ->
+                if (tintIndex == 0) FoliageColor.getDefaultColor() else -1
+            },
+            EKItems.WOGOR_LEAVES_ITEM.get()
+        )
+
         // Planar Anchor: the model's "chain" element relies on alpha-cut transparency. Without
         // cutoutMipped the transparent pixels in the chain UV region render solid.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.PLANAR_ANCHOR.get())
@@ -62,6 +96,12 @@ object EnderkinesisModClient {
             EnderAstrolabeRenderer()
         }
 
+        // The eyeroscope's frame comes from the static chunk mesh (end-portal-frame look-alike);
+        // the BER only adds the floating, bobbing ender-eye on top.
+        BlockEntityRendererRegistry.register(EKBlockEntities.EYEROSCOPE.get()) { _ ->
+            EyeroscopeRenderer()
+        }
+
         // The Planar Anchor draws the chain to its outboard cloud and seeds the particle swirl.
         BlockEntityRendererRegistry.register(EKBlockEntities.PLANAR_ANCHOR.get()) { ctx ->
             PlanarAnchorRenderer(ctx)
@@ -77,6 +117,14 @@ object EnderkinesisModClient {
         // Invisible when the orb is UNBOUND, visible + sine-pulsed when SEND or RECEIVE.
         BlockEntityRendererRegistry.register(EKBlockEntities.ORB_OF_LINKING.get()) { ctx ->
             OrbOfLinkingHazeRenderer(ctx)
+        }
+
+        // Heart of the Wild: four-chamber Blockbench model with a
+        // sinusoidal idle pulse on the chambers. The block's static
+        // JSON model is a transparent placeholder; this BER draws
+        // the visible heart.
+        BlockEntityRendererRegistry.register(EKBlockEntities.HEART_OF_THE_WILD.get()) { ctx ->
+            HeartOfTheWildRenderer(ctx)
         }
 
         // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
@@ -168,13 +216,6 @@ object EnderkinesisModClient {
         // their own lifetime so leaving the dimension just stops new spawns.
         WohlonnogondoniaFireflies.init()
 
-        // Wohlonnogondonia biome sky fade — tracks player's local
-        // biome and smoothly lerps the rendered time-of-day toward
-        // Wohlon's fixed dusk pose when in/near a Wohlon-biome
-        // patch in any non-Wohlon dimension. Sky color and fog
-        // already biome-blend via vanilla's BiomeColors pipeline.
-        WohlonBiomeSkyState.init()
-
         // Ygann's Abyss: custom GUI portal shader used by [YgannAbyssVoidOverlay]'s
         // deep-blob pass. Must register before the overlay so the shader is loaded by
         // the time the overlay first draws.
@@ -192,6 +233,13 @@ object EnderkinesisModClient {
         // reads to swing the limbs).
         EntityRendererRegistry.register(EKEntities.CATALOGER) { ctx ->
             CatalogerRenderer(ctx)
+        }
+
+        // Prismatic Goat — plain quadruped renderer; the model owns
+        // its walk + idle animation, the renderer just supplies the
+        // texture and a small shadow.
+        EntityRendererRegistry.register(EKEntities.PRISMATIC_GOAT) { ctx ->
+            PrismaticGoatRenderer(ctx)
         }
 
         // Wylland Tome — client-side input + enchant-particle beam render.

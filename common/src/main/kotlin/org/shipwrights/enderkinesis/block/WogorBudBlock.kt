@@ -2,7 +2,10 @@ package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.core.registries.Registries
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.tags.TagKey
 import net.minecraft.util.RandomSource
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
@@ -10,56 +13,26 @@ import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.LiquidBlockContainer
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.DirectionProperty
 import net.minecraft.world.level.block.state.properties.IntegerProperty
+import net.minecraft.world.level.material.Fluid
+import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.registry.EKBlocks
 
 /**
- * Intermediate "bud" growth stage that the Heart of the Wild plants
- * onto a solid face. The bud advances through [MAX_AGE]+1 visual
- * stages (small → medium → almost-full) on successive **scheduled
- * ticks** and then transforms into a [EKBlocks.WOGOR_WOOD] log on
- * the final tick.
- *
- * **Tick scheme.** Scheduled ticks, NOT random ticks. The bud
- * deliberately isn't a BlockEntity — random ticks were too slow
- * (~65 s mean between advances at default `randomTickSpeed=3`,
- * ~3 min total to mature), and the per-block memory of a BE is
- * unjustified for what's just "advance an age counter on a fixed
- * cadence." [onPlace] schedules the first growth tick; each
- * [tick] callback advances [AGE] and schedules the next one until
- * the bud matures. Vanilla persists scheduled ticks across save /
- * chunk-unload, so the growth survives the player leaving the
- * area mid-cycle.
- *
- * **Growth cadence** (see [GROW_DELAY_MIN_TICKS] / [GROW_DELAY_MAX_TICKS]):
- * each of the three stage transitions takes a uniformly-random
- * 5–7 ticks, so a fresh bud matures into Wogor Wood in 15–21
- * total ticks (≈3⁄4 of a second). Tune the constants if pacing
- * needs to change.
- *
- * **Geometry.** The bud occupies one cuboid sized by age (4/8/12 of
- * 16) pinned to the face indicated by [FACING]. [FACING] points
- * *at* the supporting neighbour — `FACING=DOWN` ⇒ support is one
- * block below, `FACING=NORTH` ⇒ support is one block to the
- * north, etc. The bud visually sits on the cell-half adjacent
- * to that support. (Inverse of vanilla amethyst's `clickedFace`
- * convention, which we found unintuitive in this codebase's
- * grow-from-the-Heart context.)
- *
- * **Maturation.** When [tick] fires on a state with `age ==
- * MAX_AGE`, the block is replaced by Wogor Wood whose pillar
- * `AXIS` follows the bud's `FACING` axis. That gives mature trunks
- * a consistent orientation relative to whatever the bud grew off
- * of: ceiling-mounted buds become vertical logs, wall-mounted buds
- * become horizontal logs along the wall's normal. */
-class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
+ * Bud growth stage planted by Heart of the Wild. [FACING] points AT the supporting
+ * neighbour (inverse of vanilla amethyst's clickedFace convention). Uses scheduled ticks,
+ * NOT random ticks — random was too slow (~3 min) and a BlockEntity wasn't justified for
+ * "advance an age counter".
+ */
+class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), LiquidBlockContainer {
 
     init {
         registerDefaultState(
@@ -80,11 +53,20 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
         context: CollisionContext,
     ): VoxelShape = SHAPES[state.getValue(AGE)][state.getValue(FACING).ordinal]
 
-    /** A bud needs the face it grew off of to stay sturdy.
-     *  [FACING] points directly at the supporting neighbour, and
-     *  the face on that neighbour that touches the bud is the
-     *  neighbour's `FACING.opposite` face — so we check that
-     *  face's sturdiness on the neighbour. */
+    /** Blocks `BucketItem.emptyContents` from erasing the bud — a noCollission block's
+     *  vanilla default returns true here. */
+    override fun canBeReplaced(state: BlockState, fluid: Fluid): Boolean = false
+
+    /** Blocks `FlowingFluid.canHoldFluid` from flooding the cell — without this, flowing
+     *  water destroys the bud. */
+    override fun canPlaceLiquid(
+        level: BlockGetter, pos: BlockPos, state: BlockState, fluid: Fluid,
+    ): Boolean = false
+
+    override fun placeLiquid(
+        level: LevelAccessor, pos: BlockPos, state: BlockState, fluidState: FluidState,
+    ): Boolean = false
+
     override fun canSurvive(
         state: BlockState,
         level: LevelReader,
@@ -96,11 +78,6 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
         return supportState.isFaceSturdy(level, supportPos, facing.opposite)
     }
 
-    /** Drop the bud the moment its support stops being a sturdy
-     *  face — block removed, neighbour swapped for a non-sturdy
-     *  one, etc. Returning [Blocks.AIR] from [updateShape]
-     *  triggers vanilla's standard removal path (a `destroyBlock`
-     *  through [Block.updateOrDestroy]). */
     override fun updateShape(
         state: BlockState,
         direction: Direction,
@@ -116,10 +93,6 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
         }
     }
 
-    /** Kick off the growth chain. Fires for both fresh placements
-     *  (manager grow, /setblock, …) and the transition from one
-     *  bud age to the next — distinguish via [oldState] so we
-     *  don't double-schedule when [tick] advances the bud. */
     override fun onPlace(
         state: BlockState,
         level: Level,
@@ -129,16 +102,11 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
     ) {
         super.onPlace(state, level, pos, oldState, isMoving)
         if (level.isClientSide) return
-        // Age-advance transitions from inside [tick] already
-        // schedule the next tick before returning; an unguarded
-        // schedule here would double the growth rate after each
-        // advance.
+        // `tick` schedules its own next grow; guard against double-scheduling on age transitions.
         if (oldState.`is`(this)) return
         scheduleNextGrow(level, pos, level.random)
     }
 
-    /** Scheduled-tick callback. Advances [AGE] and reschedules,
-     *  or matures into [EKBlocks.WOGOR_WOOD] when at [MAX_AGE]. */
     override fun tick(
         state: BlockState,
         level: ServerLevel,
@@ -150,9 +118,6 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
             level.setBlock(pos, state.setValue(AGE, age + 1), UPDATE_CLIENTS)
             scheduleNextGrow(level, pos, random)
         } else {
-            // Mature: replace with a Wogor Wood log whose AXIS lines
-            // up with the bud's growth direction. UP/DOWN buds → Y,
-            // NORTH/SOUTH → Z, EAST/WEST → X.
             val facing = state.getValue(FACING)
             val wogor = EKBlocks.WOGOR_WOOD.get().defaultBlockState()
                 .setValue(BlockStateProperties.AXIS, facing.axis)
@@ -160,10 +125,6 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
         }
     }
 
-    /** Queue the next growth tick at a uniformly random delay in
-     *  the [GROW_DELAY_MIN_TICKS, GROW_DELAY_MAX_TICKS] range. The
-     *  small jitter keeps adjacent buds from advancing in
-     *  lockstep — visually nicer for clumps of growth. */
     private fun scheduleNextGrow(level: Level, pos: BlockPos, random: RandomSource) {
         val span = GROW_DELAY_MAX_TICKS - GROW_DELAY_MIN_TICKS + 1
         val delay = GROW_DELAY_MIN_TICKS + random.nextInt(span)
@@ -175,21 +136,18 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
         val FACING: DirectionProperty = BlockStateProperties.FACING
         const val MAX_AGE: Int = 2
 
-        /** Inclusive bounds on the per-stage scheduled-tick delay
-         *  (game ticks). Three stage-transitions × 5–7 ticks each
-         *  ⇒ full maturation in 15–21 ticks (about ¾ s at 20 tps).
-         *  Tuned so the overall bud-to-Wogor-Wood time matches the
-         *  Heart of the Wild's 15–20-tick growth window. */
+        /** Gates WHERE new buds can be planted. `canSurvive` is unchanged (sturdy face check),
+         *  so an already-placed bud doesn't self-destruct if its support isn't tagged. Both
+         *  growers bypass this for the seed bud so it can anchor onto whatever's already there. */
+        val WOGOR_BUD_GROWABLE: TagKey<Block> = TagKey.create(
+            Registries.BLOCK, ResourceLocation("enderkinesis", "wogor_bud_growable"),
+        )
+
         const val GROW_DELAY_MIN_TICKS: Int = 5
         const val GROW_DELAY_MAX_TICKS: Int = 7
 
-        /** Bud cube side length in 16ths-of-a-block per AGE.
-         *  4 → "small", 8 → "medium", 12 → "almost full". */
         private val SIZES: IntArray = intArrayOf(4, 8, 12)
 
-        /** Precomputed `SHAPES[age][facing.ordinal]` so the shape
-         *  lookup in [getShape] is a couple of array indexes
-         *  rather than allocating a VoxelShape per render frame. */
         private val SHAPES: Array<Array<VoxelShape>> = Array(SIZES.size) { age ->
             val size = SIZES[age]
             Array(Direction.values().size) { dirOrdinal ->
@@ -197,13 +155,6 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties) {
             }
         }
 
-        /** Build a single VoxelShape pinning a cube of side [size]
-         *  (in 16ths) to the FACE indicated by [facing]. Under
-         *  this block's convention [facing] *points at* the
-         *  support, so the bud sits on the cell-half **toward
-         *  the support**: `FACING=UP` ⇒ support above ⇒ bud at
-         *  high Y; `FACING=NORTH` ⇒ support to the north ⇒ bud
-         *  at low Z (north side of cell); etc. */
         private fun shapeFor(size: Int, facing: Direction): VoxelShape {
             val half = size / 2.0
             return when (facing) {

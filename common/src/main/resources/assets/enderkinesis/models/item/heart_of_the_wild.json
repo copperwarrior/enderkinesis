@@ -1,1 +1,6 @@
-{ "parent": "enderkinesis:block/heart_of_the_wild" }
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "enderkinesis:block/heart_of_the_wild"
+  }
+}

@@ -1,3 +1,5 @@
 {
-  "parent": "minecraft:block/sea_lantern"
+  "textures": {
+    "particle": "enderkinesis:block/heart_of_the_wild"
+  }
 }

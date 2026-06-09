@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.math.Axis
+import net.minecraft.Util
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
@@ -10,8 +11,10 @@ import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.renderer.entity.ItemRenderer
 import net.minecraft.client.renderer.texture.TextureAtlas
+import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.util.RandomSource
 import net.minecraft.world.item.ItemDisplayContext
 import org.joml.Matrix3f
 import org.joml.Matrix4f
@@ -156,7 +159,16 @@ class OrbOfLinkingHazeRenderer(
         ps.pushPose()
         ps.translate(0.5, ORB_CENTRE_Y, 0.5)
 
-        val tSec = (level.gameTime + partialTick) / 20.0
+        // Wall-clock time, not server `gameTime` + partialTick. The
+        // gameTime path is sensitive in two ways: it stutters when the
+        // server tick lags (gameTime stops advancing while partialTick
+        // still rolls 0→1→0), and once gameTime grows into the millions
+        // even the Double-promoted version starts losing precision as
+        // it's multiplied through. Wall-clock ms (via [Util.getMillis])
+        // advances smoothly every frame regardless of TPS, FPS variance
+        // or world age — matches the cadence pattern used elsewhere in
+        // this project (e.g. WyllandTomeBEWLR's page flop).
+        val tSec = Util.getMillis() / 1000.0
         // Deterministic per-orb 0..1 phase from the block-position
         // hash so adjacent orbs don't synchronise.
         val mixed = (posKey xor (posKey ushr 32)) * 0x9E3779B97F4A7C15UL.toLong()
@@ -170,11 +182,41 @@ class OrbOfLinkingHazeRenderer(
         ps.mulPose(Axis.YP.rotationDegrees(yaw.toFloat()))
         ps.mulPose(Axis.XP.rotationDegrees(pitch.toFloat()))
         ps.mulPose(Axis.ZP.rotationDegrees(roll.toFloat()))
-        ps.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE)
+
+        // Render via FIXED — the item-frame display context. We trust
+        // vanilla's FIXED transform to position each item at the centre
+        // a frame would display it at; our rotation then spins around
+        // (orb_centre). Concretely:
+        //
+        //  - For models whose raw geometry is centred near (0.5, 0.5,
+        //    0.5) (every `item/generated`, `handheld`, `block/block`
+        //    parent), FIXED carries a (0,0,0) translation and vanilla's
+        //    `translate(-0.5, -0.5, -0.5)` step puts the model centre
+        //    exactly at origin — no orbit.
+        //
+        //  - For asymmetric BEWLR-rendered items (trident, beds,
+        //    banners) FIXED's translation IS the model-specific centring
+        //    correction the designer wrote into the JSON; the model is
+        //    not centred at (0.5, 0.5, 0.5) in raw coords, so FIXED's
+        //    translation compensates. There is a small residual offset
+        //    we can't dynamically remove without quad-walking the BEWLR
+        //    geometry (which `getQuads` doesn't expose) — but that
+        //    residual is vanilla's intended in-frame positioning. We do
+        //    not try to "correct" it: any blanket counter-translation
+        //    removes vanilla's correction and makes asymmetric items
+        //    orbit further than they would untouched.
+        //
+        // Size handling is in [computeFitScale]: measured exactly from
+        // quads when possible, estimated from `1 / FIXED_scale` (the
+        // "item fits ~1 block in a frame" convention) for BEWLR items.
+        val model = itemRenderer.getModel(stack, level, null, 0)
+        val fixedT = model.transforms.getTransform(ItemDisplayContext.FIXED)
+        val fitScale = computeFitScale(model, fixedT)
+        ps.scale(fitScale, fitScale, fitScale)
 
         itemRenderer.renderStatic(
             stack,
-            ItemDisplayContext.GROUND,
+            ItemDisplayContext.FIXED,
             packedLight,
             packedOverlay,
             ps,
@@ -184,6 +226,73 @@ class OrbOfLinkingHazeRenderer(
         )
         ps.popPose()
     }
+
+    /** Pick a uniform scale that puts the FIXED-rendered held item at
+     *  [TARGET_ITEM_EXTENT] block units across — so a flat icon, a
+     *  full block, an elongated tool, and a custom-renderer item like
+     *  a trident all visually fit the orb the same way.
+     *
+     *  Steps: measure the model's raw bounding-box extent from quads
+     *  when possible; fall back to `1 / FIXED_scale` for BEWLR-only
+     *  items, leveraging vanilla's design that the FIXED-rendered
+     *  footprint of any item fits ~1 block (item-frame size). Then
+     *  divide [TARGET_ITEM_EXTENT] by `rawExtent × FIXED_scale` to get
+     *  the scale that lands the FIXED-rendered item at the target. */
+    private fun computeFitScale(
+        model: BakedModel,
+        fixedT: net.minecraft.client.renderer.block.model.ItemTransform,
+    ): Float {
+        val fixedScale = maxOf(fixedT.scale.x(), fixedT.scale.y(), fixedT.scale.z())
+            .coerceAtLeast(MIN_SCALE)
+        // Raw model extent: precise via quads when we can read them,
+        // estimated from FIXED's "fits ~1 block in an item frame"
+        // convention when the model has a custom renderer (BEWLR —
+        // `getQuads` empty).
+        val rawExtent = (measureRawExtent(model) ?: (1.0f / fixedScale))
+            .coerceAtLeast(MIN_SCALE)
+        return TARGET_ITEM_EXTENT / (rawExtent * fixedScale)
+    }
+
+    /** Max-axis bounding-box extent of [model] in raw model space
+     *  (before any display transform). Walks every face direction's
+     *  `getQuads`, including the null/unculled face. BakedQuad vertex
+     *  data is laid out as 8 ints per vertex in
+     *  [com.mojang.blaze3d.vertex.DefaultVertexFormat.BLOCK] order:
+     *  ints 0..2 are position (as `Float.fromBits`). Returns null when
+     *  the model has a custom renderer (BEWLR — `getQuads` empty) so
+     *  the caller can substitute a different estimate. */
+    private fun measureRawExtent(model: BakedModel): Float? {
+        if (model.isCustomRenderer) return null
+        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
+        var any = false
+        for (side in QUAD_SIDES) {
+            for (quad in model.getQuads(null, side, extentRandom)) {
+                any = true
+                val v = quad.vertices
+                // 4 vertices per quad, 8 ints per vertex.
+                for (i in 0 until 4) {
+                    val base = i * 8
+                    val x = Float.fromBits(v[base])
+                    val y = Float.fromBits(v[base + 1])
+                    val z = Float.fromBits(v[base + 2])
+                    if (x < minX) minX = x; if (x > maxX) maxX = x
+                    if (y < minY) minY = y; if (y > maxY) maxY = y
+                    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
+                }
+            }
+        }
+        if (!any) return null
+        return maxOf(maxX - minX, maxY - minY, maxZ - minZ)
+    }
+
+    /** Shared `RandomSource` for `getQuads` calls during extent
+     *  measurement. `getQuads` only consumes the random when emitting
+     *  multi-variant or animated quads (e.g. grass tinted variants);
+     *  for extent purposes we don't care which variant we get, so a
+     *  fixed-seed source is fine and avoids per-call allocation. */
+    private val extentRandom: RandomSource = RandomSource.create(0L)
 
     /** Draw the 6 translucent faces of the inner orb element. Each
      *  face samples a different region of the texture — copied
@@ -357,11 +466,29 @@ class OrbOfLinkingHazeRenderer(
          *  (from `(4, 3, 4) → (12, 11, 12)` Blockbench pixels →
          *  `y_centre = 7/16`). */
         private const val ORB_CENTRE_Y = 7.0 / 16.0
-        /** Scale applied to the held item before it's drawn at the
-         *  orb centre. Tuned to clearly fit inside the 8-pixel
-         *  ≈ 0.5-block orb interior — the item reads as contained,
-         *  not overflowing through the shell. */
-        private const val ITEM_SCALE = 0.35f
+        /** Target rendered extent of the held item, in block units —
+         *  what we scale each model's measured extent to fit. 0.3
+         *  leaves the item visibly suspended inside the 8-pixel ≈
+         *  0.5-block orb interior with room around every corner of the
+         *  tumble (a rotated cube's diagonal is √3 × side ≈ 1.73 ×, so
+         *  a 0.3-side cube sweeps a 0.52-block envelope at worst —
+         *  matched to the shell, no overhang). Applied by
+         *  [computeFitScale] after measuring the model. */
+        private const val TARGET_ITEM_EXTENT: Float = 0.3f
+
+        /** Floor used to clamp measured extents and display scales
+         *  before dividing — guards against a divide-by-zero if a
+         *  pathological model reports zero in either. */
+        private const val MIN_SCALE: Float = 1e-4f
+
+        /** Face directions to query when measuring extents. The `null`
+         *  entry is the "unculled" face — quads that aren't tagged with
+         *  any specific direction; nearly every item model emits its
+         *  quads here, so it's the most important one to include. */
+        private val QUAD_SIDES: Array<Direction?> = arrayOf(
+            null, Direction.DOWN, Direction.UP,
+            Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST,
+        )
         /** Tumble rates around each axis (deg/sec, on top of the
          *  per-orb seed phase). Coprime-ish so no two axes ever line
          *  up — the item never looks frozen. */

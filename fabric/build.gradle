@@ -57,6 +57,8 @@ dependencies {
     implementation("org.joml:joml-primitives:1.10.0")
     implementation("org.joml:joml:1.10.4")
 
+    modRuntimeOnly("maven.modrinth:natures-compass:1.20.1-2.6.0-fabric")
+    modRuntimeOnly("maven.modrinth:explorers-compass:1.20.1-2.6.0-fabric")
 }
 
 

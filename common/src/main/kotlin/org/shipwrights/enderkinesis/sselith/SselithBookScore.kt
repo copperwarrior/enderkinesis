@@ -40,6 +40,15 @@ object SselithBookScore {
     /** Quality-sentence count needed before that factor saturates. */
     const val QSENT_TARGET = 8.0
 
+    /** Multiplier applied to the repair value when the book is a *copy*
+     *  rather than the author's original signing. Heavy by design: the
+     *  tome's repair mechanic exists to reward writing real Sselith
+     *  prose, so a player who duplicates one masterwork at a crafting
+     *  table shouldn't get cheap infinite repair. 5 % means it takes
+     *  roughly 20 copies of a perfect book to match a single original
+     *  — copies are useful in a pinch but never the efficient path. */
+    const val COPY_PENALTY = 0.05
+
     // Factor weights (sum to 1). Sselith-sensitive factors (2 + 4)
     // dominate so a book written in Sselith outscores everything else.
     private const val W_WORDS = 0.15
@@ -114,9 +123,23 @@ object SselithBookScore {
         return Score(totalWords, sselithMass, structMean, qualitySentences, quality)
     }
 
-    /** Repair points from a written-book stack, scaled to [maxRepair]. */
-    fun repairPoints(stack: ItemStack, maxRepair: Int): Int =
-        (score(plainText(stack)).quality * maxRepair).roundToInt()
+    /** Repair points from a written-book stack, scaled to [maxRepair].
+     *  Copies (vanilla `generation` tag ≥ 1) are scaled down by
+     *  [COPY_PENALTY] so duplicated books can't farm cheap repair. */
+    fun repairPoints(stack: ItemStack, maxRepair: Int): Int {
+        val base = score(plainText(stack)).quality * maxRepair
+        val multiplier = if (isOriginal(stack)) 1.0 else COPY_PENALTY
+        return (base * multiplier).roundToInt()
+    }
+
+    /** True when [stack] is an author-signed original (vanilla generation
+     *  0 / tag absent). Generation 1 is a copy of an original, 2 is a
+     *  copy of a copy; both count as non-originals here. */
+    fun isOriginal(stack: ItemStack): Boolean {
+        val tag = stack.tag ?: return true
+        if (!tag.contains("generation", Tag.TAG_INT.toInt())) return true
+        return tag.getInt("generation") <= 0
+    }
 
     /** Language-agnostic structural quality of one sentence in [0, 1]:
      *  capitalised opening, terminal punctuation, at least a few words,

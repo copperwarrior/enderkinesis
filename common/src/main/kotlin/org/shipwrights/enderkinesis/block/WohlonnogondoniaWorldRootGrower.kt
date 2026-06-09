@@ -15,147 +15,71 @@ import net.minecraft.tags.TagKey
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
+import org.shipwrights.enderkinesis.dimension.WohlonnogondoniaSurfaceRoots
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import java.util.BitSet
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
- * Overworld-side world-root marching grower.
+ * Overworld-side root grower.
  *
- * One "march" per 3×3-chunk region, anchored at the chunk that first
- * flips to Wohlon biome inside that region. Each march has a head
- * that walks forward by one step per second, painting a sphere of
- * voxels around its current position. The head reads the level
- * state on every step — looking ahead to swerve around player
- * builds, looking down to follow the surface, looking up to track
- * its own previous wood for the vine drop.
+ * The chunkgen's [WohlonnogondoniaSurfaceRoots] is the **source of truth**
+ * for path geometry — same `buildPaths` call, same `paintPath` rasteriser,
+ * byte-identical voxel set to what the chunkgen would have painted in
+ * the Wohlonnogondonia dimension at the same `(regionX, regionZ)`.
+ * What this grower adds on top is:
  *
- * ## Visual contract
- *
- * Identical sphere geometry + path math as the chunkgen's surface
- * roots: yaw / pitch smooth random-walk, sine-targeted Y oscillation,
- * radius-3 sphere per step, identical branch rules, identical vine
- * drop rules. Only the *timing* differs — voxels emerge step by
- * step instead of all-at-once on install.
- *
- * ## What's different from the precomputed-path grower this replaces
- *
- * - **No precomputed voxel set.** The head holds its own state; the
- *   next step's sphere is rasterised and placed on the boundary tick,
- *   then the head idles for 19 ticks before advancing.
- * - **No off-thread build.** Path math is per-step, cheap, on the
- *   server tick thread. No `BACKGROUND_EXECUTOR`.
- * - **No `RootJob` voxel array.** Persistence is just the marching
- *   head state (position, direction, step index, the head's
- *   per-march sine parameters). ~50 bytes per head vs ~150 KB per job.
- * - **Reactive swerve.** Each step's proposed centerline is tested
- *   against [isRootReplaceable]; if it lands on a player-built block
- *   the head tries yaw / pitch offsets and takes the first open
- *   direction. The root visibly curves around builds.
- * - **Real-time vines.** Vine columns drop step-by-step from the
- *   tail wherever the head's sphere top sits high above local
- *   surface — no post-completion pass.
+ *  - **Trigger gate**: the region's deterministic anchor must already
+ *    be Wohlon biome before its march spawns (`maybeEnqueueCell`).
+ *  - **Anchor**: the biome cell that triggered the spawn — voxels sort
+ *    by squared distance from there, so the wave visibly radiates
+ *    outward from the spot the spread first arrived.
+ *  - **Heightmap snapshot**: captured at spawn time before any wood is
+ *    placed, fed into the utility as its `heightAt` callback. Fixes
+ *    the Y self-contour bug — newly placed wood never re-feeds the
+ *    target.
+ *  - **Bud → wood pipeline**: each emitted voxel routes through
+ *    [placeOneWood] which prefers a Wogor Wood neighbour for the
+ *    bud's FACING, falls back to any sturdy face, and writes air /
+ *    canBeReplaced positions as a bud while writing solid replaceable
+ *    positions as direct wood.
+ *  - **Cascade brake**: [suppressTrigger] flips on around our own
+ *    biome paint so root-induced Wohlon writes can't bootstrap
+ *    triggers in neighbour regions.
  */
 object WohlonnogondoniaWorldRootGrower {
 
     private val LOG = LogUtils.getLogger()
 
-    // ============================================================
-    //   Region tiling — must match the chunkgen's surface-root tile
-    // ============================================================
-    private const val REGION_SIZE_CHUNKS = 3
+    private const val REGION_SIZE_CHUNKS = WohlonnogondoniaSurfaceRoots.TUNNEL_REGION_SIZE_CHUNKS
+    private const val REGION_SIZE = WohlonnogondoniaSurfaceRoots.TUNNEL_REGION_SIZE
 
-    // ============================================================
-    //   Path walker
-    // ============================================================
-    private const val TUNNEL_MAX_STEPS = 80
-    private const val TUNNEL_STEP_LEN = 1.5
-    /** Path-shape parameters restored to the **exact chunkgen values**
-     *  so the XZ winding of the path looks like the Wohlonnogondonia
-     *  dimension's surface roots. Yaw/pitch nudges, pitch limit, and
-     *  Y-track elastic constant are the dimension's defaults; only
-     *  the Y-range clamp + yAmp are Overworld-shrunk to keep the apex
-     *  reasonable for surface terrain. */
-    private const val TUNNEL_YAW_TURN = 0.40
-    private const val TUNNEL_PITCH_TURN = 0.12
-    private const val TUNNEL_PITCH_LIMIT = 0.5
-
-    /** Chunkgen elastic Y-tracking constant. */
-    private const val TUNNEL_Y_TRACK_BIAS = 0.07
-
-    // Branching
-    private const val TUNNEL_BRANCH_FIRST_STEP = 12
-    private const val TUNNEL_BRANCH_STRIDE = 16
-    private const val TUNNEL_BRANCH_MIN_STEPS = 20
-    private const val TUNNEL_BRANCH_MAX_STEPS = 40
-
-    // Sphere paint
-    private const val ROOT_TUBE_RADIUS = 3
-    /** Length of the head/tail taper window in steps. The first /
-     *  last N steps of the main path have a radius that ramps
-     *  linearly from 1 → [ROOT_TUBE_RADIUS] (start) and
-     *  [ROOT_TUBE_RADIUS] → 1 (tail). Branches only get the tail
-     *  taper — their head sits inside the parent root and doesn't
-     *  need a visual taper. */
-    private const val ROOT_TAPER_STEPS = 5
-
-    // Vines
-    private const val VINE_ELEVATION_THRESHOLD = 5
-    private const val VINE_MIN_LEN = 2
-    private const val VINE_MAX_LEN = 9
-
-    // ============================================================
-    //   Pacing
-    // ============================================================
-    /** Hard cap on the sphere-fill wait. A sphere voxel that can't
-     *  find sturdy support waits for its neighbour buds to mature
-     *  into Wogor Wood, then retries — this is the "wave" mechanism.
-     *  After this many ticks of retries, any still-unplaced voxels
-     *  are abandoned and the head advances. */
-    private const val MAX_SPHERE_FILL_TICKS = 100
-
-    /** Soft cap on total simultaneous marching heads per dimension. */
     private const val MAX_CONCURRENT_HEADS_PER_DIM = 32
-
     private const val PENDING_QUEUE_CAP = 64
 
-    /** Region tile size in blocks — matches the chunkgen's
-     *  `TUNNEL_REGION_SIZE` (= TUNNEL_REGION_SIZE_CHUNKS × 16). */
-    private const val REGION_SIZE = REGION_SIZE_CHUNKS * 16
+    /** Max horizontal blocks the path is allowed to deflect when its
+     *  intended voxel position is occupied by a structure. Small budget
+     *  on purpose — the noise-derived chunkgen path is the source of
+     *  truth, so we only nudge around single walls and fence-posts;
+     *  anything thicker than [MAX_SIDESTEP] blocks the root entirely
+     *  (the voxel gives up and the path visibly stops at the obstruction). */
+    private const val MAX_SIDESTEP = 2
 
-    // ============================================================
-    //   Player-build swerve
-    // ============================================================
-    /** Yaw offsets tried in order when the proposed centerline lands
-     *  on a non-replaceable block. ±π/6, ±π/3, ±π/2 — the head tries
-     *  small corrections first and only takes a hard turn if the
-     *  small ones don't open up. */
-    private val SWERVE_YAW_OFFSETS = doubleArrayOf(
-        PI / 6, -PI / 6, PI / 3, -PI / 3, PI / 2, -PI / 2,
+    /** Cardinal directions probed by [tryPlaceWithSidestep], in the
+     *  order they're tried. Stable order so adjacent voxels hitting the
+     *  same structure tend to deflect the same way and the path stays
+     *  visually continuous. */
+    private val SIDESTEP_DIRS: Array<Direction> = arrayOf(
+        Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST,
     )
 
-    /** Pitch offsets tried after yaw — for vertical "go over / under"
-     *  evasion when yaw alone doesn't open up. */
-    private val SWERVE_PITCH_OFFSETS = doubleArrayOf(0.2, -0.2, 0.4, -0.4)
-
-    // ============================================================
-    //   SavedData keys
-    // ============================================================
     private const val MARCHES_DATA_NAME = "enderkinesis_wohlon_world_root_marches"
     private const val GROWN_DATA_NAME = "enderkinesis_wohlon_world_root_grown_regions"
 
-    // ============================================================
-    //   Tags + cached blocks
-    // ============================================================
     private val CONVERTS_TO_MUD: TagKey<Block> =
         TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "converts_to_mud"))
     private val ROOT_REPLACEABLE: TagKey<Block> =
@@ -163,64 +87,39 @@ object WohlonnogondoniaWorldRootGrower {
 
     private val SIX_DIRECTIONS: Array<Direction> = Direction.values()
 
-    private val VINE_BLOCKS: Array<BlockState> by lazy {
-        arrayOf(
-            Blocks.VINE.defaultBlockState().setValue(VineBlock.NORTH, true),
-            Blocks.VINE.defaultBlockState().setValue(VineBlock.SOUTH, true),
-            Blocks.VINE.defaultBlockState().setValue(VineBlock.EAST, true),
-            Blocks.VINE.defaultBlockState().setValue(VineBlock.WEST, true),
-        )
-    }
-
-    // ============================================================
-    //   In-memory state
-    // ============================================================
-    /** Pending trigger queue per dimension. Each entry is a packed
-     *  `(chunkX, chunkZ)`. */
-    private val pendingTriggers: ConcurrentHashMap<ResourceKey<Level>, ArrayDeque<Long>> =
+    private val pendingTriggers: ConcurrentHashMap<ResourceKey<Level>, LinkedHashSet<Long>> =
         ConcurrentHashMap()
 
-    // ============================================================
-    //   Public API
-    // ============================================================
-    fun init() {
-        TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
-    }
-
-    /** Spreader-side trigger. Called on every cell flip — the
-     *  grower's filter is the **deterministic-region** check:
-     *  given the cell's region `(rx, rz)`, compute the region's
-     *  fixed deterministic anchor position via the same hash the
-     *  chunkgen uses (so the same regional path geometry would have
-     *  rendered if this were a Wohlonnogondonia chunk). If the
-     *  biome at that anchor position is Wohlon, the region's path
-     *  is enqueued. Otherwise the flip is ignored.
-     *
-     *  Consequence: each region has at most one root, in a
-     *  deterministic position fixed by `hash32(rx, rz, …)`. Adjacent
-     *  regions have independent paths but the anchors are 48 blocks
-     *  apart, so overlap is bounded — same density and layout as
-     *  the Wohlon chunkgen. The trigger only fires once the anchor
-     *  cell has flipped to Wohlon, so the start is always inside
-     *  the biome by construction. */
-    /** Cascade brake. While this is true, [maybeEnqueueCell] is a
-     *  no-op. The grower's own per-tick `convertCellsToWohlon` call
-     *  flips this on so root-induced biome paint can't bootstrap
-     *  fresh marches in neighbouring regions — otherwise a single
-     *  ritual's roots could expand outward indefinitely, painting
-     *  Wohlon as they walk and triggering new roots at every region
-     *  anchor they cross. Only "natural" spreader writes (random
-     *  tick, ritual seed sphere, debug `/wohlon setcell`) leave the
-     *  brake off and produce trigger events.
-     *  Server thread only — there's no contention to worry about. */
+    /** Cascade brake. Flipped on around [tickRoot]'s
+     *  `convertCellsToWohlon` call so the grower's own biome paint
+     *  can't bootstrap fresh marches in neighbouring regions.
+     *  Server thread only. */
     private var suppressTrigger: Boolean = false
 
+    fun init() {
+        TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
+        // Clear pending trigger state on server stop so loading a
+        // different world after quitting to title doesn't drain the
+        // previous world's queued region triggers into the new one.
+        // (ResourceKey<Level> equality is by location, so two worlds'
+        // overworlds share the same key in this static map.)
+        dev.architectury.event.events.common.LifecycleEvent.SERVER_STOPPED.register { _ ->
+            pendingTriggers.clear()
+            suppressTrigger = false
+        }
+    }
+
+    /**
+     * Spreader trigger. The region's deterministic anchor cell must
+     * be Wohlon biome by the time of the call; if not, the trigger
+     * is ignored and we wait for a future flip.
+     */
     @JvmStatic
     fun maybeEnqueueCell(level: ServerLevel, qx: Int, qy: Int, qz: Int) {
         if (suppressTrigger) return
         if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) return
 
-        val chunkX = qx shr 2   // 4 quart cells per chunk axis
+        val chunkX = qx shr 2
         val chunkZ = qz shr 2
         val regionX = Math.floorDiv(chunkX, REGION_SIZE_CHUNKS)
         val regionZ = Math.floorDiv(chunkZ, REGION_SIZE_CHUNKS)
@@ -228,34 +127,33 @@ object WohlonnogondoniaWorldRootGrower {
 
         if (getGrownData(level).regions.contains(regionPacked)) return
 
-        // Region's deterministic seed — same hash + sparse-gap mask
-        // the chunkgen's `buildTunnelPaths` uses for region seeding.
-        // ~6% of regions are sparse-gap (no roots ever).
-        val pathSeed = hash32(regionX, regionZ, 0x70F1FA52.toInt())
+        val pathSeed = WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 0x70F1FA52.toInt())
         if ((pathSeed and 0xF) == 0) {
             getGrownData(level).markGrown(regionPacked)
             return
         }
 
-        // Region's deterministic anchor XZ — same formula the
-        // chunkgen uses. Within the region's 48 × 48 block footprint.
         val startWX = regionX * REGION_SIZE +
-            (hash32(regionX, regionZ, 1) and (REGION_SIZE - 1))
+            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 1) and (REGION_SIZE - 1))
         val startWZ = regionZ * REGION_SIZE +
-            (hash32(regionX, regionZ, 2) and (REGION_SIZE - 1))
+            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 2) and (REGION_SIZE - 1))
         val startQx = startWX shr 2
         val startQz = startWZ shr 2
 
-        // Is the anchor inside Wohlon biome yet? If not, the spread
-        // hasn't reached the anchor — wait for a future flip.
-        val source = level.chunkSource
-        val startCx = startQx shr 2
-        val startCz = startQz shr 2
-        val startChunk = source.getChunkNow(startCx, startCz) ?: return
-        val startBiome = startChunk.getNoiseBiome(startQx, qy, startQz)
-        if (!startBiome.`is`(Wohlonnogondonia.BIOME_KEY)) return
+        // Bulk gate: the start cell must be Wohlon AND all 6 face-adjacent
+        // cells must also be Wohlon. Roots are an interior-of-biome
+        // phenomenon — a single Wohlon cell at the biome's perimeter
+        // shouldn't be enough to fire a region march. We wait for the
+        // biome spreader to bulk up around the hub before triggering.
+        // Surface Y is used (not trigger Y) for the reasons documented
+        // on the per-voxel gate below: spread arrives at the surface
+        // first; trigger flips happen at various Y depths.
+        val startSurfaceY = level.getHeight(
+            Heightmap.Types.OCEAN_FLOOR, startWX, startWZ,
+        ) - 1
+        val startSurfaceQy = startSurfaceY shr 2
+        if (!isCellInBulkWohlon(level, startQx, startSurfaceQy, startQz)) return
 
-        // Already being marched?
         val marches = level.dataStorage.get({ tag -> MarchesData.load(tag) }, MARCHES_DATA_NAME)
         if (marches != null) {
             for (h in marches.heads) {
@@ -263,16 +161,12 @@ object WohlonnogondoniaWorldRootGrower {
             }
         }
 
-        val pending = pendingTriggers.computeIfAbsent(level.dimension()) { ArrayDeque() }
-        if (pending.size >= PENDING_QUEUE_CAP) return
+        val pending = pendingTriggers.computeIfAbsent(level.dimension()) { LinkedHashSet() }
         if (pending.contains(regionPacked)) return
-
-        pending.addLast(regionPacked)
+        if (pending.size >= PENDING_QUEUE_CAP) return
+        pending.add(regionPacked)
     }
 
-    // ============================================================
-    //   Tick loop
-    // ============================================================
     private fun tickLevel(level: ServerLevel) {
         if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) return
         drainPending(level)
@@ -284,8 +178,10 @@ object WohlonnogondoniaWorldRootGrower {
         if (pending.isEmpty()) return
 
         val marches = getMarchesData(level)
-        while (pending.isNotEmpty() && marches.heads.size < MAX_CONCURRENT_HEADS_PER_DIM) {
-            val regionPacked = pending.removeFirst()
+        val iter = pending.iterator()
+        while (iter.hasNext() && marches.heads.size < MAX_CONCURRENT_HEADS_PER_DIM) {
+            val regionPacked = iter.next()
+            iter.remove()
             val regionX = unpackRegionX(regionPacked)
             val regionZ = unpackRegionZ(regionPacked)
 
@@ -302,93 +198,126 @@ object WohlonnogondoniaWorldRootGrower {
     }
 
     private fun spawnMainHead(
-        level: ServerLevel, regionX: Int, regionZ: Int,
+        level: ServerLevel,
+        regionX: Int, regionZ: Int,
         regionPacked: Long, marches: MarchesData,
     ) {
-        val pathSeed = hash32(regionX, regionZ, 0x70F1FA52.toInt())
-        if ((pathSeed and 0xF) == 0) {
+        // Snapshot the original surface heightmap for the region's
+        // tile + a 33-block pad (sphere radius + walk reach margin)
+        // so the chunkgen utility's walkPath never reads back a
+        // height that includes our own placed wood.
+        //
+        // `OCEAN_FLOOR` (predicate: `state.blocksMotion()` only) is
+        // used instead of `MOTION_BLOCKING_NO_LEAVES` so the
+        // heightmap returns the seabed under lakes, oceans, and
+        // rivers — fluids don't count as a stopper here. Trade-off:
+        // leaves *do* count, so roots emerging under a pre-existing
+        // forest canopy would anchor on the leaves; in practice the
+        // grower stays under tainted Wohlon biomes where the trees
+        // are sparse, and the lake-dive behaviour is the dominant
+        // gain.
+        val pad = 33
+        val x0 = regionX * REGION_SIZE - pad
+        val z0 = regionZ * REGION_SIZE - pad
+        val w = REGION_SIZE + 2 * pad
+        val snapshot = IntArray(w * w)
+        for (dz in 0 until w) {
+            for (dx in 0 until w) {
+                snapshot[dz * w + dx] = level.getHeight(
+                    Heightmap.Types.OCEAN_FLOOR,
+                    x0 + dx, z0 + dz,
+                ) - 1
+            }
+        }
+        val heightAt: (Int, Int) -> Int = { wx, wz ->
+            val lx = wx - x0
+            val lz = wz - z0
+            if (lx in 0 until w && lz in 0 until w) snapshot[lz * w + lx]
+            else level.getHeight(Heightmap.Types.OCEAN_FLOOR, wx, wz) - 1
+        }
+
+        val yMin = level.minBuildHeight + 2
+        val yMax = level.maxBuildHeight - 2
+
+        val paths = WohlonnogondoniaSurfaceRoots.buildPaths(
+            regionX, regionZ, heightAt, yMin, yMax,
+            motherTreeExclusionSq = 0L,
+            // Spread-driven world roots are no longer ground-locked
+            // — letting the path's Y wander above the surface gives
+            // the roots the same arc-and-plunge silhouette the
+            // chunkgen Mother Tree's roots use, instead of clinging
+            // flat to the heightmap. Roots that drift up still wrap
+            // back down through the painted sphere geometry, so the
+            // final voxel set still anchors to terrain at most
+            // points.
+            groundOnly = false,
+        )
+        if (paths.isEmpty()) {
             getGrownData(level).markGrown(regionPacked)
             return
         }
 
-        val startWX = regionX * REGION_SIZE +
-            (hash32(regionX, regionZ, 1) and (REGION_SIZE - 1))
-        val startWZ = regionZ * REGION_SIZE +
-            (hash32(regionX, regionZ, 2) and (REGION_SIZE - 1))
-        val startSurface = level.getHeight(
-            Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, startWX, startWZ,
-        ) - 1
+        // Run the source-of-truth sphere paint into a deduplicating
+        // set. Voxels outside `[yMin, yMax]` get culled here so the
+        // chunkgen behaviour (clip at world build bounds) matches.
+        // Paints at the chunkgen default radius — same sinuous + branch
+        // geometry the Wohlon dimension uses.
+        val voxelSet = HashSet<Long>(4096)
+        for (path in paths) {
+            WohlonnogondoniaSurfaceRoots.paintPath(
+                path,
+                { x, y, z -> if (y in yMin..yMax) voxelSet.add(BlockPos.asLong(x, y, z)) },
+            )
+        }
+        if (voxelSet.isEmpty()) {
+            getGrownData(level).markGrown(regionPacked)
+            return
+        }
 
-        // Build the main path's geometry NOW, while no wood has been
-        // placed yet. Heightmap reads here are the original surface —
-        // self-contour is impossible because nothing has been written.
-        val mainPath = buildPath(
-            level, pathSeed, pathIdx = 0,
-            startX = startWX.toDouble() + 0.5,
-            startY = startSurface.toDouble(),
-            startZ = startWZ.toDouble() + 0.5,
-            startYaw = hash01(pathSeed, 3, 0) * PI * 2.0,
-            startPitch = (hash01(pathSeed, 4, 0) - 0.5) * 0.4,
-            maxSteps = TUNNEL_MAX_STEPS,
-        )
+        // Hub = the deterministic origin of every path in this region —
+        // the same `(startWX, startSurface, startWZ)` the utility uses
+        // internally as the common emanation point. Sorting by distance
+        // from the hub makes the wave radiate through every path
+        // concurrently (step-1 voxels of every path are all roughly
+        // equidistant from the hub), so the visual reads as "root
+        // system emerging from its own centre and growing outward in
+        // all directions". Recomputed via the same public hash so we
+        // don't need to thread the value through `buildPaths`.
+        val raw = voxelSet.toLongArray()
+        val hubWX = regionX * REGION_SIZE +
+            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 1) and (REGION_SIZE - 1))
+        val hubWZ = regionZ * REGION_SIZE +
+            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 2) and (REGION_SIZE - 1))
+        val hubY = heightAt(hubWX, hubWZ)
 
-        // Rasterise the sphere voxels for the main path, with taper
-        // applied at both ends (head + tail). Sort by distance² from
-        // the anchor so the per-tick scan grows outward.
-        val voxels = sortVoxelsByAnchor(
-            sphereVoxels = computeSphereVoxelsForPath(
-                mainPath, level, applyHeadTaper = true, applyTailTaper = true,
-            ),
-            anchorX = startWX, anchorY = startSurface, anchorZ = startWZ,
-        )
-
-        // Resolve every potential branch's fork into the voxel index
-        // at the main path's centerline-at-fork-step position. Branches
-        // spawn when their fork voxel actually places.
-        val pendingBranches = ArrayList<PendingBranch>()
-        var branchIdx = 0
-        var stepIdx = TUNNEL_BRANCH_FIRST_STEP
-        while (stepIdx < mainPath.count - 4) {
-            val branchSeed = hash32(pathSeed, branchIdx, 300)
-            if ((branchSeed and 0x3) == 0) {
-                val forkX = mainPath.points[stepIdx * 3 + 0]
-                val forkY = mainPath.points[stepIdx * 3 + 1]
-                val forkZ = mainPath.points[stepIdx * 3 + 2]
-                val forkVoxelKey = BlockPos.asLong(forkX, forkY, forkZ)
-                val forkVoxelIdx = voxels.indexOfFirst { it == forkVoxelKey }
-                if (forkVoxelIdx >= 0) {
-                    pendingBranches.add(PendingBranch(
-                        branchIdx = branchIdx,
-                        forkVoxelIdx = forkVoxelIdx,
-                        forkX = forkX, forkY = forkY, forkZ = forkZ,
-                        parentYaw = mainPath.endingYawAtStep(stepIdx),
-                    ))
-                }
-            }
-            stepIdx += TUNNEL_BRANCH_STRIDE
-            branchIdx++
+        val keyed = LongArray(raw.size)
+        for (i in raw.indices) {
+            val pos = BlockPos.of(raw[i])
+            val dx = pos.x - hubWX
+            val dy = pos.y - hubY
+            val dz = pos.z - hubWZ
+            val distSq = (dx * dx + dy * dy + dz * dz).coerceAtMost(0x7FFFFFFF)
+            keyed[i] = (distSq.toLong() shl 32) or (i.toLong() and 0xFFFFFFFFL)
+        }
+        java.util.Arrays.sort(keyed)
+        val voxels = LongArray(raw.size)
+        for (i in keyed.indices) {
+            voxels[i] = raw[(keyed[i] and 0xFFFFFFFFL).toInt()]
         }
 
         val root = MarchingRoot(
-            pathSeed = pathSeed,
-            pathIdx = 0,
             regionPacked = regionPacked,
-            anchorX = startWX,
-            anchorY = startSurface,
-            anchorZ = startWZ,
+            anchorX = hubWX, anchorY = hubY, anchorZ = hubWZ,
             voxels = voxels,
-            placed = java.util.BitSet(voxels.size),
+            placed = BitSet(voxels.size),
             scanCursor = 0,
-            pendingBranches = pendingBranches,
-            vinesDropped = false,
         )
-
         marches.heads.add(root)
         marches.setDirty()
 
         LOG.info(
-            "WorldRoot: spawned region ({}, {}) anchor BlockPos{{x={}, y={}, z={}}} voxels={} pendingBranches={}",
-            regionX, regionZ, startWX, startSurface, startWZ, voxels.size, pendingBranches.size,
+            "WorldRoot: spawned region ({}, {}) hub BlockPos{{x={}, y={}, z={}}} voxels={}",
+            regionX, regionZ, hubWX, hubY, hubWZ, voxels.size,
         )
     }
 
@@ -398,436 +327,148 @@ object WohlonnogondoniaWorldRootGrower {
         if (marches.heads.isEmpty()) return
 
         var changed = false
-        val newRoots = ArrayList<MarchingRoot>()
         val iter = marches.heads.iterator()
         while (iter.hasNext()) {
             val root = iter.next()
-            val tickResult = tickRoot(level, root, newRoots)
-            if (tickResult.changed) changed = true
-            if (tickResult.completed) {
+            val result = tickRoot(level, root)
+            if (result.changed) changed = true
+            if (result.completed) {
                 iter.remove()
+                getGrownData(level).markGrown(root.regionPacked)
+                LOG.info(
+                    "WorldRoot: completed region ({}, {})",
+                    unpackRegionX(root.regionPacked), unpackRegionZ(root.regionPacked),
+                )
                 changed = true
-                var stillActive = false
-                for (r in marches.heads) {
-                    if (r.regionPacked == root.regionPacked) { stillActive = true; break }
-                }
-                for (r in newRoots) {
-                    if (r.regionPacked == root.regionPacked) { stillActive = true; break }
-                }
-                if (!stillActive) {
-                    getGrownData(level).markGrown(root.regionPacked)
-                    LOG.info(
-                        "WorldRoot: completed region ({}, {})",
-                        unpackRegionX(root.regionPacked),
-                        unpackRegionZ(root.regionPacked),
-                    )
-                }
             }
-        }
-        if (newRoots.isNotEmpty()) {
-            marches.heads.addAll(newRoots)
-            changed = true
         }
         if (changed) marches.setDirty()
     }
 
     private data class TickResult(val changed: Boolean, val completed: Boolean)
 
-    /** Place at most one voxel from the root's sorted queue this tick.
-     *  Scan starts at `scanCursor` (the lowest unplaced index seen so
-     *  far), advances past any already-placed entries, then tries to
-     *  place the next one. A failed placement (no sturdy support yet)
-     *  is left in the queue and the scan continues to the next index
-     *  — but the cursor stays at the failed one so future ticks
-     *  retry from there.
-     *
-     *  When the cursor reaches the end of the queue without finding
-     *  anything to place, the root has fully grown: drop its vines
-     *  and retire. */
-    private fun tickRoot(
-        level: ServerLevel, root: MarchingRoot, newRootsBuf: MutableList<MarchingRoot>,
-    ): TickResult {
-        // Skip past any already-placed voxels at the cursor.
+    /** Place at most one voxel this tick. Scans from `scanCursor`,
+     *  advancing past any already-placed entries (which can happen
+     *  when neighbour-root overlap pre-fills our positions). Failed
+     *  placements (no sturdy face yet) stay in the queue for next
+     *  tick's retry — as adjacent buds mature into wood the failed
+     *  voxel becomes eligible. Voxels whose intended position is
+     *  occupied by a structure get a horizontal-deflect attempt via
+     *  [tryPlaceWithSidestep] before being given up on. */
+    private fun tickRoot(level: ServerLevel, root: MarchingRoot): TickResult {
         while (root.scanCursor < root.voxels.size && root.placed.get(root.scanCursor)) {
             root.scanCursor++
         }
 
-        // Try to place one voxel — scanning from cursor forward.
         val mutPos = BlockPos.MutableBlockPos()
         var i = root.scanCursor
         while (i < root.voxels.size) {
             if (root.placed.get(i)) { i++; continue }
-            val packed = root.voxels[i]
-            val pos = BlockPos.of(packed)
+            val pos = BlockPos.of(root.voxels[i])
             mutPos.set(pos)
             val existing = level.getBlockState(mutPos)
             if (existing.`is`(EKBlocks.WOGOR_WOOD.get()) ||
                 existing.`is`(EKBlocks.WOGOR_BUD.get())) {
-                // Already placed (likely by another sibling root's
-                // overlap). Mark placed, continue.
                 root.placed.set(i)
                 i++
                 continue
             }
-            val state = placeOneWood(level, pos)
-            if (state != null) {
+            val isSeed = !root.hasSeed
+            val warp = tryPlaceWithSidestep(level, pos, isSeed)
+            if (warp.placedAt != null) {
                 root.placed.set(i)
-                // Suppress the cascade-trigger hook for the duration
-                // of this biome write — see [suppressTrigger] for why.
+                if (isSeed) root.hasSeed = true
                 suppressTrigger = true
                 try {
-                    WohlonnogondoniaSpreader.convertCellsToWohlon(level, listOf(pos))
+                    WohlonnogondoniaSpreader.convertCellsToWohlon(level, listOf(warp.placedAt))
                 } finally {
                     suppressTrigger = false
                 }
-                // Branch fork check: did this voxel just open a fork?
-                val pbIter = root.pendingBranches.iterator()
-                while (pbIter.hasNext()) {
-                    val pb = pbIter.next()
-                    if (pb.forkVoxelIdx == i) {
-                        spawnBranch(level, root, pb, newRootsBuf)
-                        pbIter.remove()
-                    }
-                }
                 return TickResult(true, false)
             }
-            // Couldn't place yet (no sturdy support). Skip to next
-            // candidate; this voxel stays for a future retry.
+            if (warp.gaveUp) {
+                // Structure too tall for our warp budget — abandon this voxel
+                // so we don't rescan it every tick forever.
+                root.placed.set(i)
+            }
             i++
         }
 
-        // Reached the end of the queue without placing. Either we're
-        // fully done, or every remaining voxel is permanently blocked.
-        if (!root.vinesDropped) {
-            dropVinesAlongRoot(level, root)
-            root.vinesDropped = true
-            return TickResult(true, false)
-        }
         return TickResult(false, true)
     }
 
-    private fun spawnBranch(
-        level: ServerLevel, parent: MarchingRoot, pb: PendingBranch,
-        newRootsBuf: MutableList<MarchingRoot>,
-    ) {
-        val branchSeed = hash32(parent.pathSeed, pb.branchIdx, 300)
-        val sign = if ((branchSeed and 0x10) == 0) 1.0 else -1.0
-        val yawOffset = sign * (PI / 3.0 +
-            ((branchSeed ushr 5) and 0xFF) / 256.0 * (PI / 3.0))
-        val branchYaw = pb.parentYaw + yawOffset
-        val branchPitch = (((branchSeed ushr 13) and 0xFFFF) /
-            65536.0 - 0.5) * 0.4
-        val branchLen = TUNNEL_BRANCH_MIN_STEPS +
-            ((branchSeed ushr 21) and 0xFF) %
-            (TUNNEL_BRANCH_MAX_STEPS - TUNNEL_BRANCH_MIN_STEPS + 1)
+    private data class WarpAttempt(val placedAt: BlockPos?, val gaveUp: Boolean)
 
-        val branchPath = buildPath(
-            level, parent.pathSeed, pathIdx = 1 + pb.branchIdx,
-            startX = pb.forkX.toDouble() + 0.5,
-            startY = pb.forkY.toDouble(),
-            startZ = pb.forkZ.toDouble() + 0.5,
-            startYaw = branchYaw,
-            startPitch = branchPitch,
-            maxSteps = branchLen,
-        )
-
-        val branchVoxels = sortVoxelsByAnchor(
-            sphereVoxels = computeSphereVoxelsForPath(
-                branchPath, level, applyHeadTaper = false, applyTailTaper = true,
-            ),
-            anchorX = pb.forkX, anchorY = pb.forkY, anchorZ = pb.forkZ,
-        )
-
-        val branch = MarchingRoot(
-            pathSeed = parent.pathSeed,
-            pathIdx = 1 + pb.branchIdx,
-            regionPacked = parent.regionPacked,
-            anchorX = pb.forkX,
-            anchorY = pb.forkY,
-            anchorZ = pb.forkZ,
-            voxels = branchVoxels,
-            placed = java.util.BitSet(branchVoxels.size),
-            scanCursor = 0,
-            pendingBranches = ArrayList(),
-            vinesDropped = false,
-        )
-        newRootsBuf.add(branch)
-    }
-
-    // ============================================================
-    //   Path generation (chunkgen-faithful, run once at spawn)
-    // ============================================================
-    /**
-     * Walk a winding path from `(startX, startY, startZ)` for
-     * `maxSteps` steps, returning the per-step `(x, y, z)` centreline.
-     * Same yaw/pitch random-walk + sine-targeted Y elastic the
-     * chunkgen uses. Heightmap reads here are the original surface
-     * because spawn-time precedes any wood placement, so the Y target
-     * never re-includes wood we're about to place. Player-build swerve
-     * also happens here once-per-step; the resulting path bends
-     * around obstacles permanently.
-     */
-    private fun buildPath(
-        level: ServerLevel, pathSeed: Int, pathIdx: Int,
-        startX: Double, startY: Double, startZ: Double,
-        startYaw: Double, startPitch: Double,
-        maxSteps: Int,
-    ): TunnelPath {
-        val paramSeed = hash32(pathSeed, pathIdx, 0x57F1CE17.toInt())
-        val yAmp = 12.0 + (paramSeed and 0x1F)     // chunkgen 12-43 range
-        val yPeriod = 30.0 + ((paramSeed ushr 5) and 0x1F)
-        val yPhase = ((paramSeed ushr 10) and 0xFF) / 256.0 * 2.0 * PI
-
-        var x = startX
-        var y = startY
-        var z = startZ
-        var yaw = startYaw
-        var pitch = startPitch.coerceIn(-TUNNEL_PITCH_LIMIT, TUNNEL_PITCH_LIMIT)
-
-        val points = IntArray(maxSteps * 3)
-        val yaws = DoubleArray(maxSteps)
-        val yMin = level.minBuildHeight + 2
-        val yMax = level.maxBuildHeight - 2
-
-        for (step in 0 until maxSteps) {
-            val turnSeed = hash32(pathSeed, pathIdx, 100 + step)
-            val nudgedYaw = yaw + ((turnSeed and 0xFFFF) / 65536.0 - 0.5) * TUNNEL_YAW_TURN
-            val nudgedPitch = (pitch + (((turnSeed ushr 16) and 0xFFFF) / 65536.0 - 0.5) * TUNNEL_PITCH_TURN)
-                .coerceIn(-TUNNEL_PITCH_LIMIT, TUNNEL_PITCH_LIMIT)
-
-            // Reactive swerve runs here so the precomputed path
-            // already curves around player builds. Once spawned,
-            // the path is frozen — newly built obstructions just
-            // leave gaps in the placement.
-            val (chosenYaw, chosenPitch) = pickOpenDirection(
-                level, x, y, z, nudgedYaw, nudgedPitch,
-            )
-            yaw = chosenYaw
-            pitch = chosenPitch
-
-            val cosp = cos(pitch)
-            x += cos(yaw) * cosp * TUNNEL_STEP_LEN
-            y += sin(pitch) * TUNNEL_STEP_LEN
-            z += sin(yaw) * cosp * TUNNEL_STEP_LEN
-
-            // Heightmap read uses ORIGINAL surface (no wood yet),
-            // so the Y target never compounds upward step-after-step.
-            val localSurface = level.getHeight(
-                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x.toInt(), z.toInt(),
-            ) - 1
-            val targetY = localSurface + sin(yPhase + step * (2.0 * PI / yPeriod)) * yAmp
-            y += (targetY - y) * TUNNEL_Y_TRACK_BIAS
-
-            points[step * 3 + 0] = x.toInt()
-            points[step * 3 + 1] = y.toInt().coerceIn(yMin, yMax)
-            points[step * 3 + 2] = z.toInt()
-            yaws[step] = yaw
+    /** Try placement at [pos]. If a non-replaceable block (a player
+     *  wall, fence, etc.) occupies the intended position, probe an
+     *  expanding horizontal ring around it for the first reachable
+     *  candidate within [MAX_SIDESTEP] blocks — the path locally
+     *  deflects around the obstruction.
+     *
+     *  Y is never changed. The noise-derived path's vertical profile
+     *  is part of its source-of-truth shape; only XZ nudges, and only
+     *  within a few blocks, so the overall path-line stays close to
+     *  what chunkgen would have painted.
+     *
+     *  Anything thicker than the budget (a wall ≥ 3 blocks deep, an
+     *  enclosed room) returns gaveUp=true and the voxel is abandoned —
+     *  the path visibly stops at the obstruction rather than burrowing
+     *  through. */
+    private fun tryPlaceWithSidestep(level: ServerLevel, pos: BlockPos, isSeed: Boolean): WarpAttempt {
+        // Try the intended position first.
+        val originalState = level.getBlockState(pos)
+        if (isRootReplaceable(originalState)) {
+            val placed = placeOneWood(level, pos, isSeed)
+            if (placed != null) return WarpAttempt(pos, gaveUp = false)
+            // Replaceable but no support — leave for cascade. Airborne
+            // voxels wait for adjacent buds to mature into wood that
+            // can carry them; retrying at sideways offsets wouldn't
+            // help (the offset is still airborne).
+            return WarpAttempt(null, gaveUp = false)
         }
-        return TunnelPath(points, maxSteps, yaws)
-    }
 
-    /** Look-ahead swerve test for `buildPath` — same as the previous
-     *  per-tick version, but reads the path's current `(x, y, z)`
-     *  directly rather than from a MarchingHead. */
-    private fun pickOpenDirection(
-        level: ServerLevel,
-        x: Double, y: Double, z: Double,
-        baseYaw: Double, basePitch: Double,
-    ): Pair<Double, Double> {
-        if (isOpenCenterline(level, x, y, z, baseYaw, basePitch)) return baseYaw to basePitch
-        for (offset in SWERVE_YAW_OFFSETS) {
-            val tryYaw = baseYaw + offset
-            if (isOpenCenterline(level, x, y, z, tryYaw, basePitch)) return tryYaw to basePitch
-        }
-        for (offset in SWERVE_PITCH_OFFSETS) {
-            val tryPitch = (basePitch + offset).coerceIn(-TUNNEL_PITCH_LIMIT, TUNNEL_PITCH_LIMIT)
-            if (isOpenCenterline(level, x, y, z, baseYaw, tryPitch)) return baseYaw to tryPitch
-        }
-        return baseYaw to basePitch
-    }
-
-    private fun isOpenCenterline(
-        level: ServerLevel,
-        x: Double, y: Double, z: Double,
-        yaw: Double, pitch: Double,
-    ): Boolean {
-        val cosp = cos(pitch)
-        val px = (x + cos(yaw) * cosp * TUNNEL_STEP_LEN).toInt()
-        val py = (y + sin(pitch) * TUNNEL_STEP_LEN).toInt()
-        val pz = (z + sin(yaw) * cosp * TUNNEL_STEP_LEN).toInt()
-        if (py < level.minBuildHeight + 2 || py > level.maxBuildHeight - 2) return false
-        return isRootReplaceable(level.getBlockState(BlockPos(px, py, pz)))
-    }
-
-    // ============================================================
-    //   Sphere rasterise (precomputed, with both-end taper)
-    // ============================================================
-    /** Rasterise every step's sphere into a deduplicated set, with
-     *  head/tail taper applied to the sphere radius near the path
-     *  ends. Result is a `Set<Long>` of unique `BlockPos.asLong`
-     *  positions ready to be sorted by anchor distance. */
-    private fun computeSphereVoxelsForPath(
-        path: TunnelPath, level: ServerLevel,
-        applyHeadTaper: Boolean, applyTailTaper: Boolean,
-    ): Set<Long> {
-        val voxels = HashSet<Long>(path.count * 64)
-        val yMin = level.minBuildHeight + 2
-        val yMax = level.maxBuildHeight - 2
-        for (step in 0 until path.count) {
-            val r = radiusAt(step, path.count, applyHeadTaper, applyTailTaper)
-            val rSqMax = r * r
-            val px = path.points[step * 3 + 0]
-            val py = path.points[step * 3 + 1]
-            val pz = path.points[step * 3 + 2]
-            for (dy in -r..r) {
-                val ny = py + dy
-                if (ny < yMin || ny > yMax) continue
-                val dySq = dy * dy
-                for (dx in -r..r) {
-                    val dxSq = dx * dx
-                    for (dz in -r..r) {
-                        val distSq = dxSq + dySq + dz * dz
-                        if (distSq > rSqMax) continue
-                        voxels.add(BlockPos.asLong(px + dx, ny, pz + dz))
-                    }
-                }
+        // Structure occupies the intended position. Probe horizontal
+        // neighbours at distances 1..MAX_SIDESTEP for a clear cell.
+        for (distance in 1..MAX_SIDESTEP) {
+            for (dir in SIDESTEP_DIRS) {
+                val tryPos = BlockPos(
+                    pos.x + dir.stepX * distance,
+                    pos.y,
+                    pos.z + dir.stepZ * distance,
+                )
+                val tryState = level.getBlockState(tryPos)
+                if (!isRootReplaceable(tryState)) continue
+                val placed = placeOneWood(level, tryPos, isSeed)
+                if (placed != null) return WarpAttempt(tryPos, gaveUp = false)
+                // Replaceable but no support — fall through to next
+                // candidate. Don't return early; another sidestep
+                // direction may anchor onto already-placed wood.
             }
         }
-        return voxels
+        return WarpAttempt(null, gaveUp = true)
     }
 
-    /** Sphere radius at step `i` with optional taper at one or both
-     *  ends. Linear ramp from 1 → [ROOT_TUBE_RADIUS] over
-     *  [ROOT_TAPER_STEPS] near the relevant end, full radius in the
-     *  middle. */
-    private fun radiusAt(
-        i: Int, totalSteps: Int,
-        applyHeadTaper: Boolean, applyTailTaper: Boolean,
-    ): Int {
-        if (applyHeadTaper && i < ROOT_TAPER_STEPS) {
-            val frac = (i + 1).toDouble() / (ROOT_TAPER_STEPS + 1)
-            return max(1, (ROOT_TUBE_RADIUS * frac).toInt())
-        }
-        if (applyTailTaper && i > totalSteps - 1 - ROOT_TAPER_STEPS) {
-            val fromTail = totalSteps - 1 - i
-            val frac = (fromTail + 1).toDouble() / (ROOT_TAPER_STEPS + 1)
-            return max(1, (ROOT_TUBE_RADIUS * frac).toInt())
-        }
-        return ROOT_TUBE_RADIUS
-    }
+    private fun placeOneWood(level: ServerLevel, pos: BlockPos, isSeed: Boolean): BlockState? {
+        // Tree-bounds exclusion: the world-root grower must not paint
+        // inside the cylinder around any registered ritual portal.
+        // Trees and world roots are separate systems with their own
+        // shapes; overlap reads as incoherent "tumour" growth. The
+        // voxel stays in the queue but never qualifies — it's just
+        // permanently dropped from this march.
+        if (WohlonnogondoniaPortalManager.isInsideAnyTreeBounds(level, pos)) return null
 
-    /** Pack a set of voxels into a `LongArray` sorted by squared
-     *  distance from `(anchorX, anchorY, anchorZ)` ascending — so the
-     *  per-tick scan grows the root outward from its anchor block by
-     *  block. */
-    private fun sortVoxelsByAnchor(
-        sphereVoxels: Set<Long>,
-        anchorX: Int, anchorY: Int, anchorZ: Int,
-    ): LongArray {
-        val packed = LongArray(sphereVoxels.size)
-        var idx = 0
-        for (v in sphereVoxels) {
-            packed[idx++] = v
-        }
-        // Sort by distance²-from-anchor packed in the high 32 bits;
-        // voxel index in the low 32 bits. After sorting we unpack
-        // the voxels by their indices to preserve original positions.
-        val keyed = LongArray(packed.size)
-        for (i in packed.indices) {
-            val pos = BlockPos.of(packed[i])
-            val dx = pos.x - anchorX
-            val dy = pos.y - anchorY
-            val dz = pos.z - anchorZ
-            val distSq = (dx * dx + dy * dy + dz * dz).coerceAtMost(0x7FFFFFFF)
-            keyed[i] = (distSq.toLong() shl 32) or (i.toLong() and 0xFFFFFFFFL)
-        }
-        java.util.Arrays.sort(keyed)
-        val sorted = LongArray(packed.size)
-        for (i in keyed.indices) {
-            val origIdx = (keyed[i] and 0xFFFFFFFFL).toInt()
-            sorted[i] = packed[origIdx]
-        }
-        return sorted
-    }
+        // Bulk gate: roots are only allowed inside biome *interior*, not
+        // on the leading edge. The voxel's own cell plus all six
+        // face-adjacent cells must be Wohlon. An isolated Wohlon cell
+        // poking out into Plains keeps the root from painting there.
+        // Failed placements stay in the queue and retry every tick — as
+        // the spreader thickens the biome around this voxel, it
+        // eventually qualifies.
+        val qx = pos.x shr 2
+        val qy = pos.y shr 2
+        val qz = pos.z shr 2
+        if (!isCellInBulkWohlon(level, qx, qy, qz)) return null
 
-    // ============================================================
-    //   Vine drop (post-completion, scans actual placed wood)
-    // ============================================================
-    /** Walk every voxel position in the root's sorted list and treat
-     *  each unique XZ column as a candidate for a vine drop. The
-     *  topmost actual-wood block in that column is found via a level
-     *  scan; if it sits at least [VINE_ELEVATION_THRESHOLD] blocks
-     *  above local surface, the chunkgen-shaped hash gate runs and a
-     *  cardinal-attached vine column descends from the cap into
-     *  whatever air is below. */
-    private fun dropVinesAlongRoot(level: ServerLevel, root: MarchingRoot) {
-        val seenXZ = HashSet<Long>(root.voxels.size / 4)
-        val mutPos = BlockPos.MutableBlockPos()
-        val vineSeed = root.pathSeed xor 0x73A1F4C7.toInt()
-        val yMin = level.minBuildHeight + 2
-        val yMax = level.maxBuildHeight - 2
-
-        for (packed in root.voxels) {
-            val pos = BlockPos.of(packed)
-            val xzKey = (pos.x.toLong() and 0xFFFFFFFFL) or
-                ((pos.z.toLong() and 0xFFFFFFFFL) shl 32)
-            if (!seenXZ.add(xzKey)) continue
-
-            val wx = pos.x
-            val wz = pos.z
-
-            // Find the topmost actually-placed Wogor Wood in this
-            // column. Scan from a generous ceiling above the anchor's
-            // expected ceiling down to yMin.
-            var topWoodY = Int.MIN_VALUE
-            val scanTop = (root.anchorY + 60).coerceAtMost(yMax)
-            for (sy in scanTop downTo yMin) {
-                mutPos.set(wx, sy, wz)
-                if (level.getBlockState(mutPos).`is`(EKBlocks.WOGOR_WOOD.get())) {
-                    topWoodY = sy
-                    break
-                }
-            }
-            if (topWoodY == Int.MIN_VALUE) continue
-
-            val surface = level.getHeight(
-                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, wx, wz,
-            ) - 1
-            if (topWoodY - surface < VINE_ELEVATION_THRESHOLD) continue
-
-            val h = hash32(wx, wz, vineSeed)
-            if ((h and 0x3) != 0) continue
-
-            val len = (VINE_MIN_LEN + ((h ushr 2) and 0x7))
-                .coerceAtMost(VINE_MAX_LEN)
-            val faceIdx = (h ushr 5) and 0x3
-            val adjDx: Int
-            val adjDz: Int
-            val vineIdx: Int
-            when (faceIdx) {
-                0 -> { adjDx = 0; adjDz = 1; vineIdx = 0 }
-                1 -> { adjDx = 0; adjDz = -1; vineIdx = 1 }
-                2 -> { adjDx = -1; adjDz = 0; vineIdx = 2 }
-                else -> { adjDx = 1; adjDz = 0; vineIdx = 3 }
-            }
-            val vx = wx + adjDx
-            val vz = wz + adjDz
-            val vineState = VINE_BLOCKS[vineIdx]
-            for (v in 0 until len) {
-                val vy = topWoodY - v
-                if (vy < yMin) break
-                val vinePos = BlockPos(vx, vy, vz)
-                val existing = level.getBlockState(vinePos)
-                if (!existing.isAir) break
-                level.setBlock(vinePos, vineState, 2)
-            }
-        }
-    }
-
-    /** Bud → wood pipeline placement for a single voxel. Returns the
-     *  state that was actually written, or `null` if nothing was
-     *  placed (no sturdy face, or existing block not replaceable). */
-    private fun placeOneWood(level: ServerLevel, pos: BlockPos): BlockState? {
         var supportDir: Direction? = null
         for (dir in SIX_DIRECTIONS) {
             val nState = level.getBlockState(pos.relative(dir))
@@ -847,7 +488,29 @@ object WohlonnogondoniaWorldRootGrower {
         val existing = level.getBlockState(pos)
         if (!isRootReplaceable(existing)) return null
 
-        val state = if (existing.isAir || existing.canBeReplaced()) {
+        // If the position currently holds mud (or a block that the
+        // spreader would convert into mud), try to push it sideways
+        // into an adjacent air pocket rather than overwriting it.
+        // The soil is preserved, just one step over — visually reads
+        // as "the root displaced the dirt" rather than erasing it.
+        val displaceable = existing.`is`(Blocks.MUD) || existing.`is`(CONVERTS_TO_MUD)
+        val didDisplace = displaceable && tryDisplaceToAdjacentAir(level, pos)
+
+        // Successful displacement means the source position is about to
+        // be re-set; treat as effectively empty so we plant a bud rather
+        // than a hard wood log (matches the air/canBeReplaced branch).
+        val placingIntoEmpty = didDisplace || existing.isAir || existing.canBeReplaced()
+        val state = if (placingIntoEmpty) {
+            // Bud branch — gate on WOGOR_BUD_GROWABLE unless this is the
+            // root's seed voxel. The seed gets a one-time bypass so the
+            // first bud can anchor onto whatever block the trigger landed
+            // on (typically natural terrain, not yet any wogor block).
+            // After the seed matures into WOGOR_WOOD, every subsequent
+            // bud chains off that and the tag check is satisfied.
+            if (!isSeed) {
+                val supportState = level.getBlockState(pos.relative(supportDir))
+                if (!supportState.`is`(WogorBudBlock.WOGOR_BUD_GROWABLE)) return null
+            }
             EKBlocks.WOGOR_BUD.get().defaultBlockState()
                 .setValue(WogorBudBlock.AGE, 0)
                 .setValue(WogorBudBlock.FACING, supportDir)
@@ -858,15 +521,89 @@ object WohlonnogondoniaWorldRootGrower {
         return state
     }
 
+    /** Drop a mud block into a cardinal-adjacent air cell, displacing
+     *  the soil that the root just overwrote at `pos`. Always writes
+     *  mud regardless of what the original block was — the Wohlon
+     *  biome's `converts_to_mud` rule applies to displaced soil at
+     *  the moment of relocation rather than waiting for the spreader
+     *  to catch up.
+     *
+     *  Two-pass scan over SIX_DIRECTIONS:
+     *
+     *   1. **Supported air** first. A candidate qualifies if it's air
+     *      AND the block directly beneath it (the candidate's `below()`)
+     *      has a sturdy upper face. The candidate-below = `pos` case is
+     *      excluded, since `pos` is about to be overwritten with a
+     *      non-sturdy bud — the displaced block would visually float.
+     *      This makes the common case (mud on flat ground with air
+     *      above and dirt sideways) push the mud *sideways onto the
+     *      neighbouring ground* rather than UP into the air column.
+     *
+     *   2. **Any air** as a fallback. If pass 1 found nothing, accept
+     *      the first adjacent air we see — at least the soil is
+     *      preserved somewhere, even if visually floating.
+     *
+     *  Returns true if a destination was found.
+     */
+    private fun tryDisplaceToAdjacentAir(level: ServerLevel, pos: BlockPos): Boolean {
+        val mud = Blocks.MUD.defaultBlockState()
+        // Pass 1: supported air.
+        for (dir in SIX_DIRECTIONS) {
+            val adj = pos.relative(dir)
+            if (!level.getBlockState(adj).isAir) continue
+            val below = adj.below()
+            if (below == pos) continue
+            val belowState = level.getBlockState(below)
+            if (belowState.isFaceSturdy(level, below, Direction.UP)) {
+                level.setBlock(adj, mud, 2)
+                return true
+            }
+        }
+        // Pass 2: any air.
+        for (dir in SIX_DIRECTIONS) {
+            val adj = pos.relative(dir)
+            if (level.getBlockState(adj).isAir) {
+                level.setBlock(adj, mud, 2)
+                return true
+            }
+        }
+        return false
+    }
 
-    // ============================================================
-    //   Replaceable rules — mirror the tree grower
-    // ============================================================
+    /** True iff the biome cell `(qx, qy, qz)` is Wohlon AND every one
+     *  of its six face-adjacent cells is also Wohlon. This is the
+     *  "interior-of-biome" gate — used at both the region-trigger
+     *  decision and at every voxel placement so roots never paint at
+     *  the biome's leading edge.
+     *
+     *  Returns false on unloaded chunks (treat-as-non-Wohlon) so
+     *  region triggers don't fire across unloaded territory. */
+    private fun isCellInBulkWohlon(level: ServerLevel, qx: Int, qy: Int, qz: Int): Boolean {
+        if (!isCellWohlon(level, qx, qy, qz)) return false
+        if (!isCellWohlon(level, qx - 1, qy, qz)) return false
+        if (!isCellWohlon(level, qx + 1, qy, qz)) return false
+        if (!isCellWohlon(level, qx, qy - 1, qz)) return false
+        if (!isCellWohlon(level, qx, qy + 1, qz)) return false
+        if (!isCellWohlon(level, qx, qy, qz - 1)) return false
+        if (!isCellWohlon(level, qx, qy, qz + 1)) return false
+        return true
+    }
+
+    private fun isCellWohlon(level: ServerLevel, qx: Int, qy: Int, qz: Int): Boolean {
+        val chunk = level.chunkSource.getChunkNow(qx shr 2, qz shr 2) ?: return false
+        return chunk.getNoiseBiome(qx, qy, qz).`is`(Wohlonnogondonia.BIOME_KEY)
+    }
+
     private fun isTreeReplaceable(state: BlockState): Boolean {
         if (state.isAir) return true
         if (state.canBeReplaced()) return true
         if (state.`is`(Blocks.MUD)) return true
         if (state.`is`(CONVERTS_TO_MUD)) return true
+        // Barrier — test/observation aid. Replaceable by every grower
+        // placement path but NOT in the spreader's `converts_to_mud`
+        // tag, so a barrier arena stays as barriers while the roots
+        // and trunk grow visibly through it.
+        if (state.`is`(Blocks.BARRIER)) return true
         return false
     }
 
@@ -876,71 +613,15 @@ object WohlonnogondoniaWorldRootGrower {
         return false
     }
 
-    // ============================================================
-    //   Hash helpers
-    // ============================================================
-    private fun hash32(a: Int, b: Int, salt: Int): Int {
-        var h = a * 0x9E3779B1.toInt() xor (b * 0x85EBCA77.toInt()) xor (salt * 0xC2B2AE3D.toInt())
-        h = (h xor (h ushr 15)) * 0x2C1B3C6D.toInt()
-        h = (h xor (h ushr 12)) * 0x297A2D39.toInt()
-        h = h xor (h ushr 15)
-        return h
-    }
-
-    private fun hash01(seed: Int, k1: Int, k2: Int): Double =
-        (hash32(seed, k1, k2) and 0x7FFFFFFF) / 2147483648.0
-
-    // ============================================================
-    //   Data classes
-    // ============================================================
-    /** Walked path centreline. `points` is interleaved `[x, y, z]`
-     *  per step (`step * 3 + 0..2`). `yaws[step]` is the yaw the
-     *  walker held at the end of step `step` — used when forking a
-     *  branch so the branch's initial yaw is offset relative to the
-     *  parent's actual heading at the fork point. */
-    private class TunnelPath(
-        val points: IntArray,
-        val count: Int,
-        val yaws: DoubleArray,
-    ) {
-        fun endingYawAtStep(step: Int): Double = yaws[step]
-    }
-
-    /** Branch fork resolved at spawn time but not yet activated.
-     *  The branch becomes a real `MarchingRoot` once its
-     *  `forkVoxelIdx` in the parent's voxel list actually places. */
-    private class PendingBranch(
-        val branchIdx: Int,
-        val forkVoxelIdx: Int,
-        val forkX: Int,
-        val forkY: Int,
-        val forkZ: Int,
-        val parentYaw: Double,
-    )
-
-    /** The new precomputed-voxel root. `voxels` is sorted by
-     *  squared distance from `(anchorX, anchorY, anchorZ)` so the
-     *  per-tick scan paints outward from the anchor block-by-block.
-     *  `scanCursor` is the cached low-water mark of unplaced indices
-     *  so we don't re-scan the early voxels every tick once they're
-     *  all placed. */
     private class MarchingRoot(
-        val pathSeed: Int,
-        val pathIdx: Int,
         val regionPacked: Long,
-        val anchorX: Int,
-        val anchorY: Int,
-        val anchorZ: Int,
+        val anchorX: Int, val anchorY: Int, val anchorZ: Int,
         val voxels: LongArray,
-        val placed: java.util.BitSet,
+        val placed: BitSet,
         var scanCursor: Int,
-        val pendingBranches: MutableList<PendingBranch>,
-        var vinesDropped: Boolean,
+        var hasSeed: Boolean = false,
     )
 
-    // ============================================================
-    //   SavedData
-    // ============================================================
     private fun getMarchesData(level: ServerLevel): MarchesData {
         return level.dataStorage.computeIfAbsent(
             { tag -> MarchesData.load(tag) }, { MarchesData() }, MARCHES_DATA_NAME,
@@ -960,8 +641,6 @@ object WohlonnogondoniaWorldRootGrower {
             val list = ListTag()
             for (h in heads) {
                 val t = CompoundTag()
-                t.putInt("seed", h.pathSeed)
-                t.putInt("idx", h.pathIdx)
                 t.putLong("region", h.regionPacked)
                 t.putInt("ax", h.anchorX)
                 t.putInt("ay", h.anchorY)
@@ -969,21 +648,7 @@ object WohlonnogondoniaWorldRootGrower {
                 t.putLongArray("v", h.voxels)
                 t.putLongArray("placed", h.placed.toLongArray())
                 t.putInt("cursor", h.scanCursor)
-                t.putBoolean("vines", h.vinesDropped)
-                if (h.pendingBranches.isNotEmpty()) {
-                    val branches = ListTag()
-                    for (pb in h.pendingBranches) {
-                        val bt = CompoundTag()
-                        bt.putInt("bi", pb.branchIdx)
-                        bt.putInt("fv", pb.forkVoxelIdx)
-                        bt.putInt("fx", pb.forkX)
-                        bt.putInt("fy", pb.forkY)
-                        bt.putInt("fz", pb.forkZ)
-                        bt.putDouble("py", pb.parentYaw)
-                        branches.add(bt)
-                    }
-                    t.put("pending", branches)
-                }
+                t.putBoolean("seed", h.hasSeed)
                 list.add(t)
             }
             tag.put("heads", list)
@@ -1000,26 +665,9 @@ object WohlonnogondoniaWorldRootGrower {
                     val voxels = t.getLongArray("v")
                     if (voxels.isEmpty()) continue
                     val placedBits = t.getLongArray("placed")
-                    val placed = if (placedBits.isEmpty()) java.util.BitSet(voxels.size)
-                        else java.util.BitSet.valueOf(placedBits)
-                    val pendingBranches = ArrayList<PendingBranch>()
-                    if (t.contains("pending", Tag.TAG_LIST.toInt())) {
-                        val branches = t.getList("pending", Tag.TAG_COMPOUND.toInt())
-                        for (j in 0 until branches.size) {
-                            val bt = branches.getCompound(j)
-                            pendingBranches.add(PendingBranch(
-                                branchIdx = bt.getInt("bi"),
-                                forkVoxelIdx = bt.getInt("fv"),
-                                forkX = bt.getInt("fx"),
-                                forkY = bt.getInt("fy"),
-                                forkZ = bt.getInt("fz"),
-                                parentYaw = bt.getDouble("py"),
-                            ))
-                        }
-                    }
+                    val placed = if (placedBits.isEmpty()) BitSet(voxels.size)
+                        else BitSet.valueOf(placedBits)
                     data.heads.add(MarchingRoot(
-                        pathSeed = t.getInt("seed"),
-                        pathIdx = t.getInt("idx"),
                         regionPacked = t.getLong("region"),
                         anchorX = t.getInt("ax"),
                         anchorY = t.getInt("ay"),
@@ -1027,8 +675,7 @@ object WohlonnogondoniaWorldRootGrower {
                         voxels = voxels,
                         placed = placed,
                         scanCursor = t.getInt("cursor"),
-                        pendingBranches = pendingBranches,
-                        vinesDropped = t.getBoolean("vines"),
+                        hasSeed = t.getBoolean("seed"),
                     ))
                 }
                 return data
@@ -1059,9 +706,6 @@ object WohlonnogondoniaWorldRootGrower {
         }
     }
 
-    // ============================================================
-    //   Pack helpers
-    // ============================================================
     private fun packRegion(rx: Int, rz: Int): Long =
         (rx.toLong() and 0xFFFFFFFFL) or ((rz.toLong() and 0xFFFFFFFFL) shl 32)
 

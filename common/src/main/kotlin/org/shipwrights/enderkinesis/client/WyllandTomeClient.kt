@@ -233,9 +233,10 @@ object WyllandTomeClient {
             ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player,
         )
         val blockHit = level.clip(ctx)
-        if (blockHit.type == HitResult.Type.BLOCK) {
-            val bp = (blockHit as BlockHitResult).blockPos
-            val ship = level.getLoadedShipManagingPos(bp) ?: return
+        if (blockHit.type != HitResult.Type.BLOCK) return
+        val bp = (blockHit as BlockHitResult).blockPos
+        val ship = level.getLoadedShipManagingPos(bp)
+        if (ship != null) {
             // Re-derive the hit position in ship-frame, against the
             // block's actual outline voxelshape. Use the ship's render
             // transform on the client so the result matches what the
@@ -256,7 +257,19 @@ object WyllandTomeClient {
             val shipLoc = shipHit.location
             WyllandTomeNetwork.sendBeginGrabShip(ship.id, shipLoc.x, shipLoc.y, shipLoc.z)
             grabbing = true
+            return
         }
+        // Non-ship world block. The tome rips up a roughly-spherical
+        // chunk of the world centred on the click — bounded by an
+        // explosion-style raycast that respects each block's
+        // explosionResistance. Cheap pre-filter only (skip
+        // truly-unbreakable hits like bedrock); the server runs the
+        // actual sphere collection + assembly + grab.
+        val state = level.getBlockState(bp)
+        if (state.getDestroySpeed(level, bp) < 0f) return
+        val hit = blockHit.location
+        WyllandTomeNetwork.sendBeginGrabBlock(bp, hit.x, hit.y, hit.z)
+        grabbing = true
     }
 
     /** Vanilla-style entity pickup raycast — narrow box around the ray. */

@@ -42,7 +42,7 @@ class CrepusculiteLatticeForceInducer(
      * [dragCoefficient] lets us crank angular damping without also overdamping translation. Higher
      * default than the linear coefficient — the lattice fluid is meant to feel rotationally sticky.
      */
-    var angularDragCoefficient: Double = 1500.0,
+    var angularDragCoefficient: Double = 3000.0,
     /**
      * Depth (m) over which a block goes from "touching the surface" to "fully displacing". Larger
      * = softer, lower-stiffness buoyancy that is far easier to damp (and rides a touch deeper).

@@ -20,7 +20,7 @@ class EnderkinesisModFabric : ModInitializer {
     override fun onInitialize() {
         EnderkinesisMod.init()
 
-        val canSpawnIn: TagKey<Biome> = TagKey.create(
+val canSpawnIn: TagKey<Biome> = TagKey.create(
             Registries.BIOME, EnderkinesisMod.id("geode_can_spawn_in")
         )
         val geode = ResourceKey.create(

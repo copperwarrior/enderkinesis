@@ -53,7 +53,6 @@ class EnderkinesisModForgeClient {
         @JvmStatic
         fun registerAdditionalModels(event: ModelEvent.RegisterAdditional) {
             event.register(WyllandTomeBEWLR.ICON_MODEL_LOC)
-            event.register(WyllandTomeBEWLR.CLOSED_MODEL_LOC)
             event.register(WyllandTomeBEWLR.STATIC_MODEL_LOC)
             event.register(WyllandTomeBEWLR.PAGE3_MODEL_LOC)
             event.register(WyllandTomeBEWLR.PAGE4_MODEL_LOC)
@@ -68,7 +67,6 @@ class EnderkinesisModForgeClient {
         fun captureWyllandTomeBakes(event: ModelEvent.ModifyBakingResult) {
             val models = event.models
             WyllandTomeBEWLR.iconModel = models[WyllandTomeBEWLR.ICON_MODEL_LOC]
-            WyllandTomeBEWLR.closedModel = models[WyllandTomeBEWLR.CLOSED_MODEL_LOC]
             WyllandTomeBEWLR.staticModel = models[WyllandTomeBEWLR.STATIC_MODEL_LOC]
             WyllandTomeBEWLR.page3Model = models[WyllandTomeBEWLR.PAGE3_MODEL_LOC]
             WyllandTomeBEWLR.page4Model = models[WyllandTomeBEWLR.PAGE4_MODEL_LOC]

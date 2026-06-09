@@ -7,6 +7,7 @@ import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EnderAstrolabeBlockEntity
+import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AetherPadBlockEntity
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
@@ -32,6 +33,14 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::EnderAstrolabeBlockEntity, EKBlocks.ENDER_ASTROLABE.get()
             ).build(null) as BlockEntityType<EnderAstrolabeBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val EYEROSCOPE: RegistrySupplier<BlockEntityType<EyeroscopeBlockEntity>> =
+        BLOCK_ENTITIES.register("eyeroscope") {
+            BlockEntityType.Builder.of(
+                ::EyeroscopeBlockEntity, EKBlocks.EYEROSCOPE.get()
+            ).build(null) as BlockEntityType<EyeroscopeBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")

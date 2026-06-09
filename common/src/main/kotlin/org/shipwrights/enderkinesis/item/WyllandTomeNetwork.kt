@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.item
 
 import dev.architectury.networking.NetworkManager
 import java.util.UUID
+import net.minecraft.core.BlockPos
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
@@ -13,6 +14,8 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
  * **C2S** (client → server):
  *  - [BEGIN_GRAB_SHIP] — raycast found a ship; start grabbing.
  *  - [BEGIN_GRAB_ENTITY] — raycast found an entity; start grabbing.
+ *  - [BEGIN_GRAB_BLOCK] — raycast found a soft world block (or tree);
+ *    server assembles it into a ship, then grabs the new ship.
  *  - [RELEASE] — player let go of left-click.
  *  - [ROTATE_INPUT] — mouse delta (yaw + pitch degrees) while mod key
  *    is held + grab active.
@@ -27,6 +30,7 @@ object WyllandTomeNetwork {
 
     val BEGIN_GRAB_SHIP: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_ship")
     val BEGIN_GRAB_ENTITY: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_entity")
+    val BEGIN_GRAB_BLOCK: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_block")
     val RELEASE: ResourceLocation = EnderkinesisMod.id("wylland_tome/release")
     val ROTATE_INPUT: ResourceLocation = EnderkinesisMod.id("wylland_tome/rotate_input")
     val APPLY_ROLL: ResourceLocation = EnderkinesisMod.id("wylland_tome/apply_roll")
@@ -57,6 +61,14 @@ object WyllandTomeNetwork {
                     WyllandTomeManager.GrabTarget.Entity(uuid),
                 )
             }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, BEGIN_GRAB_BLOCK) { buf, ctx ->
+            val pos = buf.readBlockPos()
+            val hx = buf.readDouble()
+            val hy = buf.readDouble()
+            val hz = buf.readDouble()
+            val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            ctx.queue { WyllandTomeManager.beginGrabBlock(player, pos, hx, hy, hz) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, RELEASE) { _, ctx ->
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
@@ -100,6 +112,21 @@ object WyllandTomeNetwork {
         buf.writeLong(uuid.mostSignificantBits)
         buf.writeLong(uuid.leastSignificantBits)
         NetworkManager.sendToServer(BEGIN_GRAB_ENTITY, buf)
+    }
+
+    /** Raycast found a non-ship world block soft enough to rip up (hardness
+     *  below stone, or a tree-tagged block). Server assembles the block —
+     *  the whole tree if it's part of one — into a fresh VS2 ship and
+     *  immediately grabs it. World hit coords are the precise click point
+     *  on the block's outline; the server transforms them into ship-local
+     *  coords after assembly. */
+    fun sendBeginGrabBlock(pos: BlockPos, hitX: Double, hitY: Double, hitZ: Double) {
+        val buf = FriendlyByteBuf(io.netty.buffer.Unpooled.buffer())
+        buf.writeBlockPos(pos)
+        buf.writeDouble(hitX)
+        buf.writeDouble(hitY)
+        buf.writeDouble(hitZ)
+        NetworkManager.sendToServer(BEGIN_GRAB_BLOCK, buf)
     }
 
     fun sendRelease() {

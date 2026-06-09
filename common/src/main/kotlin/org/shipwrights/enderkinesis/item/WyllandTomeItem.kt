@@ -81,10 +81,14 @@ class WyllandTomeItem(properties: Properties) : TomeItem(properties) {
      *
      *  The repair amount comes from [SselithBookScore]: a long, well-
      *  written book *in Sselith* approaches a full repair, plain English
-     *  earns partial credit, and an empty book restores ≈ nothing. We
-     *  pass through (consuming nothing) when the tome is already
-     *  pristine, the other hand isn't a written book, or the book is
-     *  worthless — so a blank book is never eaten for no gain.
+     *  earns partial credit, and an empty book restores ≈ nothing.
+     *  Only the author's signed original counts in full — duplicated
+     *  books (generation ≥ 1) are scaled down by
+     *  [SselithBookScore.COPY_PENALTY] so the player can't just craft-
+     *  copy one masterwork into infinite repair. We pass through
+     *  (consuming nothing) when the tome is already pristine, the other
+     *  hand isn't a written book, or the book is worthless — so a blank
+     *  book or a heavily-penalised copy is never eaten for no gain.
      *
      *  Scoring is deterministic and runs on both sides, so the client's
      *  predicted swing matches the server's actual repair. */

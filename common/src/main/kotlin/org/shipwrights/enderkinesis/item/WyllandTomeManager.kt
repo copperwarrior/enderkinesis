@@ -5,6 +5,8 @@ import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import net.minecraft.core.BlockPos
+import net.minecraft.server.TickTask
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
@@ -14,6 +16,9 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.physics.WyllandTomeForceInducer
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.valkyrienskies.core.api.ships.LoadedServerShip
+import org.valkyrienskies.mod.common.assembly.ShipAssembler
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.mod.common.isBlockInShipyard
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 
@@ -99,40 +104,12 @@ object WyllandTomeManager {
             is GrabTarget.Ship -> {
                 val ship = player.serverLevel().shipObjectWorld
                     .loadedShips.getById(target.shipId) ?: return
-                // Refuse to grab a ship that's currently dragging the
-                // player — otherwise the player's "frame of reference"
-                // becomes the thing they're trying to throw around and
-                // the result is a feedback loop / teleport mess.
-                if (draggingShipIdOf(player) == ship.id) return
                 // Client sends ship-frame coords directly — see
                 // [WyllandTomeClient.tryBeginGrab]. The client re-runs
                 // the voxelshape clip in ship-frame so partial blocks
                 // (slabs, stairs) land exactly on the visible surface,
                 // sidestepping VS2's mixed-frame BlockHitResult.
-                val grabPointLocal = Vector3d(target.shipLocalX, target.shipLocalY, target.shipLocalZ)
-                val offset = Vector3d(grabPointLocal).sub(
-                    ship.transform.positionInShip
-                )
-                // World position only needed for the player-distance
-                // clamp at grab time.
-                val grabPointWorld = Vector3d(grabPointLocal)
-                ship.transform.shipToWorld.transformPosition(grabPointWorld)
-                val eye = player.eyePosition
-                val rawDist = grabPointWorld.distance(Vector3d(eye.x, eye.y, eye.z))
-                val dist = rawDist.coerceIn(
-                    WyllandTomeItem.MIN_GRAB_DISTANCE,
-                    WyllandTomeItem.MAX_GRAB_DISTANCE,
-                )
-                grabs[player.uuid] = Grab(
-                    shipId = ship.id,
-                    entityUuid = null,
-                    grabDistance = dist,
-                    localOffset = offset,
-                    idealRotation = Quaterniond(ship.transform.shipToWorldRotation),
-                    lastPlayerRot = playerRotToQuat(player.xRot.toDouble(), player.yRot.toDouble()),
-                    lastYRot = player.yRot,
-                    lastXRot = player.xRot,
-                )
+                grabLoadedShip(player, ship, target.shipLocalX, target.shipLocalY, target.shipLocalZ)
             }
             is GrabTarget.Entity -> {
                 val entity = (player.level() as ServerLevel)
@@ -154,6 +131,215 @@ object WyllandTomeManager {
                 )
             }
         }
+    }
+
+    /** Install a grab record on the player keyed to an already-resolved
+     *  loaded ship. Shared by the two entry points that get to this
+     *  point with different ship-handle origins: [beginGrab] looks the
+     *  ship up by id from a client packet; [beginGrabBlock] uses the
+     *  freshly-assembled ship returned by [ShipAssembler.assembleToShip]
+     *  directly (going through `loadedShips.getById` for that one fails
+     *  — the ship isn't published to the loaded-ships index until the
+     *  next tick, and the grab silently no-ops). */
+    private fun grabLoadedShip(
+        player: ServerPlayer,
+        ship: LoadedServerShip,
+        shipLocalX: Double, shipLocalY: Double, shipLocalZ: Double,
+    ) {
+        // Refuse to grab a ship that's currently dragging the player —
+        // otherwise the player's "frame of reference" becomes the thing
+        // they're trying to throw around and the result is a feedback
+        // loop / teleport mess.
+        if (draggingShipIdOf(player) == ship.id) return
+        val grabPointLocal = Vector3d(shipLocalX, shipLocalY, shipLocalZ)
+        val offset = Vector3d(grabPointLocal).sub(
+            ship.transform.positionInShip
+        )
+        // World position only needed for the player-distance clamp.
+        val grabPointWorld = Vector3d(grabPointLocal)
+        ship.transform.shipToWorld.transformPosition(grabPointWorld)
+        val eye = player.eyePosition
+        val rawDist = grabPointWorld.distance(Vector3d(eye.x, eye.y, eye.z))
+        val dist = rawDist.coerceIn(
+            WyllandTomeItem.MIN_GRAB_DISTANCE,
+            WyllandTomeItem.MAX_GRAB_DISTANCE,
+        )
+        grabs[player.uuid] = Grab(
+            shipId = ship.id,
+            entityUuid = null,
+            grabDistance = dist,
+            localOffset = offset,
+            idealRotation = Quaterniond(ship.transform.shipToWorldRotation),
+            lastPlayerRot = playerRotToQuat(player.xRot.toDouble(), player.yRot.toDouble()),
+            lastYRot = player.yRot,
+            lastXRot = player.xRot,
+        )
+    }
+
+    /** Euclidean radius of the rip-up sphere, in blocks. 2.5 keeps the
+     *  affected region inside a 5×5×5 bounding cube. The flood fill
+     *  caps the BFS frontier at this distance from the click target so
+     *  that a long, narrow strip of soft material (a buried wood beam,
+     *  a tunnel of dirt) doesn't turn into a giant string of a ship. */
+    private const val FLOOD_RADIUS: Double = 2.5
+
+    /** Explosion-resistance cutoff for "hard" materials that the flood
+     *  fill won't expand through. 6.0 is the resistance of stone — and
+     *  cobblestone, deepslate, andesite, granite, iron block, etc. —
+     *  putting wood logs (2.0), dirt (0.5) and leaves (0.2) on the soft
+     *  side. Hard blocks the flood reaches are included as the *skin*
+     *  of the rip, but they don't enqueue further neighbours; that's
+     *  what produces the "stone wall stops the flood" behaviour. */
+    private const val HARD_BLOCK_THRESHOLD: Float = 6.0f
+
+    /** Raycast hit a world block. Flood-fill outward from the click
+     *  target through connected solid blocks (face-neighbours, bounded
+     *  by [FLOOD_RADIUS] from the click), stopping at hard materials
+     *  and at air. Assemble that block set into a fresh VS2 ship and
+     *  hand it to the existing grab path.
+     *
+     *  Authoritative validation lives here: the click target must still
+     *  exist, be breakable, and not already belong to a ship. The client
+     *  does a cheap pre-filter so it doesn't spam packets on unbreakable
+     *  blocks, but a stale client view just no-ops here. */
+    fun beginGrabBlock(
+        player: ServerPlayer,
+        pos: BlockPos,
+        hitX: Double, hitY: Double, hitZ: Double,
+    ) {
+        if (player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return
+        if (WyllandTomeItem.isBroken(player.mainHandItem)) return
+        val level = player.serverLevel()
+        if (!level.isLoaded(pos)) return
+        // Already part of a ship — the regular ship-grab path handles
+        // these, we should not reach here from a sane client.
+        if (level.getLoadedShipManagingPos(pos) != null || level.isBlockInShipyard(pos)) return
+
+        val state = level.getBlockState(pos)
+        if (state.isAir) return
+        if (state.getDestroySpeed(level, pos) < 0f) return               // bedrock / unbreakable
+
+        val blocks = floodFillSphere(level, pos)
+        if (blocks.isEmpty()) return
+
+        val ship = ShipAssembler.assembleToShip(level, blocks, 1.0)
+        // Convert the world hit point into the new ship's shipyard
+        // (local) frame. The transform is set up by `assembleToShip`
+        // before it returns (kinematics are written via
+        // `unsafeSetKinematics`), so it's safe to read here even though
+        // the ship is not yet a `LoadedServerShip` — that promotion
+        // happens during VS2's next game-tick pass, which is also why
+        // the actual grab install must defer below.
+        val localHit = Vector3d(hitX, hitY, hitZ)
+        ship.transform.worldToShip.transformPosition(localHit)
+
+        // Defer the grab install. `ShipAssembler` creates the raw
+        // `ShipData` and writes its kinematics immediately, but the ship
+        // is not added to `shipObjectWorld.loadedShips` until VS2's
+        // server-world tick pass wraps it into a `ShipObjectServer`
+        // (`ShipObjectServerWorld._loadedShips.add(...)` in `preTick`,
+        // which runs at the HEAD of each `MinecraftServer.tickServer`).
+        // A single-tick delay *usually* clears that race, but not always:
+        // packet receivers can fire at varied points within the tick,
+        // and `preTick`'s mass-check (`mass < MIN_SHIP_MASS`) very
+        // occasionally pushes the load to a later tick if block updates
+        // haven't all flushed. Retry until the ship appears or we
+        // exhaust the budget — the existing client-side optimistic
+        // `grabbing = true` covers the visual gap.
+        scheduleAssembledShipGrab(
+            level.server, player.uuid, ship.id,
+            localHit.x, localHit.y, localHit.z,
+            GRAB_ASSEMBLY_RETRIES,
+        )
+    }
+
+    /** Ticks to keep retrying the post-assembly grab install before
+     *  giving up. 10 ticks = 500 ms at 20 tps. In practice the ship
+     *  appears in `loadedShips` after 1 tick; the budget is wide to
+     *  cover the mass-check edge case and any future scheduling change. */
+    private const val GRAB_ASSEMBLY_RETRIES: Int = 10
+
+    /** Reschedule a grab install one tick at a time until [shipId] is
+     *  resolvable via `loadedShips.getById`, or until [attemptsLeft]
+     *  hits zero. Validates the player is still holding the tome on
+     *  every attempt — if they put it away or it broke mid-wait, abort
+     *  silently (RELEASE from the client will already have cleared its
+     *  optimistic beam). If the budget runs out, send GRAB_END so the
+     *  client beam doesn't dangle forever. */
+    private fun scheduleAssembledShipGrab(
+        server: net.minecraft.server.MinecraftServer,
+        playerUuid: UUID,
+        shipId: Long,
+        lx: Double, ly: Double, lz: Double,
+        attemptsLeft: Int,
+    ) {
+        server.tell(TickTask(server.tickCount + 1) {
+            val p = server.playerList.getPlayer(playerUuid) ?: return@TickTask
+            if (p.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return@TickTask
+            if (WyllandTomeItem.isBroken(p.mainHandItem)) return@TickTask
+            val ship = p.serverLevel().shipObjectWorld.loadedShips.getById(shipId)
+            if (ship != null) {
+                grabLoadedShip(p, ship, lx, ly, lz)
+                return@TickTask
+            }
+            if (attemptsLeft > 1) {
+                scheduleAssembledShipGrab(server, playerUuid, shipId, lx, ly, lz, attemptsLeft - 1)
+            } else {
+                WyllandTomeNetwork.sendGrabEnd(p)
+            }
+        })
+    }
+
+    /** Connected flood fill outward from [origin] through solid blocks,
+     *  capped at [FLOOD_RADIUS] Euclidean blocks. Face-neighbour BFS so
+     *  a one-block-thick wall is enough to block the flood (a 26-neighbour
+     *  expansion would leak around corners). Reached blocks are added to
+     *  the result set; only *soft* blocks (`explosionResistance` below
+     *  [HARD_BLOCK_THRESHOLD]) enqueue further — hard blocks form the
+     *  outer skin of the rip but stop propagation, which is how walls
+     *  of stone bound the sphere without disappearing from it.
+     *
+     *  Air blocks and shipyard / loaded-ship blocks also bound the flood
+     *  (we don't traverse empty space and we won't suck blocks out of
+     *  someone else's hull). Unbreakable blocks (bedrock, etc.) get
+     *  rejected even if reached. */
+    private fun floodFillSphere(level: ServerLevel, origin: BlockPos): MutableSet<BlockPos> {
+        val seed = origin.immutable()
+        val included = HashSet<BlockPos>()
+        val visited = HashSet<BlockPos>()
+        included.add(seed)
+        visited.add(seed)
+        val queue = ArrayDeque<BlockPos>()
+        queue.add(seed)
+        val r2 = FLOOD_RADIUS * FLOOD_RADIUS
+        val offsets = arrayOf(
+            intArrayOf(1, 0, 0), intArrayOf(-1, 0, 0),
+            intArrayOf(0, 1, 0), intArrayOf(0, -1, 0),
+            intArrayOf(0, 0, 1), intArrayOf(0, 0, -1),
+        )
+        while (queue.isNotEmpty()) {
+            val p = queue.removeFirst()
+            for (off in offsets) {
+                val n = BlockPos(p.x + off[0], p.y + off[1], p.z + off[2])
+                if (!visited.add(n)) continue
+                val dx = (n.x - origin.x).toDouble()
+                val dy = (n.y - origin.y).toDouble()
+                val dz = (n.z - origin.z).toDouble()
+                if (dx * dx + dy * dy + dz * dz > r2) continue
+                val ns = level.getBlockState(n)
+                if (ns.isAir) continue
+                if (level.getLoadedShipManagingPos(n) != null) continue
+                if (level.isBlockInShipyard(n)) continue
+                if (ns.getDestroySpeed(level, n) < 0f) continue
+                val immutableN = n.immutable()
+                included.add(immutableN)
+                // Soft blocks keep the flood going; hard ones are skin only.
+                if (ns.block.explosionResistance < HARD_BLOCK_THRESHOLD) {
+                    queue.add(immutableN)
+                }
+            }
+        }
+        return included
     }
 
     /** Player let go of the grab key. */

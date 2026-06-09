@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.shaders.FogShape;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Camera;
@@ -27,19 +29,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(FogRenderer.class)
 public abstract class FogRendererSselithRepertoryMixin {
 
-    /** Distance at which fog starts thickening (clear before this). The original spec. */
     private static final float SSELITH_FOG_START = 16.0f;
-
-    /** Distance at which fog is fully opaque. The original spec. The CYLINDER shape we
-     *  push via the {@code @Redirect} below helps with *diagonal* vertices but can't make
-     *  axis-aligned vertices behave differently from SPHERE — that's a vanilla shader
-     *  limitation, accepted for now to keep the tight corridor-fade the dimension wants. */
     private static final float SSELITH_FOG_END = 64.0f;
 
-    /** Fog tint — pure warm yellow. Matches the biome JSON's {@code fog_color}
-     *  ({@code 0xFFE066}) pre-End-dimming, and the dimension's overall palette. The
-     *  *alpha* channel is set per-frame from {@link SselithRepertory#fogDensityAt} so the
-     *  fog effect tapers off with vertical distance from y=0. */
+    /** Pre-End-dimming biome fog_color (#FFE066). Alpha is set per-frame from
+     *  [SselithRepertory.fogDensityAt]. */
     private static final float SSELITH_FOG_R = 1.00f;
     private static final float SSELITH_FOG_G = 0.88f;
     private static final float SSELITH_FOG_B = 0.40f;
@@ -76,21 +70,25 @@ public abstract class FogRendererSselithRepertoryMixin {
      * here ensures the shader sees the correct {@link SselithRepertory#fogDensityAt}
      * alpha when it actually mixes the fog into the block colour.
      */
-    @Redirect(
+    @WrapOperation(
         method = "levelFogColor()V",
         at = @At(
             value = "INVOKE",
             target = "Lcom/mojang/blaze3d/systems/RenderSystem;setShaderFogColor(FFF)V"
         )
     )
-    private static void enderkinesis$applySselithFogAlpha(float r, float g, float b) {
+    private static void enderkinesis$applySselithFogAlpha(
+            float r, float g, float b, Operation<Void> original) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level != null && mc.level.dimension() == SselithRepertory.INSTANCE.getLEVEL_KEY()) {
             Camera camera = mc.gameRenderer.getMainCamera();
             float alpha = SselithRepertory.INSTANCE.fogDensityAt(camera.getPosition().y);
             RenderSystem.setShaderFogColor(r, g, b, alpha);
         } else {
-            RenderSystem.setShaderFogColor(r, g, b);
+            // Chain to the next @WrapOperation (or the original
+            // 3-arg call if none). The Wohlon biome wrapper sits
+            // on this same call site and handles its own check.
+            original.call(r, g, b);
         }
     }
 

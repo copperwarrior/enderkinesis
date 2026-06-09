@@ -24,6 +24,8 @@ import net.minecraft.world.level.levelgen.RandomState
 import net.minecraft.world.level.levelgen.blending.Blender
 import org.shipwrights.enderkinesis.registry.EKBlocks
 
+private typealias TunnelPath = WohlonnogondoniaSurfaceRoots.TunnelPath
+
 /**
  * Chunk generator for [Wohlonnogondonia] — an infinite dismal swamp.
  *
@@ -228,8 +230,11 @@ class WohlonnogondoniaChunkGenerator(
      *     cave wall instead of meeting it at a hard joint.
      *
      * The floor + ceiling Y are also mildly noise-perturbed per XZ
-     * column. The "heart" is the sea lantern at `(0, SEA_LEVEL_Y, 0)`
-     * — the cave's geometric centre.
+     * column. The "heart" is the Mother Tree's Heart of the Wild
+     * (the `mother = true` blockstate) at `(0, HEART_Y, 0)` — the
+     * cave's geometric centre, indestructible by any normal means
+     * and the trigger for [WohlonnogondoniaCatastrophe] if forcibly
+     * removed.
      */
     private fun centralCaveBlock(wx: Int, wy: Int, wz: Int): BlockState? {
         // Per-column ceiling / floor with noise-driven undulation.
@@ -246,7 +251,7 @@ class WohlonnogondoniaChunkGenerator(
         val dxz = Math.sqrt(wx.toDouble() * wx + wz.toDouble() * wz)
         // Origin column — let the centre always be inside the cave.
         if (dxz < 0.5) {
-            if (wx == 0 && wz == 0 && wy == HEART_Y) return SEA_LANTERN
+            if (wx == 0 && wz == 0 && wy == HEART_Y) return MOTHER_HEART
             return if (wy < SEA_LEVEL_Y) WATER else AIR
         }
         val angle = Math.atan2(wz.toDouble(), wx.toDouble())
@@ -274,14 +279,14 @@ class WohlonnogondoniaChunkGenerator(
         val effRadius = CAVE_BASE_RADIUS + angleNoise + bulge
         if (dxz > effRadius) return null
 
-        // Lantern (the "heart") sits at the cave's geometric centre
-        // [HEART_Y] — 4 blocks above sea level — and reads as a
-        // glowing block raised over the pool. Water still fills only
-        // up to sea level so the cave's pool surface aligns with the
-        // moat / river / heart-tunnel water outside; air fills the
-        // gap between sea level and the lantern, then continues up
-        // to the cave ceiling.
-        if (wx == 0 && wz == 0 && wy == HEART_Y) return SEA_LANTERN
+        // Mother Heart sits at the cave's geometric centre
+        // [HEART_Y] — 4 blocks above sea level — and reads as the
+        // ritual centrepiece raised over the pool. Water still fills
+        // only up to sea level so the cave's pool surface aligns with
+        // the moat / river / heart-tunnel water outside; air fills
+        // the gap between sea level and the heart, then continues
+        // up to the cave ceiling.
+        if (wx == 0 && wz == 0 && wy == HEART_Y) return MOTHER_HEART
         if (wy < SEA_LEVEL_Y) return WATER
         return AIR
     }
@@ -1208,7 +1213,7 @@ class WohlonnogondoniaChunkGenerator(
                 // Find the lowest leaf in this column — that's where we hang from.
                 var lowestLeafLY = -1
                 for (ly in 0 until span) {
-                    if (col[ly] === MANGROVE_LEAVES) { lowestLeafLY = ly; break }
+                    if (col[ly] === WOGOR_LEAVES) { lowestLeafLY = ly; break }
                 }
                 if (lowestLeafLY < 0) continue
                 // Effective surface for this column. Vines below the
@@ -1249,7 +1254,7 @@ class WohlonnogondoniaChunkGenerator(
         if (ly !in 0 until span) return
         val col = target[lx][lz]
         val existing = col[ly]
-        if (existing == null || existing === MANGROVE_LEAVES) {
+        if (existing == null || existing === WOGOR_LEAVES) {
             col[ly] = block
         }
     }
@@ -1273,7 +1278,7 @@ class WohlonnogondoniaChunkGenerator(
         if (col[ly] != null) return
         // 0.1 % chance of a sea lantern lighting up the canopy.
         col[ly] = if ((hash32(wx, wy, wz) and 0x3FF) == 0) SEA_LANTERN
-        else MANGROVE_LEAVES
+        else WOGOR_LEAVES
     }
 
     /** Deterministic hash → [0, 1). */
@@ -1361,41 +1366,32 @@ class WohlonnogondoniaChunkGenerator(
         paintRootVines(target, chunkX0, chunkZ0, minY, span)
     }
 
-    /** Cached tunnel paths, keyed by region (x, z). The value is the
-     *  array of all paths for that region — index 0 is the main tunnel,
-     *  the rest are branches that fork off mid-walk. An empty array
-     *  represents a "sparse gap" region with no tunnel network.
-     *  [ConcurrentHashMap] so C2ME workers can race harmlessly. */
+    /** Cached tunnel paths, keyed by region (x, z). Built via
+     *  [WohlonnogondoniaSurfaceRoots.buildPaths]. Empty array
+     *  represents a sparse-gap region. [ConcurrentHashMap] so C2ME
+     *  workers can race harmlessly. */
     private val tunnelPathCache:
-        java.util.concurrent.ConcurrentHashMap<Long, Array<TunnelPath>> =
+        java.util.concurrent.ConcurrentHashMap<Long, Array<WohlonnogondoniaSurfaceRoots.TunnelPath>> =
             java.util.concurrent.ConcurrentHashMap()
 
-    /** Get every tunnel path that originates in region `(regionX,
-     *  regionZ)` — the main tunnel plus its branches. Empty array means
-     *  the region is a sparse gap with no tunnels. */
-    private fun getTunnelPaths(regionX: Int, regionZ: Int): Array<TunnelPath> {
+    private fun getTunnelPaths(regionX: Int, regionZ: Int): Array<WohlonnogondoniaSurfaceRoots.TunnelPath> {
         val key = (regionX.toLong() and 0xFFFFFFFFL) shl 32 or
             (regionZ.toLong() and 0xFFFFFFFFL)
         val cached = tunnelPathCache[key]
         if (cached != null) return cached
-        val built = buildTunnelPaths(regionX, regionZ)
+        val built = WohlonnogondoniaSurfaceRoots.buildPaths(
+            regionX, regionZ,
+            heightAt = ::surfaceYAt,
+            yMin = 2,
+            yMax = MAX_BUILD_Y - 2,
+            motherTreeExclusionSq = TUNNEL_MOTHER_TREE_EXCLUSION_SQ,
+        )
         val race = tunnelPathCache.putIfAbsent(key, built) ?: built
         return race
     }
 
-    /**
-     * Construct every tunnel path that originates in region `(regionX,
-     *  regionZ)` — one main tunnel plus a handful of branches that fork
-     *  off the main at random midpoints.
-     *
-     * Pure function of `(regionX, regionZ)`: deterministic from the
-     * seed, thread-safe to call concurrently.
-     *
-     * Returns an empty array when the region is a "sparse gap" so the
-     * dimension reads as a busy *network* of tunnels with occasional
-     * clear patches, not a perfectly uniform grid.
-     */
-    private fun buildTunnelPaths(regionX: Int, regionZ: Int): Array<TunnelPath> {
+    @Suppress("unused")
+    private fun LEGACY_buildTunnelPaths(regionX: Int, regionZ: Int): Array<TunnelPath> {
         val seed = hash32(regionX, regionZ, 0x70F1FA52.toInt())
         if ((seed and 0xF) == 0) return EMPTY_TUNNEL_ARRAY   // ~6 % blank
 
@@ -1643,29 +1639,10 @@ class WohlonnogondoniaChunkGenerator(
         }
     }
 
-    /** A walked 3D path through the dimension, packed as
-     *  `[x0,y0,z0, x1,y1,z1, …]` so we don't pay a `Vec3i` per step.
-     *  Used now by root tunnels and rivers — the heart tunnel uses
-     *  its own [HeartSkeleton].
-     *
-     *  - `taperHeadSteps` ≥ 1: the FIRST that many sphere radii grow
-     *    from 0 → full (used by world-span roots whose head sprouts
-     *    from a parent thicker than the path itself).
-     *  - `taperTailSteps` ≥ 1: the LAST that many sphere radii shrink
-     *    from full → 1 (used by world-span roots whose tips emerge
-     *    into open air or water — so the root narrows to a point
-     *    instead of dead-ending as a stub). */
-    private class TunnelPath(
-        val points: IntArray,
-        val count: Int,
-        val taperHeadSteps: Int = 0,
-        val taperTailSteps: Int = 0,
-    )
-
-    /** Shared empty array returned for sparse-gap regions. Reusing one
-     *  instance lets the cache store "no paths here" without per-region
-     *  allocation. */
-    private val EMPTY_TUNNEL_ARRAY: Array<TunnelPath> = emptyArray()
+    /** Aliased to the source-of-truth [WohlonnogondoniaSurfaceRoots.TunnelPath]
+     *  so legacy chunkgen call sites (rivers, heart tunnel) keep working
+     *  unchanged. */
+    private val EMPTY_TUNNEL_ARRAY: Array<TunnelPath> = WohlonnogondoniaSurfaceRoots.EMPTY_PATHS
 
     // ------------------------------------------------------------------------
     //   rivers radiating from the moat
@@ -3500,11 +3477,17 @@ class WohlonnogondoniaChunkGenerator(
         private val BEDROCK: BlockState = Blocks.BEDROCK.defaultBlockState()
         private val MUD: BlockState = Blocks.MUD.defaultBlockState()
         private val WATER: BlockState = Blocks.WATER.defaultBlockState()
-        private val MANGROVE_LEAVES: BlockState = Blocks.MANGROVE_LEAVES.defaultBlockState()
-            .setValue(BlockStateProperties.PERSISTENT, true)
+        /** Wogor leaves block state for the Mother Tree canopy.
+         *  Lazy because EKBlocks registration runs at mod-init —
+         *  same constraint as [WOGOR_LOG_Y] below. */
+        private val WOGOR_LEAVES: BlockState by lazy {
+            EKBlocks.WOGOR_LEAVES.get().defaultBlockState()
+                .setValue(BlockStateProperties.PERSISTENT, true)
+        }
         /** Sea lantern — vanilla emissive block. Sprinkled at ~0.1 % of
          *  canopy leaves so the tree glows at night. */
         private val SEA_LANTERN: BlockState = Blocks.SEA_LANTERN.defaultBlockState()
+
 
         // Lazy because EKBlocks registration runs at mod-init; these references must
         // not be resolved before that. Object companion `val` initialisers fire on
@@ -3513,6 +3496,20 @@ class WohlonnogondoniaChunkGenerator(
             EKBlocks.WOGOR_LOG.get().defaultBlockState()
                 .setValue(RotatedPillarBlock.AXIS, net.minecraft.core.Direction.Axis.Y)
         }
+
+        /** The Mother Tree's Heart of the Wild — placed at
+         *  `(0, HEART_Y, 0)`, which is also the dim's heart-return
+         *  portal position (see
+         *  [org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager]).
+         *  The BER renders it at 2× scale; the
+         *  [org.shipwrights.enderkinesis.block.HeartOfTheWildBlock]
+         *  destroy guards + catastrophe trigger arm. Lazy for the
+         *  same reason as the rest of these EK block constants. */
+        private val MOTHER_HEART: BlockState by lazy {
+            EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState()
+                .setValue(org.shipwrights.enderkinesis.block.HeartOfTheWildBlock.MOTHER, true)
+        }
+
         private val WOGOR_LOG_X: BlockState by lazy {
             EKBlocks.WOGOR_LOG.get().defaultBlockState()
                 .setValue(RotatedPillarBlock.AXIS, net.minecraft.core.Direction.Axis.X)

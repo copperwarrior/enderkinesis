@@ -30,6 +30,7 @@ object EKCreativeTab {
             output.accept(EKItems.CREPUSCULITE_GLASS_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_LATTICE_ITEM.get())
             output.accept(EKItems.ENDER_ASTROLABE_ITEM.get())
+            output.accept(EKItems.EYEROSCOPE_ITEM.get())
             output.accept(EKItems.PURPUR_BALLAST_ITEM.get())
             output.accept(EKItems.PLANAR_ANCHOR_ITEM.get())
             output.accept(EKItems.ANCRITE_CHAIN_ITEM.get())
@@ -71,6 +72,24 @@ object EKCreativeTab {
             output.accept(EKItems.TOME_OF_HINGING.get())
             output.accept(EKItems.TOME_OF_DISINTEGRATION.get())
             output.accept(EKItems.TOME_OF_FILTERING.get())
+
+            // Prismatic-goat-horn variants — 19 ItemStacks, one per
+            // cave instrument, the same way vanilla shows 8 distinct
+            // goat-horn stacks. The `instrument` NBT key is a plain
+            // string (the instrument's ResourceLocation) — see
+            // `InstrumentItem.setSoundVariantId` — so we don't need a
+            // holder lookup. That's important: our 19 instruments are
+            // datapack-loaded (`data/enderkinesis/instrument/cave_*.json`)
+            // and live in the world's RegistryAccess, not the
+            // built-in registry the Architectury modify callback has
+            // access to. Hand-building the NBT bypasses the lookup
+            // and works regardless of when the callback fires.
+            for (idx in 1..19) {
+                val stack = ItemStack(EKItems.PRISMATIC_GOAT_HORN.get())
+                stack.orCreateTag.putString("instrument", "enderkinesis:cave_$idx")
+                output.accept(stack)
+            }
+
             // Cataloger spawn egg intentionally NOT added here — it
             // lives in the vanilla Spawn Eggs tab below.
         }
