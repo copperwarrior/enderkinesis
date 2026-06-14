@@ -6,10 +6,11 @@ import dev.architectury.event.events.common.TickEvent
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
-import net.minecraft.server.TickTask
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
+import net.minecraft.world.entity.projectile.Projectile
 import net.minecraft.world.phys.Vec3
 import org.joml.Quaterniond
 import org.joml.Vector3d
@@ -73,6 +74,17 @@ object WyllandTomeManager {
          *  for the entity grab path which has no quaternion concept. */
         var lastYRot: Float = 0f,
         var lastXRot: Float = 0f,
+        /** Ticks of grace remaining for a freshly-assembled ship to show up
+         *  in `loadedShips`. While > 0, a null `loadedShips.getById(shipId)`
+         *  is treated as "not yet promoted" rather than "gone" so the grab
+         *  is held in place until VS2's preTick wraps it into a
+         *  `LoadedServerShip`. Zero for regular grabs (the ship was already
+         *  loaded at grab time, missing it means gone). */
+        var loadGraceTicks: Int = 0,
+        /** Captured world-space anchor used while the ship hasn't loaded
+         *  yet — sent to the client as the beam endpoint so the visual
+         *  doesn't dangle at (0,0,0) during the grace window. */
+        val pendingAnchor: Vector3d = Vector3d(),
     )
 
     private val grabs = ConcurrentHashMap<UUID, Grab>()
@@ -129,6 +141,12 @@ object WyllandTomeManager {
                     lastYRot = player.yRot,
                     lastXRot = player.xRot,
                 )
+                // Mirror vanilla deflection (AbstractHurtingProjectile#hurt → setOwner): a
+                // grabbed ghast fireball / dragon fireball / wither skull should hereafter
+                // count as "thrown by the player", so kills attribute to the player and the
+                // projectile won't pop on its original owner. Per-tick re-aim of velocity
+                // and xPower/yPower/zPower lives in [applyToEntity].
+                if (entity is AbstractHurtingProjectile) entity.owner = player
             }
         }
     }
@@ -228,66 +246,70 @@ object WyllandTomeManager {
         // before it returns (kinematics are written via
         // `unsafeSetKinematics`), so it's safe to read here even though
         // the ship is not yet a `LoadedServerShip` — that promotion
-        // happens during VS2's next game-tick pass, which is also why
-        // the actual grab install must defer below.
+        // happens during VS2's next game-tick pass.
         val localHit = Vector3d(hitX, hitY, hitZ)
         ship.transform.worldToShip.transformPosition(localHit)
 
-        // Defer the grab install. `ShipAssembler` creates the raw
-        // `ShipData` and writes its kinematics immediately, but the ship
-        // is not added to `shipObjectWorld.loadedShips` until VS2's
-        // server-world tick pass wraps it into a `ShipObjectServer`
-        // (`ShipObjectServerWorld._loadedShips.add(...)` in `preTick`,
-        // which runs at the HEAD of each `MinecraftServer.tickServer`).
-        // A single-tick delay *usually* clears that race, but not always:
-        // packet receivers can fire at varied points within the tick,
-        // and `preTick`'s mass-check (`mass < MIN_SHIP_MASS`) very
-        // occasionally pushes the load to a later tick if block updates
-        // haven't all flushed. Retry until the ship appears or we
-        // exhaust the budget — the existing client-side optimistic
-        // `grabbing = true` covers the visual gap.
-        scheduleAssembledShipGrab(
-            level.server, player.uuid, ship.id,
+        // Install the grab record IMMEDIATELY. The previous scheme
+        // deferred install via a tick-task that polled `loadedShips`,
+        // which left the player without a working grab for at least one
+        // tick (and sometimes more, when VS2's preTick mass-check
+        // bounced the promotion to a later tick). With the grab record
+        // in place from the moment of assembly, all client inputs
+        // (rotate, scroll, distance) accumulate from t=0 and the beam
+        // visual lines up with a real grab record — applyGrab tolerates
+        // a null `loadedShips.getById` lookup for [LOAD_GRACE_TICKS]
+        // ticks so the wait for VS2 promotion happens transparently.
+        installFreshlyAssembledGrab(player, ship,
             localHit.x, localHit.y, localHit.z,
-            GRAB_ASSEMBLY_RETRIES,
-        )
+            hitX, hitY, hitZ)
     }
 
-    /** Ticks to keep retrying the post-assembly grab install before
-     *  giving up. 10 ticks = 500 ms at 20 tps. In practice the ship
-     *  appears in `loadedShips` after 1 tick; the budget is wide to
-     *  cover the mass-check edge case and any future scheduling change. */
-    private const val GRAB_ASSEMBLY_RETRIES: Int = 10
+    /** Grace window (ticks) we allow a freshly-assembled ship to take
+     *  before it shows up in `loadedShips`. In practice it lands on the
+     *  next tick; the wide budget (3 s at 20 tps) covers the mass-check
+     *  edge case where VS2 delays the promotion until block updates have
+     *  flushed. The grab record stays installed during the wait, so
+     *  inputs are accumulated and the beam reads as connected. */
+    private const val LOAD_GRACE_TICKS: Int = 60
 
-    /** Reschedule a grab install one tick at a time until [shipId] is
-     *  resolvable via `loadedShips.getById`, or until [attemptsLeft]
-     *  hits zero. Validates the player is still holding the tome on
-     *  every attempt — if they put it away or it broke mid-wait, abort
-     *  silently (RELEASE from the client will already have cleared its
-     *  optimistic beam). If the budget runs out, send GRAB_END so the
-     *  client beam doesn't dangle forever. */
-    private fun scheduleAssembledShipGrab(
-        server: net.minecraft.server.MinecraftServer,
-        playerUuid: UUID,
-        shipId: Long,
-        lx: Double, ly: Double, lz: Double,
-        attemptsLeft: Int,
+    /** Install the grab record using a fresh [ServerShip] (i.e. one that
+     *  has not yet been wrapped into a `LoadedServerShip`). Shares the
+     *  rotation / offset / distance math with [grabLoadedShip] but reads
+     *  off the raw ServerShip's transform (which is fully populated by
+     *  `assembleToShip` before it returns), and sets [LOAD_GRACE_TICKS]
+     *  so the grab survives the wait for VS2's preTick promotion. */
+    private fun installFreshlyAssembledGrab(
+        player: ServerPlayer,
+        ship: org.valkyrienskies.core.api.ships.ServerShip,
+        shipLocalX: Double, shipLocalY: Double, shipLocalZ: Double,
+        worldHitX: Double, worldHitY: Double, worldHitZ: Double,
     ) {
-        server.tell(TickTask(server.tickCount + 1) {
-            val p = server.playerList.getPlayer(playerUuid) ?: return@TickTask
-            if (p.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return@TickTask
-            if (WyllandTomeItem.isBroken(p.mainHandItem)) return@TickTask
-            val ship = p.serverLevel().shipObjectWorld.loadedShips.getById(shipId)
-            if (ship != null) {
-                grabLoadedShip(p, ship, lx, ly, lz)
-                return@TickTask
-            }
-            if (attemptsLeft > 1) {
-                scheduleAssembledShipGrab(server, playerUuid, shipId, lx, ly, lz, attemptsLeft - 1)
-            } else {
-                WyllandTomeNetwork.sendGrabEnd(p)
-            }
-        })
+        // Self-grab guard — same rule as [grabLoadedShip].
+        if (draggingShipIdOf(player) == ship.id) return
+        val grabPointLocal = Vector3d(shipLocalX, shipLocalY, shipLocalZ)
+        val offset = Vector3d(grabPointLocal).sub(ship.transform.positionInShip)
+        val eye = player.eyePosition
+        val dx = worldHitX - eye.x
+        val dy = worldHitY - eye.y
+        val dz = worldHitZ - eye.z
+        val rawDist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        val dist = rawDist.coerceIn(
+            WyllandTomeItem.MIN_GRAB_DISTANCE,
+            WyllandTomeItem.MAX_GRAB_DISTANCE,
+        )
+        grabs[player.uuid] = Grab(
+            shipId = ship.id,
+            entityUuid = null,
+            grabDistance = dist,
+            localOffset = offset,
+            idealRotation = Quaterniond(ship.transform.shipToWorldRotation),
+            lastPlayerRot = playerRotToQuat(player.xRot.toDouble(), player.yRot.toDouble()),
+            lastYRot = player.yRot,
+            lastXRot = player.xRot,
+            loadGraceTicks = LOAD_GRACE_TICKS,
+            pendingAnchor = Vector3d(worldHitX, worldHitY, worldHitZ),
+        )
     }
 
     /** Connected flood fill outward from [origin] through solid blocks,
@@ -522,12 +544,30 @@ object WyllandTomeManager {
         if (g.shipId != null) {
             val ship = level.shipObjectWorld.loadedShips.getById(g.shipId!!)
             if (ship == null) {
+                // Freshly-assembled ships take at least one tick to be
+                // promoted into `loadedShips`. Hold the grab record open
+                // for [LOAD_GRACE_TICKS] ticks while we wait; the client
+                // beam keeps pointing at the captured initial anchor so
+                // the visual reads as a continuous connection.
+                if (g.loadGraceTicks > 0) {
+                    g.loadGraceTicks--
+                    WyllandTomeNetwork.sendGrabPointSync(
+                        player,
+                        g.shipId,
+                        g.pendingAnchor.x, g.pendingAnchor.y, g.pendingAnchor.z,
+                        target.x, target.y, target.z,
+                    )
+                    return
+                }
                 grabs.remove(player.uuid)
                 // Ship gone — nothing to deactivate; the attachment died
                 // with the ship. Client still needs to clear its beam.
                 WyllandTomeNetwork.sendGrabEnd(player)
                 return
             }
+            // Ship is now loaded — clear the grace so any later
+            // disappearance is treated as "gone" and severs the grab.
+            g.loadGraceTicks = 0
             // Cut the connection if the player has stepped onto / been
             // mounted to the ship they're holding — same reasoning as in
             // beginGrab.
@@ -628,16 +668,48 @@ object WyllandTomeManager {
         val dz = target.z - pos.z
         // Set velocity directly — entities are far lighter than ships so a
         // stiffer spring keeps them locked under the cursor without lag.
-        entity.deltaMovement = Vec3(
+        val motion = Vec3(
             dx * WyllandTomeItem.SPRING_STIFFNESS,
             dy * WyllandTomeItem.SPRING_STIFFNESS,
             dz * WyllandTomeItem.SPRING_STIFFNESS,
         )
+        entity.deltaMovement = motion
         entity.fallDistance = 0f
         entity.hurtMarked = true
-        // Yaw only — pitch on mob models looks broken (head decoupled
-        // from body, etc.) and serves no game purpose.
-        if (yawDeg != 0.0) {
+        if (entity is Projectile) {
+            // Arrows/tridents/etc. use their yRot/xRot to drive both the visual orientation
+            // AND vanilla's next-tick re-aim (AbstractArrow#tick re-derives heading from
+            // rotation when no acceleration is set). Without this, a grabbed arrow keeps
+            // pointing the way it was originally fired, drifts off the motion vector, and
+            // can fly sideways on release. Re-orient to the motion direction whenever the
+            // motion is non-degenerate; below that floor the previous orientation is the
+            // best guess.
+            val mLenSq = motion.lengthSqr()
+            if (mLenSq > 1e-8) {
+                val mLen = Math.sqrt(mLenSq)
+                val horiz = Math.sqrt(motion.x * motion.x + motion.z * motion.z)
+                val degPerRad = 180.0 / Math.PI
+                entity.yRot = (Math.atan2(motion.x, motion.z) * degPerRad).toFloat()
+                entity.xRot = (Math.atan2(motion.y, horiz) * degPerRad).toFloat()
+                entity.yRotO = entity.yRot
+                entity.xRotO = entity.xRot
+                // Ghast / dragon fireballs and wither skulls extend AbstractHurtingProjectile,
+                // whose tick adds (xPower, yPower, zPower) to deltaMovement EVERY frame. The
+                // velocity we just set is undone next tick unless we re-aim that acceleration
+                // too — otherwise the fireball nudges back toward its original heading and on
+                // release flies off in the wrong direction. Match vanilla's launch convention
+                // of `dir.normalized * 0.1` so the released fireball cruises at fireball-y
+                // speed in the cursor direction.
+                if (entity is AbstractHurtingProjectile) {
+                    val inv = 0.1 / mLen
+                    entity.xPower = motion.x * inv
+                    entity.yPower = motion.y * inv
+                    entity.zPower = motion.z * inv
+                }
+            }
+        } else if (yawDeg != 0.0) {
+            // Yaw only — pitch on mob models looks broken (head decoupled
+            // from body, etc.) and serves no game purpose.
             entity.yRot = (entity.yRot + yawDeg.toFloat())
             entity.yRotO = entity.yRot
         }

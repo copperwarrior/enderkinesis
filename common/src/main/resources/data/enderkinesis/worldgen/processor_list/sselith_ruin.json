@@ -1,0 +1,5 @@
+{
+  "processors": [
+    { "processor_type": "enderkinesis:sselith_ruin_lectern" }
+  ]
+}

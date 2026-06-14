@@ -118,7 +118,9 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
     /** Per-orb state — base mover bookkeeping (cursor + in-flight pending) plus the drop
      *  queue and per-block mining progress that Disintegration needs. */
     class DisintegrationState : MoverState() {
-        /** Items waiting to be dispatched. Fed by [runBeam], drained by [pullSourceStack]. */
+        /** Items waiting to be dispatched. Fed by [runBeam], drained by [pullSourceStack].
+         *  Wiped at the end of every [serverTick]: anything not dispatched in the same
+         *  tick it was produced is disintegrated, not held over. */
         val dropQueue: ArrayDeque<ItemStack> = ArrayDeque()
         /** Accumulated mining ticks per block currently being chewed. Cleared on destroy. */
         val mining: MutableMap<BlockPos, Float> = HashMap()
@@ -130,6 +132,11 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val state = sendBe.tomeState(this) as? DisintegrationState ?: return
         runBeam(level, sendBe, state)
         super.serverTick(level, sendBe)
+        // Drop queue is the "couldn't push immediately" buffer; the orb's contract is to
+        // disintegrate anything that can't be routed in the same tick it was produced.
+        // Whatever survived dispatch (receiver full, no receiver linked, item left after
+        // the dispatcher's per-tick budget, bounce-back from a refused push) gets dropped.
+        state.dropQueue.clear()
     }
 
     // -----------------------------------------------------------------------------------------
@@ -170,6 +177,18 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
                 mineCylinder(level, state, localFrom, localBeamEnd, sendPos, receiverPos, book, emptyList(),
                     sendFilter, recvFilter)
                 worldBeamEnd = localToWorld(coShip, localBeamEnd)
+                // Same-ship beams still need to chew through any OTHER ship (or world block)
+                // physically between the two orbs — without this second world-frame pass the
+                // beam was invisible to anything outside coShip's shipyard frame. Excluding
+                // coShip from `shipsInRange` keeps the local pass canonical for coShip's own
+                // blocks; the world fallback inside [resolveBlockAt] returns air at world
+                // cells where coShip occupies space (its blocks live in shipyard chunks, not
+                // at the world cell), so the only candidates this pass produces are other-
+                // ship blocks and any real world terrain the beam crosses.
+                val otherShipsInRange = shipsOverlappingBeam(level, sendCentre, worldBeamEnd)
+                    .filter { it.id != coShip.id }
+                mineCylinder(level, state, sendCentre, worldBeamEnd, sendPos, receiverPos, book,
+                    otherShipsInRange, sendFilter, recvFilter)
             } else {
                 val shipsInRange = shipsOverlappingBeam(level, sendCentre, recvCentre)
                 worldBeamEnd = findBeamEnd(level, sendCentre, recvCentre, sendPos, receiverPos, shipsInRange)
@@ -661,16 +680,12 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         return head.copy().also { it.count = 1 }
     }
 
-    /** Bounce-back lands at the head of the queue, not in a SEND-side container — the
-     *  disintegration tome has no container concept on the SEND side. Re-dispatch picks
-     *  it up next tick. */
+    /** Bounce-back: the receiver refused the stack mid-dispatch. The disintegration tome
+     *  doesn't buffer — if it couldn't land in an inventory this tick, it disintegrates.
+     *  Return [ItemStack.EMPTY] so the dispatcher considers the stack consumed. */
     override fun pushBackToSource(
         level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, stack: ItemStack,
-    ): ItemStack {
-        val state = sendBe.tomeState(this) as? DisintegrationState ?: return stack
-        state.dropQueue.addFirst(stack.copy())
-        return ItemStack.EMPTY
-    }
+    ): ItemStack = ItemStack.EMPTY
 
     /** Standard item-aware receiver check, mirroring Transportation: container at the
      *  receiver's active face, room for *this* item, and the RECEIVE-orb filter (if any)

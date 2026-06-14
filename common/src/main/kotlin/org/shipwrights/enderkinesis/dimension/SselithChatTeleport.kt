@@ -9,8 +9,8 @@ import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.level.Level
-import net.minecraft.world.level.block.Blocks
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 
@@ -18,12 +18,14 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * Chat-phrase teleport in/out of Sselith's Repertory.
  *
  *  - **Outbound** (any dimension except Sselith): chat containing all
- *    four [CANONICAL_WORDS] in order as consecutive whitespace-
- *    separated tokens (anywhere within a longer message), within 2
- *    blocks of [MIN_BOOKSHELVES] or more bookshelves, saves the
- *    player's current dimension/position/rotation, then teleports
- *    them to [SSELITH_ARRIVAL] in Sselith. Bookshelf scan covers
- *    both world-frame blocks and blocks on intersecting VS2 ships.
+ *    five [CANONICAL_WORDS] in order as consecutive whitespace-
+ *    separated tokens (anywhere within a longer message), inside a
+ *    7×5×7 box (H=3, V=2) around the player containing at least
+ *    [MIN_BOOKSHELVES] **Sselith bookshelves** ([EKBlocks.SSELITH_BOOKSHELF]
+ *    only — vanilla bookshelves do not qualify), saves the player's
+ *    current dimension/position/rotation, then teleports them to
+ *    [SSELITH_ARRIVAL] in Sselith. Bookshelf scan covers both world-
+ *    frame blocks and blocks on intersecting VS2 ships.
  *  - **Inbound** (in Sselith): same phrase rule teleports the player
  *    back to the last saved location. The save is consumed on use;
  *    if no save exists the phrase is a no-op.
@@ -51,8 +53,13 @@ object SselithChatTeleport {
         "moroch",
     )
 
-    /** Chebyshev radius (blocks) of the bookshelf scan around the player. */
-    private const val BOOKSHELF_RADIUS = 2
+    /** Horizontal Chebyshev radius (blocks) of the bookshelf scan — the
+     *  X/Z half-width around the player's block position. The scan box
+     *  is (2·H + 1) on X and Z, (2·V + 1) on Y → 7×5×7 at H=3, V=2. */
+    private const val BOOKSHELF_RADIUS_H = 3
+
+    /** Vertical Chebyshev radius (blocks) of the bookshelf scan. */
+    private const val BOOKSHELF_RADIUS_V = 2
 
     /** Minimum bookshelves the scan must find to enable an outbound teleport. */
     private const val MIN_BOOKSHELVES = 4
@@ -114,10 +121,10 @@ object SselithChatTeleport {
         return true
     }
 
-    /** Counts bookshelves in a (2*[BOOKSHELF_RADIUS]+1)^3 box around the
-     *  player's block position. Counts world-frame blocks AND blocks on any
-     *  VS2 ship whose world AABB intersects the box. Short-circuits as soon
-     *  as the count reaches [MIN_BOOKSHELVES]. */
+    /** Counts bookshelves in a (2·H+1)×(2·V+1)×(2·H+1) box around the
+     *  player's block position — currently 7×5×7. Counts world-frame
+     *  blocks AND blocks on any VS2 ship whose world AABB intersects the
+     *  box. Short-circuits as soon as the count reaches [MIN_BOOKSHELVES]. */
     private fun hasEnoughBookshelves(player: ServerPlayer): Boolean {
         val level = player.level() as? ServerLevel ?: return false
         val px = Math.floor(player.x).toInt()
@@ -128,9 +135,9 @@ object SselithChatTeleport {
 
         // World-frame pass — skips positions that belong to a ship (those are
         // counted in the ship pass via ship-frame coords).
-        for (x in (px - BOOKSHELF_RADIUS)..(px + BOOKSHELF_RADIUS)) {
-            for (y in (py - BOOKSHELF_RADIUS)..(py + BOOKSHELF_RADIUS)) {
-                for (z in (pz - BOOKSHELF_RADIUS)..(pz + BOOKSHELF_RADIUS)) {
+        for (x in (px - BOOKSHELF_RADIUS_H)..(px + BOOKSHELF_RADIUS_H)) {
+            for (y in (py - BOOKSHELF_RADIUS_V)..(py + BOOKSHELF_RADIUS_V)) {
+                for (z in (pz - BOOKSHELF_RADIUS_H)..(pz + BOOKSHELF_RADIUS_H)) {
                     val pos = BlockPos(x, y, z)
                     if (level.getLoadedShipManagingPos(pos) != null) continue
                     if (isBookshelf(level, pos)) {
@@ -144,12 +151,12 @@ object SselithChatTeleport {
         // Ship-frame pass — for each ship whose worldAABB intersects the
         // scan box, transform the box to ship frame, scan, re-verify world
         // coords are inside the original box.
-        val scanMinX = (px - BOOKSHELF_RADIUS).toDouble()
-        val scanMaxX = (px + BOOKSHELF_RADIUS + 1).toDouble()
-        val scanMinY = (py - BOOKSHELF_RADIUS).toDouble()
-        val scanMaxY = (py + BOOKSHELF_RADIUS + 1).toDouble()
-        val scanMinZ = (pz - BOOKSHELF_RADIUS).toDouble()
-        val scanMaxZ = (pz + BOOKSHELF_RADIUS + 1).toDouble()
+        val scanMinX = (px - BOOKSHELF_RADIUS_H).toDouble()
+        val scanMaxX = (px + BOOKSHELF_RADIUS_H + 1).toDouble()
+        val scanMinY = (py - BOOKSHELF_RADIUS_V).toDouble()
+        val scanMaxY = (py + BOOKSHELF_RADIUS_V + 1).toDouble()
+        val scanMinZ = (pz - BOOKSHELF_RADIUS_H).toDouble()
+        val scanMaxZ = (pz + BOOKSHELF_RADIUS_H + 1).toDouble()
 
         for (ship in level.shipObjectWorld.allShips) {
             val sa = ship.worldAABB
@@ -199,7 +206,7 @@ object SselithChatTeleport {
 
     private fun isBookshelf(level: ServerLevel, pos: BlockPos): Boolean {
         val block = level.getBlockState(pos).block
-        return block === Blocks.BOOKSHELF || block === Blocks.CHISELED_BOOKSHELF
+        return block === EKBlocks.SSELITH_BOOKSHELF.get()
     }
 
     /** True when [message] contains all five [CANONICAL_WORDS] in

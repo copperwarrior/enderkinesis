@@ -2,6 +2,8 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.item.ItemStack
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Signal — first member of the orb-tome suite. Wires a SEND orb's strongest neighbour
@@ -32,6 +34,26 @@ class TomeOfSignalItem(properties: Properties) : LinkingTomeItem(properties) {
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, SignalTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 0.5, cohesion = 0.85, frequency = 0.5, reciprocal = false,
+                ),
+            )
+            // Dynamic scaling: progression and frequency ramp with the RECEIVE end's POWER
+            // (Signal mirrors SEND power across the link, so receiver POWER is the visible
+            // "signal arrived" reading). Cohesion stays tight at every signal level —
+            // Signal's pulses always read as a thin, focused red wire.
+            TomePulseProfiles.registerAdjuster(TOME_KIND) { base, level, _, recvPos ->
+                val state = level.getBlockState(recvPos)
+                val power = if (state.hasProperty(org.shipwrights.enderkinesis.block.OrbOfLinkingBlock.POWER))
+                    state.getValue(org.shipwrights.enderkinesis.block.OrbOfLinkingBlock.POWER) else 0
+                val s = power / 15.0
+                base.copy(
+                    progression = base.progression + (1.8 - base.progression) * s,
+                    frequency = base.frequency + (2.5 - base.frequency) * s,
+                )
+            }
         }
     }
 }

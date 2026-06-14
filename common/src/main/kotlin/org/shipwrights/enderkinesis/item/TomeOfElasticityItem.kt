@@ -5,6 +5,8 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Elasticity — a **spring** between two orbs. Each (send, receiver) pair becomes a
@@ -55,6 +57,12 @@ class TomeOfElasticityItem(properties: Properties) : LinkingTomeItem(properties)
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, ElasticityTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 1.5, cohesion = 0.85, frequency = 1.0, reciprocal = true,
+                ),
+            )
         }
     }
 }

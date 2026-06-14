@@ -46,9 +46,11 @@ object Sselith {
      */
     fun translate(english: String): String {
         if (english.isEmpty()) return english
-        val (clean, slots) = stripFormatTokens(english)
+        val (afterInvocation, invocationSlots) = stripInvocationPhrase(english)
+        val (clean, slots) = stripFormatTokens(afterInvocation)
         val translated = clean.split("\n").joinToString("\n") { translateLine(it) }
-        return reinsertFormatTokens(translated, slots)
+        val withFormats = reinsertFormatTokens(translated, slots)
+        return reinsertFormatTokens(withFormats, invocationSlots)
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -731,6 +733,265 @@ object Sselith {
         var s = minOf(markerHits, 2) * 0.22
         if (SSELITH_ENDINGS.any { t.endsWith(it) }) s += 0.25
         return s.coerceAtMost(0.6)
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Sselith → English (reverse translation)
+    //
+    // Powers the Scroll of Unravelling. The dictionary is the same one the
+    // forward translator uses, just inverted: each `lexicon[en] = {sselith}`
+    // entry contributes an `english <- sselith` reverse mapping. Sselith
+    // suffixes/prefixes map back to standard English morphology (PL → -s,
+    // PAST → -ed, PROG → -ing, NEG → un-, …). Per-call randomness gives
+    // progressive reveal without any per-book state — each pass flips
+    // ~[fraction] of the still-Sselith tokens, and untranslated forms
+    // simply pass through, so repeat calls converge naturally to English.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private data class ReverseEntry(val english: String, val pos: String)
+
+    /** Sselith surface form (lowercased) → English lemma + POS. First-wins
+     *  on collisions; the lexicon does have a handful of synonyms mapped
+     *  to the same Sselith stem, but for player-facing reveal any of them
+     *  reads fine. */
+    private val reverseLexicon: Map<String, ReverseEntry> by lazy {
+        val map = HashMap<String, ReverseEntry>()
+        for ((english, entry) in dictionary.lexicon) {
+            val key = entry.sselith.lowercase(Locale.ROOT)
+            if (key !in map) map[key] = ReverseEntry(english, entry.pos)
+        }
+        map
+    }
+
+    /**
+     * Reverse-translate a Sselith snippet to English, gated by [fraction]
+     * per recognised Sselith token. Tokens we can't reverse-look-up
+     * (no dictionary hit even after stripping known Sselith affixes,
+     * or already English) pass through unchanged.
+     *
+     * At `fraction = 0.345` (the holy number) about a third of recognised
+     * Sselith tokens flip per call, so repeated calls converge to fully
+     * English. Format tokens, punctuation, and structural markdown
+     * survive the round-trip — handled the same way [translate] handles
+     * them in the forward direction.
+     *
+     * The holy-number invocation phrase
+     * (`vraestmorocht … schest … kelkargh … skarn … moroch` in any
+     * separator form) is excluded: it has no English form — it IS
+     * Sselith — so it survives every pass intact, and gets normalised to
+     * its space-separated written form so it stays readable as the
+     * teleport invocation [SselithChatTeleport] listens for.
+     */
+    fun translateToEnglish(sselith: String, fraction: Double, rng: java.util.Random): String {
+        if (sselith.isEmpty()) return sselith
+        val (afterInvocation, invocationSlots) = stripInvocationPhrase(sselith)
+        val (clean, slots) = stripFormatTokens(afterInvocation)
+        val translated = clean.split("\n").joinToString("\n") { reverseLine(it, fraction, rng) }
+        val withFormats = reinsertFormatTokens(translated, slots)
+        return reinsertFormatTokens(withFormats, invocationSlots)
+    }
+
+    /** The five canonical holy-number words, in order. Kept here as the
+     *  scroll-exclusion source of truth alongside [SselithChatTeleport]'s
+     *  copy — both must agree, and the build-time numeral algorithm in
+     *  `NumeralConverter.decimalToSselith(34.5)` is the authority on the
+     *  contents and order. */
+    private val INVOCATION_WORDS = listOf(
+        "vraestmorocht", "schest", "kelkargh", "skarn", "moroch",
+    )
+
+    /** Canonical hyphen-joined written form — matches the dictionary's
+     *  `numerals.holyNumber.sselith` entry verbatim. The whole phrase is
+     *  one written word; no internal spaces. */
+    private const val INVOCATION_CANONICAL = "vraestmorocht-schest-kelkargh-skarn-moroch"
+
+    /** Match the five-word invocation with whitespace, hyphens, or commas
+     *  (or any combination) between the words. Matches the natural
+     *  written forms — `a-b-c-d-e`, `a b c d e`, `a, b, c, d, e` — without
+     *  bleeding across sentence boundaries the way `\W+` would. */
+    private val INVOCATION_PATTERN: Regex by lazy {
+        Regex(INVOCATION_WORDS.joinToString("[\\s,\\-]+"), RegexOption.IGNORE_CASE)
+    }
+
+    /** Mask invocation occurrences with format-token-style markers so the
+     *  reverse-translation walk treats them as opaque. The marker shape
+     *  (`qzfmt[a-z]+qz`) reuses [reinsertFormatTokens]; the slot's
+     *  `original` is the *canonical* form, not the matched text, so the
+     *  reinsert step is also the normalisation step. */
+    private fun stripInvocationPhrase(text: String): Pair<String, List<FormatSlot>> {
+        val matches = INVOCATION_PATTERN.findAll(text).toList()
+        if (matches.isEmpty()) return text to emptyList()
+        val slots = mutableListOf<FormatSlot>()
+        val sb = StringBuilder()
+        var last = 0
+        for ((i, m) in matches.withIndex()) {
+            sb.append(text, last, m.range.first)
+            val marker = "qzfmtinv${encodeMarkerIndex(i)}qz"
+            sb.append(marker)
+            slots.add(FormatSlot(marker, INVOCATION_CANONICAL))
+            last = m.range.last + 1
+        }
+        sb.append(text, last, text.length)
+        return sb.toString() to slots
+    }
+
+    private fun reverseLine(line: String, fraction: Double, rng: java.util.Random): String {
+        if (line.isEmpty()) return line
+        if (HORIZONTAL_RULE.matches(line)) return line
+        HEADING.matchEntire(line)?.let { m ->
+            return m.groupValues[1] + m.groupValues[2] + reverseText(m.groupValues[3], fraction, rng)
+        }
+        LIST_ITEM.matchEntire(line)?.let { m ->
+            return m.groupValues[1] + m.groupValues[2] + reverseText(m.groupValues[3], fraction, rng)
+        }
+        val leadEnd = line.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) line.length else it }
+        return line.substring(0, leadEnd) + reverseText(line.substring(leadEnd), fraction, rng)
+    }
+
+    private fun reverseText(text: String, fraction: Double, rng: java.util.Random): String {
+        if (text.isBlank()) return text
+        val matches = TOKEN.findAll(text).toList()
+        if (matches.isEmpty()) return text
+        val sb = StringBuilder()
+        var last = 0
+        for (m in matches) {
+            sb.append(text, last, m.range.first)
+            val tok = m.value
+            val replaced = reverseToken(tok, fraction, rng)
+            sb.append(replaced ?: tok)
+            last = m.range.last + 1
+        }
+        sb.append(text, last, text.length)
+        return sb.toString()
+    }
+
+    private fun reverseToken(token: String, fraction: Double, rng: java.util.Random): String? {
+        val first = token.firstOrNull() ?: return null
+        if (!first.isLetter()) return null
+        val lower = token.lowercase(Locale.ROOT)
+        val hit = reverseLookup(lower) ?: return null
+        if (rng.nextDouble() >= fraction) return null
+        val english = applyEnglishMorphology(hit.english, hit.pos, hit.feature, hit.prefix)
+        return applyCase(casePatternOf(token), english)
+    }
+
+    private data class ReverseHit(
+        val english: String,
+        val pos: String,
+        val feature: Feature?,
+        val prefix: String?,
+    )
+
+    /** Try direct hit, then strip Sselith suffixes (both whole and
+     *  elided form), then prefixes — mirroring [attachSuffix] / [attachPrefix]
+     *  exactly so any inflection the forward translator could have
+     *  produced is recoverable here. */
+    private fun reverseLookup(word: String): ReverseHit? {
+        reverseLexicon[word]?.let { return ReverseHit(it.english, it.pos, null, null) }
+
+        for ((tag, suffix) in dictionary.suffixes) {
+            val feat = morphologyFeature(tag) ?: continue
+            for (form in elidedForms(suffix.trimStart('-'))) {
+                if (form.isEmpty() || !word.endsWith(form)) continue
+                val stem = word.dropLast(form.length)
+                if (stem.isEmpty()) continue
+                // Stem must be a known Sselith form — guards against
+                // English words that happen to end in the suffix shape.
+                reverseLexicon[stem]?.let {
+                    return ReverseHit(it.english, it.pos, feat, null)
+                }
+                // Elision restores the dropped stem-final char from the
+                // suffix's first; try that too.
+                val unelidedStem = stem + form.first()
+                reverseLexicon[unelidedStem]?.let {
+                    return ReverseHit(it.english, it.pos, feat, null)
+                }
+            }
+        }
+
+        for ((tag, prefix) in dictionary.prefixes) {
+            val englishPrefix = englishPrefixFor(tag) ?: continue
+            for (form in elidedForms(prefix.trimEnd('-'))) {
+                if (form.isEmpty() || !word.startsWith(form)) continue
+                val stem = word.substring(form.length)
+                if (stem.isEmpty()) continue
+                reverseLexicon[stem]?.let {
+                    return ReverseHit(it.english, it.pos, null, englishPrefix)
+                }
+                val unelidedStem = form.last() + stem
+                reverseLexicon[unelidedStem]?.let {
+                    return ReverseHit(it.english, it.pos, null, englishPrefix)
+                }
+            }
+        }
+        return null
+    }
+
+    /** Candidate surface forms of a Sselith affix: the affix itself and
+     *  its elided variant (first char dropped) so we can spot whichever
+     *  shape `attachSuffix` / `attachPrefix` happened to produce. */
+    private fun elidedForms(affix: String): List<String> =
+        if (affix.length >= 2) listOf(affix, affix.substring(1)) else listOf(affix)
+
+    private fun morphologyFeature(tag: String): Feature? = when (tag) {
+        "PL" -> Feature.PLURAL_OR_VBZ
+        "PAST" -> Feature.PAST_OR_PERF
+        "PROG" -> Feature.PROGRESSIVE
+        else -> null
+    }
+
+    private fun englishPrefixFor(tag: String): String? = when (tag) {
+        "NEG" -> "un"
+        "RE" -> "re"
+        else -> null
+    }
+
+    private fun applyEnglishMorphology(
+        lemma: String, pos: String, feature: Feature?, prefix: String?,
+    ): String {
+        val base = when (feature) {
+            Feature.PLURAL_OR_VBZ -> when (pos) {
+                "NOUN", "VERB" -> englishPluralOrVbz(lemma)
+                else -> lemma
+            }
+            Feature.PAST_OR_PERF -> if (pos == "VERB") englishPast(lemma) else lemma
+            Feature.PROGRESSIVE -> if (pos == "VERB") englishProgressive(lemma) else lemma
+            null -> lemma
+        }
+        return if (prefix != null) prefix + base else base
+    }
+
+    private fun englishPluralOrVbz(lemma: String): String = when {
+        lemma.endsWith("s") || lemma.endsWith("x") || lemma.endsWith("z")
+                || lemma.endsWith("ch") || lemma.endsWith("sh") -> lemma + "es"
+        lemma.endsWith("y") && lemma.length > 1 && lemma[lemma.length - 2] !in "aeiou" ->
+            lemma.dropLast(1) + "ies"
+        else -> lemma + "s"
+    }
+
+    private fun englishPast(lemma: String): String = when {
+        lemma.endsWith("e") -> lemma + "d"
+        lemma.endsWith("y") && lemma.length > 1 && lemma[lemma.length - 2] !in "aeiou" ->
+            lemma.dropLast(1) + "ied"
+        else -> lemma + "ed"
+    }
+
+    private fun englishProgressive(lemma: String): String = when {
+        lemma.endsWith("e") && lemma.length > 1 && lemma != "be" -> lemma.dropLast(1) + "ing"
+        else -> lemma + "ing"
+    }
+
+    /** Count tokens in [text] that this translator can reverse-look-up.
+     *  Used by the Scroll of Unravelling to phrase its action-bar line. */
+    fun countReversibleTokens(text: String): Int {
+        if (text.isEmpty()) return 0
+        var n = 0
+        for (m in TOKEN.findAll(text)) {
+            val v = m.value
+            if (v.firstOrNull()?.isLetter() != true) continue
+            if (reverseLookup(v.lowercase(Locale.ROOT)) != null) n++
+        }
+        return n
     }
 
     // ──────────────────────────────────────────────────────────────────────────

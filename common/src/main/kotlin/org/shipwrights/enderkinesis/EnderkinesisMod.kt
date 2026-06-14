@@ -8,17 +8,21 @@ import org.shipwrights.enderkinesis.dimension.DimensionFilter
 import org.shipwrights.enderkinesis.dimension.SselithChatTeleport
 import org.shipwrights.enderkinesis.dimension.SselithMadness
 import org.shipwrights.enderkinesis.dimension.SselithMadnessChat
+import org.shipwrights.enderkinesis.dimension.SselithMadnessTomeSummon
 import org.shipwrights.enderkinesis.item.GuideToStratus
 import org.shipwrights.enderkinesis.item.TomeOfBindingItem
 import org.shipwrights.enderkinesis.item.TomeOfChainingItem
+import org.shipwrights.enderkinesis.item.TomeOfCouplingItem
 import org.shipwrights.enderkinesis.item.TomeOfElasticityItem
 import org.shipwrights.enderkinesis.item.TomeOfSignalItem
+import org.shipwrights.enderkinesis.item.TomeOfSpringItem
 import org.shipwrights.enderkinesis.item.TomeOfDisintegrationItem
 import org.shipwrights.enderkinesis.item.TomeOfHingingItem
 import org.shipwrights.enderkinesis.item.TomeOfPullingItem
 import org.shipwrights.enderkinesis.item.TomeOfPushingItem
 import org.shipwrights.enderkinesis.item.TomeOfTransportationItem
 import org.shipwrights.enderkinesis.item.TomeOfVacuumItem
+import org.shipwrights.enderkinesis.item.TomeOfVentriloquismItem
 import org.shipwrights.enderkinesis.item.WyllandTomeManager
 import org.shipwrights.enderkinesis.item.WyllandTomeNetwork
 import org.shipwrights.enderkinesis.dimension.SselithVoidWrap
@@ -62,10 +66,16 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.registry.EKInstruments.register()
         EKItems.register()
         EKCreativeTab.register()
+        // Trades depend on EKItems being registered (the scroll is the
+        // trade output); vanilla TRADES map is mutated directly so this
+        // takes effect for all subsequent villager refreshes.
+        org.shipwrights.enderkinesis.registry.EKVillagerTrades.init()
         EKFeatures.register()
         EKParticles.register()
         EKEffects.register()
         EKProcessors.register()
+        org.shipwrights.enderkinesis.registry.EKStructures.register()
+        org.shipwrights.enderkinesis.registry.EKStructurePlacements.register()
         EKChunkGenerators.register()
         EKEntities.register()
         EKPoiTypes.register()
@@ -84,11 +94,18 @@ object EnderkinesisMod {
                 .useTransientSerializer()
                 .build()
         )
+        // Transient: re-touched by void hooks every game tick while a ship is in their cone.
+        vsCore.registerAttachment(
+            vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.VoidGravityController::class.java)
+                .useTransientSerializer()
+                .build()
+        )
 
         CreateCompat.init()
 
         ReloadListenerRegistry.register(PackType.SERVER_DATA, DimensionFilter, id("dimension_filter"))
 
+        org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.register()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaSpreader.init()
@@ -104,6 +121,7 @@ object EnderkinesisMod {
 
         SselithVoidWrap.init()
         SselithMadness.init()
+        SselithMadnessTomeSummon.init()
         SselithChatTeleport.init()
         // Must register after SselithChatTeleport so the teleport phrase is detected
         // before this suppresses and re-broadcasts the corrupted line.
@@ -112,7 +130,11 @@ object EnderkinesisMod {
         WyllandTomeManager.init()
         WyllandTomeNetwork.init()
 
+        org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.init()
+
         GuideToStratus.init()
+
+        org.shipwrights.enderkinesis.item.ScrollOfUnravelling.init()
 
         TomeOfSignalItem.registerBeamPalette()
         TomeOfBindingItem.registerBeamPalette()
@@ -124,5 +146,8 @@ object EnderkinesisMod {
         TomeOfPushingItem.registerBeamPalette()
         TomeOfHingingItem.registerBeamPalette()
         TomeOfDisintegrationItem.registerBeamPalette()
+        TomeOfVentriloquismItem.registerBeamPalette()
+        TomeOfSpringItem.registerBeamPalette()
+        TomeOfCouplingItem.registerBeamPalette()
     }
 }

@@ -9,16 +9,22 @@ import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.GlobalPos
 import net.minecraft.world.entity.player.Player
+import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.item.ItemDisplayContext
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.item.MapItem
 import net.minecraft.world.level.Level
 import org.joml.Vector3d
+import net.minecraft.nbt.Tag
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
-import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
+import org.shipwrights.enderkinesis.registry.EKItems
+import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.Optional
 import java.util.UUID
 
@@ -59,9 +65,9 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
         // --- Slot: compass (vanilla property-fn needle) or filled map (MapRenderer) -------
         val compass = be.compassStack
         if (!compass.isEmpty && compass.`is`(Items.FILLED_MAP)) {
-            renderMap(compass, level, beta, pose, buffers, packedLight)
+            renderMap(be, compass, level, pose, buffers, packedLight)
         } else if (!compass.isEmpty) {
-            val ship = level.getLoadedShipManagingPos(be.blockPos)
+            val ship = findShip(level, be.blockPos)
             val w = Vector3d(be.blockPos.x + 0.5, be.blockPos.y + 0.5, be.blockPos.z + 0.5)
             if (ship != null) ship.transform.shipToWorld.transformPosition(w)
             val obs = ensureObserver(level)
@@ -142,11 +148,37 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
         pose.pushPose()
         pose.translate(0.5, EYE_BASE_HEIGHT.toDouble() + bobOffset.toDouble(), 0.5)
         if (!target.isNaN()) {
-            val gammaEye = beta - target
-            pose.mulPose(Axis.YP.rotationDegrees(Math.toDegrees(gammaEye.toDouble()).toFloat()))
+            if (be.upgraded) {
+                // 3-axis pointing. Build the world target direction from (yaw, pitch) in MC
+                // convention, transform it through the inverse of the ship rotation to get
+                // the direction in the eyeroscope's block-local frame, then decompose into
+                // local (yaw, pitch) and apply as JOML pose rotations. JOML yaw flips sign
+                // vs MC (CCW-positive vs CW-positive); JOML pitch matches MC (both have
+                // positive = looking down). Order MC-equivalent: yaw outer, pitch inner.
+                val pitch = currentTargetPitchRad(be)
+                val cy = Math.cos(target.toDouble()); val sy = Math.sin(target.toDouble())
+                val cp = Math.cos(pitch.toDouble()); val sp = Math.sin(pitch.toDouble())
+                val worldDir = Vector3d(-sy * cp, -sp, cy * cp)
+
+                val ship = findShip(level, be.blockPos)
+                val localDir = if (ship != null) {
+                    val dest = Vector3d()
+                    ship.transform.shipToWorldRotation.transformInverse(worldDir, dest)
+                    dest
+                } else worldDir
+
+                val len = Math.max(localDir.length(), 1e-9)
+                val localYaw = Math.atan2(-localDir.x, localDir.z)
+                val localPitch = Math.asin((-localDir.y / len).coerceIn(-1.0, 1.0))
+                pose.mulPose(Axis.YP.rotationDegrees(Math.toDegrees(-localYaw).toFloat()))
+                pose.mulPose(Axis.XP.rotationDegrees(Math.toDegrees(localPitch).toFloat()))
+            } else {
+                val gammaEye = beta - target
+                pose.mulPose(Axis.YP.rotationDegrees(Math.toDegrees(gammaEye.toDouble()).toFloat()))
+            }
         }
         itemRenderer.renderStatic(
-            EYE_STACK,
+            if (be.upgraded) EYE_STACK_UPGRADED else EYE_STACK,
             ItemDisplayContext.GROUND,
             LightTexture.FULL_BRIGHT,
             OverlayTexture.NO_OVERLAY,
@@ -158,22 +190,35 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
         pose.popPose()
     }
 
-    /** Draws the filled map flat on the eyeroscope via vanilla `MapRenderer.render` —
-     *  so the actual world texture and every decoration (X marks, banners, mansion /
-     *  monument icons) come along for free. The `false` flag suppresses the player
-     *  marker; we counter-rotate by `−β` so the map's painted "north" stays pointing
-     *  world-north as the ship turns.
+    /** Renders the filled map flat on the eyeroscope.
      *
-     *  Orientation caveat: `Axis.XP.rotationDegrees(-90f)` alone sends the map texture's
-     *  +Y (top / north) toward block-local +Z (south side of the eyeroscope) — so a
-     *  player approaching from the south will see the map with its north edge nearest
-     *  to them. Achieving "north edge far from approaching player" without a reflection
-     *  isn't possible with rotations alone, and `RenderType.text` (which MapRenderer
-     *  uses) culls back faces, so a negative-scale workaround would erase the map. */
+     *  Mirrors vanilla `ItemInHandRenderer.m_109366_` (the held-map render) verbatim
+     *  — same YP 180 + ZP 180 chain, same `scale + translate + scale(1/128)`, same
+     *  manual parchment quad with vertices at (-7, 135) through (135, -7) using
+     *  `RenderType.text("textures/map/map_background.png")`, followed by
+     *  `MapRenderer.render`. The only differences:
+     *
+     *   1. `XP -90` *before* vanilla's chain (in pose code) flattens the map quad from
+     *      vertical-facing-camera to horizontal-facing-up. Verified face composition:
+     *      ZP180 ∘ YP180 ∘ XP-90 sends quad normal -Z → +Y, so the front face points
+     *      up at a player viewing from above. Equivalent to `XP +90` alone but the
+     *      decomposed form keeps the parallel with vanilla obvious.
+     *
+     *   2. `YP -facing.toYRot()` *before* the XP-flatten (in pose code) rotates the
+     *      flat sprite in its own plane so the painted north points away from a player
+     *      approaching the FACING side. Since this is the outermost rotation in vertex
+     *      flow and acts only on the +Y face normal, it can't disturb face direction.
+     *
+     *  Why not `ItemRenderer.renderStatic` for the parchment? Vanilla's internal
+     *  `translate(-0.5, -0.5, -0.5)` inside `ItemRenderer.render` puts the model's -Z
+     *  thickness axis at the front face, which after our XP-flatten lands at block-
+     *  local +Y ≈ MAP_HEIGHT + 0.4. The parchment ends up floating well above the
+     *  eyeroscope and is invisible from a normal viewing angle. Vanilla's manual quad
+     *  approach sidesteps the issue entirely. */
     private fun renderMap(
+        be: EyeroscopeBlockEntity,
         mapStack: ItemStack,
         level: Level,
-        beta: Float,
         pose: PoseStack,
         buffers: MultiBufferSource,
         packedLight: Int,
@@ -181,19 +226,33 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
         val mapId = MapItem.getMapId(mapStack) ?: return
         val mapData = MapItem.getSavedData(mapStack, level) ?: return
         val mc = Minecraft.getInstance()
+
         pose.pushPose()
         pose.translate(0.5, MAP_HEIGHT.toDouble(), 0.5)
-        // Counter-rotate the ship's contribution to block-local frame so the map's painted
-        // cardinal directions stay world-aligned. Without this the map would spin with the
-        // ship and a player riding the ship would lose the map's static-world reference.
-        val betaDeg = Math.toDegrees(beta.toDouble()).toFloat()
-        pose.mulPose(Axis.YP.rotationDegrees(-betaDeg))
+        // Flat YP 180 (no FACING dependency) spins the laid-flat sprite half-turn around
+        // block-Y. Applied *before* the XP-flatten in code = *after* in vertex flow, so
+        // the face normal is already +Y by the time this Y-rotation hits it (Y-axis
+        // invariant ⇒ face stays up). Result: texture top lands at block-local +Z.
+        pose.mulPose(Axis.YP.rotationDegrees(180f))
+        // XP -90 flattens to horizontal. YP 180 + ZP 180 is vanilla's V-flip — vanilla
+        // `MapRenderer` submits vertex y=0 with UV V=0 (texture top), which is "upside
+        // down" by 2D-rendering convention; without the pose-Y flip the texture's top
+        // appears at the bottom of the player's view.
         pose.mulPose(Axis.XP.rotationDegrees(-90f))
-        pose.scale(MAP_SCALE, MAP_SCALE, MAP_SCALE)
-        // MapRenderer's quad spans (0, 0)..(128, 128) in pose-local coords; re-centre so
-        // the eyeroscope's centre lines up with the map's centre pixel rather than its
-        // corner.
-        pose.translate(-64.0, -64.0, 0.0)
+        pose.mulPose(Axis.YP.rotationDegrees(180f))
+        pose.mulPose(Axis.ZP.rotationDegrees(180f))
+        pose.scale(MAP_DISPLAY_SIZE, MAP_DISPLAY_SIZE, MAP_DISPLAY_SIZE)
+        pose.translate(-0.5, -0.5, 0.0)
+        pose.scale(1f / 128f, 1f / 128f, 1f / 128f)
+
+        // Parchment quad — verbatim from vanilla `m_109366_` bytecode at offset 111-310.
+        val matrix = pose.last().pose()
+        val parchmentVC = buffers.getBuffer(MAP_BACKGROUND_TYPE)
+        parchmentVC.vertex(matrix, -7f, 135f, 0f).color(255, 255, 255, 255).uv(0f, 1f).uv2(packedLight).endVertex()
+        parchmentVC.vertex(matrix, 135f, 135f, 0f).color(255, 255, 255, 255).uv(1f, 1f).uv2(packedLight).endVertex()
+        parchmentVC.vertex(matrix, 135f, -7f, 0f).color(255, 255, 255, 255).uv(1f, 0f).uv2(packedLight).endVertex()
+        parchmentVC.vertex(matrix, -7f, -7f, 0f).color(255, 255, 255, 255).uv(0f, 0f).uv2(packedLight).endVertex()
+
         mc.gameRenderer.mapRenderer.render(pose, buffers, mapId, mapData, false, packedLight)
         pose.popPose()
     }
@@ -209,26 +268,84 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
         return fresh
     }
 
-    /** Target heading in world MC yaw radians, or NaN when there's no target. Compass-pinned
-     *  mode recomputes the bearing here client-side (using the same shipToWorld math the
-     *  server uses) so the eye updates smoothly between the server's 10-tick refreshes.
-     *  Static mode just returns the BE's stored static yaw. */
+    /** (dx, dy, dz) from the eyeroscope's world position to the pin's world position, or
+     *  null when there's no pin. Mirrors the BE's `refreshPinBearing` math so the eye
+     *  updates smoothly between the server's 10-tick bearing refreshes — including the
+     *  shipyard-pin shipToWorld transform so the target tracks the live ship as it
+     *  sails. Returns world-frame deltas; convert to yaw/pitch at the call site. */
+    private fun currentPinDelta(be: EyeroscopeBlockEntity): Vector3d? {
+        val pin = be.getCompassPin() ?: return null
+        val level = be.level ?: return null
+        val pos = be.blockPos
+        val ship = findShip(level, pos)
+        val w = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        if (ship != null) ship.transform.shipToWorld.transformPosition(w)
+
+        val pinWorld = Vector3d(pin.x + 0.5, pin.y + 0.5, pin.z + 0.5)
+        val pinShip = findShip(level, pin)
+        if (pinShip != null) pinShip.transform.shipToWorld.transformPosition(pinWorld)
+
+        return Vector3d(pinWorld.x - w.x, pinWorld.y - w.y, pinWorld.z - w.z)
+    }
+
+    /** Target heading in world MC yaw radians, or NaN when there's no target. */
     private fun currentTargetYawRad(be: EyeroscopeBlockEntity): Float {
-        val pin = be.getCompassPin()
-        if (pin != null) {
-            val level = be.level ?: return be.getStaticTargetYaw()
-            val pos = be.blockPos
-            val ship = level.getLoadedShipManagingPos(pos)
-            val w = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-            if (ship != null) ship.transform.shipToWorld.transformPosition(w)
-            val dx = (pin.x + 0.5) - w.x
-            val dz = (pin.z + 0.5) - w.z
-            // Render-side dead-zone matches the BE's logic: directly over the pin the
-            // bearing is noise, so fall back to the static cache.
-            if (dx * dx + dz * dz < 1.0) return be.getStaticTargetYaw()
-            return Math.atan2(-dx, dz).toFloat()
+        val d = currentPinDelta(be) ?: currentLedgerDelta(be) ?: return be.getStaticTargetYaw()
+        // Render-side dead-zone matches the BE's logic: directly over the pin the
+        // bearing is noise, so fall back to the static cache.
+        if (d.x * d.x + d.z * d.z < 1.0) return be.getStaticTargetYaw()
+        return Math.atan2(-d.x, d.z).toFloat()
+    }
+
+    /** Target MC pitch in radians. Non-upgraded mode is always 0 (the eye doesn't tilt
+     *  for non-upgraded eyeroscopes regardless of pin elevation). */
+    private fun currentTargetPitchRad(be: EyeroscopeBlockEntity): Float {
+        if (!be.upgraded) return 0f
+        val d = currentPinDelta(be) ?: currentLedgerDelta(be) ?: return be.getStaticTargetPitch()
+        val horizDist = Math.sqrt(d.x * d.x + d.z * d.z)
+        if (horizDist < 1.0) return be.getStaticTargetPitch()
+        return Math.atan2(-d.y, horizDist).toFloat()
+    }
+
+    /** (dx, dy, dz) from the eyeroscope's world position to the live world position of
+     *  the latest-loaded ship in the ledger's sighting list, or null if the slot doesn't
+     *  hold a ledger or every recorded ship is unloaded. The client recomputes its own
+     *  target by walking the synced NBT — same logic as the BE's
+     *  `updateLedgerTarget` — because `cachedLedgerTargetShipId` is server-only state
+     *  that isn't persisted into the block-entity update packet. */
+    private fun currentLedgerDelta(be: EyeroscopeBlockEntity): Vector3d? {
+        val stack = be.compassStack
+        if (!stack.`is`(EKItems.LEDGER_OF_WATCHING_EYES.get())) return null
+        val tag = stack.tag ?: return null
+        val list = tag.getList(LedgerOfWatchingEyesItem.TRACKED_SHIPS_TAG, Tag.TAG_COMPOUND.toInt())
+        if (list.isEmpty()) return null
+        val level = be.level ?: return null
+        val pos = be.blockPos
+        for (i in (list.size - 1) downTo 0) {
+            val shipId = list.getCompound(i).getLong("id")
+            val target = level.shipObjectWorld.allShips.getById(shipId) ?: continue
+            val myShip = findShip(level, pos)
+            val myWorld = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+            myShip?.transform?.shipToWorld?.transformPosition(myWorld)
+            val tp = target.transform.positionInWorld
+            return Vector3d(tp.x() - myWorld.x, tp.y() - myWorld.y, tp.z() - myWorld.z)
         }
-        return be.getStaticTargetYaw()
+        return null
+    }
+
+    /** Whichever ship owns the given chunk, looked up via `allShips` rather than
+     *  `getLoadedShipManagingPos`. Matches the BE's `findShipForShipyardPos` — see that
+     *  function for why the `loadedShips` filter in the vanilla helper isn't sufficient.
+     *  Works on both server (`Ship`) and client (`ClientShip`) since both expose
+     *  `Ship.transform`, which is all the call sites need. */
+    private fun findShip(level: net.minecraft.world.level.Level, pos: BlockPos):
+        org.valkyrienskies.core.api.ships.Ship? {
+        val sow = level.shipObjectWorld
+        val dim = level.dimensionId
+        val cx = pos.x shr 4
+        val cz = pos.z shr 4
+        if (!sow.isChunkInShipyard(cx, cz, dim)) return null
+        return sow.allShips.getByChunkPos(cx, cz, dim)
     }
 
     /** World MC yaw of ship-local +Z (south at identity), aka β. Cancels the ship-rotation
@@ -236,7 +353,7 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
      *  0 for world-placed eyeroscopes. */
     private fun shipBetaMcYaw(be: EyeroscopeBlockEntity): Float {
         val level = be.level ?: return 0f
-        val ship = level.getLoadedShipManagingPos(be.blockPos) ?: return 0f
+        val ship = findShip(level, be.blockPos) ?: return 0f
         val v = Vector3d(0.0, 0.0, 1.0)
         ship.transform.shipToWorldRotation.transform(v)
         return Math.atan2(-v.x, v.z).toFloat()
@@ -275,6 +392,15 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
     private companion object {
         private val EYE_STACK: ItemStack = ItemStack(Items.ENDER_EYE)
 
+        /** Same ender eye, but with a dummy enchantment in NBT so `Item.isFoil(stack)`
+         *  returns true and `ItemRenderer.renderStatic` lays down the glint pass. The
+         *  enchantment type doesn't matter — vanilla only checks for the presence of an
+         *  `Enchantments` list. UNBREAKING(1) is harmless and the BER never shows a
+         *  tooltip, so the bogus enchantment is invisible to the player. */
+        private val EYE_STACK_UPGRADED: ItemStack = ItemStack(Items.ENDER_EYE).also {
+            it.enchant(net.minecraft.world.item.enchantment.Enchantments.UNBREAKING, 1)
+        }
+
         /** Block-local Y of the eye at rest, in blocks. Sits above the new model's two
          *  prongs (which top out at 14.56/16 ≈ 0.91); the GROUND display context adds
          *  another +0.1875 inside `renderStatic`, putting the visible eye centre around
@@ -297,13 +423,20 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
          *  previous frame-fit value. */
         private const val COMPASS_SCALE: Float = 0.5f
 
-        /** Block-local Y of the flat-laid map. Same height as the compass; either renders,
-         *  not both (slot holds one item). */
-        private const val MAP_HEIGHT: Float = 0.6f
+        /** Block-local Y of the flat-laid map. Base block top is at 9/16 = 0.5625; a hair
+         *  above keeps the parchment from z-fighting the base. */
+        private const val MAP_HEIGHT: Float = 0.57f
 
-        /** Map quad is 128 pose-local units wide. Scale so the rendered map covers ~0.75
-         *  blocks across — slightly larger than the compass (0.5) because the texture has
-         *  small-detail icons (X marks, banners) that need readable size. */
-        private const val MAP_SCALE: Float = 0.75f / 128f
+        /** Total parchment + padding in blocks. Inner-prong gap is ~0.515 wide
+         *  (x ≈ 0.241..0.756); 0.45 here lands the parchment at 142/128 × 0.45 ≈ 0.50,
+         *  fitting cleanly between the prongs with a hair of margin. */
+        private const val MAP_DISPLAY_SIZE: Float = 0.45f
+
+        /** Same RenderType vanilla `ItemInHandRenderer` uses for the held-map parchment
+         *  background (the `f_109297_` field). `RenderType.text` with the map_background
+         *  texture — translucent, lightmap-aware. */
+        private val MAP_BACKGROUND_TYPE: net.minecraft.client.renderer.RenderType =
+            net.minecraft.client.renderer.RenderType.text(
+                net.minecraft.resources.ResourceLocation("textures/map/map_background.png"))
     }
 }

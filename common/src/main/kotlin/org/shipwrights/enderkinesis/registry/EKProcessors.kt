@@ -8,6 +8,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.worldgen.EndermanHoldableOnPurpurProcessor
 import org.shipwrights.enderkinesis.worldgen.RoamingEndShipShipifyProcessor
 import org.shipwrights.enderkinesis.worldgen.SeedLecternAlmanacProcessor
+import org.shipwrights.enderkinesis.worldgen.SselithRuinLecternProcessor
 import org.shipwrights.enderkinesis.worldgen.YgannAnchorShipifyProcessor
 
 /**
@@ -43,6 +44,14 @@ object EKProcessors {
     val YGANN_ANCHOR_SHIPIFY: RegistrySupplier<StructureProcessorType<YgannAnchorShipifyProcessor>> =
         PROCESSORS.register("shipify_ygann_anchor") {
             StructureProcessorType<YgannAnchorShipifyProcessor> { YgannAnchorShipifyProcessor.CODEC }
+        }
+
+    /** Drops a signed Sselith-translated `passage_into_sselith` book on
+     *  every lectern the Sselith Ruin places, attributed to a random
+     *  Sselith research-circle member. See [SselithRuinLecternProcessor]. */
+    val SSELITH_RUIN_LECTERN: RegistrySupplier<StructureProcessorType<SselithRuinLecternProcessor>> =
+        PROCESSORS.register("sselith_ruin_lectern") {
+            StructureProcessorType<SselithRuinLecternProcessor> { SselithRuinLecternProcessor.CODEC }
         }
 
     fun register() = PROCESSORS.register()

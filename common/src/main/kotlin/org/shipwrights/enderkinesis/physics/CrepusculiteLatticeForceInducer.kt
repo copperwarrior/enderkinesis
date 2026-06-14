@@ -7,20 +7,9 @@ import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
 
 /**
- * The physics attachment a crepusculite lattice puts on its ship: a virtual ocean.
- *
- * Real per-block Archimedes. The lattice block entity captures the ship's solid blocks on the
- * server thread (the Physics thread cannot read the world) and feeds them here as ship-local
- * coordinates. Each tick, for every block, its world Y is found via the live ship transform; the
- * fraction of that 1 m³ block below the flat water line displaces virtual fluid, producing an
- * upward force of `fluidDensity · fraction · g` applied *at the block's position* (so hull shape
- * and weight distribution drive buoyancy and righting, exactly like real water).
- *
- * Force-at-position follows vstuffcontinued's thruster pattern: world-frame force, position given
- * as `blockCenter − transform.positionInShip` (ship/model coords relative to centre of mass).
- *
- * The per-block fractional submersion makes the water surface a soft ramp rather than a step,
- * which (with the submersion-scaled linear/angular drag) is what keeps it from bouncing.
+ * Per-block Archimedes — fractional submersion makes the water surface a soft ramp instead of
+ * a step, which (with submersion-scaled drag) is what keeps the ship from bouncing. Force-at-
+ * position follows vstuffcontinued's thruster pattern (`blockCenter − transform.positionInShip`).
  */
 class CrepusculiteLatticeForceInducer(
     /** World-space Y of the virtual sea surface (lattice world Y when this was created). */
@@ -42,12 +31,12 @@ class CrepusculiteLatticeForceInducer(
      * [dragCoefficient] lets us crank angular damping without also overdamping translation. Higher
      * default than the linear coefficient — the lattice fluid is meant to feel rotationally sticky.
      */
-    var angularDragCoefficient: Double = 3000.0,
+    var angularDragCoefficient: Double = 5000.0,
     /**
      * Depth (m) over which a block goes from "touching the surface" to "fully displacing". Larger
      * = softer, lower-stiffness buoyancy that is far easier to damp (and rides a touch deeper).
      */
-    var submergeRamp: Double = 3.0,
+    var submergeRamp: Double = 5.0,
 ) : ShipPhysicsListener {
 
     /** Ship-local block coords as x,y,z triples; set on the server thread. */

@@ -281,6 +281,14 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         val now = level.gameTime
         val elapsed = now - chargeStartTick
 
+        // Power must hold for the entire charge window. Dropping the signal at any point
+        // cancels the in-flight jump — same fail-out animation as a no-landing-found
+        // outcome, no chat message (silent cancel; the spin-down is the cue).
+        if (!level.hasNeighborSignal(pos)) {
+            startFailOut(level, null, "lost redstone power during charge")
+            return
+        }
+
         // Periodic open-space check, distributed across the charge window. Stops trying
         // once a landing is locked in.
         if (acceptedLandingPos == null && elapsed >= nextLandingCheckTick) {
@@ -295,7 +303,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 // (player) teleport whose landing logic is handled inside doJump. Proceed.
                 executeJumpAfterCharge(level, pos)
             } else {
-                startFailOut(level)
+                startFailOut(level, "message.enderkinesis.astrolabe.no_safe_landing", "no landing found across all attempts")
             }
         }
     }
@@ -364,11 +372,11 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         if (landing != null) acceptedLandingPos = landing
     }
 
-    /** Charge completed without a landing — transition into the ease-out phase. The
-     *  centre-group spin keeps integrating downward from the peak rate ([displayRoll]'s
-     *  fail-out branch) until it reaches 0, at which point [failOutTick] bakes the
-     *  position and returns to idle. */
-    private fun startFailOut(level: ServerLevel) {
+    /** Transition into the ease-out phase. The centre-group spin keeps integrating
+     *  downward from the peak rate ([displayRoll]'s fail-out branch) until it reaches 0,
+     *  at which point [failOutTick] bakes the position and returns to idle. Pass null for
+     *  [messageKey] to fail out silently (no chat announcement). */
+    private fun startFailOut(level: ServerLevel, messageKey: String?, logReason: String) {
         failOutStartTick = level.gameTime
         failOutDurationTicks = FAIL_OUT_DURATION_TICKS
         // Important: KEEP chargeDurationTicks so chargeAngleAtCompletion() still has a
@@ -378,9 +386,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         nextLandingCheckTick = 0L
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
-        announce(level, Component.translatable("message.enderkinesis.astrolabe.no_safe_landing"))
-        LOG.info("[EK astrolabe] fail-out at pos={} dim={} — no landing found across all attempts",
-            blockPos, level.dimension().location())
+        if (messageKey != null) announce(level, Component.translatable(messageKey))
+        LOG.info("[EK astrolabe] fail-out at pos={} dim={} — {}",
+            blockPos, level.dimension().location(), logReason)
     }
 
     /** Charge window has finished — bake the accumulated spin into the persistent roll
@@ -458,6 +466,10 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             // Not on a ship — `pos` is a real world position; fall back to player teleport.
             val approxX = Math.floor(pos.x * scale).toInt()
             val approxZ = Math.floor(pos.z * scale).toInt()
+            if (Math.abs(approxX) > MAX_WORLD_COORD || Math.abs(approxZ) > MAX_WORLD_COORD) {
+                announce(level, Component.translatable("message.enderkinesis.astrolabe.out_of_bounds"))
+                return
+            }
             val spot = SafeTeleporter.findSafeSpot(target, approxX, approxZ)
             if (spot == null) {
                 announce(level, Component.translatable("message.enderkinesis.astrolabe.no_safe_landing"))
@@ -487,6 +499,23 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                     if (corner.z < minZ) minZ = corner.z; if (corner.z > maxZ) maxZ = corner.z
                 }
             }
+        }
+
+        // World-bound safety. Vanilla MC chokes on chunk generation past ±MAX_WORLD_COORD;
+        // `WorldGenRegion.getChunk` throws `RuntimeException("We are asking a region for a
+        // chunk out of bound")` and the server dies. The cross-dim scale multiplier is the
+        // amplifier — Nether→Overworld is ×8, so a ship at Nether x = 4 M lands at OW
+        // x = 32 M and from there every subsequent teleport stays past the limit. Refuse
+        // the jump if either the source ship's centre or the scaled destination centre is
+        // past the safe bound; the player gets an in-bounds message and the ship stays put.
+        val srcCenterX = (minX + maxX) * 0.5
+        val srcCenterZ = (minZ + maxZ) * 0.5
+        val dstCenterX = srcCenterX * scale
+        val dstCenterZ = srcCenterZ * scale
+        if (Math.abs(srcCenterX) > MAX_WORLD_COORD || Math.abs(srcCenterZ) > MAX_WORLD_COORD ||
+            Math.abs(dstCenterX) > MAX_WORLD_COORD || Math.abs(dstCenterZ) > MAX_WORLD_COORD) {
+            announce(level, Component.translatable("message.enderkinesis.astrolabe.out_of_bounds"))
+            return
         }
 
         // Snapshot every entity VS2 currently considers dragged by this ship, **before** any
@@ -550,9 +579,13 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         // so we can restore exactly what was there (some entities — armor stands, item
         // frames — legitimately spawn with gravity off and shouldn't be re-gravitied on
         // our way out).
-        val frozenStates = mutableMapOf<java.util.UUID, Boolean>()
+        // Original-noGravity capture goes through the shared refcounted map so two
+        // jumps that overlap on the same entity don't double-record `original = true`
+        // (the second jump's read would see the first jump's already-applied
+        // `noGravity = true`). Refcount goes up here; unfreezeAll decrements and only
+        // restores when it hits 0.
         for ((entity, capturedPos) in riders) {
-            frozenStates[entity.uuid] = entity.isNoGravity
+            val originalForLog = recordOriginalAndIncrement(entity)
             entity.isNoGravity = true
             entity.deltaMovement = Vec3.ZERO
             LOG.info(
@@ -560,7 +593,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                     "onGround={} originalNoGravity={} vehicle={} bbY=[{},{}]",
                 entity.uuid, entity.type.toShortString(), entity.level().dimension().location(),
                 "%.3f".format(capturedPos.x), "%.3f".format(capturedPos.y), "%.3f".format(capturedPos.z),
-                entity.onGround(), frozenStates[entity.uuid], entity.vehicle?.uuid,
+                entity.onGround(), originalForLog, entity.vehicle?.uuid,
                 "%.3f".format(entity.boundingBox.minY), "%.3f".format(entity.boundingBox.maxY),
             )
         }
@@ -624,22 +657,28 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         //  is required. The unregister-self trick uses an [AtomicReference] holder so the
         //  lambda can refer to itself at unregister-time.
         val capturedRiders = riders.map { (e, p) -> e.uuid to p }
-        val capturedFrozenStates: Map<java.util.UUID, Boolean> = frozenStates.toMap()
         val sourceDimKey = level.dimension()
         val targetDimKey = target.dimension()
         val createdAtTick = level.gameTime
         val listenerRef = java.util.concurrent.atomic.AtomicReference<
             dev.architectury.event.events.common.TickEvent.Server?>(null)
-        // Defensive unfreeze closure: restores every captured rider's `noGravity` to whatever
-        // it was before the teleport began. Looks up entities by UUID in both source and
-        // destination dims because a rider can be in either (mid-teleport, post-teleport,
-        // teleportTo silently failed, etc.). Idempotent — safe to call multiple times.
+        // Idempotent unfreeze. Decrements the shared refcount for every captured rider
+        // exactly once across this jump's lifetime; the [unfrozenOnce] flag guards against
+        // the catch block firing after the normal flow already unfroze (which would
+        // otherwise double-decrement and prematurely restore an entity that another jump
+        // still has frozen). Looks up entities in both dims because a rider can be in
+        // either (mid-teleport, partially-completed teleport, etc.).
+        val unfrozenOnce = java.util.concurrent.atomic.AtomicBoolean(false)
         val unfreezeAll: (ServerLevel?, ServerLevel?) -> Unit = { src, dst ->
-            for ((uuid, _) in capturedRiders) {
-                val entity = dst?.getEntity(uuid) ?: src?.getEntity(uuid) ?: continue
-                val restored = capturedFrozenStates[uuid] ?: false
-                entity.isNoGravity = restored
-                entity.deltaMovement = Vec3.ZERO
+            if (unfrozenOnce.compareAndSet(false, true)) {
+                for ((uuid, _) in capturedRiders) {
+                    val entity = dst?.getEntity(uuid) ?: src?.getEntity(uuid)
+                    val restored = decrementAndMaybeRestore(uuid)
+                    if (entity != null) {
+                        entity.deltaMovement = Vec3.ZERO
+                        if (restored != null) entity.isNoGravity = restored
+                    }
+                }
             }
         }
         val unregisterSelf: () -> Unit = {
@@ -906,6 +945,70 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
          *  chunk tickets nearby — we run the rider teleport anyway and unfreeze, so
          *  entities don't get stranded in the source dim indefinitely. */
         const val POST_TELEPORT_TIMEOUT_TICKS: Int = 200      // 10 s at 20 TPS
+
+        /** Vanilla MC's safe coordinate ceiling. Past `±30 000 000` the chunk-generation
+         *  pipeline starts throwing `RuntimeException("We are asking a region for a chunk
+         *  out of bound")` from `WorldGenRegion.getChunk`, which crashes the server.
+         *  [doJump] refuses any teleport whose source or destination centre falls past
+         *  this bound — without the check, a single cross-dim jump with the ×8 Nether/OW
+         *  scale can knock a ship past the limit, and every subsequent jump amplifies the
+         *  error until the server dies trying to tick a BE at billions-coords. */
+        const val MAX_WORLD_COORD: Double = 29_999_984.0
+
+        /** Shared across every in-flight astrolabe jump. Tracks the *original*
+         *  `noGravity` state for each entity currently frozen by ANY jump, plus a refcount
+         *  so overlapping jumps don't stomp on each other's saved state. Without this,
+         *  jump A captures `original = false`, sets noGravity = true; jump B (started
+         *  before A's listener completes) reads the now-true field and captures
+         *  `original = true`; A correctly restores to false, then B incorrectly restores
+         *  to true — leaving the entity stuck noGravity = true. The refcount makes the
+         *  restore wait until the *last* in-flight jump on that entity finishes. */
+        private val pendingFreezeOriginals: java.util.concurrent.ConcurrentHashMap<java.util.UUID, FreezeRecord> =
+            java.util.concurrent.ConcurrentHashMap()
+
+        /** [pendingFreezeOriginals] entry: the value of `entity.isNoGravity` at the
+         *  moment the first overlapping jump froze this entity, and how many jumps
+         *  currently have it frozen. The restore happens when [refcount] hits 0. */
+        private data class FreezeRecord(val original: Boolean, val refcount: Int)
+
+        /** Record an entity as freshly frozen by some jump: if it's the first
+         *  freeze in flight, capture its current `isNoGravity`; otherwise just bump the
+         *  refcount and keep the previously-captured original. Returns the value that
+         *  *will* be used to restore the entity (i.e. the genuine original, regardless of
+         *  which jump runs first / last). */
+        private fun recordOriginalAndIncrement(entity: net.minecraft.world.entity.Entity): Boolean {
+            var original = false
+            pendingFreezeOriginals.compute(entity.uuid) { _, prev ->
+                if (prev != null) {
+                    original = prev.original
+                    FreezeRecord(prev.original, prev.refcount + 1)
+                } else {
+                    original = entity.isNoGravity
+                    FreezeRecord(original, 1)
+                }
+            }
+            return original
+        }
+
+        /** Decrement the refcount for an entity; if it hits 0, drop the entry and return
+         *  the original `isNoGravity` value to apply. Returns null when there's still at
+         *  least one other in-flight jump freezing this entity — the caller should leave
+         *  `isNoGravity` alone in that case (the other jump's `unfreezeAll` will restore
+         *  when it completes). */
+        private fun decrementAndMaybeRestore(uuid: java.util.UUID): Boolean? {
+            var restored: Boolean? = null
+            pendingFreezeOriginals.compute(uuid) { _, prev ->
+                when {
+                    prev == null -> null
+                    prev.refcount <= 1 -> {
+                        restored = prev.original
+                        null
+                    }
+                    else -> FreezeRecord(prev.original, prev.refcount - 1)
+                }
+            }
+            return restored
+        }
 
         /** Length of the tune-spin animation in game ticks. ~1.5 s at 20 TPS — quick enough to
          *  feel responsive, slow enough to read as a deliberate spin rather than a snap. */

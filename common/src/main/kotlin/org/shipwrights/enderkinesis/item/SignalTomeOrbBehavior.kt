@@ -34,7 +34,7 @@ object SignalTomeOrbBehavior : TomeOrbBehavior {
     override fun onLinked(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
         // Sample fresh — `inputSignal` may have been stale (the sender hasn't seen a neighbour
         // change since loading). Also doubles as the post-link initial propagation.
-        sendBe.inputSignal = readActiveFaceSignal(level, sendBe)
+        sendBe.inputSignal = sendBe.readActiveFaceSignal(level)
         propagateFrom(level, sendBe)
     }
 
@@ -45,7 +45,7 @@ object SignalTomeOrbBehavior : TomeOrbBehavior {
     }
 
     override fun onNeighborChanged(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val sampled = readActiveFaceSignal(level, sendBe)
+        val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return
         sendBe.inputSignal = sampled
         propagateFrom(level, sendBe)
@@ -68,23 +68,12 @@ object SignalTomeOrbBehavior : TomeOrbBehavior {
      *  (the orb direction-commitment rule forbids being both directions for one tome). */
     override fun onLoad(level: ServerLevel, be: OrbOfLinkingBlockEntity) {
         if (be.outgoingPeers(tomeKind).isNotEmpty()) {
-            be.inputSignal = readActiveFaceSignal(level, be)
+            be.inputSignal = be.readActiveFaceSignal(level)
             propagateFrom(level, be)
         }
         if (be.incomingPeers(tomeKind).isNotEmpty()) {
             be.applyPower(level, computeAggregatePower(level, be))
         }
-    }
-
-    /** Read the redstone signal arriving on the orb's active face — whatever the block in
-     *  the [OrbOfLinkingBlockEntity.facing] direction is providing on its face touching us.
-     *  `Level.getSignal` collapses the support's own emission with its best-neighbour signal
-     *  when the support is a redstone conductor, so a lever attached to any side of a solid
-     *  support still reaches the orb. */
-    private fun readActiveFaceSignal(level: ServerLevel, be: OrbOfLinkingBlockEntity): Int {
-        val facing = be.facing
-        val supportPos = be.blockPos.relative(facing)
-        return level.getSignal(supportPos, facing)
     }
 
     /** Push fresh state to every receiver of [sendBe] for this tome, in-range and loaded. */

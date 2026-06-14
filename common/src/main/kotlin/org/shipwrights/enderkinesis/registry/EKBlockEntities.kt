@@ -6,6 +6,7 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
+import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EnderAstrolabeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AetherPadBlockEntity
@@ -14,6 +15,7 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.PlanarAnchorBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHarnessBlockEntity
+import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
 
 object EKBlockEntities {
     val BLOCK_ENTITIES: DeferredRegister<BlockEntityType<*>> =
@@ -60,6 +62,14 @@ object EKBlockEntities {
         }
 
     @Suppress("UNCHECKED_CAST")
+    val VOID_HOOK: RegistrySupplier<BlockEntityType<VoidHookBlockEntity>> =
+        BLOCK_ENTITIES.register("void_hook") {
+            BlockEntityType.Builder.of(
+                ::VoidHookBlockEntity, EKBlocks.VOID_HOOK.get()
+            ).build(null) as BlockEntityType<VoidHookBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
     val AETHER_PAD: RegistrySupplier<BlockEntityType<AetherPadBlockEntity>> =
         BLOCK_ENTITIES.register("aether_pad") {
             BlockEntityType.Builder.of(
@@ -81,6 +91,14 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::OrbOfLinkingBlockEntity, EKBlocks.ORB_OF_LINKING.get()
             ).build(null) as BlockEntityType<OrbOfLinkingBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val CRYSTAL_EXPLOSIVE: RegistrySupplier<BlockEntityType<CrystalExplosiveBlockEntity>> =
+        BLOCK_ENTITIES.register("crystal_explosive") {
+            BlockEntityType.Builder.of(
+                ::CrystalExplosiveBlockEntity, EKBlocks.CRYSTAL_EXPLOSIVE.get()
+            ).build(null) as BlockEntityType<CrystalExplosiveBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")

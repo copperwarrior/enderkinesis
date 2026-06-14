@@ -26,9 +26,19 @@ object EKSounds {
     val YGANN_DRONE: RegistrySupplier<SoundEvent> = ambient("ambient.ygann_abyss.drone")
     val YGANN_CHANT: RegistrySupplier<SoundEvent> = ambient("ambient.ygann_abyss.chant")
 
-    /** Sselith's Repertory ambience — whispering murmurs (5 cues, each with an `r` companion take),
-     *  one multi-variant event the sound manager randomizes per play. See `SselithAmbience`. */
+    /** Sselith's Repertory dimension ambience — original murmur cues
+     *  (5 samples × `r` companions = 10 takes; sound manager picks one
+     *  per play) plus the continuous [SSELITH_AMBIENT_LOOP] base track. */
     val SSELITH_MURMUR: RegistrySupplier<SoundEvent> = ambient("ambient.sselith_repertory.murmur")
+    val SSELITH_AMBIENT_LOOP: RegistrySupplier<SoundEvent> = ambient("ambient.sselith_repertory.loop")
+
+    /** Sselith Madness whisper cues — one multi-variant event holding the
+     *  five `whispers_N` samples; the sound manager picks one per play, so
+     *  every play is a random whisper. Scheduling lives in
+     *  [org.shipwrights.enderkinesis.client.SselithAmbience]: gap shrinks
+     *  with the player's madness level (rare at L1, near-constant at L5),
+     *  any dimension. */
+    val SSELITH_WHISPERS: RegistrySupplier<SoundEvent> = ambient("ambient.sselith_repertory.whispers")
 
     /** Silent "music" for the Ygann Abyss biome. A biome with no music falls back to the default game
      *  music (Musics.GAME); pointing the biome's music at this silent track replaces that with nothing,

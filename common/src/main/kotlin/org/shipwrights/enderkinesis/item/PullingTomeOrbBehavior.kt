@@ -80,7 +80,7 @@ object PullingTomeOrbBehavior : TomeOrbBehavior {
         val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos)
         if (sendCentre == null || recvCentre == null) return
         val baseLength = sendCentre.distanceTo(recvCentre).toFloat().coerceAtLeast(MIN_BASE_LENGTH)
-        sendBe.inputSignal = readActiveFaceSignal(level, sendBe)
+        sendBe.inputSignal = sendBe.readActiveFaceSignal(level)
         val initialMax = effectiveMax(baseLength, sendBe.inputSignal)
         writeLinkData(sendBe, receiverPos, baseLength, initialMax)
         tryBindPull(level, sendBe, receiverPos, initialMax)
@@ -91,7 +91,7 @@ object PullingTomeOrbBehavior : TomeOrbBehavior {
     }
 
     override fun onNeighborChanged(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val sampled = readActiveFaceSignal(level, sendBe)
+        val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return       // nothing changed
         sendBe.inputSignal = sampled
         // No immediate rebuild — serverTick eases `currentMax` toward the new target
@@ -100,7 +100,7 @@ object PullingTomeOrbBehavior : TomeOrbBehavior {
 
     override fun onLoad(level: ServerLevel, be: OrbOfLinkingBlockEntity) {
         if (be.outgoingPeers(tomeKind).isNotEmpty()) {
-            be.inputSignal = readActiveFaceSignal(level, be)
+            be.inputSignal = be.readActiveFaceSignal(level)
         }
         // Joint rebind on chunk load handled by serverTick — same as Chaining/Elasticity.
     }
@@ -163,12 +163,6 @@ object PullingTomeOrbBehavior : TomeOrbBehavior {
         sendBe.setLinkMetadata(tomeKind, receiverPos, tag)
     }
 
-    /** Read the redstone signal arriving on the orb's active face. */
-    private fun readActiveFaceSignal(level: ServerLevel, be: OrbOfLinkingBlockEntity): Int {
-        val facing = be.facing
-        val supportPos = be.blockPos.relative(facing)
-        return level.getSignal(supportPos, facing)
-    }
 
     /** `max = baseLength × (1 - power/15)`, floored at [MIN_PULL_LENGTH]. */
     private fun effectiveMax(baseLength: Float, power: Int): Float {

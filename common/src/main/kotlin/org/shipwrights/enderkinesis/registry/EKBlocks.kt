@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.block.AncriteBarsBlock
 import org.shipwrights.enderkinesis.block.AncriteBeamBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteGlassBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
+import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
 import org.shipwrights.enderkinesis.block.EyeroscopeBlock
 import org.shipwrights.enderkinesis.block.HeartCandleBlock
@@ -123,6 +124,23 @@ object EKBlocks {
                 // Integer-divided to step in pairs of POWER (0–2 → 0, 3–4 → 1, … 14–15 → 7).
                 .lightLevel { state ->
                     state.getValue(org.shipwrights.enderkinesis.block.VoidHarnessBlock.POWER) * 7 / 15
+                }
+        )
+    }
+
+    /** Void Hook — directional, longer-effective-range cousin of the void harness. Pulls
+     *  *other* ships within 32 blocks toward the hook's world position, restricted to the
+     *  half-space the hook is facing. Works the same whether placed in the world or on a
+     *  ship — host ship is excluded from the pull. */
+    val VOID_HOOK: RegistrySupplier<Block> = BLOCKS.register("void_hook") {
+        org.shipwrights.enderkinesis.block.VoidHookBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_MAGENTA)
+                .strength(2.0f, 6.0f)
+                .sound(net.minecraft.world.level.block.SoundType.GLASS)
+                .noOcclusion()
+                .lightLevel { state ->
+                    state.getValue(org.shipwrights.enderkinesis.block.VoidHookBlock.POWER) * 7 / 15
                 }
         )
     }
@@ -326,6 +344,23 @@ object EKBlocks {
                 .strength(0.6f, 3_600_000f)
                 .sound(SoundType.GLASS)
                 .lightLevel { 12 }
+        )
+    }
+
+    /** Crystal Explosive — crepusculite-glass shell (matching [VOID_HARNESS]'s style)
+     *  with an end-crystal model floating inside. Detonates when its host ship takes a
+     *  hard collision, with explosion strength scaled to the contact-point impulse so
+     *  the bow of a ramming ship goes off harder than the stern. Listens on VS2's
+     *  `collisionStartEvent`. World-placed instances never fire (no host ship to
+     *  collide). */
+    val CRYSTAL_EXPLOSIVE: RegistrySupplier<Block> = BLOCKS.register("crystal_explosive") {
+        CrystalExplosiveBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PURPLE)
+                .strength(2.0f, 6.0f)
+                .sound(SoundType.GLASS)
+                .noOcclusion()
+                .lightLevel { 7 }
         )
     }
 

@@ -1,0 +1,12 @@
+[
+  {
+    "block": "enderkinesis:crystal_explosive",
+    "mass": 100.0,
+    "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:void_harness",
+    "mass": 100.0,
+    "friction": 0.6
+  }
+]

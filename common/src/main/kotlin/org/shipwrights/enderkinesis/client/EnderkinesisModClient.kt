@@ -76,12 +76,21 @@ object EnderkinesisModClient {
             EKItems.WOGOR_LEAVES_ITEM.get()
         )
 
+
         // Planar Anchor: the model's "chain" element relies on alpha-cut transparency. Without
         // cutoutMipped the transparent pixels in the chain UV region render solid.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.PLANAR_ANCHOR.get())
 
         // Void Harness: crepusculite-glass shell — partial alpha, needs translucent blending.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.VOID_HARNESS.get())
+
+        // Void Hook: same crepusculite-glass shell as the harness, plus an opaque dispenser
+        // front-face texture. cutoutMipped lets the dispenser-front texture stay opaque while
+        // the crepusculite-glass faces still alpha-cut through.
+        RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.VOID_HOOK.get())
+
+        // Crystal Explosive: same crepusculite-glass shell as Void Harness, same need.
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CRYSTAL_EXPLOSIVE.get())
 
         // Crepusculite Glass — partial-alpha glass block, same render layer as Void Harness.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CREPUSCULITE_GLASS.get())
@@ -113,6 +122,12 @@ object EnderkinesisModClient {
             VoidHarnessRenderer(ctx)
         }
 
+        // Void Hook reuses the harness crystal-pair visual as a placeholder; same per-tick
+        // rotation + brightness response wired to the hook's own POWER blockstate.
+        BlockEntityRendererRegistry.register(EKBlockEntities.VOID_HOOK.get()) { ctx ->
+            VoidHookRenderer(ctx)
+        }
+
         // Orb of Linking: pulsing "haze" outer layer drawn on top of the static block model.
         // Invisible when the orb is UNBOUND, visible + sine-pulsed when SEND or RECEIVE.
         BlockEntityRendererRegistry.register(EKBlockEntities.ORB_OF_LINKING.get()) { ctx ->
@@ -125,6 +140,12 @@ object EnderkinesisModClient {
         // the visible heart.
         BlockEntityRendererRegistry.register(EKBlockEntities.HEART_OF_THE_WILD.get()) { ctx ->
             HeartOfTheWildRenderer(ctx)
+        }
+
+        // Crystal Explosive: vanilla end-crystal entity model rotating inside a
+        // crepusculite-glass shell — same shell style as the Void Harness.
+        BlockEntityRendererRegistry.register(EKBlockEntities.CRYSTAL_EXPLOSIVE.get()) { ctx ->
+            CrystalExplosiveRenderer(ctx)
         }
 
         // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
@@ -210,6 +231,12 @@ object EnderkinesisModClient {
         // Sselith's Repertory: uncommon whispering murmurs, same cave-sound cadence.
         SselithAmbience.init()
 
+        // Crepusculite Charm: hold jump while carrying the charm to levitate up to 5
+        // blocks above the local ground. Lift is client-side (vanilla doesn't sync
+        // `jumping` for non-vehicle movement); the server-side companion in
+        // [CrepusculiteCharmManager] resets the airborne anti-cheat counter every tick.
+        CrepusculiteCharmClient.init()
+
         // Wohlonnogondonia: ambient firefly spawner. Picks ~0.5 spawns/s of
         // light-teal flickering glitter around solid blocks near the player.
         // Driven by [ClientTickEvent.CLIENT_LEVEL_POST]; particles handle
@@ -257,6 +284,12 @@ object EnderkinesisModClient {
         // of its receivers. Spawn rate ramps with the orb's POWER blockstate, so an idle link
         // is a faint trickle and a live 15-power link visibly throbs.
         OrbOfLinkingClient.init()
+
+        // Sselith Madness tome summon — receives BEGIN/END packets so
+        // the level-renderer can draw the floating book for any
+        // possessed player and the local input gate knows when to
+        // suppress walking.
+        PlayerTomeSummonClient.init()
 
         // Tome of Transportation — client-only ghost-item rendering for in-flight stacks.
         // Spawns a non-interacting [ItemEntity] for the duration of each dispatch and lets

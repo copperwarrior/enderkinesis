@@ -61,7 +61,7 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
     private val LOCAL_X = Vector3d(1.0, 0.0, 0.0)
 
     override fun onLinked(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        sendBe.inputSignal = readActiveFaceSignal(level, sendBe)
+        sendBe.inputSignal = sendBe.readActiveFaceSignal(level)
         tryBindHinge(level, sendBe, receiverPos, sendBe.inputSignal)
     }
 
@@ -70,7 +70,7 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
     }
 
     override fun onNeighborChanged(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val sampled = readActiveFaceSignal(level, sendBe)
+        val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return
         sendBe.inputSignal = sampled
         for (receiverPos in sendBe.outgoingPeers(tomeKind)) {
@@ -81,7 +81,7 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
 
     override fun onLoad(level: ServerLevel, be: OrbOfLinkingBlockEntity) {
         if (be.outgoingPeers(tomeKind).isNotEmpty()) {
-            be.inputSignal = readActiveFaceSignal(level, be)
+            be.inputSignal = be.readActiveFaceSignal(level)
         }
     }
 
@@ -112,12 +112,6 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
     }
 
     // -----------------------------------------------------------------------------------------
-
-    private fun readActiveFaceSignal(level: ServerLevel, be: OrbOfLinkingBlockEntity): Int {
-        val facing = be.facing
-        val supportPos = be.blockPos.relative(facing)
-        return level.getSignal(supportPos, facing)
-    }
 
     private fun tryBindHinge(
         level: ServerLevel,

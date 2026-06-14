@@ -74,7 +74,7 @@ object PushingTomeOrbBehavior : TomeOrbBehavior {
         val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos)
         if (sendCentre == null || recvCentre == null) return
         val baseLength = sendCentre.distanceTo(recvCentre).toFloat().coerceAtLeast(MIN_BASE_LENGTH)
-        sendBe.inputSignal = readActiveFaceSignal(level, sendBe)
+        sendBe.inputSignal = sendBe.readActiveFaceSignal(level)
         val initialMin = targetMin(sendBe.inputSignal)
         writeLinkData(sendBe, receiverPos, baseLength, initialMin)
         tryBindPush(level, sendBe, receiverPos, baseLength, initialMin)
@@ -85,7 +85,7 @@ object PushingTomeOrbBehavior : TomeOrbBehavior {
     }
 
     override fun onNeighborChanged(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val sampled = readActiveFaceSignal(level, sendBe)
+        val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return
         sendBe.inputSignal = sampled
         // No immediate rebuild — serverTick eases `currentMin` toward the new target.
@@ -93,7 +93,7 @@ object PushingTomeOrbBehavior : TomeOrbBehavior {
 
     override fun onLoad(level: ServerLevel, be: OrbOfLinkingBlockEntity) {
         if (be.outgoingPeers(tomeKind).isNotEmpty()) {
-            be.inputSignal = readActiveFaceSignal(level, be)
+            be.inputSignal = be.readActiveFaceSignal(level)
         }
     }
 
@@ -151,12 +151,6 @@ object PushingTomeOrbBehavior : TomeOrbBehavior {
             putFloat(NBT_CURRENT_MIN, currentMin)
         }
         sendBe.setLinkMetadata(tomeKind, receiverPos, tag)
-    }
-
-    private fun readActiveFaceSignal(level: ServerLevel, be: OrbOfLinkingBlockEntity): Int {
-        val facing = be.facing
-        val supportPos = be.blockPos.relative(facing)
-        return level.getSignal(supportPos, facing)
     }
 
     /** Power-derived target for the minimum distance — one block per signal level. */

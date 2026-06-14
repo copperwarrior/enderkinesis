@@ -23,16 +23,12 @@ object AlmanacData {
     /** Records [dimension] from a normal player flow (carrying the almanac, item-entity crossing
      *  a portal, creative-populate). Returns true if it was newly added.
      *
-     *  **Hidden dimensions:** [YgannAbyss.ID] and [SselithRepertory.ID] are silently refused
-     *  here — both are off-limits as Almanac / Ender Astrolabe destinations. The only
-     *  legitimate way an Almanac can gain a Ygann's Abyss entry is via [addEntryTrusted]
-     *  from the structure processor that seeds the lectern inside the Roaming End Ship;
-     *  Sselith's Repertory is never a valid destination, period. [DimensionFilter] also
-     *  denies both ids at the *selectable* layer — defence in depth so a legacy save
-     *  that already recorded one of them can't pick it from the cycle. */
+     *  Gated by [DimensionFilter.isLearnable] — which dimensions are forbidden from being
+     *  recorded this way is data-driven (`learnable_allow` / `learnable_deny` in the
+     *  `dimension_filter` data files). Trusted seeders that *should* be able to plant
+     *  otherwise-hidden destinations go through [addEntryTrusted] instead. */
     fun addVisited(stack: ItemStack, dimension: ResourceLocation): Boolean {
-        if (dimension == YgannAbyss.ID) return false
-        if (dimension == SselithRepertory.ID) return false
+        if (!DimensionFilter.isLearnable(dimension)) return false
         return addEntryTrusted(stack, dimension)
     }
 

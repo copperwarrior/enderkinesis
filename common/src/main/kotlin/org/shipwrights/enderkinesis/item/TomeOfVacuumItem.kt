@@ -2,6 +2,8 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.item.ItemStack
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Vacuum — moves item stacks between linked orbs like the Tome of Transportation,
@@ -33,6 +35,12 @@ class TomeOfVacuumItem(properties: Properties) : LinkingTomeItem(properties) {
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, VacuumTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 1.0, cohesion = 0.25, frequency = 1.0, reciprocal = false,
+                ),
+            )
         }
     }
 }

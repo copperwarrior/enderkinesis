@@ -9,10 +9,12 @@ import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.util.Mth
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKParticles
 
@@ -178,6 +180,57 @@ object SselithMadness {
                 applyLevel(player, level)
             }
         }
+
+        // At level 4+, the player counts as a Cataloger for the
+        // cataloger-vs-cataloger push system. The Cataloger side
+        // already shoves us; this is the mirror — we shove back so
+        // two real catalogers and a possessed player all behave like
+        // a single class for collision purposes.
+        if (level - 1 >= Cataloger.PLAYER_CATALOGER_MIN_AMP) {
+            pushNearbyCatalogers(player)
+        }
+    }
+
+    /** Mirror of [Cataloger.pushNearbyCatalogers] for high-madness
+     *  players: gently shove any Cataloger sharing the player's bbox
+     *  outward, using the same falloff + force as the cataloger-vs-
+     *  cataloger pass so the visual feel matches in both directions. */
+    private fun pushNearbyCatalogers(player: ServerPlayer) {
+        val level = player.level()
+        val catalogers = level.getEntitiesOfClass(Cataloger::class.java, player.boundingBox)
+        if (catalogers.isEmpty()) return
+        for (other in catalogers) {
+            if (other.isPassengerOfSameVehicle(player)) continue
+            if (other.noPhysics || player.noPhysics) continue
+            if (other.isVehicle) continue
+            val dx = other.x - player.x
+            val dz = other.z - player.z
+            var d = Mth.absMax(dx, dz)
+            if (d < 0.01) continue
+            d = Math.sqrt(d)
+            val nx = dx / d
+            val nz = dz / d
+            val scale = (1.0 / d).coerceAtMost(1.0)
+            other.push(nx * scale * GENTLE_PUSH_FORCE, 0.0, nz * scale * GENTLE_PUSH_FORCE)
+        }
+    }
+
+    /** Same force as [Cataloger.GENTLE_PUSH_FORCE] (1/5 vanilla's 0.05).
+     *  Duplicated as a private constant rather than reaching through
+     *  the cataloger companion so a future tuning split (e.g. softer
+     *  player push) is just a constant edit here. */
+    private const val GENTLE_PUSH_FORCE = 0.01
+
+    /** Public hook: bump the player's madness by [delta] levels (clamped to
+     *  `[0, MAX_LEVEL]`) and reset the step timer so the next growth/decay
+     *  step is a fresh window. Used by items that grant madness as a cost
+     *  (e.g. the Scroll of Unravelling). */
+    fun addLevel(player: ServerPlayer, delta: Int = 1) {
+        val current = (player.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: -1) + 1
+        val next = (current + delta).coerceIn(0, MAX_LEVEL)
+        if (next == current) return
+        applyLevel(player, next)
+        progress.put(player.uuid, 0)
     }
 
     /** Set the player's madness to [level] (1..[MAX_LEVEL]) as a hidden effect, or

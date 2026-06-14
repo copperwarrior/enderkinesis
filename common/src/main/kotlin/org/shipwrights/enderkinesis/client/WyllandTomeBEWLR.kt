@@ -1,17 +1,25 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
+import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.math.Axis
 import net.minecraft.Util
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer
 import net.minecraft.client.renderer.ItemBlockRenderTypes
 import net.minecraft.client.renderer.MultiBufferSource
+import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.entity.ItemRenderer
+import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.util.RandomSource
 import net.minecraft.world.item.ItemDisplayContext
 import net.minecraft.world.item.ItemStack
+import org.joml.Matrix3f
+import org.joml.Matrix4f
+import org.joml.Vector3f
+import org.joml.Vector4f
 
 /**
  * Custom item renderer for the Wylland Tome. Replaces vanilla's
@@ -22,15 +30,20 @@ import net.minecraft.world.item.ItemStack
  * `gameTime + partialTick` so it's a smooth eased sine wave at
  * the frame rate, not a discrete step animation.
  *
- * **Three model parts.** The open tome is split into three sibling
- * JSONs so the page-flop can rotate page3 and page4 independently
- * while the rest of the book stays fixed:
- *  - `wylland_tome_open_static.json` — spine, both covers, page1,
- *    page2 (5 elements).
- *  - `wylland_tome_open_page3.json` — just the Page3 element, with
- *    its canonical −45° z-rotation around `(8, 1.25, 8)` baked in.
- *  - `wylland_tome_open_page4.json` — just Page4 with canonical
- *    +45° z-rotation around the same pivot.
+ * **Five model parts.** The open tome is split into five sibling
+ * JSONs so each rotatable component is its own bakeable mesh,
+ * pivoting around its own hinge:
+ *  - `wylland_tome_open_spine.json` — just the spine block, never
+ *    rotates.
+ *  - `wylland_tome_open_cover1.json` — left cover + inner page1,
+ *    both baked at -22.5° around hinge `(7.5, 1, 8)`. Closing
+ *    rotates them down to -90° (vertical against the spine).
+ *  - `wylland_tome_open_cover2.json` — mirror of cover1 (right
+ *    side, hinge `(8.5, 1, 8)`, canonical +22.5°).
+ *  - `wylland_tome_open_page3.json` — Page3 baked at -45° around
+ *    page hinge `(8, 1.25, 8)`.
+ *  - `wylland_tome_open_page4.json` — Page4 baked at +45° around
+ *    the same page hinge.
  *
  * The closed `wylland_tome.json` model is unchanged.
  *
@@ -45,14 +58,6 @@ import net.minecraft.world.item.ItemStack
  * if those ever diverge, the open rendering will visually offset
  * because the closed model's transform got baked into the pose
  * by the time we receive control.
- *
- * **Animation.** Cycle period [PERIOD_TICKS] ticks (~2 s). The
- * angle offset is a continuous sine wave with amplitude
- * [ANGLE_AMPLITUDE_DEG]: page3 swings between −35° and −55°,
- * page4 mirrors between +55° and +35°. Pivot in the baked coord
- * space is `(0.5, 1.25/16, 0.5)` — the model's `(8, 1.25, 8)`
- * pivot divided by 16 because BakedModel quads are in [0, 1]
- * scaled from the editor's [0, 16].
  */
 object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
     Minecraft.getInstance().blockEntityRenderDispatcher,
@@ -66,10 +71,13 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
      *    every non-hand context (inventory, ground entity, item
      *    frame, head slot, NONE). Matches what every vanilla item
      *    shows in those slots.
-     *  - `STATIC_MODEL_LOC` + `PAGE3_MODEL_LOC` + `PAGE4_MODEL_LOC`:
-     *    composing the 3D open tome rendered in hand contexts. */
+     *  - `SPINE`/`COVER1`/`COVER2`/`PAGE3`/`PAGE4`: the five 3D
+     *    parts of the open tome rendered in hand contexts and by
+     *    the Cataloger tome-summon flourish. */
     @JvmField val ICON_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_icon")
-    @JvmField val STATIC_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_static")
+    @JvmField val SPINE_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_spine")
+    @JvmField val COVER1_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_cover1")
+    @JvmField val COVER2_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_cover2")
     @JvmField val PAGE3_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_page3")
     @JvmField val PAGE4_MODEL_LOC = ResourceLocation("enderkinesis", "item/wylland_tome_open_page4")
 
@@ -84,7 +92,9 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
      *  extra models are keyed). Capturing the bake result is
      *  simpler and avoids an accessor mixin into a private field. */
     @Volatile @JvmField var iconModel: BakedModel? = null
-    @Volatile @JvmField var staticModel: BakedModel? = null
+    @Volatile @JvmField var spineModel: BakedModel? = null
+    @Volatile @JvmField var cover1Model: BakedModel? = null
+    @Volatile @JvmField var cover2Model: BakedModel? = null
     @Volatile @JvmField var page3Model: BakedModel? = null
     @Volatile @JvmField var page4Model: BakedModel? = null
 
@@ -108,11 +118,32 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
      *  left and back, reading as a right-to-left page turn. */
     private const val ACTIVE_PERIOD_MILLIS: Long = 250L
 
-    /** Pivot in the BakedModel's [0, 1] coord space, lifted from
-     *  the artist's `(8, 1.25, 8)` pivot for Page3/Page4 rotations. */
-    private const val PIVOT_X: Float = 0.5f
-    private const val PIVOT_Y: Float = 1.25f / 16f
-    private const val PIVOT_Z: Float = 0.5f
+    /** Page hinge in BakedModel `[0, 1]` space — `(8, 1.25, 8)/16`. */
+    private const val PAGE_PIVOT_X: Float = 0.5f
+    private const val PAGE_PIVOT_Y: Float = 1.25f / 16f
+    private const val PAGE_PIVOT_Z: Float = 0.5f
+
+    /** Cover1 hinge in BakedModel `[0, 1]` space — `(7.5, 1, 8)/16`. */
+    private const val COVER1_PIVOT_X: Float = 7.5f / 16f
+    private const val COVER1_PIVOT_Y: Float = 1f / 16f
+    private const val COVER1_PIVOT_Z: Float = 0.5f
+
+    /** Cover2 hinge — `(8.5, 1, 8)/16`. */
+    private const val COVER2_PIVOT_X: Float = 8.5f / 16f
+    private const val COVER2_PIVOT_Y: Float = 1f / 16f
+    private const val COVER2_PIVOT_Z: Float = 0.5f
+
+    /** Cover swing from canonical open to fully closed, in degrees.
+     *  Covers are baked at ±22.5° (their open angle). Closing rotates
+     *  each cover an additional ∓67.5° to reach ±90° — vertical above
+     *  the spine, faces touching. */
+    private const val COVER_CLOSE_SWING_DEG: Float = 67.5f
+
+    /** Page swing from canonical open to fully closed, in degrees.
+     *  Pages baked at ±45°. Closing brings each page to ±90° — flush
+     *  inside the closed covers. The page swing is independent of the
+     *  cover swing so we don't have to compose two rotations per page. */
+    private const val PAGE_CLOSE_SWING_DEG: Float = 45f
 
     override fun renderByItem(
         stack: ItemStack,
@@ -142,22 +173,22 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         // `builtin/entity`'s default of `side`, the flat icon gets
         // lit from above by a 3D rig and reads visibly dark.
         if (isHandContext(displayContext)) {
-            staticModel?.let {
-                renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
-            }
+            // Held tome is always fully open — covers at canonical
+            // angle, pages doing the idle/grabbing dance.
+            renderStaticBody(stack, poseStack, bufferSource, packedLight, packedOverlay)
             val grabbing = WyllandTomeClient.isGrabbing()
             val (page3Offset, page4Offset) = currentPageOffsets(grabbing)
             if (!grabbing) {
                 page3Model?.let { model ->
                     poseStack.pushPose()
-                    rotateAroundPivot(poseStack, page3Offset)
+                    rotateAroundPagePivot(poseStack, page3Offset)
                     renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
                     poseStack.popPose()
                 }
             }
             page4Model?.let { model ->
                 poseStack.pushPose()
-                rotateAroundPivot(poseStack, page4Offset)
+                rotateAroundPagePivot(poseStack, page4Offset)
                 renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
                 poseStack.popPose()
             }
@@ -166,6 +197,18 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
                 renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay)
             }
         }
+    }
+
+    /** Spine + both covers at their canonical open angles (covers
+     *  not rotated — `[renderOpenWithOpenness]` is the only entry
+     *  point that closes them). Used by the held-tome path. */
+    private fun renderStaticBody(
+        stack: ItemStack, poseStack: PoseStack, bufferSource: MultiBufferSource,
+        packedLight: Int, packedOverlay: Int,
+    ) {
+        spineModel?.let { renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay) }
+        cover1Model?.let { renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay) }
+        cover2Model?.let { renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay) }
     }
 
     private fun isHandContext(ctx: ItemDisplayContext): Boolean = when (ctx) {
@@ -211,12 +254,112 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         return -offset to offset
     }
 
-    /** Apply a Z-axis rotation around the shared page pivot to
-     *  the pose stack. Caller is expected to push/pop around this. */
-    private fun rotateAroundPivot(poseStack: PoseStack, angleDegrees: Float) {
-        poseStack.translate(PIVOT_X, PIVOT_Y, PIVOT_Z)
+    /**
+     * Draw the open tome at the held-tome's idle pose — covers at
+     * canonical angle, pages at canonical with a gentle sine flop.
+     * Convenience wrapper used by the Cataloger summon mid-dwell.
+     */
+    fun renderOpenIdle(
+        stack: ItemStack,
+        poseStack: PoseStack, bufferSource: MultiBufferSource,
+        packedLight: Int, packedOverlay: Int,
+    ) {
+        renderOpenWithOpenness(stack, 1f, poseStack, bufferSource, packedLight, packedOverlay)
+    }
+
+    /**
+     * Draw the tome with a variable [openness] ∈ [0, 1]:
+     *  - **`openness = 1`** — covers spread at their canonical
+     *    ±22.5° and pages at canonical ±45° (the same look as the
+     *    held tome, with the idle page flop).
+     *  - **`openness = 0`** — covers swing all the way up to ±90°
+     *    against the spine; pages swing inward to ±90°. The book is
+     *    closed. Used by the Cataloger summon's outbound/inbound
+     *    flight phases (closed book in transit).
+     *  - In between: linear interpolation on both covers and pages.
+     *    The idle flop is multiplied by `openness` so closed pages
+     *    don't shiver.
+     *
+     * Pages and covers swing independently around their own hinges —
+     * no transform compounding, no nested matrix headache. The
+     * relative angles are tuned so the two reach the spine at the
+     * same `openness` value.
+     */
+    fun renderOpenWithOpenness(
+        stack: ItemStack, openness: Float,
+        poseStack: PoseStack, bufferSource: MultiBufferSource,
+        packedLight: Int, packedOverlay: Int,
+        alpha: Float = 1f,
+    ) {
+        if (alpha <= 0.001f) return
+        val o = openness.coerceIn(0f, 1f)
+        val closingFactor = 1f - o
+        val cover1Rotation = closingFactor * -COVER_CLOSE_SWING_DEG
+        val cover2Rotation = closingFactor * COVER_CLOSE_SWING_DEG
+        val idleOffset = currentIdleOffsetDegrees() * o
+        val pageClose = closingFactor * PAGE_CLOSE_SWING_DEG
+        val page3Rotation = -pageClose - idleOffset
+        val page4Rotation = pageClose + idleOffset
+
+        spineModel?.let {
+            renderModelPart(it, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha)
+        }
+        cover1Model?.let { model ->
+            poseStack.pushPose()
+            rotateAroundCover1Pivot(poseStack, cover1Rotation)
+            renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha)
+            poseStack.popPose()
+        }
+        cover2Model?.let { model ->
+            poseStack.pushPose()
+            rotateAroundCover2Pivot(poseStack, cover2Rotation)
+            renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha)
+            poseStack.popPose()
+        }
+        page3Model?.let { model ->
+            poseStack.pushPose()
+            rotateAroundPagePivot(poseStack, page3Rotation)
+            renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha)
+            poseStack.popPose()
+        }
+        page4Model?.let { model ->
+            poseStack.pushPose()
+            rotateAroundPagePivot(poseStack, page4Rotation)
+            renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha)
+            poseStack.popPose()
+        }
+    }
+
+    /** Current idle page-flop offset in degrees, sine-eased on the
+     *  [IDLE_PERIOD_MILLIS] period. Page3 takes `-offset`, Page4 takes
+     *  `+offset` so they mirror around the spine. */
+    private fun currentIdleOffsetDegrees(): Float {
+        val nowMs = Util.getMillis()
+        val phase = (nowMs % IDLE_PERIOD_MILLIS.toLong()).toDouble() /
+            IDLE_PERIOD_MILLIS * 2.0 * Math.PI
+        return (IDLE_AMPLITUDE_DEG * Math.sin(phase)).toFloat()
+    }
+
+    /** Z rotation around the shared page hinge `(8, 1.25, 8)/16`. */
+    private fun rotateAroundPagePivot(poseStack: PoseStack, angleDegrees: Float) =
+        rotateAroundZ(poseStack, PAGE_PIVOT_X, PAGE_PIVOT_Y, PAGE_PIVOT_Z, angleDegrees)
+
+    /** Z rotation around the left-cover hinge `(7.5, 1, 8)/16`. */
+    private fun rotateAroundCover1Pivot(poseStack: PoseStack, angleDegrees: Float) =
+        rotateAroundZ(poseStack, COVER1_PIVOT_X, COVER1_PIVOT_Y, COVER1_PIVOT_Z, angleDegrees)
+
+    /** Z rotation around the right-cover hinge `(8.5, 1, 8)/16`. */
+    private fun rotateAroundCover2Pivot(poseStack: PoseStack, angleDegrees: Float) =
+        rotateAroundZ(poseStack, COVER2_PIVOT_X, COVER2_PIVOT_Y, COVER2_PIVOT_Z, angleDegrees)
+
+    /** Translate-rotate-untranslate sandwich around `(px, py, pz)`,
+     *  Z axis. Caller is expected to push/pop the pose. */
+    private fun rotateAroundZ(
+        poseStack: PoseStack, px: Float, py: Float, pz: Float, angleDegrees: Float,
+    ) {
+        poseStack.translate(px, py, pz)
         poseStack.mulPose(Axis.ZP.rotationDegrees(angleDegrees))
-        poseStack.translate(-PIVOT_X, -PIVOT_Y, -PIVOT_Z)
+        poseStack.translate(-px, -py, -pz)
     }
 
     /** Emit a baked model's quads through the item-rendering path
@@ -232,7 +375,12 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
      *  vanilla `ItemRenderer.render` uses for non-custom
      *  models. We pass `withGlint = stack.hasFoil()` so a tome
      *  that gets enchanted in spite of our anti-enchant
-     *  guards still shows its glint correctly. */
+     *  guards still shows its glint correctly.
+     *
+     *  When [alpha] < 1, the fast vanilla path doesn't work
+     *  ([ItemRenderer.renderModelLists] hard-codes alpha 255 inside
+     *  `putBulkData`), so we fall through to a manual quad emitter
+     *  ([emitModelTranslucent]) targeting [RenderType.entityTranslucentCull]. */
     private fun renderModelPart(
         model: BakedModel,
         stack: ItemStack,
@@ -240,13 +388,109 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         bufferSource: MultiBufferSource,
         packedLight: Int,
         packedOverlay: Int,
+        alpha: Float = 1f,
     ) {
-        val renderType = ItemBlockRenderTypes.getRenderType(stack, false)
-        val vertexConsumer = ItemRenderer.getFoilBuffer(
-            bufferSource, renderType, true, stack.hasFoil(),
-        )
-        Minecraft.getInstance().itemRenderer.renderModelLists(
-            model, stack, packedLight, packedOverlay, poseStack, vertexConsumer,
-        )
+        if (alpha >= 0.999f) {
+            val renderType = ItemBlockRenderTypes.getRenderType(stack, false)
+            val vertexConsumer = ItemRenderer.getFoilBuffer(
+                bufferSource, renderType, true, stack.hasFoil(),
+            )
+            Minecraft.getInstance().itemRenderer.renderModelLists(
+                model, stack, packedLight, packedOverlay, poseStack, vertexConsumer,
+            )
+        } else {
+            emitModelTranslucent(
+                model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha,
+            )
+        }
     }
+
+    /** Manual translucent vertex emitter. Walks the model's
+     *  per-direction + null-face quads (same enumeration vanilla's
+     *  [ItemRenderer.renderModelLists] uses), transforms each vertex
+     *  by the current pose, and writes through
+     *  [RenderType.entityTranslucentCull] with the requested alpha
+     *  packed onto the per-vertex colour. The render type's
+     *  translucent batch is flushed by the level renderer's
+     *  end-of-frame buffer flush so the cataloger summon's quads land
+     *  alongside everything else translucent. */
+    private fun emitModelTranslucent(
+        model: BakedModel,
+        stack: ItemStack,
+        poseStack: PoseStack,
+        bufferSource: MultiBufferSource,
+        packedLight: Int,
+        packedOverlay: Int,
+        alpha: Float,
+    ) {
+        val random = RandomSource.create()
+        val vertexConsumer = bufferSource.getBuffer(
+            RenderType.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS),
+        )
+        val pose = poseStack.last()
+        val matrix = pose.pose()
+        val normalMatrix = pose.normal()
+
+        // The Wylland Tome's baked quads are not tinted — every quad
+        // uses the atlas texture's own colour, so we hard-wire RGB
+        // to white and only the alpha varies for the fade.
+        fun emitQuads(quads: List<net.minecraft.client.renderer.block.model.BakedQuad>) {
+            for (quad in quads) {
+                emitQuad(
+                    vertexConsumer, matrix, normalMatrix, quad,
+                    1f, 1f, 1f, alpha, packedLight, packedOverlay,
+                )
+            }
+        }
+
+        for (dir in net.minecraft.core.Direction.values()) {
+            random.setSeed(QUAD_RANDOM_SEED)
+            emitQuads(model.getQuads(null, dir, random))
+        }
+        random.setSeed(QUAD_RANDOM_SEED)
+        emitQuads(model.getQuads(null, null, random))
+    }
+
+    /** Emit one [net.minecraft.client.renderer.block.model.BakedQuad]
+     *  through [vc] with the given vertex colour (RGBA). Vertex layout
+     *  matches `DefaultVertexFormat.BLOCK`: 8 ints per vertex,
+     *  4 vertices per quad. */
+    private fun emitQuad(
+        vc: VertexConsumer,
+        matrix: Matrix4f,
+        normalMatrix: Matrix3f,
+        quad: net.minecraft.client.renderer.block.model.BakedQuad,
+        r: Float, g: Float, b: Float, a: Float,
+        packedLight: Int, packedOverlay: Int,
+    ) {
+        val vertices = quad.vertices
+        val faceNormal = quad.direction.normal
+        val nx = faceNormal.x.toFloat()
+        val ny = faceNormal.y.toFloat()
+        val nz = faceNormal.z.toFloat()
+        val n = Vector3f(nx, ny, nz)
+        n.mul(normalMatrix)
+        for (i in 0..3) {
+            val o = i * 8
+            val x = Float.fromBits(vertices[o])
+            val y = Float.fromBits(vertices[o + 1])
+            val z = Float.fromBits(vertices[o + 2])
+            val u = Float.fromBits(vertices[o + 4])
+            val v = Float.fromBits(vertices[o + 5])
+            val pos = Vector4f(x, y, z, 1f)
+            pos.mul(matrix)
+            vc.vertex(pos.x().toDouble(), pos.y().toDouble(), pos.z().toDouble())
+                .color(r, g, b, a)
+                .uv(u, v)
+                .overlayCoords(packedOverlay)
+                .uv2(packedLight)
+                .normal(n.x(), n.y(), n.z())
+                .endVertex()
+        }
+    }
+
+    /** Same seed [ItemRenderer.renderModelLists] uses — keeps any
+     *  non-deterministic per-face variant baked-models picking the
+     *  same face. */
+    private const val QUAD_RANDOM_SEED: Long = 42L
 }

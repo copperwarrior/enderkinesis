@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "enderkinesis:item/blue_witch_robe_bottoms"
+  }
+}

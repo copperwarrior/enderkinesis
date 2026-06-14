@@ -25,6 +25,8 @@ object EKCreativeTab {
         // Populate the tab once everything is registered.
         CreativeTabRegistry.modify(MAIN) { _, output, _ ->
             output.accept(EKItems.CREPUSCULITE.get())
+            output.accept(EKItems.CREPUSCULITE_CHARM.get())
+            output.accept(EKItems.LEDGER_OF_WATCHING_EYES.get())
             output.accept(EKItems.CREPUSCULITE_ORE_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_BLOCK_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_GLASS_ITEM.get())
@@ -35,6 +37,7 @@ object EKCreativeTab {
             output.accept(EKItems.PLANAR_ANCHOR_ITEM.get())
             output.accept(EKItems.ANCRITE_CHAIN_ITEM.get())
             output.accept(EKItems.VOID_HARNESS_ITEM.get())
+            output.accept(EKItems.VOID_HOOK_ITEM.get())
             output.accept(EKItems.SHULKER_PUFFER_ITEM.get())
             output.accept(EKItems.AETHER_PAD_ITEM.get())
             output.accept(EKItems.ANCRITE_SCRAP.get())
@@ -53,6 +56,7 @@ object EKCreativeTab {
             output.accept(EKItems.SSELITH_BOOKSHELF_ITEM.get())
             output.accept(EKItems.ORB_OF_LINKING_ITEM.get())
             output.accept(EKItems.HEART_OF_THE_WILD_ITEM.get())
+            output.accept(EKItems.CRYSTAL_EXPLOSIVE_ITEM.get())
             output.accept(EKItems.HEART_CANDLE_ITEM.get())
             output.accept(EKItems.WOGOR_LOG_ITEM.get())
             output.accept(EKItems.WOGOR_WOOD_ITEM.get())
@@ -71,7 +75,33 @@ object EKCreativeTab {
             output.accept(EKItems.TOME_OF_PUSHING.get())
             output.accept(EKItems.TOME_OF_HINGING.get())
             output.accept(EKItems.TOME_OF_DISINTEGRATION.get())
+            output.accept(EKItems.TOME_OF_VENTRILOQUISM.get())
+            output.accept(EKItems.TOME_OF_SPRING.get())
+            output.accept(EKItems.TOME_OF_COUPLING.get())
             output.accept(EKItems.TOME_OF_FILTERING.get())
+
+            output.accept(EKItems.MYSTIC_CITRINE.get())
+            output.accept(EKItems.MYSTIC_ONYX.get())
+            output.accept(EKItems.MYSTIC_JADE.get())
+            output.accept(EKItems.MYSTIC_AQUAMARINE.get())
+            output.accept(EKItems.MYSTIC_MOONSTONE.get())
+            output.accept(EKItems.MYSTIC_SPINEL.get())
+            output.accept(EKItems.MYSTIC_BLOODSTONE.get())
+
+            output.accept(EKItems.END_CULT_HOOD.get())
+            output.accept(EKItems.END_CULT_ROBES.get())
+            output.accept(EKItems.END_CULT_ROBE_BOTTOMS.get())
+            output.accept(EKItems.END_CULT_SHOES.get())
+            output.accept(EKItems.SCHOLAR_HOOD.get())
+            output.accept(EKItems.SCHOLAR_ROBES.get())
+            output.accept(EKItems.SCHOLAR_ROBE_BOTTOMS.get())
+            output.accept(EKItems.SCHOLAR_SHOES.get())
+            output.accept(EKItems.BLUE_WITCH_HAT.get())
+            output.accept(EKItems.BLUE_WITCH_ROBES.get())
+            output.accept(EKItems.BLUE_WITCH_ROBE_BOTTOMS.get())
+            output.accept(EKItems.BLUE_WITCH_SANDALS.get())
+
+            output.accept(EKItems.SCROLL_OF_UNRAVELLING.get())
 
             // Prismatic-goat-horn variants — 19 ItemStacks, one per
             // cave instrument, the same way vanilla shows 8 distinct

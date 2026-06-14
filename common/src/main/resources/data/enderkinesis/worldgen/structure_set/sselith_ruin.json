@@ -1,0 +1,11 @@
+{
+  "structures": [
+    { "structure": "enderkinesis:sselith_ruin", "weight": 1 }
+  ],
+  "placement": {
+    "type": "enderkinesis:sselith_ruin",
+    "salt": 1738541123,
+    "frequency_reduction_method": "default",
+    "frequency": 1.0
+  }
+}

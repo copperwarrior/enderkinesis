@@ -4,6 +4,8 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.GlobalPos
 import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.nbt.Tag
+import net.minecraft.network.chat.Component
 import net.minecraft.world.Containers
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
@@ -28,6 +30,7 @@ import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.registry.EKItems
 
 /**
  * Holds a world-frame target yaw; a PD torque around world Y turns the host ship until
@@ -75,6 +78,34 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
         val be = level.getBlockEntity(pos) as? EyeroscopeBlockEntity ?: return InteractionResult.PASS
         val held = player.getItemInHand(hand)
 
+        // Echo-shard upgrade: one-shot. Consumes the shard and flips the BE into 3-axis
+        // mode. No-op on an already-upgraded eyeroscope so a stray click doesn't quietly
+        // eat a second shard. Checked *before* pin resolution because ECHO_SHARD would
+        // otherwise fall through to `resolveCompassPin` and return null harmlessly.
+        if (held.`is`(Items.ECHO_SHARD)) {
+            if (be.applyUpgrade()) {
+                if (!player.abilities.instabuild) held.shrink(1)
+                return InteractionResult.CONSUME
+            }
+            return InteractionResult.PASS
+        }
+
+        // Ledger of Watching Eyes — slotted in like a compass, but switches the eyeroscope
+        // into ship-tracking mode (no pin, no steering — just logs nearby ships). Checked
+        // before [resolveCompassPin] because the ledger extends WrittenBookItem, and
+        // `resolveCompassPin` would otherwise try to parse XYZ off its (auto-generated)
+        // first page and pin to that.
+        if (held.`is`(EKItems.LEDGER_OF_WATCHING_EYES.get())) {
+            val old = be.compassStack
+            val captured = held.copyWithCount(1)
+            be.insertLedger(captured)
+            if (!player.abilities.instabuild) held.shrink(1)
+            if (!old.isEmpty) {
+                if (!player.addItem(old)) player.drop(old, false)
+            }
+            return InteractionResult.CONSUME
+        }
+
         val pin = resolveCompassPin(held, player)
         if (pin != null) {
             val old = be.compassStack
@@ -94,10 +125,12 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
                 return InteractionResult.CONSUME
             }
             // VS2 mixes ship rotation into Player.getLookAngle, so this is the player's
-            // *world-frame* look direction even on a turned ship.
+            // *world-frame* look direction even on a turned ship. In upgraded mode we keep
+            // the pitch component; otherwise it's silently zeroed inside the BE.
             val look = player.lookAngle
             val targetYawRad = Math.atan2(-look.x, look.z).toFloat()
-            be.setStaticTargetYaw(targetYawRad)
+            val targetPitchRad = Math.asin(-look.y).toFloat()
+            be.setStaticTargetYaw(targetYawRad, targetPitchRad)
             return InteractionResult.CONSUME
         }
 
@@ -106,15 +139,60 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
 
     private fun resolveCompassPin(stack: ItemStack, player: Player): BlockPos? {
         if (stack.`is`(Items.COMPASS)) {
-            val tag = stack.tag ?: return null
-            if (!CompassItem.isLodestoneCompass(stack)) return null
-            val gp: GlobalPos = CompassItem.getLodestonePosition(tag) ?: return null
-            return gp.pos()
+            val tag = stack.tag
+            if (tag != null && CompassItem.isLodestoneCompass(stack)) {
+                val gp: GlobalPos = CompassItem.getLodestonePosition(tag) ?: return null
+                return gp.pos()
+            }
+            // Plain compass: snapshot the inserting player's spawn point (bed/respawn
+            // anchor), or the overworld world spawn as fallback. Same shape as the
+            // recovery-compass branch — captured at insert time, so moving the bed
+            // afterward doesn't retarget an already-inserted compass.
+            val sp = player as? net.minecraft.server.level.ServerPlayer ?: return null
+            return sp.respawnPosition ?: sp.server.overworld().sharedSpawnPos
         }
         if (stack.`is`(Items.RECOVERY_COMPASS)) {
             return player.lastDeathLocation.map { it.pos() }.orElse(null)
         }
+        if (stack.`is`(Items.WRITTEN_BOOK) || stack.`is`(Items.WRITABLE_BOOK)) {
+            return resolveBookPin(stack)
+        }
         return resolveModdedFoundPin(stack) ?: resolveMapPin(stack, player.level(), player)
+    }
+
+    /** Pulls XYZ off the book's first page. Written books (`written_book`) store each page
+     *  as a JSON-encoded `Component`; writable books (book & quill, `writable_book`) store
+     *  them as plain strings — we handle both. The regex grabs three signed numbers
+     *  separated by any non-numeric run (newlines included), so `100 64 -200`,
+     *  `(100, 64, -200)`, `X=100 Y=64 Z=-200`, and one-coord-per-line all parse the same.
+     *
+     *  Searching the *whole page* (rather than just the first NBT line) matters for
+     *  shipyard coordinates: a single VS2 shipyard coord like `30001234` is 8 digits,
+     *  and players often press Enter between coordinates so each lands on its own visual
+     *  line — that puts `\n`s into the NBT between them. Decimals are accepted and
+     *  truncated toward zero on cast to int. */
+    private fun resolveBookPin(stack: ItemStack): BlockPos? {
+        val tag = stack.tag ?: return null
+        val pages = tag.getList("pages", Tag.TAG_STRING.toInt())
+        if (pages.isEmpty()) return null
+        val rawPage = pages.getString(0)
+        if (rawPage.isEmpty()) return null
+
+        val pageText = if (stack.`is`(Items.WRITTEN_BOOK)) {
+            try {
+                Component.Serializer.fromJson(rawPage)?.string ?: rawPage
+            } catch (_: Exception) {
+                rawPage
+            }
+        } else {
+            rawPage
+        }
+
+        val match = XYZ_REGEX.find(pageText) ?: return null
+        val x = match.groupValues[1].toDoubleOrNull()?.toInt() ?: return null
+        val y = match.groupValues[2].toDoubleOrNull()?.toInt() ?: return null
+        val z = match.groupValues[3].toDoubleOrNull()?.toInt() ?: return null
+        return BlockPos(x, y, z)
     }
 
     /** Filled map with an "X-marks-the-spot" decoration — buried-treasure red X, explorer
@@ -185,6 +263,13 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
     private companion object {
         /** `CompassState.FOUND` — shared between Nature's and Explorer's Compass. */
         const val COMPASS_STATE_FOUND: Int = 2
+
+        /** Three signed (optionally-decimal) numbers separated by any non-numeric run.
+         *  Captures only the numbers; the non-digit separator class is intentionally broad
+         *  so `(100, 64, -200)`, `X=100 Y=64 Z=-200`, and `100/64/-200` all parse. */
+        val XYZ_REGEX = Regex(
+            "(-?\\d+(?:\\.\\d+)?)[^-0-9.]+(-?\\d+(?:\\.\\d+)?)[^-0-9.]+(-?\\d+(?:\\.\\d+)?)"
+        )
     }
 
     @Deprecated("Deprecated in Java")

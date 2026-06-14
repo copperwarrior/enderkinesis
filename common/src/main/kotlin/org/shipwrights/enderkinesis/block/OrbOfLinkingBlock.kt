@@ -247,7 +247,24 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
         (level.getBlockEntity(pos) as? OrbOfLinkingBlockEntity)?.onNeighborChanged(level as ServerLevel)
     }
 
-    /** Block destroyed / replaced: clear every link through this orb across all tomes. */
+    /** Player about to break this orb. Clean up links **before** vanilla starts mutating
+     *  state — `onRemove` is a wrapper around `BlockState.onRemove(...)` whose BE-removal
+     *  timing varies by loader and mod hooks, so the peer-update broadcast there can land
+     *  with a stale or absent BE. `playerWillDestroy` fires before vanilla touches anything,
+     *  so `level.getBlockEntity(pos)` reliably returns the live BE and the peer's
+     *  `incoming` map is cleared (and re-synced to clients) while every endpoint is still
+     *  intact. [onBlockDestroyed] is idempotent — if `onRemove` fires later with a stale
+     *  link list it's a no-op. */
+    override fun playerWillDestroy(level: Level, pos: BlockPos, state: BlockState, player: Player) {
+        if (!level.isClientSide) {
+            (level.getBlockEntity(pos) as? OrbOfLinkingBlockEntity)?.onBlockDestroyed(level as ServerLevel)
+        }
+        super.playerWillDestroy(level, pos, state, player)
+    }
+
+    /** Block destroyed / replaced by non-player means (explosion, piston, fluid). Same
+     *  cleanup path; the [onBlockDestroyed] call is idempotent if [playerWillDestroy]
+     *  already cleared the maps. */
     @Deprecated("Deprecated in Java")
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,

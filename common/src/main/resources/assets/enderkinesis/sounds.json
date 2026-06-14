@@ -19,6 +19,7 @@
   },
   "entity.cataloger.footstep1": {
     "category": "neutral",
+    "subtitle": "subtitles.enderkinesis.cataloger.footstep",
     "sounds": [
       {
         "name": "enderkinesis:entity/cataloger/footstep/sselith1",
@@ -28,6 +29,7 @@
   },
   "entity.cataloger.footstep2": {
     "category": "neutral",
+    "subtitle": "subtitles.enderkinesis.cataloger.footstep",
     "sounds": [
       {
         "name": "enderkinesis:entity/cataloger/footstep/sselith2",
@@ -37,6 +39,7 @@
   },
   "entity.cataloger.footstep3": {
     "category": "neutral",
+    "subtitle": "subtitles.enderkinesis.cataloger.footstep",
     "sounds": [
       {
         "name": "enderkinesis:entity/cataloger/footstep/sselith3",
@@ -46,6 +49,7 @@
   },
   "entity.cataloger.footstep4": {
     "category": "neutral",
+    "subtitle": "subtitles.enderkinesis.cataloger.footstep",
     "sounds": [
       {
         "name": "enderkinesis:entity/cataloger/footstep/sselith4",
@@ -55,6 +59,7 @@
   },
   "entity.cataloger.footstep5": {
     "category": "neutral",
+    "subtitle": "subtitles.enderkinesis.cataloger.footstep",
     "sounds": [
       {
         "name": "enderkinesis:entity/cataloger/footstep/sselith5",
@@ -64,6 +69,7 @@
   },
   "entity.cataloger.footstep6": {
     "category": "neutral",
+    "subtitle": "subtitles.enderkinesis.cataloger.footstep",
     "sounds": [
       {
         "name": "enderkinesis:entity/cataloger/footstep/sselith6",
@@ -162,6 +168,41 @@
       },
       {
         "name": "enderkinesis:ambient/sselith_repertory/ambience_5r",
+        "stream": true
+      }
+    ]
+  },
+  "ambient.sselith_repertory.loop": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/sselith_repertory/ambient_loop",
+        "stream": true
+      }
+    ]
+  },
+  "ambient.sselith_repertory.whispers": {
+    "category": "ambient",
+    "subtitle": "subtitles.enderkinesis.sselith_repertory.whisper",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/sselith_repertory/whispers_1",
+        "stream": true
+      },
+      {
+        "name": "enderkinesis:ambient/sselith_repertory/whispers_2",
+        "stream": true
+      },
+      {
+        "name": "enderkinesis:ambient/sselith_repertory/whispers_3",
+        "stream": true
+      },
+      {
+        "name": "enderkinesis:ambient/sselith_repertory/whispers_4",
+        "stream": true
+      },
+      {
+        "name": "enderkinesis:ambient/sselith_repertory/whispers_5",
         "stream": true
       }
     ]

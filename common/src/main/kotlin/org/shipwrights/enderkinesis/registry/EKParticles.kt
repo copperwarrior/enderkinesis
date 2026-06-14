@@ -58,6 +58,7 @@ object EKParticles {
     val ENCHANTED_BOOK_BEAM: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("enchanted_book_beam") { EKOceanParticleType() }
 
+
     /** Enchanted-book glyph that rains down inside a ship's local AABB
      *  while the Wylland Tome is targeting it. Uses the same sga glyph
      *  atlas as the beam, but falls under gravity and renders fully

@@ -1,6 +1,10 @@
 package org.shipwrights.enderkinesis.entity
 
+import java.util.Optional
 import net.minecraft.core.BlockPos
+import net.minecraft.network.syncher.EntityDataAccessor
+import net.minecraft.network.syncher.EntityDataSerializers
+import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundSource
@@ -21,7 +25,10 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.material.Fluid
 import net.minecraft.world.level.pathfinder.PathFinder
+import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.player.Player
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
 
@@ -74,6 +81,8 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
 
     override fun registerGoals() {
         goalSelector.addGoal(0, FloatGoal(this))
+        // Rare bookshelf summon — pauses both wander goals while it runs.
+        goalSelector.addGoal(1, SummonTomeFromBookshelfGoal(this))
         // The wander goal also owns LOOK while staring at its current target.
         // No LookAtPlayerGoal: the cataloger is indifferent to onlookers.
         // POI-backed lookup means the search radius can be wide without
@@ -84,6 +93,104 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
         goalSelector.addGoal(3, CatalogerWanderGoal(this, SEARCH_RADIUS, MOVE_SPEED))
         goalSelector.addGoal(6, RandomLookAroundGoal(this))
     }
+
+    override fun defineSynchedData() {
+        super.defineSynchedData()
+        entityData.define(DATA_TOME_BOOKSHELF, Optional.empty())
+        entityData.define(DATA_TOME_RETURN_BOOKSHELF, Optional.empty())
+    }
+
+    /** Server-side: kick off the tome-summon visual. The tome emerges
+     *  from [source] for the outbound flight and disappears into
+     *  [returnTo] on the inbound — pass the same value for both when
+     *  only one eligible shelf is in range. Caller (the goal) is
+     *  responsible for the matching [endTomeSummon]. */
+    fun beginTomeSummon(source: BlockPos, returnTo: BlockPos) {
+        entityData.set(DATA_TOME_BOOKSHELF, Optional.of(source.immutable()))
+        entityData.set(DATA_TOME_RETURN_BOOKSHELF, Optional.of(returnTo.immutable()))
+    }
+
+    /** Server-side: clear the summon — the client clears its local
+     *  start tick via [onSyncedDataUpdated] and stops drawing. */
+    fun endTomeSummon() {
+        entityData.set(DATA_TOME_BOOKSHELF, Optional.empty())
+        entityData.set(DATA_TOME_RETURN_BOOKSHELF, Optional.empty())
+    }
+
+    /** Source bookshelf (where the outbound flight begins), or null
+     *  when no summon is running. */
+    val tomeSummonBookshelf: BlockPos?
+        get() = entityData.get(DATA_TOME_BOOKSHELF).orElse(null)
+
+    /** Return bookshelf (where the inbound flight ends), or null when
+     *  no summon is running. Equal to [tomeSummonBookshelf] when only
+     *  one bookshelf was eligible at goal start. */
+    val tomeReturnBookshelf: BlockPos?
+        get() = entityData.get(DATA_TOME_RETURN_BOOKSHELF).orElse(null)
+
+    /** Client-side tick at which the summon-bookshelf transitioned from
+     *  empty → present (i.e., when this client first learned the summon
+     *  was happening). `-1` outside an active summon. Used by the
+     *  renderer to compute elapsed-since-start for phase math. */
+    @Volatile
+    var clientTomeSummonStartTick: Int = -1
+        private set
+
+    /** Spring-eased hold-point for the tome's dwell anchor. Renderer
+     *  computes the gaze-vector target each frame and calls
+     *  [updateSmoothedTomeHold] to advance this toward it — the book
+     *  catches up exponentially over `~1/HOLD_EASE_PER_TICK` ticks, so
+     *  rapid head turns leave a visible spring trail. `NaN` until the
+     *  first call of each summon; reset on summon-end. */
+    @Volatile var clientSmoothedTomeHoldX: Double = Double.NaN
+        private set
+    @Volatile var clientSmoothedTomeHoldY: Double = Double.NaN
+        private set
+    @Volatile var clientSmoothedTomeHoldZ: Double = Double.NaN
+        private set
+    @Volatile private var clientSmoothedTomeHoldTick: Int = -1
+
+    /** Advance the smoothed hold toward the gaze-direction target by
+     *  one exponential ease step per server tick that has passed since
+     *  the previous call. Snaps to target on the first frame of a
+     *  summon, and snaps again if more than ~2.5 s has elapsed (the
+     *  player paused, switched dimensions, etc.). */
+    fun updateSmoothedTomeHold(targetX: Double, targetY: Double, targetZ: Double) {
+        val tick = this.tickCount
+        val last = clientSmoothedTomeHoldTick
+        val deltaT = tick - last
+        if (clientSmoothedTomeHoldX.isNaN() || deltaT < 0 || deltaT > 50) {
+            clientSmoothedTomeHoldX = targetX
+            clientSmoothedTomeHoldY = targetY
+            clientSmoothedTomeHoldZ = targetZ
+        } else if (deltaT > 0) {
+            val keep = Math.pow((1.0 - HOLD_EASE_PER_TICK), deltaT.toDouble())
+            clientSmoothedTomeHoldX = targetX + (clientSmoothedTomeHoldX - targetX) * keep
+            clientSmoothedTomeHoldY = targetY + (clientSmoothedTomeHoldY - targetY) * keep
+            clientSmoothedTomeHoldZ = targetZ + (clientSmoothedTomeHoldZ - targetZ) * keep
+        }
+        clientSmoothedTomeHoldTick = tick
+    }
+
+    /** Clear the smoothed hold so the next summon initialises afresh
+     *  (no leftover position from a previous run jumping the arc). */
+    private fun resetSmoothedTomeHold() {
+        clientSmoothedTomeHoldX = Double.NaN
+        clientSmoothedTomeHoldY = Double.NaN
+        clientSmoothedTomeHoldZ = Double.NaN
+        clientSmoothedTomeHoldTick = -1
+    }
+
+    override fun onSyncedDataUpdated(dataAccessor: EntityDataAccessor<*>) {
+        super.onSyncedDataUpdated(dataAccessor)
+        if (!this.level().isClientSide) return
+        if (dataAccessor == DATA_TOME_BOOKSHELF) {
+            val present = entityData.get(DATA_TOME_BOOKSHELF).isPresent
+            clientTomeSummonStartTick = if (present) this.tickCount else -1
+            if (!present) resetSmoothedTomeHold()
+        }
+    }
+
 
     /** Idle animation state — keyframe clock for [CatalogerAnimations.IDLE]. Started
      *  once on first tick and never stopped: even while moving the idle clock keeps
@@ -195,8 +302,14 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
 
         var maxOverlap = 0.0
         // `getEntitiesOfClass(class, AABB, predicate)` filters at the entity-manager
-        // level — small list to iterate even in a busy biome. Predicate excludes self.
-        for (other in this.level().getEntitiesOfClass(Cataloger::class.java, ourBB) { it !== this }) {
+        // level — small list to iterate even in a busy biome. Predicate excludes self
+        // AND filters in either another Cataloger or a player whose Sselith Madness
+        // amplifier is at [PLAYER_CATALOGER_MIN_AMP] or higher (level 4+), so a
+        // possessed player fades catalogers that share their bounding box exactly
+        // like a Cataloger neighbour would.
+        for (other in this.level().getEntitiesOfClass(LivingEntity::class.java, ourBB) {
+            it !== this && countsAsCataloger(it)
+        }) {
             val o = other.boundingBox.inflate(FADE_INFLATE)
             val ix = (Math.min(ourBB.maxX, o.maxX) - Math.max(ourBB.minX, o.minX)).coerceAtLeast(0.0)
             val iy = (Math.min(ourBB.maxY, o.maxY) - Math.max(ourBB.minY, o.minY)).coerceAtLeast(0.0)
@@ -293,6 +406,20 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
      *  aside as it walks, and nothing can shove it back. */
     override fun isPushable(): Boolean = false
 
+    /** Short-circuit the per-entity push for any entity that
+     *  [countsAsCataloger] — i.e. another Cataloger (filtered earlier
+     *  by `isPushable`, but defensive) or a player at madness level 4+.
+     *  Without this, vanilla `pushEntities` calls `doPush` on the
+     *  high-madness player with the full ≈ 0.05 vanilla force, and
+     *  then [pushNearbyCatalogers] piles the cataloger-style gentle
+     *  shove on top — the player gets pushed twice. With this
+     *  override, only the gentle pass applies, matching how two real
+     *  catalogers interact. */
+    override fun doPush(entity: Entity) {
+        if (countsAsCataloger(entity)) return
+        super.doPush(entity)
+    }
+
     /** Cataloger-vs-cataloger push: vanilla `pushEntities` (which we deliberately
      *  DON'T override — earlier diagnostics showed any override of pushEntities,
      *  even an additive one calling `super`, breaks the cataloger's own
@@ -309,9 +436,14 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
     private fun pushNearbyCatalogers() {
         val level = this.level()
         if (level.isClientSide) return
-        val catalogers = level.getEntitiesOfClass(Cataloger::class.java, this.boundingBox) { it !== this }
-        if (catalogers.isEmpty()) return
-        for (other in catalogers) {
+        // Includes other Catalogers AND players at madness level 4+ —
+        // the high-madness player is treated as one of us for the
+        // gentle inter-cataloger shove.
+        val nearby = level.getEntitiesOfClass(LivingEntity::class.java, this.boundingBox) {
+            it !== this && countsAsCataloger(it)
+        }
+        if (nearby.isEmpty()) return
+        for (other in nearby) {
             if (other.isPassengerOfSameVehicle(this)) continue
             if (other.noPhysics || this.noPhysics) continue
             if (other.isVehicle) continue
@@ -327,14 +459,69 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
         }
     }
 
+    /** True iff [entity] should be treated as a Cataloger for the
+     *  cataloger-vs-cataloger push and intersection-fade systems.
+     *  Either an actual Cataloger or a player whose Sselith Madness
+     *  amplifier is `≥ [PLAYER_CATALOGER_MIN_AMP]` (level 4 or above). */
+    private fun countsAsCataloger(entity: Entity): Boolean {
+        if (entity is Cataloger) return true
+        if (entity !is Player) return false
+        val effect = entity.getEffect(EKEffects.SSELITH_MADNESS.get()) ?: return false
+        return effect.amplifier >= PLAYER_CATALOGER_MIN_AMP
+    }
+
     companion object {
         const val ID_PATH = "cataloger"
         val ID: ResourceLocation = EnderkinesisMod.id(ID_PATH)
+
+        /** Source bookshelf for the rare summon-tome flourish — where the
+         *  outbound flight begins. Empty when no summon is running.
+         *  Synced from server so the client renderer can draw the
+         *  floating tome. */
+        @JvmField
+        val DATA_TOME_BOOKSHELF: EntityDataAccessor<Optional<BlockPos>> =
+            SynchedEntityData.defineId(Cataloger::class.java, EntityDataSerializers.OPTIONAL_BLOCK_POS)
+
+        /** Return bookshelf for the inbound flight. Picked separately
+         *  from the source so the tome can disappear into a *different*
+         *  Sselith bookshelf than the one it emerged from; when only
+         *  one eligible bookshelf is nearby, the goal sets this equal
+         *  to [DATA_TOME_BOOKSHELF] and the inbound flight retraces. */
+        @JvmField
+        val DATA_TOME_RETURN_BOOKSHELF: EntityDataAccessor<Optional<BlockPos>> =
+            SynchedEntityData.defineId(Cataloger::class.java, EntityDataSerializers.OPTIONAL_BLOCK_POS)
+
+        /** Outbound flight ticks (bookshelf → cataloger, closed, tumbling).
+         *  140 ticks ≈ 7 s — long enough for the eased path/tumble to read
+         *  as a deliberate float rather than a snap. */
+        const val TOME_OUTBOUND_TICKS = 140
+
+        /** Dwell ticks at the cataloger (open, idle page flop). 240 ≈ 12 s. */
+        const val TOME_DWELL_TICKS = 240
+
+        /** Inbound flight ticks (cataloger → bookshelf, closed, tumbling). */
+        const val TOME_INBOUND_TICKS = 140
+
+        /** Total ticks of one summon cycle, server-side window length. */
+        const val TOME_TOTAL_TICKS =
+            TOME_OUTBOUND_TICKS + TOME_DWELL_TICKS + TOME_INBOUND_TICKS
+
+        /** Per-tick exponential-ease factor for the smoothed hold-point.
+         *  0.18 → about 25 % of the gap closed each tick; half-life ≈
+         *  3.5 ticks (≈ 0.175 s) at 20 tps. Snappy but the spring is
+         *  visible when the head whips between source and return. */
+        private const val HOLD_EASE_PER_TICK: Double = 0.18
 
         /** Squared horizontal-displacement threshold (per tick) above which the
          *  cataloger is considered "moving" — drives idle/walking state switching.
          *  ~0.001 blocks² ≈ 0.032 b/tick, well below any real navigation step. */
         private const val MOVE_EPSILON = 0.000001
+
+        /** Minimum Sselith Madness **amplifier** (= level − 1) for a
+         *  player to count as a Cataloger in the inter-cataloger push
+         *  and intersection-fade systems. 3 = madness level 4. Same
+         *  threshold the menu-walk possession uses. */
+        const val PLAYER_CATALOGER_MIN_AMP = 3
 
         /** Per-tick step for the idle↔walking cross-fade. 0.15 → full transition in
          *  ~7 ticks (≈0.35s) — long enough that the foot-plant of the walking cycle

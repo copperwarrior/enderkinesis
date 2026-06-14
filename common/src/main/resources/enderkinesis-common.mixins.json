@@ -25,6 +25,7 @@
     "LocalPlayerWyllandTomeNoSwingMixin",
     "LocalPlayerWyllandTomeTurnMixin",
     "MinecraftWyllandTomeSwingMixin",
+    "ClientLevelVentriloquismSoundMixin",
     "ModelBlockRendererAOSselithMixin",
     "ModelBlockRendererFlatSselithMixin",
     "LocalPlayerCatalogerWalkMixin"
@@ -53,6 +54,7 @@
     "PoiTypesInvoker",
     "RegionFileStorageAccessor",
     "ServerGamePacketListenerAccessor",
+    "ServerLevelVentriloquismSoundMixin",
     "ServerPlayerCrossDimEffectSyncMixin",
     "SnowLayerBlockWohlonMeltMixin",
     "SpawnPlacementsInvoker",

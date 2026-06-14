@@ -2,6 +2,8 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.item.ItemStack
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Transportation — moves items between linked orbs at 1 block per tick.
@@ -35,6 +37,12 @@ class TomeOfTransportationItem(properties: Properties) : LinkingTomeItem(propert
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, TransportationTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 1.1, cohesion = 0.25, frequency = 0.6, reciprocal = false,
+                ),
+            )
         }
     }
 }

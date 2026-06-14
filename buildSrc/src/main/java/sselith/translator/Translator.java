@@ -70,14 +70,58 @@ public final class Translator {
     }
 
     public String translate(String englishText) {
-        Stripped s = stripFormatTokens(englishText);
+        // Mask the holy-number invocation first — it must not be tokenised
+        // by the prose engine (the hyphens would otherwise re-emerge as
+        // " - " in the output). Whatever separator form the source uses
+        // (hyphens / spaces / commas), the reinsert step normalises it
+        // to the canonical space-separated written form.
+        Stripped inv = stripInvocationPhrase(englishText);
+        Stripped s = stripFormatTokens(inv.cleanedText);
         String[] lines = s.cleanedText.split("\n", -1);
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) out.append("\n");
             out.append(translateLine(lines[i]));
         }
-        return reinsertFormatTokens(out.toString(), s.slots);
+        String withFormats = reinsertFormatTokens(out.toString(), s.slots);
+        return reinsertFormatTokens(withFormats, inv.slots);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //   holy-number invocation stripping
+    //
+    // Five-word phrase `vraestmorocht … schest … kelkargh … skarn … moroch`
+    // in any of the natural separator forms (hyphens / spaces / commas).
+    // Kept in lock-step with NumeralConverter.decimalToSselith(34.5) and
+    // SselithChatTeleport's CANONICAL_WORDS — update all three together.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private static final String INVOCATION_CANONICAL =
+            "vraestmorocht-schest-kelkargh-skarn-moroch";
+
+    private static final Pattern INVOCATION_PATTERN = Pattern.compile(
+            "vraestmorocht[\\s,\\-]+schest[\\s,\\-]+kelkargh[\\s,\\-]+skarn[\\s,\\-]+moroch",
+            Pattern.CASE_INSENSITIVE);
+
+    private static Stripped stripInvocationPhrase(String text) {
+        Matcher m = INVOCATION_PATTERN.matcher(text);
+        if (!m.find()) {
+            return new Stripped(text, List.of());
+        }
+        List<FormatSlot> slots = new ArrayList<>();
+        StringBuilder clean = new StringBuilder();
+        int last = 0;
+        int idx = 0;
+        do {
+            clean.append(text, last, m.start());
+            String marker = MARKER_PREFIX + "inv" + encodeMarkerIndex(idx) + MARKER_SUFFIX;
+            clean.append(marker);
+            slots.add(new FormatSlot(marker, INVOCATION_CANONICAL));
+            idx++;
+            last = m.end();
+        } while (m.find());
+        clean.append(text, last, text.length());
+        return new Stripped(clean.toString(), slots);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

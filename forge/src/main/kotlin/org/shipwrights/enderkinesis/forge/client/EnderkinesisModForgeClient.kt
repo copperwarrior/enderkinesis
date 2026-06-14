@@ -6,15 +6,19 @@ import net.minecraft.server.packs.PackType
 import net.minecraft.server.packs.repository.Pack
 import net.minecraft.server.packs.repository.PackSource
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.client.Minecraft
 import net.minecraftforge.client.event.EntityRenderersEvent
 import net.minecraftforge.client.event.ModelEvent
 import net.minecraftforge.client.event.RegisterDimensionSpecialEffectsEvent
+import net.minecraftforge.client.event.RenderLevelStageEvent
 import net.minecraftforge.event.AddPackFindersEvent
 import net.minecraftforge.fml.ModList
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent
 import net.minecraftforge.resource.PathPackResources
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.client.CatalogerTomeWorldRenderer
 import org.shipwrights.enderkinesis.client.EnderkinesisModClient
+import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer
 import org.shipwrights.enderkinesis.client.SselithDimensionEffects
 import org.shipwrights.enderkinesis.client.WohlonnogondoniaDimensionEffects
 import org.shipwrights.enderkinesis.client.WyllandTomeBEWLR
@@ -53,21 +57,24 @@ class EnderkinesisModForgeClient {
         @JvmStatic
         fun registerAdditionalModels(event: ModelEvent.RegisterAdditional) {
             event.register(WyllandTomeBEWLR.ICON_MODEL_LOC)
-            event.register(WyllandTomeBEWLR.STATIC_MODEL_LOC)
+            event.register(WyllandTomeBEWLR.SPINE_MODEL_LOC)
+            event.register(WyllandTomeBEWLR.COVER1_MODEL_LOC)
+            event.register(WyllandTomeBEWLR.COVER2_MODEL_LOC)
             event.register(WyllandTomeBEWLR.PAGE3_MODEL_LOC)
             event.register(WyllandTomeBEWLR.PAGE4_MODEL_LOC)
         }
 
-        /** Capture the four Wylland Tome sub-models into
-         *  [WyllandTomeBEWLR] after Forge finishes baking. The
-         *  event's `getModels()` map is keyed by the same
-         *  `ResourceLocation`s we registered with
+        /** Capture the Wylland Tome sub-models into [WyllandTomeBEWLR]
+         *  after Forge finishes baking. The event's `getModels()` map
+         *  is keyed by the same `ResourceLocation`s we registered with
          *  [registerAdditionalModels], so direct lookup works. */
         @JvmStatic
         fun captureWyllandTomeBakes(event: ModelEvent.ModifyBakingResult) {
             val models = event.models
             WyllandTomeBEWLR.iconModel = models[WyllandTomeBEWLR.ICON_MODEL_LOC]
-            WyllandTomeBEWLR.staticModel = models[WyllandTomeBEWLR.STATIC_MODEL_LOC]
+            WyllandTomeBEWLR.spineModel = models[WyllandTomeBEWLR.SPINE_MODEL_LOC]
+            WyllandTomeBEWLR.cover1Model = models[WyllandTomeBEWLR.COVER1_MODEL_LOC]
+            WyllandTomeBEWLR.cover2Model = models[WyllandTomeBEWLR.COVER2_MODEL_LOC]
             WyllandTomeBEWLR.page3Model = models[WyllandTomeBEWLR.PAGE3_MODEL_LOC]
             WyllandTomeBEWLR.page4Model = models[WyllandTomeBEWLR.PAGE4_MODEL_LOC]
         }
@@ -90,6 +97,38 @@ class EnderkinesisModForgeClient {
             )
             event.addRepositorySource { consumer -> consumer.accept(pack) }
             LOG.info("Registered built-in Sselith translation pack (Forge)")
+        }
+
+        /** Forge-bus listener for the level renderer's post-entity
+         *  stage. Drives [CatalogerTomeWorldRenderer], which scans the
+         *  level for catalogers with active summons and draws their
+         *  floating tomes at world positions. Decoupled from
+         *  `CatalogerRenderer` so the book stays visible whenever the
+         *  level is being drawn — the cataloger's own frustum culling
+         *  doesn't matter. */
+        @JvmStatic
+        fun onRenderLevelStage(event: RenderLevelStageEvent) {
+            val cameraPos = event.camera.position
+            val bufferSource = Minecraft.getInstance().renderBuffers().bufferSource()
+            when (event.stage) {
+                RenderLevelStageEvent.Stage.AFTER_ENTITIES -> {
+                    CatalogerTomeWorldRenderer.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
+                }
+                RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS -> {
+                    // Orb-network beam line — after translucent blocks so it composites over
+                    // water/glass and its additive bloom adds to whatever's behind it.
+                    OrbBeamLineRenderer.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
+                }
+                else -> {}
+            }
         }
 
         @JvmStatic

@@ -2,6 +2,8 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.item.ItemStack
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Disintegration — fires a destructive beam from the SEND orb toward each linked
@@ -30,6 +32,12 @@ class TomeOfDisintegrationItem(properties: Properties) : LinkingTomeItem(propert
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, DisintegrationTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 1.3, cohesion = 0.65, frequency = 1.8, reciprocal = false,
+                ),
+            )
         }
     }
 }

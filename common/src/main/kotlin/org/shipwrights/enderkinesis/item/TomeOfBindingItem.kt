@@ -5,6 +5,8 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Binding — welds two orbs together with a [org.valkyrienskies.core.internal.joints.VSFixedJoint],
@@ -54,9 +56,16 @@ class TomeOfBindingItem(properties: Properties) : LinkingTomeItem(properties) {
         const val BEAM_COLOR: Int = 0x2B2B2B
 
         /** Register accent colour and orb-network behavior. Called from common mod init. */
+
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, BindingTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 1.5, cohesion = 0.5, frequency = 1.8, reciprocal = true,
+                ),
+            )
         }
     }
 }

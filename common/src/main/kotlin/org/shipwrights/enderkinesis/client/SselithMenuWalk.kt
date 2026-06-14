@@ -122,6 +122,15 @@ object SselithMenuWalk {
     private var nextRetryCleanup = 0L
 
     fun onAiStep(player: LocalPlayer) {
+        // Yield to an active Sselith Madness tome summon — both
+        // systems try to drive the camera each tick and the
+        // simultaneous look-at packets + rotation writes cause a
+        // visible shake. The summon takes priority for its
+        // ~26 s window; the menu walk resumes immediately after.
+        if (PlayerTomeSummonClient.get(player) != null) {
+            reset()
+            return
+        }
         if (!isActive(player)) {
             reset()
             return
@@ -246,7 +255,7 @@ object SselithMenuWalk {
         g.navigation.tick()
         g.moveControl.tick()
         applyYaw(player, ease(player.yRot, g.yRot, EASE_FACTOR))
-        player.xRot = ease(player.xRot, 0f, EASE_FACTOR)
+        applyPitch(player, ease(player.xRot, 0f, EASE_FACTOR))
         walkForward(player)
         // Server-side spawn so every nearby player sees the dust (a local
         // addParticle would only show on this client).
@@ -410,13 +419,35 @@ object SselithMenuWalk {
         val yaw = (Mth.atan2(dz, dx) * (180.0 / Math.PI)).toFloat() - 90f
         val pitch = (-(Mth.atan2(dy, horiz) * (180.0 / Math.PI))).toFloat()
         applyYaw(player, ease(player.yRot, yaw, EASE_FACTOR))
-        player.xRot = ease(player.xRot, pitch, EASE_FACTOR)
+        applyPitch(player, ease(player.xRot, pitch, EASE_FACTOR))
     }
 
     private fun applyYaw(player: LocalPlayer, yaw: Float) {
+        // Snapshot the current rotations as their "previous tick" `*O`
+        // values BEFORE overwriting. Vanilla only auto-updates
+        // `yRotO`/`yHeadRotO`/`yBodyRotO` from `Entity.turn` (mouse
+        // input), `lerpTo` (server-driven sync), and `moveTo`/
+        // `absMoveTo` (teleport) — none of which fire while a screen
+        // is open with no mouse movement. Without this manual
+        // snapshot, `*O` stays frozen at whatever value it had when
+        // the player last moved the mouse, and `getViewYRot`'s
+        // `lerp(partialTick, *O, *)` sweeps the entire gap from
+        // stale-value → current each frame, restarting at every
+        // tick — visible as a fixed-cadence stutter on the camera.
+        player.yRotO = player.yRot
+        player.yHeadRotO = player.yHeadRot
+        player.yBodyRotO = player.yBodyRot
         player.yRot = yaw
         player.yHeadRot = yaw
         player.yBodyRot = yaw
+    }
+
+    /** Sister to [applyYaw] for pitch — same `*O` issue, same fix.
+     *  Snapshots `xRotO = xRot` before overwriting so the partial-tick
+     *  pitch interpolation actually has a gap to lerp across. */
+    private fun applyPitch(player: LocalPlayer, pitch: Float) {
+        player.xRotO = player.xRot
+        player.xRot = pitch
     }
 
     private fun voxelShapeCenter(player: LocalPlayer, pos: BlockPos): Vec3 {
@@ -458,10 +489,30 @@ object SselithMenuWalk {
         return amp >= FULL_POSSESSION_AMP || Minecraft.getInstance().screen != null
     }
 
-    /** Ease-out toward an angle: close [factor] of the remaining (wrapped) delta
-     *  each tick. Player-only smoothing — the ghost Cataloger turns at its own rate. */
-    private fun ease(from: Float, to: Float, factor: Float): Float =
-        from + Mth.wrapDegrees(to - from) * factor
+    /** Hard cap (degrees per tick) on the rotational delta the ease can
+     *  apply. The vanilla rendered camera linearly interpolates yaw/pitch
+     *  between `yRotO` (this-tick start) and `yRot` (this-tick end) for
+     *  every frame — a clean exponential `delta * factor` gives a
+     *  different per-tick step each tick (exponential decay), so the
+     *  per-frame angular velocity has a visible "kink" at every tick
+     *  boundary. Capping the step keeps velocity constant for the bulk
+     *  of long turns, and `[factor]` only kicks in on the final approach
+     *  where the soft landing is fine. 12°/tick ≈ 240°/s — fast enough
+     *  to keep up with a Cataloger's gait, slow enough to read as a
+     *  deliberate gaze. */
+    private const val MAX_TURN_PER_TICK = 12f
+
+    /** Ease toward an angle, capped at [MAX_TURN_PER_TICK]: constant
+     *  per-tick angular velocity for the long-range portion of a turn,
+     *  exponential approach for the soft landing. Eliminates the
+     *  per-tick deceleration step that read as stutter in the raw
+     *  `delta * factor` ease. */
+    private fun ease(from: Float, to: Float, factor: Float): Float {
+        val delta = Mth.wrapDegrees(to - from)
+        val expStep = delta * factor
+        val capped = expStep.coerceIn(-MAX_TURN_PER_TICK, MAX_TURN_PER_TICK)
+        return from + capped
+    }
 
     private val CATALOGER_TARGETS: TagKey<Block> =
         TagKey.create(Registries.BLOCK, EnderkinesisMod.id("cataloger_targets"))

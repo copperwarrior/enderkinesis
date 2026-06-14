@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.forge
 
 import dev.architectury.platform.forge.EventBuses
+import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.fml.common.Mod
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext
 import net.minecraftforge.fml.loading.FMLEnvironment
@@ -27,6 +28,9 @@ class EnderkinesisModForge {
             modEventBus.addListener(EnderkinesisModForgeClient.Companion::captureWyllandTomeBakes)
             modEventBus.addListener(EnderkinesisModForgeClient.Companion::registerDimensionEffects)
             modEventBus.addListener(EnderkinesisModForgeClient.Companion::onAddPackFinders)
+            // RenderLevelStageEvent fires on the Forge event bus, not
+            // the mod bus — registered separately.
+            MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderLevelStage)
         }
     }
 }

@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top":   "enderkinesis:block/crepusculite_glass",
+    "side":  "enderkinesis:block/crepusculite_glass",
+    "front": "minecraft:block/dispenser_front"
+  }
+}

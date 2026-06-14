@@ -5,6 +5,8 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.item.TomePulseProfile
+import org.shipwrights.enderkinesis.item.TomePulseProfiles
 
 /**
  * Tome of Pushing — the inverse of [TomeOfPullingItem]. Each (send, receive) pair is a
@@ -46,6 +48,26 @@ class TomeOfPushingItem(properties: Properties) : LinkingTomeItem(properties) {
         fun registerBeamPalette() {
             TomeBeamPalette.register(TOME_KIND, BEAM_COLOR)
             TomeOrbBehaviors.register(TOME_KIND, PushingTomeOrbBehavior)
+            TomePulseProfiles.register(
+                TOME_KIND,
+                TomePulseProfile(
+                    progression = 0.5, cohesion = 0.3, frequency = 0.5, reciprocal = true,
+                ),
+            )
+            // Dynamic scaling: progression, frequency, and cohesion all ramp with the SEND
+            // orb's POWER — that's the redstone strength driving the joint's force. A
+            // winching pull at full strength visibly moves fast, dense, and tight.
+            TomePulseProfiles.registerAdjuster(TOME_KIND) { base, level, sendPos, _ ->
+                val state = level.getBlockState(sendPos)
+                val power = if (state.hasProperty(org.shipwrights.enderkinesis.block.OrbOfLinkingBlock.POWER))
+                    state.getValue(org.shipwrights.enderkinesis.block.OrbOfLinkingBlock.POWER) else 0
+                val s = power / 15.0
+                base.copy(
+                    progression = base.progression + (1.8 - base.progression) * s,
+                    cohesion = base.cohesion + (0.9 - base.cohesion) * s,
+                    frequency = base.frequency + (2.5 - base.frequency) * s,
+                )
+            }
         }
     }
 }

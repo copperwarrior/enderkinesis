@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "enderkinesis:item/end_cult_robe_bottoms"
+  }
+}

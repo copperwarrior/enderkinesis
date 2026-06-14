@@ -1,0 +1,20 @@
+{
+  "replace": false,
+  "values": [
+    "enderkinesis:wylland_tome",
+    "enderkinesis:tome_of_signal",
+    "enderkinesis:tome_of_binding",
+    "enderkinesis:tome_of_chaining",
+    "enderkinesis:tome_of_elasticity",
+    "enderkinesis:tome_of_transportation",
+    "enderkinesis:tome_of_vacuum",
+    "enderkinesis:tome_of_pulling",
+    "enderkinesis:tome_of_pushing",
+    "enderkinesis:tome_of_filtering",
+    "enderkinesis:tome_of_hinging",
+    "enderkinesis:tome_of_disintegration",
+    "enderkinesis:tome_of_ventriloquism",
+    "enderkinesis:tome_of_spring",
+    "enderkinesis:tome_of_coupling"
+  ]
+}

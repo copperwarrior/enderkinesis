@@ -87,6 +87,36 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
      *  side. Mirrors [OrbOfLinkingBlock.FACING]. */
     val facing: Direction get() = blockState.getValue(OrbOfLinkingBlock.FACING)
 
+    /** Redstone signal arriving on the orb's active face — what tomes like Signal, Pulling,
+     *  Pushing, Hinging treat as their "input strength."
+     *
+     *  Two paths combined, mirroring how vanilla redstone wires read through a conductor:
+     *   - **Direct emission from the support itself** — if the support block at FACING is a
+     *     redstone source (lever, button, redstone block, etc.) [Level.getSignal] returns
+     *     its emitted level. (`level.getSignal` does *not* aggregate the support's incoming
+     *     signals, despite the legacy comment claiming it did — that was the bug.)
+     *   - **Conductor walk** — when the support is a redstone conductor (plain stone, wool,
+     *     etc.), a lever or wire on any of its *other* faces strongly powers the support
+     *     and that arrives at us only by visiting the support's other neighbours. The orb
+     *     side is skipped so the orb's own POWER (set by Signal RECEIVE / etc.) can't feed
+     *     back into its own input. */
+    fun readActiveFaceSignal(level: ServerLevel): Int {
+        val supportPos = blockPos.relative(facing)
+        val supportState = level.getBlockState(supportPos)
+        var best = level.getSignal(supportPos, facing)
+        if (best >= 15) return 15
+        if (supportState.isRedstoneConductor(level, supportPos)) {
+            val orbDir = facing.opposite               // direction from support back to this orb
+            for (dir in net.minecraft.core.Direction.values()) {
+                if (dir == orbDir) continue
+                val s = level.getSignal(supportPos.relative(dir), dir)
+                if (s > best) best = s
+                if (best >= 15) return 15
+            }
+        }
+        return best
+    }
+
     /** Per-tome scratchpad — lazily populated via [TomeOrbBehavior.createState]. Transient,
      *  not persisted. Used by behaviors that need per-orb state outside the per-link maps
      *  (e.g. Transportation's round-robin cursor + in-flight delivery list). */
@@ -96,6 +126,12 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
 
     /** All outgoing links keyed by (tomeKind, peerPos). Client uses for beam rendering. */
     fun allOutgoing(): Map<LinkKey, LinkData> = outgoing
+
+    /** All incoming links keyed by (tomeKind, peerPos). Mirrors [allOutgoing] for the receive
+     *  side so the client beam renderer can draw beams from RECEIVE orbs whose SEND end is
+     *  in an unloaded chunk — without this, the beam disappears the moment the send drifts
+     *  out of view distance. */
+    fun allIncoming(): Map<LinkKey, LinkData> = incoming
 
     /** Receiver positions for [tomeKind]. */
     fun outgoingPeers(tomeKind: ResourceLocation): List<BlockPos> =
@@ -183,14 +219,31 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     /** Block destroyed (or replaced). Clean up every link through this orb across all tomes,
-     *  preserving the symmetric onUnlinking notifications. */
+     *  preserving the symmetric onUnlinking notifications. Each peer also gets a final
+     *  defensive [sync] after the loops — multi-link orbs were losing one of their peer
+     *  packets to whatever delivery quirk eats it, and a second broadcast guarantees the
+     *  client sees the post-cleanup state. */
     fun onBlockDestroyed(level: ServerLevel) {
+        val touchedPeers = HashSet<BlockPos>()
+
         for (key in outgoing.keys.toList()) {
+            touchedPeers.add(key.peerPos)
             removeOutgoingLink(level, key.tomeKind, key.peerPos)
         }
         for (key in incoming.keys.toList()) {
+            touchedPeers.add(key.peerPos)
             val sendBe = level.getBlockEntity(key.peerPos) as? OrbOfLinkingBlockEntity ?: continue
             sendBe.removeOutgoingLink(level, key.tomeKind, blockPos)
+        }
+
+        // Re-broadcast every peer's final state. Each peer was synced once during the
+        // inner removeOutgoingLink call, but that packet captured a possibly-intermediate
+        // state when the dying orb held multiple links to the same peer (one packet per
+        // tome, each with the next tome's link still present). The final sync here
+        // captures the actually-final empty state.
+        for (peerPos in touchedPeers) {
+            val peerBe = level.getBlockEntity(peerPos) as? OrbOfLinkingBlockEntity ?: continue
+            peerBe.sync()
         }
     }
 
@@ -423,14 +476,24 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
      *  blockstate property [OrbOfLinkingBlock.ORB_ROLE] iff it differs
      *  from the present value. SEND wins over RECEIVE for mixed-role
      *  orbs — the active direction follows whichever way data is
-     *  being sent. */
+     *  being sent.
+     *
+     *  Reads the **world** state (not the BE's cached `blockState`) and
+     *  bails if the orb is already gone — same defensive pattern as
+     *  [applyPower]. During destruction, vanilla sets `pos` to air
+     *  *before* `Block.onRemove` runs, but the cached `blockState` on
+     *  this BE still says "orb"; without the world-state read, the
+     *  in-flight `removeOutgoingLink` calls would each [sync] this BE
+     *  and trigger a setBlock that re-places the orb on top of the air
+     *  vanilla just set, resurrecting the block at the player's feet. */
     private fun refreshOrbRoleState(level: ServerLevel) {
+        val current = level.getBlockState(blockPos)
+        if (current.block !is OrbOfLinkingBlock) return
         val role = when {
             outgoing.isNotEmpty() -> OrbRole.SEND
             incoming.isNotEmpty() -> OrbRole.RECEIVE
             else -> OrbRole.UNBOUND
         }
-        val current = blockState
         if (current.getValue(OrbOfLinkingBlock.ORB_ROLE) == role) return
         // Flag 3 = BLOCK_UPDATE | NOTIFY_NEIGHBORS, the standard "state
         // changed" set. Skip neighbour update propagation (16) — link
@@ -441,8 +504,10 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     override fun getUpdateTag(): CompoundTag {
         val tag = super.getUpdateTag()
         if (outgoing.isNotEmpty()) tag.put("Outgoing", writeLinkMap(outgoing))
-        // Receivers don't need to know their incoming set for client rendering (the SEND side
-        // owns the beam render). Skip syncing "Incoming" to save bandwidth.
+        // Receivers need their incoming set client-side so the beam renderer can draw the
+        // link from the RECEIVE end when the SEND end's chunk isn't loaded. Without this,
+        // the beam vanishes the moment the send orb drifts out of view distance.
+        if (incoming.isNotEmpty()) tag.put("Incoming", writeLinkMap(incoming))
         // Filter and book both go over the wire so the air-side renderer can show their
         // tumbling indicators.
         if (!filter.isEmpty) tag.put("Filter", filter.save(CompoundTag()))
@@ -461,7 +526,37 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     override fun setRemoved() {
         super.setRemoved()
         val l = level ?: return
-        if (l.isClientSide) OrbOfLinkingClientRegistry.unregister(l, this)
+        if (l.isClientSide) {
+            OrbOfLinkingClientRegistry.unregister(l, this)
+            // Defensive client-side scrub. The server's BE-update packet for each peer
+            // (clearing this orb's link from their incoming/outgoing maps) is sent eagerly
+            // via player.connection.send and *should* arrive before the block-update that
+            // triggered this setRemoved — but in practice the peer's beam can linger when
+            // those packets race. Walk every other loaded orb in this level and drop any
+            // link key whose peer is at OUR position, so the beam renderer (which reads
+            // straight from these maps) drops the dead link the moment we vanish.
+            val myPos = blockPos
+            for (other in OrbOfLinkingClientRegistry.sendOrbs(l)) {
+                if (other === this) continue
+                other.scrubLinksTo(myPos)
+            }
+        }
+    }
+
+    /** Client-side helper: remove every outgoing/incoming entry whose peer is at [otherPos].
+     *  Called from another orb's [setRemoved] when its block became air, so we don't keep
+     *  rendering a beam to a peer that no longer exists.
+     *
+     *  Built with [MutableCollection.removeAll] over a snapshot of matching keys rather
+     *  than `iterator.remove()` because the latter can silently leave entries behind when
+     *  the underlying map type's iterator semantics don't match its key-set view's
+     *  semantics — which is exactly what bit multi-link orbs (multiple keys with the same
+     *  peer position). Snapshotting first eliminates that class of bug. */
+    fun scrubLinksTo(otherPos: BlockPos) {
+        val outDead = outgoing.keys.filter { it.peerPos == otherPos }
+        if (outDead.isNotEmpty()) outgoing.keys.removeAll(outDead.toSet())
+        val inDead = incoming.keys.filter { it.peerPos == otherPos }
+        if (inDead.isNotEmpty()) incoming.keys.removeAll(inDead.toSet())
     }
 
     // --- Types ---
