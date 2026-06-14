@@ -106,6 +106,19 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
             return InteractionResult.CONSUME
         }
 
+        // Ledger of Hunting Pincers — same slot, same flow, but captures the *player's*
+        // UUID so the BE can skip them when scanning for entity targets.
+        if (held.`is`(EKItems.LEDGER_OF_HUNTING_PINCERS.get())) {
+            val old = be.compassStack
+            val captured = held.copyWithCount(1)
+            be.insertHuntingLedger(captured, player.uuid)
+            if (!player.abilities.instabuild) held.shrink(1)
+            if (!old.isEmpty) {
+                if (!player.addItem(old)) player.drop(old, false)
+            }
+            return InteractionResult.CONSUME
+        }
+
         val pin = resolveCompassPin(held, player)
         if (pin != null) {
             val old = be.compassStack

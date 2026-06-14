@@ -18,6 +18,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.joml.Quaterniondc
 import org.joml.Vector3d
 import org.joml.primitives.AABBd
+import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
@@ -114,6 +115,24 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  `tracked_ships` list. Physics tick reads this directly. */
     @Volatile private var cachedLedgerTargetShipId: Long = -1L
 
+    /** Entity UUID this eyeroscope is currently aiming at via the Ledger of Hunting
+     *  Pincers. `null` means no live target. Refreshed each game tick from the latest
+     *  loaded entry in the hunting ledger. */
+    @Volatile private var cachedHuntingTargetUuid: java.util.UUID? = null
+
+    /** Latest known world position of [cachedHuntingTargetUuid], snapshotted each game
+     *  tick. The physics tick reads this directly — `LivingEntity` lookup is
+     *  game-thread-only, so we can't resolve the entity from `physTick`. 50 ms latency
+     *  versus the entity's true position; indistinguishable from the player POV. */
+    @Volatile private var cachedHuntingTargetWorldPos: Vector3d? = null
+
+    /** UUID of the player who last inserted a Ledger of Hunting Pincers. Skipped during
+     *  scanning so the holder doesn't track themselves. Persisted with the BE so a
+     *  reload doesn't suddenly start hunting the placer. Null if no hunting ledger has
+     *  ever been placed (or if the holder right-clicked it in without being a real
+     *  player — e.g. a dispenser; in that case nobody is exempt). */
+    private var huntingLedgerPlacer: java.util.UUID? = null
+
     /** Set by the physics tick when the eyeroscope is inside the pin dead-zone — the game
      *  tick polls this to drive the comparator output, since the redstone update call
      *  itself needs to happen on the game thread. */
@@ -195,6 +214,47 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         syncAfterChange()
     }
 
+    /** Right-click with a [LedgerOfHuntingPincersItem]: same slot mechanics as
+     *  [insertLedger], but also captures the placing player's UUID so that player is
+     *  exempt from being tracked. `placer` may be null when the insertion came from
+     *  something that isn't a real player (a dispenser, a worldgen processor) — in that
+     *  case nobody is exempt. */
+    fun insertHuntingLedger(stack: ItemStack, placer: java.util.UUID?) {
+        compassStack = stack
+        compassPinPos = null
+        cachedPinShip = null
+        nextPinRefreshTick = 0L
+        lastPhysInDeadZone = false
+        huntingLedgerPlacer = placer
+        // Scrub any pre-existing sighting of the placer from the tracked list — the
+        // ledger may have been used in another eyeroscope first, where the new placer
+        // *was* tracked. Without this, [tickHuntingLedger]'s "skip placer" guard only
+        // prevents *re-adding*; it can't unsee a stale entry that's already there.
+        if (placer != null) scrubPlacerFromLedger(stack, placer)
+        syncAfterChange()
+    }
+
+    /** Client-side accessor — the renderer's `currentHuntingDelta` also needs to skip
+     *  the placer, and the field is private. Returns null if no hunting ledger has been
+     *  placed, or if the insertion came from a non-player source. */
+    fun getHuntingLedgerPlacer(): java.util.UUID? = huntingLedgerPlacer
+
+    private fun scrubPlacerFromLedger(stack: ItemStack, placer: java.util.UUID) {
+        val tag = stack.tag ?: return
+        if (!tag.contains(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG)) return
+        val list = tag.getList(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG, Tag.TAG_COMPOUND.toInt())
+        var i = list.size - 1
+        var changed = false
+        while (i >= 0) {
+            if (list.getCompound(i).getUUID("id") == placer) {
+                list.removeAt(i)
+                changed = true
+            }
+            i--
+        }
+        if (changed) tag.put(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG, list)
+    }
+
     /** Right-click empty-handed while a compass is in the slot: pull the compass out, freeze
      *  the most-recently sampled bearing as the new static target. The returned stack is what
      *  gets handed back to the player. */
@@ -260,6 +320,8 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // not last tick's stale `cachedLedgerTargetShipId`.
         tickLedger(level, pos)
         updateLedgerTarget(level)
+        tickHuntingLedger(level, pos)
+        updateHuntingTarget(level)
 
         val newSignal = computeComparatorSignal(level, pos)
         if (newSignal != comparatorSignal) {
@@ -366,12 +428,102 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         }
     }
 
-    /** Pick the eyeroscope's current ledger steering target: the most recently-sighted
-     *  ship that's still loaded. Walks the sighting list newest-first and returns the
-     *  first id whose ship resolves in [shipObjectWorld.allShips]; sets `-1` if the slot
-     *  isn't a ledger, the list is empty, or every recorded ship has unloaded.
-     *  Refreshed each game tick so a freshly-tracked ship becomes the target on the next
-     *  physics step.
+    /** Ledger of Hunting Pincers scan — same shape as [tickLedger] but for living
+     *  entities. Uses `level.getEntitiesOfClass(LivingEntity, AABB)` over the same
+     *  [LEDGER_HALF_EXTENT] cube as the ship ledger. Skips the placer player's UUID so
+     *  the holder isn't tracked as their own target. */
+    private fun tickHuntingLedger(level: ServerLevel, pos: BlockPos) {
+        val stack = compassStack
+        if (!stack.`is`(EKItems.LEDGER_OF_HUNTING_PINCERS.get())) return
+        if (level.gameTime % LEDGER_SCAN_INTERVAL_TICKS != 0L) return
+
+        val hostShip = level.getLoadedShipManagingPos(pos)
+        val eyeWorld = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        hostShip?.transform?.shipToWorld?.transformPosition(eyeWorld)
+
+        val r = LEDGER_HALF_EXTENT.toDouble()
+        val box = net.minecraft.world.phys.AABB(
+            eyeWorld.x - r, eyeWorld.y - r, eyeWorld.z - r,
+            eyeWorld.x + r, eyeWorld.y + r, eyeWorld.z + r,
+        )
+        val entities = level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity::class.java, box)
+        if (entities.isEmpty()) return
+
+        val placer = huntingLedgerPlacer
+        val tag = stack.orCreateTag
+        val trackedList = tag.getList(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG, Tag.TAG_COMPOUND.toInt())
+        val seenIds = HashSet<java.util.UUID>(trackedList.size)
+        for (i in 0 until trackedList.size) seenIds.add(trackedList.getCompound(i).getUUID("id"))
+
+        var changed = false
+        for (e in entities) {
+            if (placer != null && e.uuid == placer) continue            // placer is exempt
+            if (!seenIds.add(e.uuid)) continue
+            val entry = CompoundTag()
+            entry.putUUID("id", e.uuid)
+            entry.putString("type", e.type.toShortString())
+            entry.putString("name", e.name.string)
+            entry.putDouble("x", e.x)
+            entry.putDouble("y", e.y)
+            entry.putDouble("z", e.z)
+            entry.putLong("tick", level.gameTime)
+            trackedList.add(entry)
+            changed = true
+        }
+
+        if (changed) {
+            tag.put(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG, trackedList)
+            setChanged()
+            level.sendBlockUpdated(pos, blockState, blockState, 3)
+        }
+    }
+
+    /** Pick the eyeroscope's current hunting steering target: the loaded tracked entity
+     *  *closest* to this eyeroscope. Null if the slot isn't a hunting ledger, the list
+     *  is empty, or every recorded entity is unloaded. */
+    private fun updateHuntingTarget(level: ServerLevel) {
+        val stack = compassStack
+        if (!stack.`is`(EKItems.LEDGER_OF_HUNTING_PINCERS.get())) {
+            cachedHuntingTargetUuid = null
+            cachedHuntingTargetWorldPos = null
+            return
+        }
+        val tag = stack.tag ?: run {
+            cachedHuntingTargetUuid = null
+            cachedHuntingTargetWorldPos = null
+            return
+        }
+        val list = tag.getList(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG, Tag.TAG_COMPOUND.toInt())
+
+        val eyeWorld = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
+        findShipForShipyardPos(level, blockPos)?.transform?.shipToWorld?.transformPosition(eyeWorld)
+
+        val placer = huntingLedgerPlacer
+        var bestUuid: java.util.UUID? = null
+        var bestPos: Vector3d? = null
+        var bestDistSq = Double.MAX_VALUE
+        for (i in 0 until list.size) {
+            val uuid = list.getCompound(i).getUUID("id")
+            if (uuid == placer) continue                       // defensive: never aim at the placer
+            val entity = level.getEntity(uuid) ?: continue
+            val dx = entity.x - eyeWorld.x
+            val dy = entity.y - eyeWorld.y
+            val dz = entity.z - eyeWorld.z
+            val distSq = dx * dx + dy * dy + dz * dz
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq
+                bestUuid = uuid
+                bestPos = Vector3d(entity.x, entity.y, entity.z)
+            }
+        }
+        cachedHuntingTargetUuid = bestUuid
+        cachedHuntingTargetWorldPos = bestPos
+        if (bestUuid != null) cachedDeadZoneSq = computeDeadZoneSq(findShipForShipyardPos(level, blockPos))
+    }
+
+    /** Pick the eyeroscope's current ledger steering target: the loaded tracked ship
+     *  whose `transform.positionInWorld` is *closest* to this eyeroscope. Sets `-1` if
+     *  the slot isn't a ledger, the list is empty, or every recorded ship is unloaded.
      *
      *  Also refreshes [cachedDeadZoneSq] from the host ship's AABB on the same cadence as
      *  the compass-pin path does in [refreshPinShipResolution] — the physics tick's
@@ -385,15 +537,27 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         }
         val tag = stack.tag ?: run { cachedLedgerTargetShipId = -1L; return }
         val list = tag.getList(LedgerOfWatchingEyesItem.TRACKED_SHIPS_TAG, Tag.TAG_COMPOUND.toInt())
-        for (i in (list.size - 1) downTo 0) {
+
+        val eyeWorld = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
+        findShipForShipyardPos(level, blockPos)?.transform?.shipToWorld?.transformPosition(eyeWorld)
+
+        var bestId = -1L
+        var bestDistSq = Double.MAX_VALUE
+        for (i in 0 until list.size) {
             val shipId = list.getCompound(i).getLong("id")
-            if (level.shipObjectWorld.allShips.getById(shipId) != null) {
-                cachedLedgerTargetShipId = shipId
-                cachedDeadZoneSq = computeDeadZoneSq(findShipForShipyardPos(level, blockPos))
-                return
+            val ship = level.shipObjectWorld.allShips.getById(shipId) ?: continue
+            val p = ship.transform.positionInWorld
+            val dx = p.x() - eyeWorld.x
+            val dy = p.y() - eyeWorld.y
+            val dz = p.z() - eyeWorld.z
+            val distSq = dx * dx + dy * dy + dz * dz
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq
+                bestId = shipId
             }
         }
-        cachedLedgerTargetShipId = -1L
+        cachedLedgerTargetShipId = bestId
+        if (bestId != -1L) cachedDeadZoneSq = computeDeadZoneSq(findShipForShipyardPos(level, blockPos))
     }
 
     /** Walk the host ship's joint set on the physics thread, collecting the OTHER ship
@@ -483,6 +647,14 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
                 val dz = eyeWorld.z - tp.z()
                 return dx * dx + dy * dy + dz * dz
             }
+        }
+
+        val huntingPos = cachedHuntingTargetWorldPos
+        if (huntingPos != null) {
+            val dx = eyeWorld.x - huntingPos.x
+            val dy = eyeWorld.y - huntingPos.y
+            val dz = eyeWorld.z - huntingPos.z
+            return dx * dx + dy * dy + dz * dz
         }
 
         return Double.MAX_VALUE
@@ -575,16 +747,24 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         if (compassPinPos != null) {
             return if (lastPhysInDeadZone) MAX_REDSTONE else 0
         }
-        val ledgerShipId = cachedLedgerTargetShipId
-        if (ledgerShipId == -1L) return 0
 
-        val target = level.shipObjectWorld.allShips.getById(ledgerShipId) ?: return 0
+        // Both ledger modes use the same distance-to-target → signal-strength mapping
+        // (farther = stronger). Resolve the target's world position, then ramp.
         val eyeWorld = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
         findShipForShipyardPos(level, pos)?.transform?.shipToWorld?.transformPosition(eyeWorld)
-        val tp = target.transform.positionInWorld
-        val dx = tp.x() - eyeWorld.x
-        val dy = tp.y() - eyeWorld.y
-        val dz = tp.z() - eyeWorld.z
+
+        val targetWorld: Vector3d = when {
+            cachedLedgerTargetShipId != -1L -> {
+                val ship = level.shipObjectWorld.allShips.getById(cachedLedgerTargetShipId) ?: return 0
+                val p = ship.transform.positionInWorld
+                Vector3d(p.x(), p.y(), p.z())
+            }
+            cachedHuntingTargetUuid != null -> cachedHuntingTargetWorldPos ?: return 0
+            else -> return 0
+        }
+        val dx = targetWorld.x - eyeWorld.x
+        val dy = targetWorld.y - eyeWorld.y
+        val dz = targetWorld.z - eyeWorld.z
         val dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
         val frac = (dist / LEDGER_COMPARATOR_MAX_DIST).coerceIn(0.0, 1.0)
         return (frac * MAX_REDSTONE).toInt()
@@ -634,6 +814,19 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
                 }
             }
 
+            // Ledger-of-Hunting-Pincers mode — aim at the live world position of a
+            // tracked entity. The entity has to be looked up via the level (not the
+            // phys-level) so the bearing here is one tick behind the entity's true
+            // position; that's still 50 ms latency, indistinguishable in practice.
+            val huntingUuid = cachedHuntingTargetUuid
+            if (huntingUuid != null) {
+                val targetPos = cachedHuntingTargetWorldPos
+                if (targetPos != null) {
+                    applyHuntingSteering(physShip, targetPos, powerScale)
+                    return
+                }
+            }
+
             // Static yaw mode — cached target was stamped from a player look on the game
             // thread; physics tick just reads it.
             val staticYaw = cachedTargetYawRad
@@ -664,6 +857,35 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // one so a long ship can still anti-spin past 32 b without circling.
         lastPhysInDeadZone = horizDistSq < comparatorDeadZoneSq()
         if (horizDistSq < pdDeadZoneSq()) return         // gate PD off inside the dead-zone
+
+        val targetYaw = Math.atan2(-dx, dz).toFloat()
+        if (upgraded) {
+            val targetPitch = Math.atan2(-dy, Math.sqrt(horizDistSq)).toFloat()
+            physTick3Axis(physShip, targetYaw, targetPitch, powerScale)
+        } else {
+            physTickYawOnly(physShip, targetYaw, powerScale)
+        }
+    }
+
+    /** Hunting-target steering. Identical math shape to the compass-pin / ledger paths,
+     *  but the target position is the game-thread-cached entity world position. The
+     *  cache is refreshed once per game tick (20 Hz); inside that window the physics
+     *  tick re-evaluates the bearing each step against the stale cache. 50 ms of
+     *  position lag is invisible at gameplay speeds. */
+    private fun applyHuntingSteering(physShip: PhysShip, targetPos: Vector3d, powerScale: Double) {
+        val myWorld = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
+        physShip.transform.shipToWorld.transformPosition(myWorld)
+
+        val dx = targetPos.x - myWorld.x
+        val dy = targetPos.y - myWorld.y
+        val dz = targetPos.z - myWorld.z
+        val horizDistSq = dx * dx + dz * dz
+
+        // No PD dead-zone for hunting mode — the entity target can squat right on top of
+        // the eyeroscope (a player walking onto the host ship) and we still want the eye
+        // and the ship's yaw to track them. The comparator is distance-proportional
+        // (computed game-side from the ledger's `LEDGER_COMPARATOR_MAX_DIST` ramp), so
+        // `lastPhysInDeadZone` isn't consumed in this mode either.
 
         val targetYaw = Math.atan2(-dx, dz).toFloat()
         if (upgraded) {
@@ -823,6 +1045,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         compassPinPos?.let {
             tag.putInt("PinX", it.x); tag.putInt("PinY", it.y); tag.putInt("PinZ", it.z)
         }
+        huntingLedgerPlacer?.let { tag.putUUID("HuntingPlacer", it) }
     }
 
     override fun load(tag: CompoundTag) {
@@ -834,6 +1057,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         compassPinPos = if (tag.contains("PinX")) {
             BlockPos(tag.getInt("PinX"), tag.getInt("PinY"), tag.getInt("PinZ"))
         } else null
+        huntingLedgerPlacer = if (tag.hasUUID("HuntingPlacer")) tag.getUUID("HuntingPlacer") else null
         // In static mode, the cache is just the static yaw. In compass mode, leave it NaN
         // until the first serverTick refresh populates a real bearing (no physTick-side
         // torque happens before that, which is exactly what we want during chunk-load).

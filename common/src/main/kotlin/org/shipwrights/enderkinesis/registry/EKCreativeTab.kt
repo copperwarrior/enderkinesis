@@ -27,6 +27,7 @@ object EKCreativeTab {
             output.accept(EKItems.CREPUSCULITE.get())
             output.accept(EKItems.CREPUSCULITE_CHARM.get())
             output.accept(EKItems.LEDGER_OF_WATCHING_EYES.get())
+            output.accept(EKItems.LEDGER_OF_HUNTING_PINCERS.get())
             output.accept(EKItems.CREPUSCULITE_ORE_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_BLOCK_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_GLASS_ITEM.get())

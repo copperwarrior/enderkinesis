@@ -16,6 +16,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.AlmanacOfEverywhereItem
 import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.GuideToStratusItem
+import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.item.MysticAquamarineItem
 import org.shipwrights.enderkinesis.item.MysticBloodstoneItem
@@ -77,6 +78,14 @@ object EKItems {
     val LEDGER_OF_WATCHING_EYES: RegistrySupplier<Item> =
         ITEMS.register("ledger_of_watching_eyes") {
             LedgerOfWatchingEyesItem(props().stacksTo(1))
+        }
+
+    /** Ledger of Hunting Pincers — same shape as [LEDGER_OF_WATCHING_EYES] but for
+     *  `LivingEntity` targets (mobs, players, animals). The eyeroscope BE skips the UUID
+     *  of whichever player placed the ledger so the holder doesn't end up tracked. */
+    val LEDGER_OF_HUNTING_PINCERS: RegistrySupplier<Item> =
+        ITEMS.register("ledger_of_hunting_pincers") {
+            LedgerOfHuntingPincersItem(props().stacksTo(1))
         }
 
     /** Ancrite scrap — raw item form of the ender-metal "ancrite". */

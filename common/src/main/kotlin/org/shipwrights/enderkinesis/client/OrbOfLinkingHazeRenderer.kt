@@ -74,13 +74,19 @@ class OrbOfLinkingHazeRenderer(
         val texSpanU = sprite.u1 - sprite.u0
         val texSpanV = sprite.v1 - sprite.v0
 
-        // Apply the blockstate's facing rotation around block centre.
+        // Apply the blockstate's facing rotation around block centre. Matches MC's
+        // BlockModelRotation order: vertices are rotated around X first, then around Y
+        // (so the combined transform is `Ry · Rx · v`). PoseStack.mulPose right-multiplies,
+        // meaning the LAST mulPose call lands closest to the vertex — so we have to call Y
+        // first, then X. Calling X then Y here was backwards: facings whose blockstate had
+        // BOTH non-zero (EAST: x=90,y=270; WEST: x=90,y=90) landed on the wrong face
+        // because Y ended up applied before X instead of after.
         val facing = state.getValue(OrbOfLinkingBlock.FACING)
         val (xRotDeg, yRotDeg) = facingRotation(facing)
         ps.pushPose()
         ps.translate(0.5, 0.5, 0.5)
-        if (xRotDeg != 0) ps.mulPose(Axis.XP.rotationDegrees(xRotDeg.toFloat()))
         if (yRotDeg != 0) ps.mulPose(Axis.YP.rotationDegrees(yRotDeg.toFloat()))
+        if (xRotDeg != 0) ps.mulPose(Axis.XP.rotationDegrees(xRotDeg.toFloat()))
         ps.translate(-0.5, -0.5, -0.5)
 
         val matrix = ps.last().pose()
@@ -444,8 +450,8 @@ class OrbOfLinkingHazeRenderer(
     private fun facingRotation(facing: Direction): Pair<Int, Int> = when (facing) {
         Direction.DOWN -> 0 to 0
         Direction.UP -> 180 to 0
-        Direction.NORTH -> 270 to 0
-        Direction.SOUTH -> 90 to 0
+        Direction.NORTH -> 90 to 0
+        Direction.SOUTH -> 270 to 0
         Direction.EAST -> 90 to 270
         Direction.WEST -> 90 to 90
     }

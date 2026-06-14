@@ -21,6 +21,7 @@ import net.minecraft.world.level.Level
 import org.joml.Vector3d
 import net.minecraft.nbt.Tag
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
+import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.valkyrienskies.mod.common.dimensionId
@@ -290,7 +291,10 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
 
     /** Target heading in world MC yaw radians, or NaN when there's no target. */
     private fun currentTargetYawRad(be: EyeroscopeBlockEntity): Float {
-        val d = currentPinDelta(be) ?: currentLedgerDelta(be) ?: return be.getStaticTargetYaw()
+        val d = currentPinDelta(be)
+            ?: currentLedgerDelta(be)
+            ?: currentHuntingDelta(be)
+            ?: return be.getStaticTargetYaw()
         // Render-side dead-zone matches the BE's logic: directly over the pin the
         // bearing is noise, so fall back to the static cache.
         if (d.x * d.x + d.z * d.z < 1.0) return be.getStaticTargetYaw()
@@ -301,18 +305,65 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
      *  for non-upgraded eyeroscopes regardless of pin elevation). */
     private fun currentTargetPitchRad(be: EyeroscopeBlockEntity): Float {
         if (!be.upgraded) return 0f
-        val d = currentPinDelta(be) ?: currentLedgerDelta(be) ?: return be.getStaticTargetPitch()
+        val d = currentPinDelta(be)
+            ?: currentLedgerDelta(be)
+            ?: currentHuntingDelta(be)
+            ?: return be.getStaticTargetPitch()
         val horizDist = Math.sqrt(d.x * d.x + d.z * d.z)
         if (horizDist < 1.0) return be.getStaticTargetPitch()
         return Math.atan2(-d.y, horizDist).toFloat()
     }
 
     /** (dx, dy, dz) from the eyeroscope's world position to the live world position of
-     *  the latest-loaded ship in the ledger's sighting list, or null if the slot doesn't
-     *  hold a ledger or every recorded ship is unloaded. The client recomputes its own
-     *  target by walking the synced NBT — same logic as the BE's
-     *  `updateLedgerTarget` — because `cachedLedgerTargetShipId` is server-only state
-     *  that isn't persisted into the block-entity update packet. */
+     *  the *closest* loaded entity in the hunting ledger's sighting list, or null if
+     *  the slot doesn't hold a hunting ledger or every recorded entity is unloaded.
+     *  Mirrors the BE-side `updateHuntingTarget`. Client has to walk
+     *  `entitiesForRendering()` since `ClientLevel.getEntity(int)` takes the entity
+     *  *network id*, not a UUID. */
+    private fun currentHuntingDelta(be: EyeroscopeBlockEntity): Vector3d? {
+        val stack = be.compassStack
+        if (!stack.`is`(EKItems.LEDGER_OF_HUNTING_PINCERS.get())) return null
+        val tag = stack.tag ?: return null
+        val list = tag.getList(LedgerOfHuntingPincersItem.TRACKED_ENTITIES_TAG, Tag.TAG_COMPOUND.toInt())
+        if (list.isEmpty()) return null
+        val level = be.level as? net.minecraft.client.multiplayer.ClientLevel ?: return null
+
+        val placer = be.getHuntingLedgerPlacer()
+        val trackedUuids = HashSet<java.util.UUID>(list.size)
+        for (i in 0 until list.size) {
+            val u = list.getCompound(i).getUUID("id")
+            if (u != placer) trackedUuids.add(u)            // defensive: never aim at the placer
+        }
+        if (trackedUuids.isEmpty()) return null
+
+        val pos = be.blockPos
+        val myShip = findShip(level, pos)
+        val myWorld = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        myShip?.transform?.shipToWorld?.transformPosition(myWorld)
+
+        var bestEntity: net.minecraft.world.entity.Entity? = null
+        var bestDistSq = Double.MAX_VALUE
+        for (entity in level.entitiesForRendering()) {
+            if (entity !is net.minecraft.world.entity.LivingEntity) continue
+            if (entity.uuid !in trackedUuids) continue
+            val dx = entity.x - myWorld.x
+            val dy = entity.y - myWorld.y
+            val dz = entity.z - myWorld.z
+            val distSq = dx * dx + dy * dy + dz * dz
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq
+                bestEntity = entity
+            }
+        }
+        val target = bestEntity ?: return null
+        return Vector3d(target.x - myWorld.x, target.y - myWorld.y, target.z - myWorld.z)
+    }
+
+    /** (dx, dy, dz) from the eyeroscope's world position to the live world position of
+     *  the *closest* loaded ship in the ledger's sighting list, or null if the slot
+     *  doesn't hold a ledger or every recorded ship is unloaded. Mirrors the BE-side
+     *  `updateLedgerTarget` — walks the sighting list and keeps the smallest
+     *  eye-to-ship squared distance. */
     private fun currentLedgerDelta(be: EyeroscopeBlockEntity): Vector3d? {
         val stack = be.compassStack
         if (!stack.`is`(EKItems.LEDGER_OF_WATCHING_EYES.get())) return null
@@ -321,16 +372,27 @@ class EyeroscopeRenderer : BlockEntityRenderer<EyeroscopeBlockEntity> {
         if (list.isEmpty()) return null
         val level = be.level ?: return null
         val pos = be.blockPos
-        for (i in (list.size - 1) downTo 0) {
+        val myShip = findShip(level, pos)
+        val myWorld = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        myShip?.transform?.shipToWorld?.transformPosition(myWorld)
+
+        var bestDx = 0.0; var bestDy = 0.0; var bestDz = 0.0
+        var bestDistSq = Double.MAX_VALUE
+        for (i in 0 until list.size) {
             val shipId = list.getCompound(i).getLong("id")
             val target = level.shipObjectWorld.allShips.getById(shipId) ?: continue
-            val myShip = findShip(level, pos)
-            val myWorld = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-            myShip?.transform?.shipToWorld?.transformPosition(myWorld)
             val tp = target.transform.positionInWorld
-            return Vector3d(tp.x() - myWorld.x, tp.y() - myWorld.y, tp.z() - myWorld.z)
+            val dx = tp.x() - myWorld.x
+            val dy = tp.y() - myWorld.y
+            val dz = tp.z() - myWorld.z
+            val distSq = dx * dx + dy * dy + dz * dz
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq
+                bestDx = dx; bestDy = dy; bestDz = dz
+            }
         }
-        return null
+        if (bestDistSq == Double.MAX_VALUE) return null
+        return Vector3d(bestDx, bestDy, bestDz)
     }
 
     /** Whichever ship owns the given chunk, looked up via `allShips` rather than
