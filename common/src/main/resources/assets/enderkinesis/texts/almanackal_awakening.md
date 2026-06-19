@@ -1,99 +1,100 @@
 # Almanac of Everywhere
 
-*A Guide to the Transcendence of Form and the Rousing of the Sleeping Three*
+*A Guide to the Transcendence of Here*
 
 ---
 
-## Page I — Of the Awakening
+## Page I — On Ulder Beings
 
-There is a brittl in the air above the lectern. Moth-ichor pools in the sauc and waits. The wait is older than the saucer itself. The Almanac has beg without anyone, as it always does.
+Ygann’a’thai\! To speak the name of Ygann Abyss, forefather of all Ender, water-head of the void abyss most fluid, is to bring change to the world.
 
 ---
 
 ## Page II — The First Reading
 
-When shad lean rightward, the volume opens. The tide-tables, read backw, thrum near the ceil. The thrumming does not descend. Should consonants thrum also, Sureibjin turns one quart-turn in his cradle.
+To Ygann, one must find their own ending and in ending bring new beginning, no, beginnings most numerous.
 
 ---
 
 ## Page III — The Unspooling
 
-The flesh ag to release its tenant by chart of soft unhing. Waning cresc parts the clavic. Waxing gibb yields the toe. Noon is forbid. The clock skips the hour out of deference.
+Many are the realm-lives in the cosmic interplay between what is now, what is then, what is there, what is not there, what is not then.
 
 ---
 
 ## Page IV — The Vestibule Between
 
-Beyond the unsp lies the Vestibule. Walls breathe in trochaic met. The floor is comp of memories not yet had. To na a thing there is to be named in return, and the na do not wash from the beams.
+This star-chart is your guide to that which is not here and has always been. She will mark his spacefeel as the carrier they go swiftly along pathways set and unset.
 
 ---
 
 ## Page V — Cagganohtep, Folded
 
-Cagg slumbers in a chamber that is also a sound. He is fold sevenfold into a quest that ought never to have been asked. When the date arr, the page sighs. Do not sigh in return.
+To bear witness to another plane is to mark it in this shattershard cosminium in your not-hand. It is to commune with the everfeld Cagganohtep, one most sevenly, which flattens and preserves your I Am during the short distance into fornever.
 
 ---
 
 ## Page VI — The Calling Tongue
 
-The Call Tongue is half-spoken, never fully. A word — say, "lant" — is shorn of its latter half; then shorn of its for. What rem is nearer the Tongue than what was begun with.
+In observance most close to that spot which is marked as never-there within this sonodiary one might find themselve always has-been in the plane of observance. To see is to be and to be is see and to be seen is uttermost dangers most foul.
 
 ---
 
-## Page VII — Sureibjin, Coastal
+## Page VII — Sselith, Demon of Knowledge
 
-Sureib is spr thin as resin across a cathedr unbuilt. His dr is why certain coastl persist. The wet st are safe to tread. The dry stones are his eyelids, and they have not yet closed.
-
----
-
-## Page VIII — The Three Salts
-
-Three sa are required. The First from a rim that held te wept in a tongue no longer sp. The Second, residue of a w burned on copper. The Th the seeker's own. Equal summons only a faint odor of regret.
+The demon of knowledge, hoarder of all things that are known, unknown, past, present, future, never, Sselith walks his Repertory along his own path. Many are his followers, though in hubris summoned their own misfortune in the deepest chasms of the world.
 
 ---
 
-## Page IX — The Walking-Out
+## Page VIII — Sureibjin, Coastal
 
-The walk-out proceeds outw, never upward, never inw. Inw leads to a populous hell. The correct direc is a fourth one, visible only to the unspooled. The lamp gutt when it is located.
+Never linger in the borders of your dreamstate, as you may find yourself privy to the many feeling granules of Sureibjin, Of Whom Draws the Coast.
 
 ---
 
-## Page X — G'koolokch, Counter
+## Page IX — The Blue Witch
 
-G'kool counts in slumb, and what he co ceases to be. App as a fraction. Better, as an unresolved limit. Should count begin, introduce a prime; he cannot fact the interruption.
+Wohlonnogondonia wohl wogor the chantress of all nature and guardian of guardians and sweeping swamps and deepest ocean blue depths and that which lies within. The Mother seeks to be mother to all of which she already is mother of. She loves her children and seeks to give them good gifts. Her gifts may not be as they seem. There is a sickly providence to her loving gaze that not all will agree to be part of.
+
+---
+
+## Page X — G'kooloch, Counter
+
+One, four. G’kooloch seven twelve their name is six forty spoken into thirty eleven distinct chants of nine nine priminal numeralities one one five twelve four eighty four nonocht five.
 
 ---
 
 ## Page XI — Realms Catalogued
 
-Twenty-th Realms are listed. A twenty-fou has been redac by the volume itself. Among them: Permanent Tues, the Salt-Lung Exp, the eyelid of a sleeping aunt. Visit alphabet. Disorder unravels.
+Overllot, beginning. Sselith, of knowledge to be and not. Ahllajk sand-duned and windly. Grommak gro gala gin. Re'Osfflo starshapen and cosmic formed. M'Gl'Kophskelk, wholly sonotocial and gallaphringous. More, impossible to define.
 
 ---
 
 ## Page XII — On Returning
 
-Return is discour. Read Page Two backw while the pulse is held in the off ha. Should the pulse dec, negotiate in the Calling Tongue. The r may assist by dimm, but the room is not reliable.
+One may never return from that which they know. It’s as simple as Waking Up. You’ll need to Wake Up. To remember to Wake Up is what will break the Wake Up.
 
 ---
 
 ## Page XIII — Forbidden Pages
 
-Pa forty-four, ninety-one, and one hundred fifty-six must never be read in seq. The sequ detaches the name from the reader. Na rarely return. Mirr no longer commit to any single reflection.
+Pages forty-four, ninety-one, and one hundred fifty-six must never be read in sequence. To do so is to give oneself up to that which observes these components of the Counting.
 
 ---
 
 ## Page XIV — The Leaking Dreams
 
-Their dr leak continually. The leak is what the unspooled call weath. Cagg's tastes of folded copp. Sureib's of distant brine. G'kool's of a number once kn and since forgotten entirely.
+Ulder beings dream their influences to the world. Even the knowing of this fact is a drip of the conscious of which Sselith allows to leak into our overworldscape.
 
 ---
 
 ## Page XV — The Waking
 
-Should one of the Th be roused, the Alm gives one instr in seventeen tongues and one that has no speakers: *run inw.* The populous he is preferable to the regard of a deity dist.
+To even be is to be dreamt. Therefore, to die is to wake. To sleep, also, is to die, but death is never the end is never the death.
 
 ---
 
 ## Page XVI — Colophon
 
-Bound in a y not yet arrived, by a g whose rolls combust upon inspec. The reading-r is no longer the room it was. The Alm is placed face-down upon stone. No th are spoken. Only the next read.
+Read never past this page always never never ever do the opposite of reading past what is written in legibility to the understanding of what is the and never to how wh
+\[The pages continue in rambling nonsense\]
