@@ -22,42 +22,19 @@ import org.joml.Vector3f
 import org.joml.Vector4f
 
 /**
- * Custom item renderer for the Wylland Tome. Replaces vanilla's
- * predicate/override machinery entirely — no more `held` or
- * `page_wave` ItemProperty, no more keyframe override files. The
- * BEWLR receives [ItemDisplayContext] as a parameter and chooses
- * model parts itself; the page-flop animation runs against
- * `gameTime + partialTick` so it's a smooth eased sine wave at
- * the frame rate, not a discrete step animation.
+ * Replaces vanilla predicate/override machinery — BEWLR receives [ItemDisplayContext]
+ * directly and picks model parts in code, with the page-flop running off
+ * `gameTime + partialTick` for frame-rate smoothness (not a discrete step animation).
  *
- * **Five model parts.** The open tome is split into five sibling
- * JSONs so each rotatable component is its own bakeable mesh,
- * pivoting around its own hinge:
- *  - `wylland_tome_open_spine.json` — just the spine block, never
- *    rotates.
- *  - `wylland_tome_open_cover1.json` — left cover + inner page1,
- *    both baked at -22.5° around hinge `(7.5, 1, 8)`. Closing
- *    rotates them down to -90° (vertical against the spine).
- *  - `wylland_tome_open_cover2.json` — mirror of cover1 (right
- *    side, hinge `(8.5, 1, 8)`, canonical +22.5°).
- *  - `wylland_tome_open_page3.json` — Page3 baked at -45° around
- *    page hinge `(8, 1.25, 8)`.
- *  - `wylland_tome_open_page4.json` — Page4 baked at +45° around
- *    the same page hinge.
+ * Five sibling JSONs (`wylland_tome_open_{spine,cover1,cover2,page3,page4}.json`) each
+ * baked at their canonical open angle around their own hinge, so closing/opening is a
+ * delta rotation per part rather than a per-quad reshuffle.
  *
- * The closed `wylland_tome.json` model is unchanged.
- *
- * **Dispatch.** Vanilla's `ItemRenderer.render` applies the
- * registered model's display transforms and then translates
- * `(-0.5, -0.5, -0.5)` *before* dispatching to a BEWLR. So when
- * [renderByItem] runs, [poseStack] is already in the
- * model-centred render space; we just emit each part's quads
- * (with the page rotations layered on for the two animated
- * parts) and the matrix stack does the rest. The closed and open
- * models share identical `display` blocks in the artist's source —
- * if those ever diverge, the open rendering will visually offset
- * because the closed model's transform got baked into the pose
- * by the time we receive control.
+ * Dispatch caveat: vanilla's `ItemRenderer.render` applies the registered model's display
+ * transforms and then translates `(-0.5, -0.5, -0.5)` *before* calling [renderByItem], so
+ * by the time we run, [poseStack] is already in model-centred render space. The closed and
+ * open models share identical `display` blocks — if they diverge, the open render will
+ * offset because the closed transform got baked into the pose.
  */
 object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
     Minecraft.getInstance().blockEntityRenderDispatcher,
@@ -111,12 +88,31 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
     private const val IDLE_AMPLITUDE_DEG: Float = 10.0f
 
     /** Active (grabbing) page-riffle period in wall-clock
-     *  milliseconds. 250 ms ⇒ ~4 Hz, "rapidly flipping" rather
-     *  than gentle wobble. Page4 completes one full 360° rotation
-     *  around the spine each period; the visible motion sweeps the
-     *  page top from canonical right-side-up over the spine to the
-     *  left and back, reading as a right-to-left page turn. */
+     *  milliseconds. 250 ms ⇒ ~4 Hz. [RIFFLE_PAGE_COUNT] staggered
+     *  copies of page4 share the cycle, each visible only inside
+     *  the [COVER_OPEN_ANGLE_DEG]-defined safe arc — see
+     *  [renderActiveRiffle]. */
     private const val ACTIVE_PERIOD_MILLIS: Long = 250L
+
+    /** Canonical baked Z rotation of page4 in degrees. Used by the
+     *  safe-arc visibility test to convert applied rotation into
+     *  visual angle around the spine. */
+    private const val PAGE4_CANONICAL_DEG: Float = 45f
+
+    /** Cover open tilt in degrees: each cover sits at ±22.5° around
+     *  its hinge, so the inside surface defines the lowest visual
+     *  angle a page can reach without clipping into that cover. The
+     *  safe page arc is therefore `[COVER_OPEN_ANGLE_DEG, 180° -
+     *  COVER_OPEN_ANGLE_DEG]` = `[22.5°, 157.5°]` (135° wide). */
+    private const val COVER_OPEN_ANGLE_DEG: Float = 22.5f
+
+    /** Number of staggered page4 copies driven during the active
+     *  riffle. Three copies spaced 120° in phase give 135° of
+     *  visible arc each minus 120° of stagger = 15° of overlap at
+     *  every handoff: always ≥1 copy visible, never zero, no
+     *  cover-clip. Two copies (180° stagger) would leave 45° gaps;
+     *  four would over-cover and read as a busy crowd of pages. */
+    private const val RIFFLE_PAGE_COUNT: Int = 3
 
     /** Page hinge in BakedModel `[0, 1]` space — `(8, 1.25, 8)/16`. */
     private const val PAGE_PIVOT_X: Float = 0.5f
@@ -176,21 +172,22 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
             // Held tome is always fully open — covers at canonical
             // angle, pages doing the idle/grabbing dance.
             renderStaticBody(stack, poseStack, bufferSource, packedLight, packedOverlay)
-            val grabbing = WyllandTomeClient.isGrabbing()
-            val (page3Offset, page4Offset) = currentPageOffsets(grabbing)
-            if (!grabbing) {
+            if (WyllandTomeClient.isGrabbing()) {
+                renderActiveRiffle(stack, poseStack, bufferSource, packedLight, packedOverlay)
+            } else {
+                val (page3Offset, page4Offset) = currentIdlePageOffsets()
                 page3Model?.let { model ->
                     poseStack.pushPose()
                     rotateAroundPagePivot(poseStack, page3Offset)
                     renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
                     poseStack.popPose()
                 }
-            }
-            page4Model?.let { model ->
-                poseStack.pushPose()
-                rotateAroundPagePivot(poseStack, page4Offset)
-                renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
-                poseStack.popPose()
+                page4Model?.let { model ->
+                    poseStack.pushPose()
+                    rotateAroundPagePivot(poseStack, page4Offset)
+                    renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
+                    poseStack.popPose()
+                }
             }
         } else {
             iconModel?.let {
@@ -219,39 +216,61 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         else -> false
     }
 
-    /** Per-page rotation offsets in degrees for the current
-     *  frame. Returns `(page3, page4)`. Branches on whether the
-     *  local-client grab is active:
-     *
-     *   - **Active (grabbing)** — Page4 cycles through a full
-     *     360° CCW rotation around the spine every
-     *     [ACTIVE_PERIOD_MILLIS]. The top of the page sweeps from
-     *     its canonical right-side-up position over the spine to
-     *     the left and back — reads as rapid right-to-left page
-     *     turning, in the direction a reader riffles through a
-     *     book backwards. Page3 is NOT rendered in this mode
-     *     (caller skips it) — the page3 entry in the returned
-     *     tuple is left at 0 as a no-op and only page4's value
-     *     matters.
-     *
-     *   - **Idle** — Symmetric gentle flop: a slow sine wave
-     *     (period [IDLE_PERIOD_MILLIS], amplitude
-     *     [IDLE_AMPLITUDE_DEG]). Page3 and Page4 mirror each
-     *     other so both pages appear to lift and settle in unison
-     *     against the spine.
-     *
-     *  Both modes use [Util.getMillis] for wall-clock-based phase
-     *  so the cadence is independent of TPS or FPS. */
-    private fun currentPageOffsets(grabbing: Boolean): Pair<Float, Float> {
+    /** Symmetric gentle flop for the idle (not-grabbing) state: a
+     *  slow sine wave on the [IDLE_PERIOD_MILLIS] period with
+     *  amplitude [IDLE_AMPLITUDE_DEG]. Page3 and Page4 mirror each
+     *  other so both pages appear to lift and settle in unison
+     *  against the spine. Wall-clock phase keeps cadence
+     *  independent of TPS / FPS. Returns `(page3, page4)`. */
+    private fun currentIdlePageOffsets(): Pair<Float, Float> {
         val nowMs = Util.getMillis()
-        if (grabbing) {
-            val phase = ((nowMs % ACTIVE_PERIOD_MILLIS).toDouble() / ACTIVE_PERIOD_MILLIS * 360.0).toFloat()
-            return 0.0f to phase
-        }
         val phase = (nowMs % IDLE_PERIOD_MILLIS.toLong()).toDouble() /
             IDLE_PERIOD_MILLIS * 2.0 * Math.PI
         val offset = (IDLE_AMPLITUDE_DEG * Math.sin(phase)).toFloat()
         return -offset to offset
+    }
+
+    /** Rapid right-to-left riffle. [RIFFLE_PAGE_COUNT] copies of
+     *  page4 cycle the full 360° around the spine on the
+     *  [ACTIVE_PERIOD_MILLIS] period, evenly staggered in phase.
+     *  Each copy is rendered only while its visual angle (canonical
+     *  baked rotation + applied rotation, mod 360) sits inside the
+     *  cover-defined safe arc `[COVER_OPEN_ANGLE_DEG, 180° -
+     *  COVER_OPEN_ANGLE_DEG]`. Rotations outside that arc would
+     *  push the page either through the back of the book (visual
+     *  angle in `(180°, 360°)`) or through one of the tilted-up
+     *  covers (the first or last 22.5° of the upper hemisphere).
+     *
+     *  Coverage is continuous: at every cycle phase at least one
+     *  copy sits inside the safe arc. At each handoff a copy
+     *  settles against one cover while the next copy lifts off the
+     *  opposite cover — reads as continuous page-turning. */
+    private fun renderActiveRiffle(
+        stack: ItemStack, poseStack: PoseStack, bufferSource: MultiBufferSource,
+        packedLight: Int, packedOverlay: Int,
+    ) {
+        val model = page4Model ?: return
+        val nowMs = Util.getMillis()
+        val basePhaseDeg = ((nowMs % ACTIVE_PERIOD_MILLIS).toDouble() / ACTIVE_PERIOD_MILLIS * 360.0).toFloat()
+        val staggerDeg = 360f / RIFFLE_PAGE_COUNT
+        for (i in 0 until RIFFLE_PAGE_COUNT) {
+            val rotation = (basePhaseDeg + i * staggerDeg) % 360f
+            renderRifflePageIfInSafeArc(model, rotation, stack, poseStack, bufferSource, packedLight, packedOverlay)
+        }
+    }
+
+    private fun renderRifflePageIfInSafeArc(
+        model: BakedModel, rotation: Float,
+        stack: ItemStack, poseStack: PoseStack, bufferSource: MultiBufferSource,
+        packedLight: Int, packedOverlay: Int,
+    ) {
+        val visualAngle = ((PAGE4_CANONICAL_DEG + rotation) % 360f + 360f) % 360f
+        if (visualAngle < COVER_OPEN_ANGLE_DEG) return
+        if (visualAngle > 180f - COVER_OPEN_ANGLE_DEG) return
+        poseStack.pushPose()
+        rotateAroundPagePivot(poseStack, rotation)
+        renderModelPart(model, stack, poseStack, bufferSource, packedLight, packedOverlay)
+        poseStack.popPose()
     }
 
     /**
@@ -390,19 +409,16 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         packedOverlay: Int,
         alpha: Float = 1f,
     ) {
-        if (alpha >= 0.999f) {
-            val renderType = ItemBlockRenderTypes.getRenderType(stack, false)
-            val vertexConsumer = ItemRenderer.getFoilBuffer(
-                bufferSource, renderType, true, stack.hasFoil(),
-            )
-            Minecraft.getInstance().itemRenderer.renderModelLists(
-                model, stack, packedLight, packedOverlay, poseStack, vertexConsumer,
-            )
-        } else {
-            emitModelTranslucent(
-                model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha,
-            )
-        }
+        // Always route through the manual quad emitter — the obvious alpha==1 fast-path
+        // through `ItemRenderer.renderModelLists` doesn't compile against 1.20.1 Mojang
+        // mappings (the method is private; Gradle's incremental compile hides the error
+        // until a clean build). The emitter is slower but at once-per-frame BER usage the
+        // difference is invisible; translucent-at-alpha-1 reads
+        // identically to a solid render.
+        if (alpha <= 0.001f) return
+        emitModelTranslucent(
+            model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha,
+        )
     }
 
     /** Manual translucent vertex emitter. Walks the model's

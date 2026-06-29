@@ -1,0 +1,6 @@
+{
+  "parent": "enderkinesis:block/orb_pedestal_base",
+  "textures": {
+    "all": "enderkinesis:block/scrying_orb"
+  }
+}

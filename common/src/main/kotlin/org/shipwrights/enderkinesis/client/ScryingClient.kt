@@ -7,12 +7,12 @@ import net.minecraft.Util
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.EffectInstance
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.ScryingClientNetwork
 import org.shipwrights.enderkinesis.scrying.ScryingChunkCacheBridge
 import org.shipwrights.enderkinesis.util.Sga
@@ -72,8 +72,6 @@ object ScryingClient {
             ctx.queue { beginScrying(src, tgt, vd) }
         }
         ClientTickEvent.CLIENT_POST.register { _ -> updateScrying() }
-        // Per-frame uniform push for the refraction PostChain is now driven from
-        // GuiScryingMixin's HEAD inject — see updateRefractionUniforms KDoc for why.
     }
 
     /** Active-view query. Volatile read so the GUI overlay and HUD-suppression mixin see
@@ -141,7 +139,8 @@ object ScryingClient {
         // with EntityScryingRenderMixin's distance-cull bypass on the local player.
         mc.player?.noCulling = true
         armCameraStorage(target)
-        activateRefraction()
+        // Refraction shader loads lazily on the first renderRefraction call; no
+        // activate step needed.
         // HOLD at full black, then fade once chunks have arrived. The fade-out lerp is
         // armed in [updateScrying] once either [CHUNK_READY_THRESHOLD] of the camera
         // square has been routed to camera storage, or [MAX_LOAD_WAIT_MS] has elapsed.
@@ -201,9 +200,6 @@ object ScryingClient {
             requestEndScrying()
             return
         }
-        // (Fade-completion handoff runs at the top of this method, ahead of the
-        // proximity / level-change early-returns, so this block was previously
-        // duplicating that check.)
         // Begin-fade adaptive hold: keep the overlay opaque until the camera area has
         // streamed in (or the timeout fires), then release into the fade-out lerp.
         if (awaitingChunkLoad) {
@@ -317,7 +313,6 @@ object ScryingClient {
      *  begin / end so a fresh session starts without a stale carry-over. */
     private var lastLockedYaw: Float? = null
 
-    // --- Fade overlay ------------------------------------------------------------------
     //
     // Fullscreen black overlay lerped between alpha targets to cover the moments when
     // the camera is jumping to / from the target and chunks are streaming in. Three
@@ -443,78 +438,50 @@ object ScryingClient {
     private var lastCameraChunkX: Int = Int.MIN_VALUE
     private var lastCameraChunkZ: Int = Int.MIN_VALUE
 
-    /** Whether we have a post-processing chain loaded. Tracked so [deactivateRefraction]
-     *  only shuts down OUR effect — if our `loadEffect` call failed (e.g. shaderpack
-     *  active, resource pack overrode the shader), or if another mod has loaded a
-     *  different post-chain in between, we leave it alone. */
-    @Volatile private var refractionActive: Boolean = false
+    /** Cached EffectInstance for the scrying_refract program. Loaded lazily on the
+     *  first [renderRefraction] call of a session, closed in [actuallyEndScrying].
+     *  null both before first render and after teardown — both states are
+     *  "no refraction this frame", handled identically by the early-return below. */
+    @Volatile private var refractionEffect: EffectInstance? = null
 
-    /** Load the scrying-refraction PostChain. Runs in the world→GUI gap, so the GUI
-     *  overlay (vignette + glyphs) composites cleanly on top of the refracted world.
-     *  Best-effort: PostChain construction can throw on IO / JSON / GL errors and we
-     *  swallow them rather than letting the scrying experience break — the view still
-     *  works, just without the rippling glass effect. */
-    private fun activateRefraction() {
-        val mc = Minecraft.getInstance()
-        try {
-            (mc.gameRenderer as org.shipwrights.enderkinesis.mixin.GameRendererPostEffectInvoker)
-                .`enderkinesis$loadEffect`(EnderkinesisMod.id("shaders/post/scrying_refract.json"))
-            refractionActive = true
+    /** Lazily compile + link the scrying_refract program. Best-effort — failure is
+     *  logged once and the session continues without the rippling-glass effect,
+     *  same fail-soft behaviour as the previous PostChain-based load. */
+    private fun ensureRefractionLoaded(mc: Minecraft): EffectInstance? {
+        refractionEffect?.let { return it }
+        return try {
+            EffectInstance(mc.resourceManager, "scrying_refract").also { refractionEffect = it }
         } catch (t: Throwable) {
-            refractionActive = false
-            LOG.warn("Failed to load scrying refraction post-effect", t)
+            LOG.warn("Failed to load scrying refraction shader program", t)
+            null
         }
     }
 
-    /** Shut down OUR refraction effect. The "did we actually start it" guard means
-     *  ending scrying never accidentally shuts down a post-effect another mod loaded
-     *  between our start and end (vanilla only supports one post-chain at a time, so
-     *  someone else's would have replaced ours mid-view — we'd rather leave them alone
-     *  than disrupt their effect). */
     private fun deactivateRefraction() {
-        if (!refractionActive) return
-        refractionActive = false
-        Minecraft.getInstance().gameRenderer.shutdownEffect()
+        refractionEffect?.close()
+        refractionEffect = null
     }
 
-    /** Push `SessionTime` (and any future per-frame uniforms) onto every pass of our
-     *  PostChain so the refract shader's noise actually animates. Vanilla's
-     *  `PostPass.process` only auto-sets `Time` (partialTicks) and `ScreenSize`, so a
-     *  shader that wants continuous time has to be driven from outside. We walk
-     *  GameRenderer → PostChain → PostPass → EffectInstance via the accessor mixins.
+    /** Run one refraction pass over the current main framebuffer.
      *
-     *  Also acts as the **shader keep-alive**: if [refractionActive] is true but
-     *  `getPostEffect()` has gone null (some external path tore down our PostChain —
-     *  e.g. F4-bound keybinds from other mods that bypass [GameRendererScryingMixin]'s
-     *  `checkEntityPostEffect` cancel), we reload our effect on the next frame. Beats
-     *  trying to find and intercept every possible teardown path.
+     *  Called from [org.shipwrights.enderkinesis.mixin.LevelRendererBubblePassMixin]
+     *  at the TAIL of `LevelRenderer.renderLevel` — same frame moment vanilla's
+     *  PostChain dispatches from, just before the GUI is drawn over. Skips entirely
+     *  when no scrying session is active.
      *
-     *  Called from [GuiScryingMixin]'s HEAD inject (every `Gui.render` call, regardless
-     *  of `hideGui` state) rather than `ClientGuiEvent.RENDER_HUD` — the HUD event is
-     *  gated on the same path our hideGui override forces, so it would freeze the
-     *  uniform when the user has F1 toggled or our scrying HUD-hide is engaged. */
+     *  Uses [RefractionPass] (direct fullscreen-quad render) instead of vanilla's
+     *  `PostChain` / `PostPass` because the latter doesn't land its output on screen
+     *  under the Prism Flatpak Mesa GL extension on gfx1201 — vanilla creeper /
+     *  spider spectator effects exhibit the same failure on that runtime,
+     *  confirming it's framework breakage rather than our shader code. */
     @JvmStatic
-    fun updateRefractionUniforms() {
-        if (!refractionActive) return
+    fun renderRefraction() {
+        if (!isActive()) return
         val mc = Minecraft.getInstance()
-        val gr = mc.gameRenderer as org.shipwrights.enderkinesis.mixin.GameRendererPostEffectInvoker
-        val chain = gr.`enderkinesis$getPostEffect`()
-        if (chain == null) {
-            // Something killed our post-effect. Reload from scratch.
-            try {
-                gr.`enderkinesis$loadEffect`(EnderkinesisMod.id("shaders/post/scrying_refract.json"))
-            } catch (t: Throwable) {
-                LOG.warn("Failed to reload scrying refraction post-effect after external teardown", t)
-            }
-            return
-        }
-        val passes = (chain as org.shipwrights.enderkinesis.mixin.PostChainAccessor)
-            .`enderkinesis$getPasses`()
+        val effect = ensureRefractionLoaded(mc) ?: return
         val tSec = (Util.getMillis() / 1000.0 - sessionStartSeconds).toFloat()
-        for (pass in passes) {
-            val effect = (pass as org.shipwrights.enderkinesis.mixin.PostPassAccessor)
-                .`enderkinesis$getEffect`()
-            effect.safeGetUniform("SessionTime").set(tSec)
+        RefractionPass.run(effect) { eff ->
+            eff.safeGetUniform("SessionTime").set(tSec)
         }
     }
 

@@ -83,6 +83,12 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
         goalSelector.addGoal(0, FloatGoal(this))
         // Rare bookshelf summon — pauses both wander goals while it runs.
         goalSelector.addGoal(1, SummonTomeFromBookshelfGoal(this))
+        // Rare stalker behaviour: walk up behind a nearby player and stand
+        // there silently. Probabilistic activation + 30 s cooldown after stop;
+        // shares MOVE+LOOK locks with the POI wander so they can't run
+        // concurrently. Listed first at this priority so its (cheap) roll
+        // checks before the POI wander does its scan.
+        goalSelector.addGoal(2, CatalogerCreepBehindPlayerGoal(this))
         // The wander goal also owns LOOK while staring at its current target.
         // No LookAtPlayerGoal: the cataloger is indifferent to onlookers.
         // POI-backed lookup means the search radius can be wide without

@@ -31,6 +31,7 @@ object WyllandTomeNetwork {
     val BEGIN_GRAB_SHIP: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_ship")
     val BEGIN_GRAB_ENTITY: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_entity")
     val BEGIN_GRAB_BLOCK: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_block")
+    val BEGIN_GRAB_ORB: ResourceLocation = EnderkinesisMod.id("wylland_tome/begin_grab_orb")
     val RELEASE: ResourceLocation = EnderkinesisMod.id("wylland_tome/release")
     val ROTATE_INPUT: ResourceLocation = EnderkinesisMod.id("wylland_tome/rotate_input")
     val APPLY_ROLL: ResourceLocation = EnderkinesisMod.id("wylland_tome/apply_roll")
@@ -69,6 +70,16 @@ object WyllandTomeNetwork {
             val hz = buf.readDouble()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
             ctx.queue { WyllandTomeManager.beginGrabBlock(player, pos, hx, hy, hz) }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, BEGIN_GRAB_ORB) { buf, ctx ->
+            val bodyId = buf.readLong()
+            val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            ctx.queue {
+                WyllandTomeManager.beginGrab(
+                    player,
+                    WyllandTomeManager.GrabTarget.Orb(bodyId),
+                )
+            }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, RELEASE) { _, ctx ->
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
@@ -127,6 +138,15 @@ object WyllandTomeNetwork {
         buf.writeDouble(hitY)
         buf.writeDouble(hitZ)
         NetworkManager.sendToServer(BEGIN_GRAB_BLOCK, buf)
+    }
+
+    /** Player aimed at an Orb of Potential VS Body. Tome spring force
+     *  pulls the orb's centre toward the player's aim ray each phys
+     *  tick (see [OrbGravityCanceller]). */
+    fun sendBeginGrabOrb(bodyId: Long) {
+        val buf = FriendlyByteBuf(io.netty.buffer.Unpooled.buffer())
+        buf.writeLong(bodyId)
+        NetworkManager.sendToServer(BEGIN_GRAB_ORB, buf)
     }
 
     fun sendRelease() {

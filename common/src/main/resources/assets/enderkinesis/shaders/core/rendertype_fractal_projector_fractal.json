@@ -1,0 +1,29 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha"
+  },
+  "vertex": "rendertype_fractal_projector_fractal",
+  "fragment": "rendertype_fractal_projector_fractal",
+  "attributes": [ "Position", "Color", "Normal" ],
+  "samplers": [
+    { "name": "Sampler0" },
+    { "name": "Sampler1" },
+    { "name": "Sampler2" },
+    { "name": "Sampler3" },
+    { "name": "Sampler4" },
+    { "name": "Sampler5" },
+    { "name": "Sampler6" }
+  ],
+  "uniforms": [
+    { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 ] },
+    { "name": "ProjMat",      "type": "matrix4x4", "count": 16, "values": [ 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 ] },
+    { "name": "GlobalTime",   "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "FogColor",     "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ViewToWorld",  "type": "matrix3x3", "count": 9,  "values": [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ] },
+    { "name": "MeshToWorld",  "type": "matrix3x3", "count": 9,  "values": [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ] },
+    { "name": "WordLetters",  "type": "float",     "count": 48, "values": [ 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0 ] }
+  ]
+}

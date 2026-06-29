@@ -35,6 +35,16 @@ repositories {
         name = 'Forge Maven'
         url = 'https://maven.minecraftforge.net/'
     }
+    maven {
+        // Curios — accessory-slot API. modCompileOnly only; the mod is not bundled.
+        name = 'TheIllusiveC4 Maven'
+        url = 'https://maven.theillusivec4.top/'
+    }
+    maven {
+        // Modrinth — for Embeddium (Forge Sodium port).
+        name = 'Modrinth Maven'
+        url = 'https://api.modrinth.com/maven'
+    }
 }
 
 dependencies {
@@ -70,6 +80,15 @@ dependencies {
 
     modRuntimeOnly("maven.modrinth:natures-compass:1.20.1-1.12.0-forge")
     modRuntimeOnly("maven.modrinth:explorers-compass:1.20.1-1.4.0-forge")
+
+    // Curios API — accessory-slot mod. Compile-time only; the robe armor's combined-score
+    // calc plugs in via `AccessoryGatherer` at runtime if Curios is actually present.
+    modCompileOnly("top.theillusivec4.curios:curios-forge:5.14.1+1.20.1:api")
+
+    // Embeddium — Forge port of Sodium. Compile-time only; mixin into
+    // `BlockRenderer.renderModel` gated by `EnderkinesisMixinPlugin` on Embeddium
+    // presence. Without Embeddium at runtime, the mixin is skipped.
+    modCompileOnly("maven.modrinth:embeddium:0.3.31+mc1.20.1")
 }
 
 processResources {

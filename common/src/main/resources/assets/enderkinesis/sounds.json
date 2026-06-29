@@ -1,4 +1,10 @@
 {
+  "missile_burst_blast": {
+    "category": "ambient",
+    "sounds": [
+      { "name": "entity.firework_rocket.blast", "type": "event" }
+    ]
+  },
   "music_disc.mystery": {
     "category": "record",
     "sounds": [
@@ -96,6 +102,15 @@
     "sounds": [
       {
         "name": "enderkinesis:ambient/ygann_abyss/ambience_loop",
+        "stream": true
+      }
+    ]
+  },
+  "ambient.sureibjin.loop": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/sureibjin/sureibjin_ambience",
         "stream": true
       }
     ]

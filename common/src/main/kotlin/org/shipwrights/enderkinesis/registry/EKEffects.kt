@@ -5,6 +5,7 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.effect.MobEffect
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.effect.AmbrosialCravingEffect
 import org.shipwrights.enderkinesis.effect.CrepuscularFloatationEffect
 import org.shipwrights.enderkinesis.effect.SselithMadnessEffect
 import org.shipwrights.enderkinesis.effect.YgannMadnessEffect
@@ -26,6 +27,21 @@ object EKEffects {
      *  [SselithMadnessEffect] and [org.shipwrights.enderkinesis.dimension.SselithMadness]. */
     val SSELITH_MADNESS: RegistrySupplier<MobEffect> =
         EFFECTS.register("sselith_madness") { SselithMadnessEffect() }
+
+    /** Java-callable static accessor for [SSELITH_MADNESS]'s resolved
+     *  [MobEffect] — used by client mixins that need to check the effect
+     *  without bouncing through the Kotlin object's instance getter. */
+    @JvmStatic
+    fun sselithMadnessEffect(): MobEffect = SSELITH_MADNESS.get()
+
+    /** Permanent-until-death debuff applied by Wey'ye fruit. See
+     *  [AmbrosialCravingEffect]. */
+    val AMBROSIAL_CRAVING: RegistrySupplier<MobEffect> =
+        EFFECTS.register("ambrosial_craving") { AmbrosialCravingEffect() }
+
+    /** Java-callable static accessor for [AMBROSIAL_CRAVING]. */
+    @JvmStatic
+    fun ambrosialCravingEffect(): MobEffect = AMBROSIAL_CRAVING.get()
 
     fun register() = EFFECTS.register()
 }

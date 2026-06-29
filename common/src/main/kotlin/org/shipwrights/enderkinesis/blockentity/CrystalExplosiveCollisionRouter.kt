@@ -90,20 +90,51 @@ object CrystalExplosiveCollisionRouter {
         }
         if (effectiveMass <= 0.0) return
 
+        // Whole-ship speed safety: at least one of the bodies in the collision has to be
+        // genuinely travelling. This blocks the "stationary ship gets gently bumped while
+        // a fast spinner whips its contact point past mine" case — the contact's local
+        // |vN| can read high from pure rotation even when both ships' COMs are barely
+        // moving. Per-event gate (not per-contact) because the moving-body check is the
+        // same value for every contact in the event.
+        val maxBodySpeed = Math.max(
+            physA?.velocity?.let { Math.sqrt(it.x()*it.x() + it.y()*it.y() + it.z()*it.z()) } ?: 0.0,
+            physB?.velocity?.let { Math.sqrt(it.x()*it.x() + it.y()*it.y() + it.z()*it.z()) } ?: 0.0,
+        )
+        if (maxBodySpeed < SHIP_SAFETY_SPEED) return
+
         for (contact in event.contactPoints) {
+            // Only the relative-velocity component along the contact normal delivers
+            // collision impulse — pure tangential sliding doesn't compress, pure separation
+            // pulls apart. Measuring `|v|` alone produces false detonations (notably: yanking
+            // an explosive away with a tome/wrench triggers an explosion because `|v|` is
+            // large even though `v_n` points outbound).
             val v = contact.velocity
-            val speed = Math.sqrt(v.x() * v.x() + v.y() * v.y() + v.z() * v.z())
-            if (speed <= 0.0) continue
-            val impulse = effectiveMass * speed
+            val n = contact.normal
+            val vN = v.x() * n.x() + v.y() * n.y() + v.z() * n.z()
+            // Drop "stale manifold restart" events — bodies that already separated
+            // before the start event reached us (the original pulling-away false
+            // trigger). `separation` is < 0 while penetrating, > 0 while apart, and
+            // (unlike the v·n sign) doesn't depend on which body VS2 assigned as A.
+            if (contact.separation > SEPARATION_EPSILON) continue
+            // Use the magnitude of the normal-component speed — sign-agnostic. We can't
+            // rely on `vN`'s sign because VS2 doesn't guarantee body A vs body B
+            // ordering, so a "v_rel = v_A − v_B" projected on `n` can come out as
+            // "approaching" or "separating" for the same physical event depending on
+            // which body was tagged A. Magnitude still drops tangential sliding (which
+            // has `|vN| ≈ 0`), which was the OTHER reason for projecting onto the
+            // normal in the first place.
+            val approachSpeed = Math.abs(vN)
+            if (approachSpeed <= 0.0) continue
+            val impulse = effectiveMass * approachSpeed
 
             if (shipBesA != null && physA != null) {
-                checkShipSide(shipBesA, physA, contact, impulse, effectiveMass, speed, "A", event.shipIdA)
+                checkShipSide(shipBesA, physA, contact, impulse, effectiveMass, approachSpeed, "A", event.shipIdA)
             }
             if (shipBesB != null && physB != null) {
-                checkShipSide(shipBesB, physB, contact, impulse, effectiveMass, speed, "B", event.shipIdB)
+                checkShipSide(shipBesB, physB, contact, impulse, effectiveMass, approachSpeed, "B", event.shipIdB)
             }
             if (worldBes != null) {
-                checkWorldSide(worldBes, contact, impulse, effectiveMass, speed)
+                checkWorldSide(worldBes, contact, impulse, effectiveMass, approachSpeed)
             }
         }
     }
@@ -177,4 +208,17 @@ object CrystalExplosiveCollisionRouter {
      *  resolving "which block sits at the contact". Smaller than 0.5 (half a block)
      *  so a probe always lands in the touching block, never in its neighbour. */
     private const val PROBE_DEPTH: Double = 0.1
+
+    /** Tolerated positive [ContactPoint.separation] before a contact is treated as
+     *  "not actually in contact". A few cm of slack absorbs floating-point noise + the
+     *  tail of a contact-manifold restart without rejecting real glancing impacts. */
+    private const val SEPARATION_EPSILON: Float = 0.05f
+
+    /** Blanket safety: at least one of the two bodies in a contact has to be moving at
+     *  this speed (in m/s = blocks/s) for any detonation to fire. Stops sharp
+     *  rotational contact tips from triggering when neither ship is actually going
+     *  anywhere, and stops gentle bumps + dock contacts cold. World contacts have
+     *  `velocity = 0` on the world side, so a ship rams into a world-placed explosive
+     *  only when *the ship itself* hits this threshold. */
+    private const val SHIP_SAFETY_SPEED: Double = 20.0
 }

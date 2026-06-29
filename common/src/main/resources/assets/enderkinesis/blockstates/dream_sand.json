@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "": [
+      { "model": "enderkinesis:block/dream_sand" },
+      { "model": "enderkinesis:block/dream_sand", "y": 90 },
+      { "model": "enderkinesis:block/dream_sand", "y": 180 },
+      { "model": "enderkinesis:block/dream_sand", "y": 270 }
+    ]
+  }
+}

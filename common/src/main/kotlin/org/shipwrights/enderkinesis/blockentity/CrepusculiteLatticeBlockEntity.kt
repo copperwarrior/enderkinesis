@@ -6,12 +6,16 @@ import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.core.BlockPos
 import net.minecraft.nbt.CompoundTag
+import net.minecraft.network.protocol.Packet
+import net.minecraft.network.protocol.game.ClientGamePacketListener
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
@@ -84,8 +88,22 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     fun nudgeSeaLevel(delta: Double): Double? {
         val next = (seaLevel ?: return null) + delta
         seaLevel = next
-        setChanged()
+        markChangedAndSync()
         return next
+    }
+
+    /** Persist + push the BE data packet to nearby clients. `setChanged()` alone only marks
+     *  the chunk dirty for save — it does NOT trigger the [getUpdatePacket] network packet,
+     *  so a state mutation (e.g. nudging the sea level) wouldn't reach the client until the
+     *  chunk reloaded. `level.sendBlockUpdated(..., UPDATE_CLIENTS)` schedules the packet
+     *  on the next world-update flush, which is what propagates `seaLevel` / `seaLevelDim`
+     *  to the mesh renderer's view of the lattice's water plane. */
+    private fun markChangedAndSync() {
+        setChanged()
+        val l = level
+        if (l is ServerLevel) {
+            l.sendBlockUpdated(blockPos, blockState, blockState, Block.UPDATE_CLIENTS)
+        }
     }
 
     override fun setRemoved() {
@@ -181,7 +199,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     fun captureSeaLevel(worldY: Double) {
         if (seaLevel == null) {
             seaLevel = worldY
-            setChanged()
+            markChangedAndSync()
         }
     }
 
@@ -198,11 +216,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         if (seaLevel != null) {
             if (seaLevelDim == null) {
                 seaLevelDim = curDimId
-                setChanged()
+                markChangedAndSync()
             } else if (seaLevelDim != curDimId) {
                 seaLevel = null
                 seaLevelDim = null
-                setChanged()
+                markChangedAndSync()
                 ship?.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
             }
         }
@@ -217,7 +235,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             if (seaLevel != here || seaLevelDim != curDimId) {
                 seaLevel = here
                 seaLevelDim = curDimId
-                setChanged()
+                markChangedAndSync()
             }
             return
         }
@@ -231,7 +249,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             if (seaLevel != null) {
                 seaLevel = null
                 seaLevelDim = null
-                setChanged()
+                markChangedAndSync()
             }
             ship.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
             return
@@ -249,7 +267,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             val y = world.y()
             seaLevel = y
             seaLevelDim = curDimId
-            setChanged()
+            markChangedAndSync()
             y
         }
 
@@ -411,6 +429,12 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val local = Vector3d()
 
         for (entity in level.getEntities(null as Entity?, box) { it.isAlive }) {
+            // Magic missile: homing projectile with its own deliberate trajectory; the
+            // lattice's lift + horizontal drag would steer it away from its target. The
+            // fluid probe already skips non-LivingEntity, so the only remaining contact
+            // surface is this float loop — exclude here.
+            if (entity is org.shipwrights.enderkinesis.entity.MagicMissileEntity) continue
+
             val living = entity as? LivingEntity
             // Intentional flight/riding hard-stops floating at once (never fight creative flight);
             // also drops any lingering grace so it can't keep tugging a now-flying player.
@@ -697,25 +721,41 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val count = Math.round((exA + exZ).coerceIn(8.0, SURFACE_POINT_CAP) * densityFactor).toInt()
         if (count <= 0) return 0
         val rng = level.random
-        // Retry budget: if a candidate position lands inside the ship's column footprint, we
-        // re-roll until we find an outside position (so the user-visible particle count is
-        // unaffected by how much of the ellipsoid the ship occupies). Bounded so a fully-
-        // enclosed ellipsoid doesn't spin forever.
+        // SURFACE wave-particle emission disabled — the mesh renderer (client-side) carries
+        // the wave geometry & gradient now. The foam-crest particles below add the white-cap
+        // highlights at the wave's peaks, which the mesh can't reproduce per-pixel without a
+        // fragment shader. DEEP particles still emit below.
         val localProbe = Vector3d()
         var emitted = 0
+        // Foam crests: target ~2× the original SURFACE point count, spawned only where the
+        // wave's normalised height is near 1 (peak). The Gerstner heightAt call is cheap and
+        // gives a deterministic crest-test so the particle count tracks visible wave energy.
+        // Density was cranked up from `count / 3` so the foam reads as a continuous lacy
+        // pattern on the crests rather than sparse dots.
+        val foamCount = count * 2
+        val foamTarget = foamCount.coerceAtLeast(4)
+        val maxAmp = GerstnerOcean.maxAmplitude * 1.0           // intensity 1 at sample point
+        val attemptCap = foamTarget * INSIDE_HULL_RETRY_BUDGET
         var attempts = 0
-        val attemptCap = count * INSIDE_HULL_RETRY_BUDGET
-        while (emitted < count && attempts < attemptCap) {
+        val tangent = Vector3d()
+        while (emitted < foamTarget && attempts < attemptCap) {
             attempts++
             val r = Math.pow(rng.nextDouble(), CENTER_BIAS)
             val th = rng.nextDouble() * (2.0 * Math.PI)
             val px = cx + exA * r * Math.cos(th)
             val pz = cz + exZ * r * Math.sin(th)
             if (insideShipColumn(worldToShip, localProbe, px, waterLineY, pz)) continue
+            // Only spawn foam at points that are near a wave crest (top 25% of normalised
+            // height). Wave's tangent velocity drives the foam's drift so the crest "spray"
+            // follows the wave's motion.
+            val h = GerstnerOcean.heightAt(px, pz, level.gameTime.toDouble(), 1.0)
+            val t01 = ((h + maxAmp) / (2.0 * maxAmp)).coerceIn(0.0, 1.0)
+            if (t01 < 0.75) continue
+            GerstnerOcean.velocityAt(px, pz, level.gameTime.toDouble(), 1.0, tangent)
             level.sendParticles(
-                EKParticles.ocean(),
-                px, waterLineY, pz,
-                SURFACE_CLUSTER, SURFACE_SPREAD, 0.0, SURFACE_SPREAD, 0.0,
+                EKParticles.foamCrest(),
+                px, waterLineY + h, pz,
+                0, tangent.x * 0.5, 0.02, tangent.z * 0.5, 1.0,
             )
             emitted++
         }
@@ -825,9 +865,8 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // proof is "is `pos` the authority and no follower has claimed in the stale window?"
         // — i.e. either we're the only lattice that's ticked recently, or no lattice has.
         //
-        // Bug we're closing: previously this only removed the attachment when
-        // `inducer.authorityHolder` was us. That left the inducer wedged on the ship in two
-        // real cases:
+        // Removal must NOT gate on `inducer.authorityHolder == this` — that leaves the
+        // inducer wedged on the ship in two cases:
         //   1. The lattice was broken on the very first game tick after chunk load, before it
         //      had a chance to run its `serverTick` and claim authority — the holder ref was
         //      still null, the identity check failed, the inducer stayed attached, and the
@@ -859,6 +898,21 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         seaLevelDim = if (tag.contains(NBT_SEA_LEVEL_DIM)) tag.getString(NBT_SEA_LEVEL_DIM) else null
     }
 
+    /** Sync [seaLevel] (and its capture-dimension tag) to the client so [publishZone]'s
+     *  client-side path can publish a non-null zone to [LatticeRegistry] — which the mesh
+     *  renderer iterates, and which the in-water mixin's same-tick answer relies on.
+     *
+     *  Required by [CrepusculiteLatticeMeshRenderer]. Inherited `handleUpdateTag` calls
+     *  [load], which already pulls [seaLevel] / [seaLevelDim] out of the tag. */
+    override fun getUpdateTag(): CompoundTag {
+        val tag = CompoundTag()
+        saveAdditional(tag)
+        return tag
+    }
+
+    override fun getUpdatePacket(): Packet<ClientGamePacketListener>? =
+        ClientboundBlockEntityDataPacket.create(this)
+
     companion object {
         private val LOG = LogUtils.getLogger()
 
@@ -881,7 +935,6 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         private const val AABB_INFLATE = 1.4
         private const val AABB_MARGIN = 4.0
 
-        // --- Fall-catcher buoyancy (deliberately gentle) ---
         /** Extra height (blocks) above the ocean added to the entity query box. */
         private const val ENTITY_QUERY_PAD = 2.0
         /** Downward velocity retained per tick while submerged — soft catch, not a wall. */
@@ -900,7 +953,6 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         /** Re-apply the grace effect once its remaining duration drops below this (limits spam). */
         private const val GRACE_REFRESH_BELOW = 50
 
-        // --- Server-authoritative virtual-ocean particles ---
         /** Don't emit unless a player is within this range of the ocean ellipsoid. */
         private const val PARTICLE_PLAYER_RANGE = 96.0
         /** Emit cadence (server ticks). Bumped from 3 → 5 to reduce client-side particle load
@@ -924,10 +976,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         private const val INSIDE_HULL_RETRY_BUDGET = 4
 
         /** Max splash droplets from one column crossing, and total splash spawns per tick.
-         *  Per-tick emit cap dropped 48 → 20 so a bobbing end-ship hull (lots of exterior blocks
-         *  crossing the wave plane simultaneously) doesn't dump hundreds of splash particles. */
-        private const val SPLASH_MAX = 5
-        private const val MAX_SPLASH_EMITS = 20
+         *  Bumped well past the original "very light" tuning: each hull-crossing now spawns up
+         *  to 14 droplets (was 5), and the per-tick emit cap is back near the pre-trim 48 to
+         *  let a wide bobbing hull broadcast spray across its full water-line front. */
+        private const val SPLASH_MAX = 14
+        private const val MAX_SPLASH_EMITS = 48
 
         /** Safety margin (blocks) added to the wave-amplitude band that [emitSplash] uses to
          *  decide which exterior blocks need the precise (expensive) `heightAt` sample vs which

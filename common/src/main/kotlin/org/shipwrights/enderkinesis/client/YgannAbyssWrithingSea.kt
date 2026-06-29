@@ -32,107 +32,29 @@ import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
- * The **Writhing Sea** of [YgannAbyss] — an uncomfortable, churning expanse of dark matter
- * far, far, far below everything else in the void, filling the whole lower hemisphere down to
- * the horizon whenever the player looks off the edge of a ship.
+ * Sky-pass lower-hemisphere dome — must be a dome, not a flat plane, because the sky-pass
+ * projection's far clip is `renderDistance × 64` (≈768 at 12 chunks), which would slice a
+ * horizon-spanning plane into a hard circle. Depth test is off, so only each vertex's screen
+ * direction matters; the dome's outer ring sits just below the horizon line.
  *
- *  ## Where it sits, and why it's a dome
+ * Two layers: a camera-relative backdrop (zero translational parallax, hides the End-sky
+ * nebula) plus a world-anchored grid pinned to lattice cells that carries the actual 3D
+ * waves — vertices slide past the camera under translation, so the surface flows
+ * world-anchored. Each grid vertex's direction is `(gx−camX, (SEA_Y+h)−camY, gz−camZ)`
+ * normalised to the dome radius, so crests rise *and* swing outward like real waves.
  *
- *  Rendered in the **sky pass**, immediately after the End sky cube (see
- *  [org.shipwrights.enderkinesis.mixin.LevelRendererYgannAbyssEyesMixin]), in the same
- *  camera-relative pose as [YgannAbyssWatchingEyes]: the pose carries the camera *rotation*
- *  but not its *translation*. The pass runs with `depthMask(false)` and the depth test off, so
- *  whatever we draw is a pure backdrop that any real geometry (the ship under your feet) paints
- *  over later in the frame.
- *
- *  Because the depth test is off, **only the screen direction of each vertex matters** — its
- *  distance is irrelevant. That sidesteps the one hard constraint here: the world projection's
- *  far clip plane in this pass is just `renderDistance × 64` blocks (≈768 at 12 chunks), so a
- *  genuine horizon-spanning flat plane would be sliced into a hard circle. Instead the surface
- *  is a **lower-hemisphere dome** of [RINGS] rings × [SECTORS] sectors at a fixed safe radius
- *  ([domeRadius], a fraction of the live far plane): every vertex stays inside the frustum, and
- *  the outermost ring sits a hair below the horizon line, so the sea always *reaches the
- *  horizon* at any render distance.
- *
- *  To stop the dome reading as a bowl, texture and waves are mapped as if it were a flat sea:
- *  each ring's screen depression `θ` comes from a notional flat-plane radius `r` via
- *  `θ = atan2(depth, r)` (depth tracks camera altitude — see below), and the UV / wave phase
- *  are sampled at the world point
- *  `(camX + r·cosφ, camZ + r·sinφ)`. Texture density compresses toward the horizon exactly as a
- *  real ocean's would.
- *
- *  ## Two layers: a flat backdrop + a world-anchored wave grid
- *
- *  The sea is drawn in two passes (see [drawSea]). The **backdrop** ([drawBackdrop]) is the polar
- *  dome above, kept *flat* — it reaches the horizon and hides the End-sky nebula, but carries no
- *  waves. The **foreground** ([drawForeground]) is a separate grid that carries the real 3D waves.
- *
- *  Why two meshes: the dome's vertices sample the world at *camera-relative* offsets
- *  (`camX + r·dir`), so each vertex holds a fixed direction from the eye — the surface has zero
- *  translational parallax and feels glued to the camera. (The texture only *looked* world-pinned
- *  because its UV image slides over that fixed mesh; the geometry can't slide.) The foreground grid
- *  fixes this by pinning its vertices to **fixed world positions** (`gx, gz` on a lattice), snapped
- *  to the cell size so the grid only ever shifts by whole cells as the camera moves — seamless,
- *  because the wave/texture are world-sampled. As the camera translates, each world vertex's
- *  direction changes, so the whole surface — waves and all — flows past you, world-anchored.
- *
- *  Each foreground vertex is placed in the true direction from the eye to its displaced world point
- *  (`(gx−camX, (SEA_Y+h)−camY, gz−camZ)` normalised to the dome radius), so a crest rises *and*
- *  swings outward — the faithful projection of a real 3D wave — never a camera-space heave. The grid
- *  feathers its wave amplitude and alpha into the flat backdrop at its rim. [surfaceHeight]-keyed
- *  shading is layered on so the relief reads from far above (there are no normals/lighting here).
- *
- *  ## World-anchored, not glued to the camera
- *
- *  `depth` is the camera's height above the sea (two blocks above the void kill plane, see
- *  [SEA_ABOVE_KILLPLANE]), clamped — **not** a constant — so the sea recedes as you climb and looms
- *  as you fall to your death, anchoring it to the world vertically. Horizontal pinning is automatic:
- *  the rings sample world coordinates
- *  `camX/Z + r·dir`, so a crest holds its world position and slides beneath you as you move. The
- *  ring tables are rebuilt each frame ([buildRingTables]) for the live depth.
- *
- *  ## Time base — client wall-clock, not game time
- *
- *  All animation is driven by [Util.getMillis] (monotonic client time), **not** `level.gameTime`.
- *  Game time advances in server-tick lockstep and visibly stutters whenever the server lags; the
- *  sea would judder with it. Wall-clock time keeps the swell perfectly smooth regardless of TPS.
- *
- *  ## The writhing — fluid, shifting, twisting, *not* rhythmic
- *
- *  [surfaceHeight] sums slow travelling swells, a twist wave whose crest direction rotates over
- *  time, and a beating pair of detuned medium waves — all fed through a slow **domain warp** so
- *  the surface never settles into a clean, recognisable sine rhythm. There is deliberately no
- *  fast chop layer: short-wavelength, high-speed waves read as a mechanical shimmer from this
- *  far away. Crests show the faint-green texture at full brightness; troughs crush toward black,
- *  so the relief reads from far above without real normals.
- *
- *  ## The eyes
- *
- *  [writhing_mass_eye.png] (a 4-frame open→blink animation) carpets the whole sea as a procedural
- *  **noise field** ([drawEyes]): a world-anchored lattice, hashed so a fraction of cells hold a
- *  jittered, independently-blinking eye — no spawn state, recomputed each frame from the hash. They
- *  are **submerged** — laid flat on a sheet [EYE_SUBMERGE] blocks *below* the waves and drawn
- *  between the backdrop and the (translucent) wave grid, so the dark water renders in front of them
- *  and they read as glimpsed beneath the surface, dim and a little shifted.
- *
- *  ## The tentacles
- *
- *  A sparser world-anchored lattice ([renderTentacles]) of the artist's [TentacleModel]s, posed by
- *  [TentacleAnimation], rises from the **eye-void** patches (where the eye-density field is low, so
- *  eyes and tentacles never share a spot), in drifting clouds. They are real animated models, but
- *  rendered here in the **sky pass** like the sea — a [DomeTentacleConsumer] intercepts each model
- *  vertex and dome-projects it — so they are free of the world far-clip plane and the distant ones
- *  tower all the way to the **horizon** (the megalophobia silhouette). Size grows with distance: near
- *  ones are modest, far ones are sized so their tips crest the horizon line.
+ * Time base is [Util.getMillis], NOT `level.gameTime` — keeps the swell smooth when the
+ * server stutters. No fast chop layer: short-λ waves read as mechanical shimmer at this
+ * range. Eyes carpet a hashed world-anchored lattice submerged below the wave plane;
+ * tentacles rise from low-eye-density patches and dome-project to the horizon silhouette.
  */
 object YgannAbyssWrithingSea {
 
-    private val SEA_TEX: ResourceLocation = EnderkinesisMod.id("textures/ygann_abyss/writhing_mass_sea.png")
-    private val EYE_TEX: ResourceLocation = EnderkinesisMod.id("textures/ygann_abyss/writhing_mass_eye.png")
-    private val TENT_TEX: ResourceLocation = EnderkinesisMod.id("textures/ygann_abyss/writhing_tentacle.png")
-    private val TENT_EMISSIVE_TEX: ResourceLocation = EnderkinesisMod.id("textures/ygann_abyss/writhing_tentacle_emissive.png")
+    private val SEA_TEX: ResourceLocation = EnderkinesisMod.id("textures/environment/ygann_abyss/writhing_mass_sea.png")
+    private val EYE_TEX: ResourceLocation = EnderkinesisMod.id("textures/environment/ygann_abyss/writhing_mass_eye.png")
+    private val TENT_TEX: ResourceLocation = EnderkinesisMod.id("textures/environment/ygann_abyss/writhing_tentacle.png")
+    private val TENT_EMISSIVE_TEX: ResourceLocation = EnderkinesisMod.id("textures/environment/ygann_abyss/writhing_tentacle_emissive.png")
 
-    // --- Dome geometry -------------------------------------------------------------------
 
     /** Number of angular slices in the dome. */
     private const val SECTORS: Int = 80
@@ -202,7 +124,6 @@ object YgannAbyssWrithingSea {
     /** Blocks of sea texture per 16×16 tile. */
     private const val TEX_SCALE: Double = 12.0
 
-    // --- Writhe shape: domain-warped fBm -------------------------------------------------
     //
     // A SUM OF SINUSOIDS ALWAYS TILES — it's a regular interference lattice (a grid), and a periodic
     // warp only shifts that grid. The standard NON-TILING technique (Inigo Quilez domain warping,
@@ -248,7 +169,6 @@ object YgannAbyssWrithingSea {
     private const val FBM_ROT_S: Double = 0.60
     private val SEA_BASE_INV_LEN = 1.0 / SEA_BASE_LEN
 
-    // --- Eyes: a procedural noise field across the whole sea -----------------------------
     //
     // The sea is carpeted with eyes. A world-anchored lattice ([EYE_SPACING]) is thresholded against
     // a smooth VALUE-NOISE density field ([eyeDensity]) — not a flat per-cell probability — so the
@@ -312,7 +232,6 @@ object YgannAbyssWrithingSea {
      *  makes them read as submerged. */
     private const val EYE_SUBMERGE: Double = 22.0
 
-    // --- Tentacles -----------------------------------------------------------------------
     //
     // A sparse world-anchored lattice of writhing tentacles — the artist's [TentacleModel] posed by
     // [TentacleAnimation] — rooted at the submerged eye plane and rising out of the sea. They appear
@@ -429,7 +348,6 @@ object YgannAbyssWrithingSea {
     private const val TENT_RATE_FAR_R: Double = 600.0
     private const val TENT_ALPHA: Float = 1.0f
 
-    // --- Tentacle diffuse ----------------------------------------------------------------------
     // The dome render uses position_color_tex, which has NO lighting stage — so the model comes out
     // flat-lit (the entity pipeline's per-face diffuse is bypassed). Re-add it here: shade each
     // vertex by its surface normal against a fixed key-light (half-Lambert, floored at TENT_AMBIENT
@@ -443,7 +361,6 @@ object YgannAbyssWrithingSea {
     private const val TENT_LIGHT_Y: Float = 0.484f
     private const val TENT_LIGHT_Z: Float = 0.591f
 
-    // --- Dome tables ---------------------------------------------------------------------
     //
     // Sector angles are constant. The ring tables depend on the live foreshorten depth, so they
     // are rebuilt each frame by [buildRingTables]; cheap (RINGS trig ops) and what makes the sea
@@ -510,7 +427,6 @@ object YgannAbyssWrithingSea {
      *  from the world hash), so there is no spawn/expire state to tick. */
     fun init() {}
 
-    // --- Writhe ---------------------------------------------------------------------------
 
     /**
      * Vertical displacement of the surface at world (`wx`, `wz`) and time `t` seconds. Slow
@@ -558,7 +474,6 @@ object YgannAbyssWrithingSea {
         return sum
     }
 
-    // --- Render ---------------------------------------------------------------------------
 
     fun renderSky(poseStack: PoseStack, partialTick: Float) {
         val mc = Minecraft.getInstance()
@@ -641,7 +556,6 @@ object YgannAbyssWrithingSea {
         GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
     }
 
-    // --- Backdrop: flat polar dome to the horizon ----------------------------------------
 
     /** One ring's baked per-vertex data (pose-space position, colour, uv), indexed by sector. */
     private class Ring {
@@ -717,7 +631,6 @@ object YgannAbyssWrithingSea {
             .endVertex()
     }
 
-    // --- Foreground: world-anchored wave grid (parallax-correct) --------------------------
     //
     // The dome's vertices sample the world at *camera-relative* offsets (`camX + r·dir`), so every
     // vertex holds a fixed direction from the eye — the surface has zero translational parallax and
@@ -847,7 +760,6 @@ object YgannAbyssWrithingSea {
             .endVertex()
     }
 
-    // --- Eyes ----------------------------------------------------------------------------
 
     /** Half-texel inset (texture is 64 px tall) so a quad's frame band samples strictly inside
      *  its own 16-px frame under NEAREST filtering, never the neighbour's edge row. */
@@ -946,7 +858,6 @@ object YgannAbyssWrithingSea {
         ts.end()
     }
 
-    // --- Tentacles (real models, dome-projected in the sky pass) -------------------------
 
     private val tentVecCache = Vector3f()
     private val tentPoseStack = PoseStack()
@@ -1049,7 +960,6 @@ object YgannAbyssWrithingSea {
                 val reach = passDist + TENT_JITTER_MAG
                 if (ccx * ccx + ccz * ccz > reach * reach) continue
 
-                // --- survivors: the exact original placement (unchanged) ---
                 val tx = cx * TENT_SPACING + (hash01(cx, cz, 21) - 0.5) * TENT_SPACING * TENT_JITTER
                 val tz = cz * TENT_SPACING + (hash01(cx, cz, 22) - 0.5) * TENT_SPACING * TENT_JITTER
 

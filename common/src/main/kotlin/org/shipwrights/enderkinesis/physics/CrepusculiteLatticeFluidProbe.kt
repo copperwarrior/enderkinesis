@@ -5,34 +5,22 @@ import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.client.CrepusculiteLatticeFootprintCache
+import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
- * Same-tick "is this entity in a lattice fluid right now" check + wave push application.
+ * Same-tick "is this entity in a lattice fluid right now" check + wave-push application.
  *
- *  ## Why a probe at all
+ * Exists because the BE [floatEntities] path is eventually-consistent: it applies
+ * [Effects.CREPUSCULAR_FLOATATION] which the *next* entity tick reads via [EntityMixin].
+ * Since MC ticks entities before block entities in the same frame, a player crossing the
+ * wave plane this tick reads no effect → vanilla water travel is skipped → at terminal
+ * velocity they fall 3–4 blocks past the surface before drag engages. The probe closes
+ * that gap by checking the current tick's zones synchronously from the entity's own tick.
  *
- *  The lattice BE's [floatEntities] is the eventually-consistent path — it applies
- *  [Effects.CREPUSCULAR_FLOATATION], which the next entity tick reads via [EntityMixin].
- *  In MC, the entity tick runs before BE ticks in the same frame, so a player who just
- *  crossed the wave plane *this tick* still reads no effect → vanilla water travel is
- *  skipped that tick → at terminal velocity they fall 3–4 extra blocks before drag engages.
- *  The probe closes that gap by checking the *current* tick's zones synchronously from the
- *  entity's own tick.
- *
- *  ## Why this is efficient even with 20 lattices
- *
- *  Each lattice publishes its [LatticeCatchZone] to [LatticeRegistry] **once per tick** (in
- *  [CrepusculiteLatticeBlockEntity.commonTick]). The probe just walks that pre-built list
- *  and runs the ellipsoid + surface compare against each cached zone — no VS2 ship lookup,
- *  no shipToWorld transforms, no AABB corner walk per entity. Cost is N_lattices × ~10 FLOPs
- *  per entity tick.
- *
- *  ## Wave push
- *
- *  Beyond just answering "in water Y/N", once we know the entity is in some zone we can
- *  also push them along the local Gerstner velocity field (so the waves carry entities
- *  around, not just the ships). Scaled down from full ship-velocity so an entity rides the
- *  swell instead of being shot off it.
+ * Cost stays bounded because each lattice publishes its [LatticeCatchZone] to
+ * [LatticeRegistry] once per tick — the probe just walks that pre-built list, no VS2 ship
+ * lookups or shipToWorld transforms per entity.
  */
 object CrepusculiteLatticeFluidProbe {
 
@@ -55,13 +43,30 @@ object CrepusculiteLatticeFluidProbe {
         if (entity is Player && (entity.isSpectator || entity.abilities.flying)) return null
         if (entity.onGround()) return null
 
-        val zones = LatticeRegistry.zones(entity.level())
-        if (zones.isEmpty()) return null
+        val level = entity.level()
+        val entries = LatticeRegistry.entries(level)
+        if (entries.isEmpty()) return null
 
         val ex = entity.x; val ey = entity.y; val ez = entity.z
         val feetY = entity.boundingBox.minY
-        for (zone in zones) {
-            if (entityInZone(zone, ex, ey, ez, feetY)) return zone
+        for ((be, zone) in entries) {
+            if (!entityInZone(zone, ex, ey, ez, feetY)) continue
+            // Inside the inflated ellipsoid + below the water line — but if the entity is
+            // also inside an air pocket within the ship's hull (cabin, hold, sealed
+            // chamber), there's no virtual fluid here. Use the same footprint classifier
+            // the mesh renderer uses to cut the surface mesh through the hull silhouette.
+            val ship = level.getShipManagingPos(be.blockPos) ?: return zone   // free-world lattice; no hull to check
+            val state = CrepusculiteLatticeFootprintCache.stateAt(
+                level, ship, ship.transform.worldToShip, ex, ey, ez,
+            )
+            // BOUNDARY = hull face; INTERIOR = deep hull; ENCLOSED = sealed air pocket — all
+            // hull-side states. Only EMPTY (true exterior) and EMPTY_NEAR_HULL (adjacent
+            // water cell just outside hull) count as actual fluid.
+            val inHull = state == CrepusculiteLatticeFootprintCache.BOUNDARY ||
+                state == CrepusculiteLatticeFootprintCache.INTERIOR ||
+                state == CrepusculiteLatticeFootprintCache.ENCLOSED
+            if (inHull) continue
+            return zone
         }
         return null
     }

@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=up":    { "model": "enderkinesis:block/binding_roots" },
+    "facing=down":  { "model": "enderkinesis:block/binding_roots", "x": 180 },
+    "facing=north": { "model": "enderkinesis:block/binding_roots", "x": 90 },
+    "facing=south": { "model": "enderkinesis:block/binding_roots", "x": 270 },
+    "facing=east":  { "model": "enderkinesis:block/binding_roots", "x": 90, "y": 90 },
+    "facing=west":  { "model": "enderkinesis:block/binding_roots", "x": 90, "y": 270 }
+  }
+}

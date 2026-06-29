@@ -11,7 +11,7 @@ There are forces older than time itself. Push your ship with them!
 ## Requirements
 
 - **Valkyrien Skies 2** — the `1.20.1/playtest` branch (until it is merged), pinned in
-  `gradle.properties` to `vs2_version=2.4.13+bb0a2f1544` / `vscore_version=1.1.0+969c4fb3ba`
+  `gradle.properties` to `vs2_version=2.4.13+c3fbe5f60e` / `vscore_version=1.1.0+af5183035b`
   (the playtest HEAD on the Valkyrien Skies maven). Bump instructions are in `gradle.properties`.
 - Architectury, Fabric API + fabric-language-kotlin (Fabric), Kotlin for Forge (Forge).
 

@@ -1,8 +1,8 @@
 {
   "variants": {
-    "candles=1,lit=false,waterlogged=false": { "model": "enderkinesis:block/heart_candle" },
-    "candles=1,lit=false,waterlogged=true":  { "model": "enderkinesis:block/heart_candle" },
-    "candles=1,lit=true,waterlogged=false":  { "model": "enderkinesis:block/heart_candle_lit" },
-    "candles=1,lit=true,waterlogged=true":   { "model": "enderkinesis:block/heart_candle_lit" }
+    "lit=false,waterlogged=false": { "model": "enderkinesis:block/heart_candle" },
+    "lit=false,waterlogged=true":  { "model": "enderkinesis:block/heart_candle" },
+    "lit=true,waterlogged=false":  { "model": "enderkinesis:block/heart_candle_lit" },
+    "lit=true,waterlogged=true":   { "model": "enderkinesis:block/heart_candle_lit" }
   }
 }

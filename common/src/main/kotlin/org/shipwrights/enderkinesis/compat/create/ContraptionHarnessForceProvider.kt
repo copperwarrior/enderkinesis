@@ -6,43 +6,23 @@ import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
 
 /**
- * Per-ship VS2 attachment that lets a Void Harness mounted on a Create contraption queue forces
- * from the game thread for the phys thread to apply.
+ * Per-ship VS2 attachment letting a contraption-mounted Void Harness queue forces from the
+ * game thread for the phys thread to apply, via [accumulateForce] (world-frame COM impulses)
+ * and [setOffComSteering] (cached pos snapshot, re-projected each phys tick).
  *
- * Two channels:
- *
- *  - [accumulateForce]: world-frame impulses summed across all game-thread callers within a
- *    game tick, applied at the ship's COM every phys tick. Used by the free-world fallback so
- *    each loaded ship within pull range feels the harness's 3D drag impulse.
- *  - [setOffComSteering]: a cached snapshot of the harness's CURRENT world position plus its
- *    shipyard ("model") position. Phys tick recomputes the world-frame XZ direction against
- *    the FRESH phys-tick COM (same pattern as [VoidHarnessBlockEntity.applyPullAtHarness] for
- *    ship-resident harnesses) and applies it off-COM at the shipyard position so it produces
- *    torque. Latest setter wins — a single harness emits one steering force per tick.
- *
- *  ## Why both channels persist between phys ticks
- *
- *  A ship-resident harness's BE caches its world position on the game tick once
- *  (~20 Hz) and `applyPullAtHarness` re-reads the cache every phys tick (~60 Hz). The cached
- *  values aren't cleared by the phys tick — they're just overwritten by the next game tick.
- *  Net result: same-ship pulls apply about THREE phys-tick force impulses per game tick.
- *
- *  An earlier iteration of this provider cleared its state after consuming it on the first
- *  phys tick. That meant the contraption-mounted harness only ever pushed the ship on one
- *  phys tick per game tick — roughly a third of a ship-resident harness's effective force.
- *  Now both channels are sticky: phys tick reads but doesn't clear, and a wallclock staleness
- *  window discards values whose game-tick refresher has gone away (contraption disassembled,
- *  harness lost power, etc.).
+ * Both channels are sticky: phys reads but doesn't clear, with a wallclock staleness
+ * window for cleanup. A ship-resident harness gets ~3 phys-tick impulses per game tick
+ * (game tick at 20 Hz overwrites cache that phys reads at 60 Hz). An earlier iteration here
+ * cleared on first read → contraption harness was ~1/3 the effective force of a resident
+ * one. Stickiness matches the resident pattern.
  */
 class ContraptionHarnessForceProvider : ShipPhysicsListener {
 
     private val lock = Any()
 
-    // --- COM channel (accumulated across game-tick calls, applied every phys tick) ---
     private var fx = 0.0; private var fy = 0.0; private var fz = 0.0
     private var lastAccumMs = Long.MIN_VALUE
 
-    // --- Off-COM steering channel (overwritten each game tick, applied every phys tick) ---
     private var hasOffCom = false
     private var owx = 0.0; private var owy = 0.0; private var owz = 0.0
     private var omx = 0.0; private var omy = 0.0; private var omz = 0.0
@@ -109,15 +89,20 @@ class ContraptionHarnessForceProvider : ShipPhysicsListener {
                 }
             }
         }
-        if (haveCom) physShip.applyInvariantForce(Vector3d(comX, comY, comZ))
+        // Block-sourced scale³ multiplier — matches every other block-sourced
+        // applier for scale-invariant ship-feel.
+        val s1 = physShip.transform.shipToWorldScaling.x()
+        val s = s1 * s1 * s1
+        if (haveCom) physShip.applyInvariantForce(Vector3d(comX * s, comY * s, comZ * s))
         if (haveOff) {
             val com = physShip.kinematics.position
             val dx = offWx - com.x()
             val dz = offWz - com.z()
             val xz = Math.sqrt(dx * dx + dz * dz)
             if (xz >= 1.0e-3) {
+                val mag = offPeak * s
                 physShip.applyWorldForceToModelPos(
-                    Vector3d(dx / xz * offPeak, 0.0, dz / xz * offPeak),
+                    Vector3d(dx / xz * mag, 0.0, dz / xz * mag),
                     Vector3d(offMx, offMy, offMz),
                 )
             }

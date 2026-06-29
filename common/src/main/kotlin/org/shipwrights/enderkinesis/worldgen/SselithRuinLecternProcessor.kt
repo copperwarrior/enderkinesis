@@ -7,8 +7,8 @@ import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.StringTag
 import net.minecraft.network.chat.Component
 import net.minecraft.world.level.LevelReader
-import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.LecternBlock
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessor
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType
@@ -58,7 +58,14 @@ object SselithRuinLecternProcessor : StructureProcessor() {
         info: StructureTemplate.StructureBlockInfo,
         settings: StructurePlaceSettings,
     ): StructureTemplate.StructureBlockInfo {
-        if (!info.state.`is`(Blocks.LECTERN)) return info
+        // The ruin templates were authored with vanilla lecterns
+        // (`minecraft:lectern`). Match the vanilla block in the source NBT,
+        // then rewrite the output state to the Sselith lectern. Vanilla
+        // [LecternBlock.FACING] / [LecternBlock.HAS_BOOK] / [LecternBlock.POWERED]
+        // are shared with [org.shipwrights.enderkinesis.block.SselithLecternBlock]
+        // (it extends LecternBlock), so the source state's facing copies straight
+        // across via `setValue` and only the block changes.
+        if (!info.state.`is`(net.minecraft.world.level.block.Blocks.LECTERN)) return info
 
         val random = settings.getRandom(info.pos)
         val author = AUTHORS[random.nextInt(AUTHORS.size)]
@@ -106,7 +113,15 @@ object SselithRuinLecternProcessor : StructureProcessor() {
             putInt("Page", 0)
             putString("id", LECTERN_BE_ID)
         }
-        val withBook = info.state.setValue(LecternBlock.HAS_BOOK, true)
+        // Rewrite the block from vanilla lectern → Sselith lectern, carrying
+        // the source FACING across. HAS_BOOK is on because we're handing the
+        // BE a written book; vanilla LecternBlockEntity reads the HAS_BOOK
+        // state on load and would otherwise discard the book at the next BE
+        // tick.
+        val sourceFacing = info.state.getValue(LecternBlock.FACING)
+        val withBook = EKBlocks.SSELITH_LECTERN.get().defaultBlockState()
+            .setValue(LecternBlock.FACING, sourceFacing)
+            .setValue(LecternBlock.HAS_BOOK, true)
         return StructureTemplate.StructureBlockInfo(info.pos, withBook, beNbt)
     }
 

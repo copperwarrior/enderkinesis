@@ -1,24 +1,11 @@
 {
   "replace": false,
   "values": [
-    "minecraft:dirt",
-    "minecraft:grass_block",
-    "minecraft:mycelium",
-    "minecraft:dirt_path",
-    "minecraft:podzol",
-    "minecraft:coarse_dirt",
-    "minecraft:rooted_dirt",
-    "minecraft:gravel",
-    "minecraft:sand",
-    "minecraft:red_sand",
-    "minecraft:farmland",
+    "#minecraft:mineable/shovel",
     "minecraft:sandstone",
     "minecraft:smooth_sandstone",
-    "minecraft:snow_block",
-    "minecraft:powder_snow",
     "minecraft:packed_ice",
     "minecraft:blue_ice",
-    "#minecraft:base_stone_overworld",
-    "minecraft:clay"
+    "#minecraft:base_stone_overworld"
   ]
 }

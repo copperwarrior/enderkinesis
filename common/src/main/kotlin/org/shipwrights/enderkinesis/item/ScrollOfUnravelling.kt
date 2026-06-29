@@ -72,14 +72,17 @@ object ScrollOfUnravelling {
 
         val rng = Random(level.gameTime xor pos.asLong() xor player.uuid.leastSignificantBits)
         when {
-            state.`is`(Blocks.LECTERN) -> {
+            state.block is net.minecraft.world.level.block.LecternBlock -> {
                 val be = level.getBlockEntity(pos) as? LecternBlockEntity ?: return EventResult.pass()
                 val book = be.book
                 if (book.isEmpty) return EventResult.pass()
                 if (revealPages(book, rng)) {
                     be.setChanged()
                     level.sendBlockUpdated(pos, state, state, Block.UPDATE_ALL)
-                    level.updateNeighbourForOutputSignal(pos, Blocks.LECTERN)
+                    // Comparator fires off the BE's page count, which doesn't care
+                    // about specific block identity. Pass the actual block so vanilla
+                    // and Sselith lecterns both notify correctly.
+                    level.updateNeighbourForOutputSignal(pos, state.block)
                 }
             }
             state.`is`(BlockTags.ALL_SIGNS) -> {

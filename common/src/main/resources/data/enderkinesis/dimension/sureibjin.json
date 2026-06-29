@@ -1,0 +1,10 @@
+{
+  "type": "enderkinesis:sureibjin",
+  "generator": {
+    "type": "enderkinesis:sureibjin",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "enderkinesis:sureibjin"
+    }
+  }
+}

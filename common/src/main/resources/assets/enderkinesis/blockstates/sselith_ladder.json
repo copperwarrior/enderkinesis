@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "enderkinesis:block/sselith_ladder",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "enderkinesis:block/sselith_ladder"
+    },
+    "facing=south": {
+      "model": "enderkinesis:block/sselith_ladder",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "enderkinesis:block/sselith_ladder",
+      "y": 270
+    }
+  }
+}

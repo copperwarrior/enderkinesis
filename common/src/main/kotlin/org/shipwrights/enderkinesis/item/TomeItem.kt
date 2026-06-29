@@ -34,7 +34,10 @@ abstract class TomeItem(properties: Properties) : Item(properties) {
         val level = context.level
         val pos = context.clickedPos
         val state = level.getBlockState(pos)
-        if (state.`is`(Blocks.LECTERN) && !state.getValue(LecternBlock.HAS_BOOK)) {
+        // Accept any LecternBlock subclass (vanilla + Sselith Lectern). The
+        // HAS_BOOK / tryPlaceBook paths are inherited from LecternBlock so
+        // the Sselith subclass works through the exact same call.
+        if (state.block is LecternBlock && !state.getValue(LecternBlock.HAS_BOOK)) {
             return if (LecternBlock.tryPlaceBook(context.player, level, pos, state, context.itemInHand))
                 InteractionResult.sidedSuccess(level.isClientSide)
             else InteractionResult.PASS

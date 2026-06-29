@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/fence_side",
+  "textures": {
+    "texture": "enderkinesis:block/wogor_planks"
+  }
+}

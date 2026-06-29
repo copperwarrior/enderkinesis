@@ -20,6 +20,7 @@ import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.resources.ResourceLocation
 import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
+import org.shipwrights.enderkinesis.sselith.SselithEclipse
 
 /**
  * Custom sky for [org.shipwrights.enderkinesis.dimension.SselithRepertory] —
@@ -46,7 +47,6 @@ import org.shipwrights.enderkinesis.dimension.SselithRepertory
  */
 object SselithRepertorySky {
 
-    // ---- background ----
 
     // Upper-hemisphere ("space") colour — very dark so stars/sun read against it.
     private const val SKY_R = 0.06f
@@ -67,17 +67,16 @@ object SselithRepertorySky {
     /** Sectors in the dome's triangle fan; 32 is plenty for a smooth circle at radius 100. */
     private const val HORIZON_DOME_SECTORS = 32
 
-    // ---- sun ----
 
     /**
      * Sselith's sun disc — RGBA asset shipped under
-     * `assets/enderkinesis/textures/sselith_sun.png`. Has a proper alpha channel
+     * `assets/enderkinesis/textures/environment/sselith_sun.png`. Has a proper alpha channel
      * (transparent corners), so `defaultBlendFunc` cleanly draws the disc on top of the
      * stars and the corners contribute nothing. Vanilla's `textures/environment/sun.png` is
      * 8-bit RGB only (black background, no alpha) — that's why earlier attempts to use it
      * with anything other than additive blending produced the black-square artifact.
      */
-    private val SUN_TEXTURE = ResourceLocation("enderkinesis", "textures/sselith_sun.png")
+    private val SUN_TEXTURE = ResourceLocation("enderkinesis", "textures/environment/sselith_sun.png")
 
     /**
      * 1×1 opaque-white texture for the stars and shooting stars. Its ONLY purpose is to make
@@ -88,7 +87,7 @@ object SselithRepertorySky {
      * geometry — so the starfield survives. The single white texel multiplies the vertex colour
      * by 1.0, leaving the no-shader appearance identical. (See sselith-shaderpack-compat notes.)
      */
-    private val STAR_TEXTURE = ResourceLocation("enderkinesis", "textures/sselith_star.png")
+    private val STAR_TEXTURE = ResourceLocation("enderkinesis", "textures/environment/sselith_star.png")
 
     /** Sun half-extent in sky-distance units. Vanilla sun is 30; this is "massive". */
     private const val SUN_HALF = 100f
@@ -108,7 +107,6 @@ object SselithRepertorySky {
      *  from this same angle, so changes here propagate to world lighting. */
     const val SUN_ROTATION_DEG = 34.5f
 
-    // ---- stars ----
 
     /** Number of attempts at sampling star positions. Beta/vanilla use 1500. Some rejections
      *  happen below (vectors landing inside the inner radius are skipped) so the actual quad
@@ -258,7 +256,6 @@ object SselithRepertorySky {
         return built.toTypedArray()
     }
 
-    // ---- entry ----
 
     fun renderSky(
         poseStack: PoseStack,
@@ -270,18 +267,21 @@ object SselithRepertorySky {
     ) {
         val gameTime = camera.entity.level().gameTime + partialTick
 
-        // 1. Background — clear colour blends between fog yellow (at y=0, fog at full
-        // strength) and dark sky (at |y|>=128, no fog). This is what makes the *entire*
-        // sky respond to the height curve: previously only the horizon dome's alpha
-        // shifted, but the clear colour underneath stayed fog yellow, so high-altitude
-        // players still saw a yellow lower hemisphere. With the lerp the lower hemisphere
-        // tracks the dome to a unified dark sky at altitude. Curve matches
-        // SselithRepertory.fogDensityAt — see FogRendererSselithRepertoryMixin for the
-        // matching terrain-fog alpha.
+        // 1. Background — clear colour blends between fog yellow (y=0, fog at full) and
+        // dark sky (|y|>=128, no fog) so the lower hemisphere tracks the dome at altitude;
+        // without it the clear colour stays yellow even when the dome alpha shifts. Curve
+        // matches SselithRepertory.fogDensityAt — see FogRendererSselithRepertoryMixin for
+        // the matching terrain-fog alpha.
         val fogDensity = SselithRepertory.fogDensityAt(camera.position.y)
-        val clearR = SKY_R + (FOG_R - SKY_R) * fogDensity
-        val clearG = SKY_G + (FOG_G - SKY_G) * fogDensity
-        val clearB = SKY_B + (FOG_B - SKY_B) * fogDensity
+        // Drive the framebuffer clear color toward pure black at full eclipse. Without
+        // this, distant sky-uncovered pixels stay the bright yellow fog tint and
+        // bleed into "areas with no light" via the fog blend, defeating the lightmap's
+        // pitch-black cells. Matches the fog-color darkening in
+        // FogRendererSselithRepertoryMixin.
+        val eclipseDarken = 1f - SselithEclipse.intensity(camera.entity.level().gameTime.toDouble() + partialTick)
+        val clearR = (SKY_R + (FOG_R - SKY_R) * fogDensity) * eclipseDarken
+        val clearG = (SKY_G + (FOG_G - SKY_G) * fogDensity) * eclipseDarken
+        val clearB = (SKY_B + (FOG_B - SKY_B) * fogDensity) * eclipseDarken
         RenderSystem.clearColor(clearR, clearG, clearB, 1.0f)
         RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT, Minecraft.ON_OSX)
 
@@ -290,17 +290,24 @@ object SselithRepertorySky {
         // both the star quads (built around outward-radial normals) and the sun quad (which
         // ends up normal-out after its XYZ rotation) present their *back* face to the camera.
         // With default back-face culling on, those faces get discarded and the sky looks
-        // empty. Without this `disableCull` the previous attempt left stars invisible.
+        // empty — hence `disableCull`.
         RenderSystem.enableBlend()
         RenderSystem.depthMask(false)
         RenderSystem.defaultBlendFunc()
         RenderSystem.disableCull()
 
+        // Per-shader vertex colour multiplier — horizon dome, stars, and shooters all
+        // sample this through PositionColor / PositionTexColor shaders, so a single
+        // setShaderColor here is enough to dim the whole sky pass uniformly during
+        // the eclipse. renderSun overrides its own colour and applies eclipseDarken
+        // explicitly so the disc dims to black too.
+        RenderSystem.setShaderColor(eclipseDarken, eclipseDarken, eclipseDarken, 1f)
+
         renderHorizonFade(poseStack)
         renderStars(poseStack, gameTime)
         updateShooters(gameTime)
         renderShooters(poseStack, gameTime)
-        renderSun(poseStack)
+        renderSun(poseStack, eclipseDarken)
 
         RenderSystem.enableCull()
         RenderSystem.depthMask(true)
@@ -308,7 +315,6 @@ object SselithRepertorySky {
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
     }
 
-    // ---- horizon fade ----
 
     /**
      * Draws the dark "space" cap on top of the (now-blended) sky background. A triangle
@@ -352,9 +358,8 @@ object SselithRepertorySky {
         BufferUploader.drawWithShader(builder.end())
     }
 
-    // ---- sun ----
 
-    private fun renderSun(poseStack: PoseStack) {
+    private fun renderSun(poseStack: PoseStack, eclipseDarken: Float) {
         poseStack.pushPose()
         // 34.5° on pitch, yaw, roll — applied X, then Y, then Z. Gives an asymmetric
         // fixed orientation above the horizon.
@@ -365,19 +370,15 @@ object SselithRepertorySky {
         val matrix = poseStack.last().pose()
 
         // Standard alpha blend (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) — the sun disc's opaque
-        // centre replaces what's behind it (the previously-drawn stars + sky background),
-        // while the disc's anti-aliased edge blends. This is what hides stars *behind* the
-        // sun. The previous additive blend (SRC_ALPHA, ONE) added sun colour on top of the
-        // stars in the disc area, leaving them clearly visible through the sun.
-        //
-        // The sun renders properly even with this blend — the earlier "sun has no alpha"
-        // bug was caused by back-face culling discarding the quad, which is now disabled at
-        // the outer renderSky level.
+        // centre occludes the stars + sky background behind it while the anti-aliased edge
+        // blends. Additive blending leaves stars visible through the sun because it can only
+        // add colour, not occlude. Back-face culling is disabled at the outer renderSky
+        // level so the sun quad survives.
         RenderSystem.defaultBlendFunc()
 
         RenderSystem.setShader { GameRenderer.getPositionTexShader() }
         RenderSystem.setShaderTexture(0, SUN_TEXTURE)
-        RenderSystem.setShaderColor(SUN_R, SUN_G, SUN_B, 1.0f)
+        RenderSystem.setShaderColor(SUN_R * eclipseDarken, SUN_G * eclipseDarken, SUN_B * eclipseDarken, 1.0f)
 
         val builder = Tesselator.getInstance().builder
         builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX)
@@ -390,7 +391,6 @@ object SselithRepertorySky {
         poseStack.popPose()
     }
 
-    // ---- stars ----
 
     private fun renderStars(poseStack: PoseStack, gameTime: Float) {
         // Ensure all 32 slot buffers are built. Building happens lazily on
@@ -465,7 +465,6 @@ object SselithRepertorySky {
         starBuffers = null
     }
 
-    // ---- shooting stars ----
 
     /** How many frames of trail are visible behind a shooter's head. Per the spec. */
     private const val SHOOTER_TRAIL_FRAMES = 10

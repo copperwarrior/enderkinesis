@@ -227,6 +227,13 @@ object OrbBeamLineRenderer {
      *  bin, contributing their palette colour to the bin's gradient list. */
     private val pairBins: MutableMap<PairKey, BeamBin> = HashMap()
 
+    /** Same shape as [pairBins], but for beams whose either endpoint orb sits on a
+     *  fully-cloaked ship. [renderConcealed] empties this into [ConcealmentShipFB]
+     *  inside the cloak refraction pipeline, so a cloaked-side beam reads as refracted
+     *  rather than vanishing entirely. Populated by [collect] in the same pass that
+     *  fills [pairBins]; emptied by [renderAll]'s clear. */
+    private val concealedPairBins: MutableMap<PairKey, BeamBin> = HashMap()
+
     /** Reusable scratch — sample alphas (0..1). Resized on demand. */
     private var sampleAlphas: FloatArray = FloatArray(0)
 
@@ -257,6 +264,7 @@ object OrbBeamLineRenderer {
         val level = Minecraft.getInstance().level ?: return
         seenTriples.clear()
         pairBins.clear()
+        concealedPairBins.clear()
 
         for (orb in OrbOfLinkingClientRegistry.sendOrbs(level)) {
             val orbPos = orb.blockPos
@@ -279,6 +287,34 @@ object OrbBeamLineRenderer {
         }
     }
 
+    /** Emit the beams collected into [concealedPairBins] during [renderAll]'s collect
+     *  pass. Caller is responsible for binding [ConcealmentShipFB] before this and
+     *  flushing the [OrbBeamLineRenderType.BEAM_LINE] batch after — invoked from
+     *  `LevelRendererBubblePassMixin` between the bubble-mask pass and the refraction
+     *  pass, so cloaked-side beams composite through the refraction shader instead of
+     *  disappearing entirely. */
+    fun renderConcealed(
+        poseStack: PoseStack,
+        bufferSource: MultiBufferSource,
+        cameraX: Double,
+        cameraY: Double,
+        cameraZ: Double,
+        @Suppress("UNUSED_PARAMETER") partialTicks: Float,
+    ) {
+        if (concealedPairBins.isEmpty()) return
+        val level = Minecraft.getInstance().level ?: return
+        // BEAM_LINE_CONCEALED's output-state shard binds [ConcealmentShipFB] at flush
+        // time. BEAM_LINE itself forces MAIN_TARGET, so reusing it would draw the
+        // cloaked-side beams additively over the world behind the cloaked ship and
+        // produce the "too light" pixels.
+        val consumer = bufferSource.getBuffer(OrbBeamLineRenderType.BEAM_LINE_CONCEALED)
+        val matrix = poseStack.last().pose()
+        val tSec = Util.getMillis() / 1000.0
+        for (bin in concealedPairBins.values) {
+            emitBeam(consumer, matrix, bin, level, cameraX, cameraY, cameraZ, tSec)
+        }
+    }
+
     private fun collect(
         level: net.minecraft.client.multiplayer.ClientLevel,
         sendPos: BlockPos, recvPos: BlockPos, tomeKind: ResourceLocation,
@@ -286,8 +322,18 @@ object OrbBeamLineRenderer {
         val triple = TripleKey.of(sendPos, tomeKind, recvPos)
         if (!seenTriples.add(triple)) return
 
+        // Route beams whose either endpoint orb sits on a fully-cloaked ship into the
+        // concealed bin so the refraction pipeline draws them into [ConcealmentShipFB]
+        // (where they composite as refracted, not invisible). The camera-inside-bubble
+        // case is auto-excluded by [CloakingMixinSupport.isPositionConcealed], so beams
+        // to / from a ship the wielder is standing on stay on the main bin.
+        val concealed =
+            CloakingMixinSupport.isPositionConcealed(sendPos) ||
+            CloakingMixinSupport.isPositionConcealed(recvPos)
+        val targetBins = if (concealed) concealedPairBins else pairBins
+
         val pairKey = PairKey.of(sendPos, recvPos)
-        val bin = pairBins.getOrPut(pairKey) {
+        val bin = targetBins.getOrPut(pairKey) {
             // First visit decides direction. The orb direction-commitment rule says all
             // links between a given pair flow the same way, so any subsequent collect for
             // the same pair will use the same (send, recv) ordering.

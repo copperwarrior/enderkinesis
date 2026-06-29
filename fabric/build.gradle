@@ -17,6 +17,24 @@ configurations {
     developmentFabric.extendsFrom common
 }
 
+repositories {
+    maven {
+        // Trinkets — accessory-slot API. modCompileOnly only; the mod is not bundled.
+        name = 'TerraformersMC Maven'
+        url = 'https://maven.terraformersmc.com/'
+    }
+    maven {
+        // Cardinal Components — Trinkets' transitive dep.
+        name = 'Ladysnake Maven'
+        url = 'https://maven.ladysnake.org/releases'
+    }
+    maven {
+        // Modrinth — for Sodium (compile-only block-concealment mixin target).
+        name = 'Modrinth Maven'
+        url = 'https://api.modrinth.com/maven'
+    }
+}
+
 dependencies {
     modImplementation("net.fabricmc:fabric-loader:${fabric_loader_version}")
     common(project(path: ":common", configuration: "namedElements")) { transitive = false }
@@ -59,6 +77,16 @@ dependencies {
 
     modRuntimeOnly("maven.modrinth:natures-compass:1.20.1-2.6.0-fabric")
     modRuntimeOnly("maven.modrinth:explorers-compass:1.20.1-2.6.0-fabric")
+
+    // Trinkets API — accessory-slot mod (Fabric). Compile-time only; the robe armor's
+    // combined-score calc plugs in via `AccessoryGatherer` at runtime if loaded.
+    modCompileOnly("dev.emi:trinkets:3.7.1")
+
+    // Sodium — chunk renderer replacement. Compile-time only; mixin into
+    // `BlockRenderer.renderModel` gated by `EnderkinesisMixinPlugin` checking
+    // `sodium.mixins.json` on the classpath. Without Sodium present at runtime, the
+    // mixin is skipped.
+    modCompileOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
 }
 
 

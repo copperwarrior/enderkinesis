@@ -12,28 +12,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Custom lightmap for {@link org.shipwrights.enderkinesis.dimension.SselithRepertory} that
- * gives skylight a yellow tint to match the dimension's sun while leaving block-light
- * cells warm/torch-coloured.
+ * Custom 16×16 lightmap for {@link org.shipwrights.enderkinesis.dimension.SselithRepertory}
+ * — sky cells tint yellow (match the dim's sun), block cells stay warm torch, mixed cells
+ * blend additively (so a torch in a covered area stays orange, not yellow).
  *
- * <p>The lightmap is a 16×16 RGBA texture indexed by {@code (block_light, sky_light)}. The
- * shader samples a single cell and multiplies it into the rendered colour, so the
- * structure of the texture is what differentiates "lit by sky" vs "lit by torch":
- *
- *  - Pure sky cells (block_light=0, sky_light=15) → yellow.
- *  - Pure block cells (block_light=15, sky_light=0) → warm vanilla torch colour.
- *  - Mixed cells → additive blend.
- *
- * <p>This is the key fix over the earlier {@code max(block, sky)} formula: that version
- * applied a yellow tint to *every* cell including pure-torch ones, so torches in covered
- * areas read as yellow instead of warm. With additive separation, a torch-lit shadow face
- * keeps its identifiable orange/red colour.
- *
- * <p>FULL_BRIGHT slot (15, 15) is hard-pinned to pure white because GUI text, HUD
- * elements, inventory icons, and held-item overlays sample it for their lightmap UV;
- * tinting that slot turns every screen-space label coloured. World blocks effectively
- * never sample (15, 15) — that would need full torch *and* full sun on the same voxel —
- * so the seam is invisible in-world.
+ * <p>FULL_BRIGHT (15, 15) is hard-pinned to white — GUI text, HUD, inventory icons, and
+ * held-item overlays sample this slot for their lightmap UV; tinting it colours every
+ * screen-space label. World blocks never reach (15, 15), so the seam is invisible.
  */
 @Mixin(LightTexture.class)
 public abstract class LightTextureSselithRepertoryMixin {
@@ -44,10 +29,14 @@ public abstract class LightTextureSselithRepertoryMixin {
 
     @Inject(method = "updateLightTexture", at = @At("HEAD"), cancellable = true)
     private void enderkinesis$sselithLightmap(float partialTick, CallbackInfo ci) {
-        if (!this.updateLightTexture) return;
         if (!SselithRepertoryLighting.INSTANCE.isInRepertory()) return;
+        // During an eclipse, force per-frame recompute so the ramp fades smoothly
+        // instead of stepping at the vanilla 20Hz `updateLightTexture` flag rate.
+        // Outside eclipse, fall back to vanilla's once-per-tick gate.
+        boolean force = SselithRepertoryLighting.INSTANCE.currentEclipseIntensity(partialTick) > 0f;
+        if (!this.updateLightTexture && !force) return;
         this.updateLightTexture = false;
-        SselithRepertoryLighting.INSTANCE.writeLightmap(this.lightPixels);
+        SselithRepertoryLighting.INSTANCE.writeLightmap(this.lightPixels, partialTick);
         this.lightTexture.upload();
         ci.cancel();
     }

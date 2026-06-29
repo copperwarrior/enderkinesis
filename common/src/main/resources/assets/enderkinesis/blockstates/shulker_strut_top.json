@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=up":    { "model": "enderkinesis:block/shulker_strut_top" },
+    "facing=down":  { "model": "enderkinesis:block/shulker_strut_top" },
+    "facing=north": { "model": "enderkinesis:block/shulker_strut_top" },
+    "facing=south": { "model": "enderkinesis:block/shulker_strut_top" },
+    "facing=east":  { "model": "enderkinesis:block/shulker_strut_top" },
+    "facing=west":  { "model": "enderkinesis:block/shulker_strut_top" }
+  }
+}

@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.client.CatalogerTomeWorldRenderer
 import org.shipwrights.enderkinesis.client.EnderkinesisModClient
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer
 import org.shipwrights.enderkinesis.client.SselithDimensionEffects
+import org.shipwrights.enderkinesis.client.SureibjinDimensionEffects
 import org.shipwrights.enderkinesis.client.WohlonnogondoniaDimensionEffects
 import org.shipwrights.enderkinesis.client.WyllandTomeBEWLR
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
@@ -126,6 +127,21 @@ class EnderkinesisModForgeClient {
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,
                     )
+                    // Magic Missile pulse-beam trails — same stage + render type as the orb
+                    // network so the visual stays consistent.
+                    org.shipwrights.enderkinesis.client.MagicMissileTrailRenderer.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
+                    // Crepusculite Lattice virtual sea — additive mesh over the existing
+                    // particle system. Toggle via CrepusculiteLatticeMeshRenderer.enabled
+                    // (default true) or delete this block to revert to the particle-only path.
+                    org.shipwrights.enderkinesis.client.CrepusculiteLatticeMeshRenderer.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
                 }
                 else -> {}
             }
@@ -150,6 +166,16 @@ class EnderkinesisModForgeClient {
             LOG.info(
                 "Registered Wohlonnogondonia DimensionSpecialEffects (id={}, skyType=NORMAL, no sunset gradient)",
                 wohlonEffectsId,
+            )
+
+            // Sureibjin — the dream coast. NORMAL sky for now (vanilla
+            // gradient driven by the desaturated biome palette); custom
+            // noise-flow shader is a follow-up.
+            val sureibjinEffectsId = EnderkinesisMod.id("sureibjin")
+            event.register(sureibjinEffectsId, SureibjinDimensionEffects())
+            LOG.info(
+                "Registered Sureibjin DimensionSpecialEffects (id={}, skyType=NONE, custom dream sky)",
+                sureibjinEffectsId,
             )
         }
 

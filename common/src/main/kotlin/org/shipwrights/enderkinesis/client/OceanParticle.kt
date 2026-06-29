@@ -20,6 +20,9 @@ import kotlin.math.min
  *  - [Mode.DEEP]: a faint dark-green mote drifting in the water volume.
  *  - [Mode.SPLASH]: a short ballistic foam droplet thrown up when a hull block hits the water,
  *    uses the velocity the server sent it with, falls under gravity, collides.
+ *  - [Mode.FOAM_CREST]: a small short-lived foam-green dot that appears at a wave crest,
+ *    drifts briefly, then fades. The mesh now carries the wave geometry; these add the
+ *    foam highlights at the crests without re-implementing the full surface particle field.
  */
 class OceanParticle(
     level: ClientLevel,
@@ -33,13 +36,22 @@ class OceanParticle(
     vz: Double,
 ) : TextureSheetParticle(level, x, y, z) {
 
-    enum class Mode { SURFACE, DEEP, SPLASH }
+    enum class Mode { SURFACE, DEEP, SPLASH, FOAM_CREST }
 
     private val baseX = x
     private val baseY = y
     private val baseZ = z
     private val disp = DoubleArray(3)
     private var foamBoosted = false
+
+    /** Reconstructed lattice rest-plane Y for SPLASH particles. Computed at spawn from the
+     *  particle's spawn position minus the wave's height at the spawn moment, so
+     *  `waveSurfaceY(x, z, t) = waterLineY + GerstnerOcean.heightAt(x, z, t, intensity)`
+     *  is recoverable per tick without needing to send `waterLineY` over the spawn packet. */
+    private var waterLineY: Double = 0.0
+
+    /** Per-particle scratch for wave-velocity sampling during splash ticks. */
+    private val tmpWaveVel: org.joml.Vector3d = org.joml.Vector3d()
 
     /**
      * Precomputed per-wave phase offset / amplitude (see [GerstnerOcean.precomputeSample]) for
@@ -55,12 +67,31 @@ class OceanParticle(
         hasPhysics = true               // collide with terrain / ship hulls like other particles
         if (mode == Mode.SPLASH) {
             // Ballistic: drifts with the velocity the server sent it, falls under gravity.
+            // Sized up + longer-lived than the original "very light" tuning so the spray reads
+            // as foam rather than a faint mist on hull-on-wave hits.
             gravity = 1.0f
             friction = 0.99f                       // less drag
-            lifetime = 24 + this.random.nextInt(26)
-            quadSize *= 0.5f + this.random.nextFloat() * 0.4f
+            lifetime = 40 + this.random.nextInt(30)
+            quadSize *= 1.2f + this.random.nextFloat() * 0.6f
             xd = vx; yd = vy; zd = vz
             alpha = 1.0f
+            this.xo = x; this.yo = y; this.zo = z
+            // Reconstruct the lattice's rest-plane Y so the splash can sample the wave
+            // surface anywhere, anytime. Splash spawns at the hull-on-wave contact point —
+            // i.e., its spawn Y *is* `waterLineY + heightAt(spawnX, spawnZ, spawnTime)`.
+            // Subtract the wave height at spawn → recover `waterLineY`.
+            val spawnTime = level.gameTime.toDouble()
+            waterLineY = y - GerstnerOcean.heightAt(x, z, spawnTime, SPLASH_WAVE_INTENSITY)
+        } else if (mode == Mode.FOAM_CREST) {
+            // Crest foam highlight: small, foam-green from the moment it appears, slight
+            // tangential drift (the velocity the server sent — typically the wave's tangent
+            // flow), no gravity, very short lifetime. Sits roughly where it spawned, fading.
+            gravity = 0.0f
+            friction = 0.95f
+            lifetime = 12 + this.random.nextInt(10)
+            quadSize *= 0.35f + this.random.nextFloat() * 0.25f
+            xd = vx; yd = vy; zd = vz
+            alpha = 0.0f
             this.xo = x; this.yo = y; this.zo = z
         } else {
             gravity = 0.0f
@@ -93,17 +124,69 @@ class OceanParticle(
             remove()
             return
         }
-        if (mode == Mode.SPLASH) tickSplash() else tickWave()
+        when (mode) {
+            Mode.SPLASH -> tickSplash()
+            Mode.FOAM_CREST -> tickFoamCrest()
+            else -> tickWave()
+        }
+    }
+
+    /** Foam-crest tick: drift along the velocity it was given (typically the wave's tangent
+     *  flow at spawn), apply friction, no gravity, fade in/out with a brief life. Foam green
+     *  from the start — the colour is the only thing the mesh can't render at the crest. */
+    private fun tickFoamCrest() {
+        move(xd, yd, zd)
+        xd *= friction.toDouble(); yd *= friction.toDouble(); zd *= friction.toDouble()
+        setColor(FOAM_R, FOAM_G, FOAM_B)
+        val fadeIn = (age.toDouble() / 3.0).coerceAtMost(1.0).toFloat()
+        val tailStart = lifetime - 8
+        val fadeOut = if (age > tailStart) {
+            (lifetime - age).toFloat() / (lifetime - tailStart).coerceAtLeast(1).toFloat()
+        } else 1.0f
+        alpha = min(fadeIn, fadeOut) * 0.85f
     }
 
     private fun tickSplash() {
-        yd -= 0.04 * gravity
+        // Compute the wave's surface Y at the droplet's *current* XZ. From this we know
+        // whether the droplet is in the air or has re-entered the water — fundamental to
+        // making the splash behave like real spray rather than just a ballistic dot that
+        // falls through the wave.
+        val time = level.gameTime.toDouble()
+        val waveSurfaceY =
+            waterLineY + GerstnerOcean.heightAt(x, z, time, SPLASH_WAVE_INTENSITY)
+        val inAir = y > waveSurfaceY
+
+        if (inAir) {
+            // Wind/spray coupling: a fraction of the wave's tangential surface velocity
+            // pushes the droplet horizontally. The wave's flow carries the foam.
+            GerstnerOcean.velocityAt(x, z, time, SPLASH_WAVE_INTENSITY, tmpWaveVel)
+            xd += tmpWaveVel.x * SPLASH_WIND_COUPLING
+            zd += tmpWaveVel.z * SPLASH_WIND_COUPLING
+            yd -= 0.04 * gravity
+        } else {
+            // Re-entered the water — heavy lateral drag, vertical settle toward the wave
+            // surface, and accelerated fade so the droplet visibly merges into the wave
+            // rather than persisting underwater. Velocity is killed first so the droplet
+            // settles in place; gravity is *suppressed* once submerged so it doesn't keep
+            // sinking through the deep water column.
+            xd *= SPLASH_WATER_DRAG
+            zd *= SPLASH_WATER_DRAG
+            yd *= SPLASH_WATER_DRAG_V
+            // Pull gently toward the surface (buoyant settle) instead of free-falling.
+            val rise = (waveSurfaceY - y).coerceAtLeast(-1.0) * 0.05
+            yd += rise
+            // Shorten the remaining life so the droplet doesn't linger underwater.
+            val deadline = lifetime - SPLASH_DROWN_FADE_TICKS
+            if (age < deadline) age = deadline
+        }
+
         move(xd, yd, zd)
         xd *= friction.toDouble(); yd *= friction.toDouble(); zd *= friction.toDouble()
         if (onGround) {
-            if (yd < 0.0) yd = -yd * SPLASH_BOUNCE   // a little bounce
+            if (yd < 0.0) yd = -yd * SPLASH_BOUNCE   // hull / terrain bounce
             xd *= 0.85; zd *= 0.85
         }
+
         setColor(SPLASH_R, SPLASH_G, SPLASH_B)
         val fadeOut = (lifetime - age).toFloat() / (lifetime * 0.4f).coerceAtLeast(1f)
         alpha = min(1.0f, fadeOut)
@@ -190,6 +273,31 @@ class OceanParticle(
 
         /** Splash keeps this fraction of downward speed when it hits a surface. */
         private const val SPLASH_BOUNCE = 0.4
+
+        /** Wave intensity the splash assumes when sampling the Gerstner surface for its
+         *  per-tick simulation. Splashes are emitted only where waves are active, so the
+         *  shallow-water dampening that [GerstnerOcean.intensityFor] applies to the deep-
+         *  field doesn't really apply here; 1.0 gives the splash the full-amplitude wave
+         *  it just hit. */
+        private const val SPLASH_WAVE_INTENSITY = 1.0
+
+        /** Fraction of the wave's tangential surface velocity added to the droplet's
+         *  horizontal velocity per tick while airborne. Small enough to read as "wind
+         *  carries the foam" rather than the droplet being pinned to the water. */
+        private const val SPLASH_WIND_COUPLING = 0.08
+
+        /** Lateral drag once the droplet has re-entered the water (per tick). Aggressive so
+         *  the spray settles in place rather than continuing to skim along the surface. */
+        private const val SPLASH_WATER_DRAG = 0.55
+
+        /** Vertical drag while submerged. Even more aggressive than lateral so the droplet
+         *  doesn't sink through the deep water column. */
+        private const val SPLASH_WATER_DRAG_V = 0.40
+
+        /** Once submerged, kill the droplet within this many ticks. Long enough for the
+         *  brief alpha-fade to play; short enough that the spray reads as "merged into the
+         *  wave" rather than lingering as an underwater ghost. */
+        private const val SPLASH_DROWN_FADE_TICKS = 4
 
         /** If a wave particle ends a tick this far (²) from its target, it's been overrun → cull. */
         private const val BLOCKED_SQ = 0.55 * 0.55

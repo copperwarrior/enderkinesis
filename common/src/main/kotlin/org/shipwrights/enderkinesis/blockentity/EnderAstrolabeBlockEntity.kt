@@ -49,7 +49,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *  would call [triggerJump] again mid-teleport (→ StackOverflow). */
     private var jumping = false
 
-    // --- Tune-animation state (server-authoritative, synced to client) ---
     // Each successful [cycleDestination] picks a new random yaw (full 360°) for the body group,
     // a random pitch in [-4°, +15°] for the pitch_rot group, and a random roll (full 360°) for
     // the center group. The renderer interpolates from `*AtStart` toward `*Target` over
@@ -65,7 +64,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
     private var rollTarget: Float = 0f
     private var animationStartTick: Long = Long.MIN_VALUE
 
-    // --- Charge state (server-authoritative, synced to client) -----------------------------
     // A redstone-rising-edge [triggerJump] no longer teleports immediately. Instead it stamps
     // [chargeStartTick] and [chargeDurationTicks] and lets [serverTick] periodically scan for
     // an open landing slot in the destination — distributing the search across the charge
@@ -681,9 +679,25 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 }
             }
         }
-        val unregisterSelf: () -> Unit = {
-            listenerRef.get()?.let {
-                dev.architectury.event.events.common.TickEvent.SERVER_POST.unregister(it)
+        // Defer the unregister to a server task so it runs *outside* the SERVER_POST
+        // listener-iteration. Calling `TickEvent.SERVER_POST.unregister(it)` directly from
+        // inside the listener body mutates the backing ArrayList while the event dispatcher
+        // is iterating it → `ConcurrentModificationException` on the next listener's
+        // `iter.next()`. `MinecraftServer.tell(TickTask)` queues the runnable on the server's
+        // task queue, which is drained between tick phases (before SERVER_POST iteration of
+        // the *next* tick), so the unregister lands at a safe point.
+        //
+        // The local `flagged` AtomicBoolean prevents double-queuing the unregister task in
+        // the rare case both the normal flow and the catch block fire `unregisterSelf` on
+        // the same listener invocation.
+        val unregisterFlagged = java.util.concurrent.atomic.AtomicBoolean(false)
+        val unregisterSelf: (net.minecraft.server.MinecraftServer) -> Unit = { srv ->
+            if (unregisterFlagged.compareAndSet(false, true)) {
+                listenerRef.get()?.let { l ->
+                    srv.tell(net.minecraft.server.TickTask(srv.tickCount + 1) {
+                        dev.architectury.event.events.common.TickEvent.SERVER_POST.unregister(l)
+                    })
+                }
             }
         }
 
@@ -700,7 +714,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                     sourceLvl?.dimension()?.location(), targetLvl?.dimension()?.location(),
                     riders.size)
                 unfreezeAll(sourceLvl, targetLvl)
-                unregisterSelf()
+                unregisterSelf(srv)
                 return@Server
             }
             try {
@@ -803,7 +817,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             LOG.info("[EK astrolabe] post-teleport unfreeze: remount={}/{} pairs, elapsed={}t",
                 remountedCount, ridingLinks.size, elapsed)
 
-            unregisterSelf()
+            unregisterSelf(srv)
             } catch (t: Throwable) {
                 // Anything between the ship-loaded gate and unfreeze (logging, particles,
                 // VS2 lookups) that throws would otherwise leave riders stuck at
@@ -811,7 +825,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 LOG.error("[EK astrolabe] post-teleport listener threw — force-unfreezing " +
                     "{} riders to avoid stranding them", riders.size, t)
                 unfreezeAll(sourceLvl, targetLvl)
-                unregisterSelf()
+                unregisterSelf(srv)
             }
         }
         listenerRef.set(listener)

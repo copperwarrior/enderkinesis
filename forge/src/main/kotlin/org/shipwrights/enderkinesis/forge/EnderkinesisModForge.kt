@@ -7,6 +7,7 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext
 import net.minecraftforge.fml.loading.FMLEnvironment
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.forge.client.EnderkinesisModForgeClient
+import org.shipwrights.enderkinesis.forge.compat.curios.CuriosCompat
 
 /**
  * Forge-side entrypoint. All content is registered through Architectury in [EnderkinesisMod.init];
@@ -20,6 +21,9 @@ class EnderkinesisModForge {
         EventBuses.registerModEventBus(EnderkinesisMod.MOD_ID, modEventBus)
 
         EnderkinesisMod.init()
+
+        // Wire accessory-mod compat (no-op if the mod isn't loaded).
+        CuriosCompat.init()
 
         if (FMLEnvironment.dist.isClient) {
             modEventBus.addListener(EnderkinesisModForgeClient.Companion::clientInit)

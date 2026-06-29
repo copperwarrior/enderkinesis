@@ -1,5 +1,86 @@
 {
-  "variants": {
-    "": { "model": "enderkinesis:block/wogor_planks" }
-  }
+  "multipart": [
+    {
+      "apply": [
+        {
+          "model": "enderkinesis:block/wogor_planks_face",
+          "uvlock": true
+        },
+        {
+          "model": "enderkinesis:block/wogor_planks_alt_face",
+          "uvlock": true
+        }
+      ]
+    },
+    {
+      "apply": [
+        {
+          "model": "enderkinesis:block/wogor_planks_face",
+          "y": 90,
+          "uvlock": true
+        },
+        {
+          "model": "enderkinesis:block/wogor_planks_alt_face",
+          "y": 90,
+          "uvlock": true
+        }
+      ]
+    },
+    {
+      "apply": [
+        {
+          "model": "enderkinesis:block/wogor_planks_face",
+          "y": 180,
+          "uvlock": true
+        },
+        {
+          "model": "enderkinesis:block/wogor_planks_alt_face",
+          "y": 180,
+          "uvlock": true
+        }
+      ]
+    },
+    {
+      "apply": [
+        {
+          "model": "enderkinesis:block/wogor_planks_face",
+          "y": 270,
+          "uvlock": true
+        },
+        {
+          "model": "enderkinesis:block/wogor_planks_alt_face",
+          "y": 270,
+          "uvlock": true
+        }
+      ]
+    },
+    {
+      "apply": [
+        {
+          "model": "enderkinesis:block/wogor_planks_face",
+          "x": 90,
+          "uvlock": true
+        },
+        {
+          "model": "enderkinesis:block/wogor_planks_alt_face",
+          "x": 90,
+          "uvlock": true
+        }
+      ]
+    },
+    {
+      "apply": [
+        {
+          "model": "enderkinesis:block/wogor_planks_face",
+          "x": 270,
+          "uvlock": true
+        },
+        {
+          "model": "enderkinesis:block/wogor_planks_alt_face",
+          "x": 270,
+          "uvlock": true
+        }
+      ]
+    }
+  ]
 }

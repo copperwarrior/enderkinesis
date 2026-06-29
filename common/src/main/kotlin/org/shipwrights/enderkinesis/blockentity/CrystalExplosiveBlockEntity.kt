@@ -192,20 +192,29 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
          *    -  1 t ship at  5 m/s →   5 000 — light bumps don't fire
          *    - 10 t ship at  5 m/s →  50 000 — a real collision fires
          *    -  1 t ship at 10 m/s →  10 000 — ramming attacks count */
-        const val IMPACT_IMPULSE_THRESHOLD: Double = 10_000.0
+        const val IMPACT_IMPULSE_THRESHOLD: Double = 625.0
 
         /** Impulse → explosion radius via `r ≈ k · √impulse`. Square-root because
          *  explosion linear-extent scales with √energy while delivered impulse
          *  scales linearly with `mass × |Δv|`. Calibration with [MIN_EXPLOSION_RADIUS]
-         *  = 3 and [MAX_EXPLOSION_RADIUS] = 12:
+         *  = 0.25 and [MAX_EXPLOSION_RADIUS] = 12:
          *    - 10 t at  5 m/s, impulse  50 000 → r ≈  5.6
          *    - 10 t at 20 m/s, impulse 200 000 → r ≈ 11.2
          *    -100 t at  5 m/s, impulse 500 000 → r =  12.0 (capped) */
         const val RADIUS_PER_SQRT_IMPULSE: Double = 0.025
 
         /** Don't fire pillow-bumps that pass the impulse threshold but produce a
-         *  radius too small to actually break anything. */
-        const val MIN_EXPLOSION_RADIUS: Float = 3.0f
+         *  radius too small to actually break anything. Effective floor on detonation
+         *  impulse is `(MIN_EXPLOSION_RADIUS / RADIUS_PER_SQRT_IMPULSE)² = 100`, so
+         *  the binding gate is [IMPACT_IMPULSE_THRESHOLD] at 625 — a single-block
+         *  ship (1 t default) now trips at ~0.625 m/s.
+         *
+         *  The *real* anti-accident floor is the speed safety in
+         *  [org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter] —
+         *  see `SHIP_SAFETY_SPEED`. The impulse threshold sets the *minimum-energy*
+         *  detonation; the speed safety ensures the contact came from a body actually
+         *  travelling fast, not a sharp rotational nick at the contact point. */
+        const val MIN_EXPLOSION_RADIUS: Float = 0.25f
 
         /** Hard cap. Beyond this the VS2 mixin's cube-summed blast force scales like
          *  a small nuke on the host ship and the vanilla `O(r³)` ray sweep hitches

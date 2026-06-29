@@ -145,7 +145,6 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         if (power <= 0) return                              // pad is unpowered
 
         if (physShip != null) {
-            // ---- SHIP PAD → WORLD lift (host ship hover) ---------------------------
             val groundDist = cachedGroundDistance
             if (groundDist < 0.0 || groundDist >= GROUND_MAX_RANGE) return
             applyMirroredHover(
@@ -154,9 +153,10 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 modelX = blockPos.x + 0.5, modelY = blockPos.y + 0.5, modelZ = blockPos.z + 0.5,
                 pushSign = -1.0,                            // host ship gets pushed *against* FACING
                 power = power,
+                // Pad block is on this same ship — its output scales with the ship's scale.
+                padScale = physShip.transform.shipToWorldScaling.x(),
             )
         } else {
-            // ---- WORLD PAD → SHIP push (mirror) -----------------------------------
             val shipId = cachedTargetShipId
             if (shipId < 0L) return
             val target = physLevel.getShipById(shipId) ?: return
@@ -170,6 +170,8 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 modelZ = cachedTargetModelZ,
                 pushSign = +1.0,                            // target ship gets pushed *with* FACING
                 power = power,
+                // Pad block is in world (no host ship) — no scale factor.
+                padScale = 1.0,
             )
         }
     }
@@ -200,6 +202,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         modelX: Double, modelY: Double, modelZ: Double,
         pushSign: Double,
         power: Int,
+        padScale: Double,
     ) {
         val powerScale = power / 15.0
         val proximity = 1.0 - (distance / GROUND_MAX_RANGE)
@@ -242,9 +245,15 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         val vPerpZ = vpZ - pushZ * velAlongPush
         val frictionCoef = LATERAL_FRICTION_RATE * massShare * proximity * powerScale
 
-        val totalFx = pushX * liftMag - vPerpX * frictionCoef
-        val totalFy = pushY * liftMag - vPerpY * frictionCoef
-        val totalFz = pushZ * liftMag - vPerpZ * frictionCoef
+        val rawFx = pushX * liftMag - vPerpX * frictionCoef
+        val rawFy = pushY * liftMag - vPerpY * frictionCoef
+        val rawFz = pushZ * liftMag - vPerpZ * frictionCoef
+        // Block-sourced scale³ multiplier (VS2 drag is cross-section ∝ scale²;
+        // cubic force cancels that to give scale-invariant ship-lengths-per-second).
+        val s3 = padScale * padScale * padScale
+        val totalFx = rawFx * s3
+        val totalFy = rawFy * s3
+        val totalFz = rawFz * s3
 
         target.applyWorldForceToModelPos(
             Vector3d(totalFx, totalFy, totalFz),

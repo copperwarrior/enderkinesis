@@ -1,0 +1,1 @@
+This sample was procured from a liminal plane bridging between ffelO'khta Lover and Renaas the Unrequited. It hungers for that which it does not experience, what life it cannot live. The life grown from this is alien to most dimensions and struggles to coexist peacefully. It may be harnessed as a weapon at one's own bodily risk, although the resulting fallout could be disastrous.

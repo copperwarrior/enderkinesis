@@ -1,0 +1,17 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "one",
+    "dstrgb": "one"
+  },
+  "vertex": "rendertype_fractal_projector_halo",
+  "fragment": "rendertype_fractal_projector_halo",
+  "attributes": [ "Position", "Color", "Normal" ],
+  "samplers": [],
+  "uniforms": [
+    { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 ] },
+    { "name": "ProjMat",      "type": "matrix4x4", "count": 16, "values": [ 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 ] },
+    { "name": "ViewToWorld",  "type": "matrix3x3", "count": 9,  "values": [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ] },
+    { "name": "MeshToWorld",  "type": "matrix3x3", "count": 9,  "values": [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ] }
+  ]
+}

@@ -21,12 +21,13 @@ object SplashBudget {
     /** Particles "in flight" considered the saturation point — at this fill, [allocate]
      *  returns zero for any request. Sized for a few large ships in heavy weather without
      *  client-side particle saturation. */
-    private const val CAPACITY = 256.0
+    private const val CAPACITY = 1024.0
 
-    /** Drain rate, particles per millisecond. 256 / sec ≈ 12.8 / tick at 20 TPS — i.e., the
-     *  bucket fully refills in one second of no splashes. Tuned so a brief heavy splash
-     *  saturates instantly but recovers within a couple of seconds. */
-    private const val REFILL_PER_MS = 256.0 / 1000.0
+    /** Drain rate, particles per millisecond. 1024 / sec — bucket refills in one second of
+     *  calm. Sized up alongside [CapacityScale] so the per-ship `MAX_SPLASH_EMITS × SPLASH_MAX`
+     *  uplift in [org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity]
+     *  isn't immediately throttled by the global bucket. */
+    private const val REFILL_PER_MS = 1024.0 / 1000.0
 
     private val lock = Any()
     private var used = 0.0

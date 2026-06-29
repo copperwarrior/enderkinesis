@@ -38,20 +38,39 @@ object EKPoiTypes {
         PoiType(catalogerTargetStates(), MAX_TICKETS, VALID_RANGE)
     }
 
+    /** Orb of Scrying — registered as a POI so the right-click target-finder uses the
+     *  chunk-section spatial index instead of walking loaded chunks. Covers every blockstate
+     *  of [org.shipwrights.enderkinesis.block.OrbOfScryingBlock] (one per facing). */
+    val SCRYING_ORB_KEY: ResourceKey<PoiType> =
+        ResourceKey.create(Registries.POINT_OF_INTEREST_TYPE, EnderkinesisMod.id("scrying_orb"))
+
+    val SCRYING_ORB: RegistrySupplier<PoiType> = POI_TYPES.register("scrying_orb") {
+        PoiType(scryingOrbStates(), MAX_TICKETS, VALID_RANGE)
+    }
+
+    private fun scryingOrbStates(): Set<BlockState> {
+        val block = EKBlocks.ORB_OF_SCRYING.get()
+        return block.stateDefinition.possibleStates.toHashSet()
+    }
+
     /** True for blocks the Cataloger treats as a POI target: every sign and
      *  banner (any wood / colour, standing / wall / hanging — matched by class so
      *  we don't enumerate 70+ blocks and stay correct for any added later), plus
-     *  the enchanting table, chiseled bookshelf and gold block. Lectern is
-     *  excluded — blockstate uniqueness across POI types is enforced by vanilla and
-     *  lecterns already belong to [PoiTypes.LECTERN]; the wander goal queries both
-     *  types together. Kept in lockstep with the `cataloger_targets` block tag,
-     *  which the node evaluator and client menu-walk read. */
+     *  the enchanting table, chiseled bookshelf and gold block. The vanilla
+     *  lectern is excluded — blockstate uniqueness across POI types is enforced
+     *  by vanilla and vanilla lecterns already belong to [PoiTypes.LECTERN];
+     *  the wander goal queries both types together. The Sselith lectern IS
+     *  included here because it has no overlap with vanilla LECTERN POI's
+     *  matching states — its blockstates are uniquely ours. Kept in lockstep
+     *  with the `cataloger_targets` block tag, which the node evaluator and
+     *  client menu-walk read. */
     private fun isCatalogerTargetBlock(block: Block): Boolean =
         block is SignBlock ||
             block is AbstractBannerBlock ||
             block === Blocks.ENCHANTING_TABLE ||
             block === Blocks.CHISELED_BOOKSHELF ||
-            block === Blocks.GOLD_BLOCK
+            block === Blocks.GOLD_BLOCK ||
+            block is org.shipwrights.enderkinesis.block.SselithLecternBlock
 
     /** Every block the cataloger considers a POI — [isCatalogerTargetBlock] plus
      *  the lectern (registered with vanilla `PoiTypes.LIBRARIAN`). Fast O(1)
@@ -99,9 +118,12 @@ object EKPoiTypes {
         LifecycleEvent.SETUP.register {
             if (blockStatesInstalled) return@register
             blockStatesInstalled = true
-            val holder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
+            val catalogerHolder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
                 .getHolderOrThrow(CATALOGER_TARGET_KEY)
-            PoiTypesInvoker.`enderkinesis$registerBlockStates`(holder, holder.value().matchingStates())
+            PoiTypesInvoker.`enderkinesis$registerBlockStates`(catalogerHolder, catalogerHolder.value().matchingStates())
+            val scryingHolder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
+                .getHolderOrThrow(SCRYING_ORB_KEY)
+            PoiTypesInvoker.`enderkinesis$registerBlockStates`(scryingHolder, scryingHolder.value().matchingStates())
         }
     }
 }

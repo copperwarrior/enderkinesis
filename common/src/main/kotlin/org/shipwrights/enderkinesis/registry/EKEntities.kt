@@ -13,6 +13,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.Cataloger
+import org.shipwrights.enderkinesis.entity.MagicMissileEntity
 import org.shipwrights.enderkinesis.entity.PrismaticGoat
 import org.shipwrights.enderkinesis.mixin.SpawnPlacementsInvoker
 
@@ -29,6 +30,18 @@ object EKEntities {
                 .sized(0.6f, 1.8f)        // player size
                 .clientTrackingRange(10)
                 .build(Cataloger.ID.toString())
+        }
+
+    /** Magic Missile — homing projectile spawned by
+     *  [org.shipwrights.enderkinesis.item.MagicMissileItem] or via dispenser. See
+     *  [MagicMissileEntity] for the homing / target-filter / explosion logic. */
+    val MAGIC_MISSILE: RegistrySupplier<EntityType<MagicMissileEntity>> =
+        ENTITIES.register("magic_missile") {
+            EntityType.Builder.of(::MagicMissileEntity, MobCategory.MISC)
+                .sized(0.5f, 0.5f)
+                .clientTrackingRange(32)
+                .updateInterval(1)        // sync every tick so the trail tracks the projectile cleanly
+                .build("magic_missile")
         }
 
     /** Prismatic Goat — passive quadruped that spawns in Wohlon

@@ -7,10 +7,17 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.ChainBlock
 import net.minecraft.world.level.block.RotatedPillarBlock
+import net.minecraft.world.level.block.SandBlock
+import net.minecraft.world.level.block.ButtonBlock
+import net.minecraft.world.level.block.FenceBlock
+import net.minecraft.world.level.block.FenceGateBlock
+import net.minecraft.world.level.block.PressurePlateBlock
 import net.minecraft.world.level.block.SlabBlock
 import net.minecraft.world.level.block.SoundType
 import net.minecraft.world.level.block.StairBlock
 import net.minecraft.world.level.block.WallBlock
+import net.minecraft.world.level.block.state.properties.BlockSetType
+import net.minecraft.world.level.block.state.properties.WoodType
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.material.MapColor
@@ -22,12 +29,15 @@ import org.shipwrights.enderkinesis.block.CrepusculiteGlassBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
 import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
+import org.shipwrights.enderkinesis.block.MagicMissileLauncherBlock
 import org.shipwrights.enderkinesis.block.EyeroscopeBlock
 import org.shipwrights.enderkinesis.block.HeartCandleBlock
 import org.shipwrights.enderkinesis.block.HeartOfTheWildBlock
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
 import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
+import org.shipwrights.enderkinesis.block.ShulkerStrutBlock
+import org.shipwrights.enderkinesis.block.ShulkerStrutTopBlock
 import org.shipwrights.enderkinesis.block.WogorBudBlock
 
 /**
@@ -93,6 +103,13 @@ object EKBlocks {
         EnderAstrolabeBlock(crepusculiteProps().strength(3.5f, 7.0f).noOcclusion())
     }
 
+    /** Magic Missile Launcher — 4×4 slot grid (16 magic missiles) fires one missile per
+     *  second along the facing direction while powered. Front-face slot click to insert
+     *  / remove manually; top hopper feeds in, bottom hopper pulls out. */
+    val MAGIC_MISSILE_LAUNCHER: RegistrySupplier<Block> = BLOCKS.register("magic_missile_launcher") {
+        MagicMissileLauncherBlock(crepusculiteProps().strength(3.0f, 6.0f))
+    }
+
     /** Eyeroscope — right-click sets a world-frame target yaw; the BE slowly turns its host
      *  ship to that heading via a PD torque on the physics tick. Until the art pass, this
      *  block reuses the vanilla end-portal-frame look (see `models/block/eyeroscope.json`),
@@ -104,6 +121,21 @@ object EKBlocks {
                 // so [noOcclusion] keeps neighbouring blocks from culling their adjacent faces
                 // against it (same fix as on the astrolabe / planar anchor).
                 .noOcclusion()
+        )
+    }
+
+    /** Echo Cannon — sculk-faced redstone block. When powered it
+     *  charges for 1 s with the warden sonic-charge sound, then fires a
+     *  sonic-boom particle beam that reflects off Staff-of-Aegis boxes
+     *  (same polyline as the Staff of Sundering), damages every entity
+     *  along the beam, and seeds a 200-charge sculk catastrophe at the
+     *  terminal hit. */
+    val ECHO_CANNON: RegistrySupplier<Block> = BLOCKS.register("echo_cannon") {
+        org.shipwrights.enderkinesis.block.EchoCannonBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_BLACK)
+                .strength(3.0f, 6.0f)
+                .sound(net.minecraft.world.level.block.SoundType.SCULK_CATALYST)
         )
     }
 
@@ -176,7 +208,15 @@ object EKBlocks {
         )
     }
 
-    // --- Ancrite (ender metal) ---------------------------------------------------------------
+    /** Ancrite Eye — 16-state analog redstone source. Right-click to step the power
+     *  up (shift to step down), left-click empty-handed to jump to max, Staff of
+     *  Command dispatch matches the left-click. */
+    val ANCRITE_EYE: RegistrySupplier<Block> = BLOCKS.register("analog_eye") {
+        org.shipwrights.enderkinesis.block.AncriteEyeBlock(
+            BlockBehaviour.Properties.copy(Blocks.LEVER).noOcclusion()
+        )
+    }
+
     // Family: storage block, raw block, refined block, full-block grate + bars (cutout), plus
     // stair/slab/wall cuts from the storage block. Iron-pickaxe tier, copper sound.
     private fun ancriteProps() = BlockBehaviour.Properties.of()
@@ -257,6 +297,63 @@ object EKBlocks {
         )
     }
 
+    /** Shulker Strut — piston-like extender split across (a) the in-world base block here,
+     *  and (b) a 1-block VS2 ship the BE assembles to carry [SHULKER_STRUT_TOP]. A
+     *  prismatic joint pulls the ship along `FACING` by POWER × 5 / 15 blocks. The base
+     *  block's collision is a half-cube on the side opposite FACING, the top block's
+     *  collision is a half-cube on the FACING side — they tile flush at extension=0 so
+     *  the closed strut reads as a single block of collision, with no overlap fight. See
+     *  [org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity]. */
+    val SHULKER_STRUT: RegistrySupplier<Block> = BLOCKS.register("shulker_strut") {
+        ShulkerStrutBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PURPLE)
+                .requiresCorrectToolForDrops()
+                .strength(2.0f, 6.0f)
+                .sound(SoundType.STONE)
+                // The block model is an empty placeholder — the BER draws both shulker
+                // shells. `noOcclusion` keeps neighbour faces visible (no model = no
+                // occluder anyway, but the property also disables vanilla's full-cube
+                // shadow / AO assumptions).
+                .noOcclusion()
+        )
+    }
+
+    /** Lid half of [SHULKER_STRUT]. Hand-placement isn't allowed (no `BlockItem`); the
+     *  strut's BE creates it inline + immediately assembles it into a 1-block VS2 ship. */
+    val SHULKER_STRUT_TOP: RegistrySupplier<Block> = BLOCKS.register("shulker_strut_top") {
+        ShulkerStrutTopBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PURPLE)
+                .strength(2.0f, 6.0f)
+                .sound(SoundType.STONE)
+                .noOcclusion()
+        )
+    }
+
+    /** Ender Linkage — fence-shaped six-directional decorative connector. Each connection
+     *  direction (NORTH / SOUTH / EAST / WEST / UP / DOWN) is a separate boolean property;
+     *  the multipart blockstate assembles per-element sub-models (centre cube, face caps,
+     *  half-pipes, and 12 L-bends) on demand. Connects to other linkages and to
+     *  neighbours with a sturdy face. Implementation in
+     *  [org.shipwrights.enderkinesis.block.EnderLinkageBlock]. */
+    val ENDER_LINKAGE: RegistrySupplier<Block> = BLOCKS.register("ender_linkage") {
+        org.shipwrights.enderkinesis.block.EnderLinkageBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_MAGENTA)
+                // Fragile + impermanent by design: breaks instantly by hand, no tool
+                // required, low blast resistance. The linkage is scaffolding the player
+                // uses to bridge structurally-disconnected hull pieces during build —
+                // it disintegrates on assembly anyway, so a stone-tier hardness would
+                // just punish the player for adjusting their layout.
+                .strength(0.3f, 0.3f)
+                .sound(SoundType.GLASS)
+                // Open-frame element — the model only fills the centre core + arms, so
+                // neighbour faces would be culled without `noOcclusion`.
+                .noOcclusion()
+        )
+    }
+
     /** Purpur Ballast — a dense trim block; its mass is overridden to 2500 kg via the
      *  `data/valkyrienskies/vs_mass` datapack. */
     val PURPUR_BALLAST: RegistrySupplier<Block> = BLOCKS.register("purpur_ballast") {
@@ -285,6 +382,22 @@ object EKBlocks {
                 // Cap at 7 so the orb is visibly emissive at full power without acting as a
                 // free torch.
                 .lightLevel { state -> state.getValue(OrbOfLinkingBlock.POWER) * 7 / 15 }
+        )
+    }
+
+    /** Orb of Scrying — converted from an Orb of Linking by the Tome of Scrying. Visually
+     *  identical to the unbound orb (same pedestal model); force-loads its own chunk; right-
+     *  clickable to view the nearest other scrying orb in the player's look direction. */
+    val ORB_OF_SCRYING: RegistrySupplier<Block> = BLOCKS.register("orb_of_scrying") {
+        org.shipwrights.enderkinesis.block.OrbOfScryingBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PURPLE)
+                .strength(2.5f, 6.0f)
+                .sound(SoundType.AMETHYST)
+                .noOcclusion()
+                // Dim steady glow so a scrying orb reads as "on" at a glance even without a
+                // dynamic POWER property.
+                .lightLevel { _ -> 5 }
         )
     }
 
@@ -317,9 +430,7 @@ object EKBlocks {
     val HEART_CANDLE: RegistrySupplier<Block> = BLOCKS.register("heart_candle") {
         HeartCandleBlock(
             BlockBehaviour.Properties.copy(Blocks.CANDLE)
-                .lightLevel { state ->
-                    if (state.getValue(net.minecraft.world.level.block.CandleBlock.LIT)) 3 else 0
-                },
+                .lightLevel { state -> if (state.getValue(HeartCandleBlock.LIT)) 3 else 0 },
         )
     }
 
@@ -376,7 +487,101 @@ object EKBlocks {
         )
     }
 
-    // --- Wohlonnogondonia (dismal swamp) -----------------------------------------------------
+    /** Sselith Lectern — deepslate-tile-tinted lectern that replaces every
+     *  vanilla [Blocks.LECTERN] placement the Sselith chunk generator and the
+     *  Sselith Ruin templates used to make. Subclasses [net.minecraft.world.level.block.LecternBlock]
+     *  so book holding, FACING/HAS_BOOK/POWERED and the BER come for free;
+     *  the voxelshape is the only departure (chunkier base — see
+     *  [org.shipwrights.enderkinesis.block.SselithLecternBlock]). Vanilla
+     *  [net.minecraft.world.level.block.entity.LecternBlockEntity] is reused
+     *  unchanged; [org.shipwrights.enderkinesis.EnderkinesisMod] adds this
+     *  block to that BE type's `validBlocks` at init via the
+     *  [org.shipwrights.enderkinesis.mixin.BlockEntityTypeValidBlocksAccessor]
+     *  accessor mixin so saved chunks reload the book intact. */
+    val SSELITH_LECTERN: RegistrySupplier<Block> = BLOCKS.register("sselith_lectern") {
+        org.shipwrights.enderkinesis.block.SselithLecternBlock(
+            BlockBehaviour.Properties.copy(Blocks.LECTERN)
+                .mapColor(MapColor.DEEPSLATE)
+                .sound(SoundType.DEEPSLATE_TILES)
+                // The chunky base isn't a full opaque cube (the back ridge stops at
+                // x=11..16 / z=11..16), so without `noOcclusion` adjacent block faces
+                // get culled against a non-existent occluder.
+                .noOcclusion()
+        )
+    }
+
+    /** Sselith Ladder — deepslate-textured climbable that survives without a
+     *  backing block. Replaces every vanilla `LADDER` placement the chunk
+     *  generator emits (library archway shelves, stairwell-flanking columns),
+     *  matching the dimension's deepslate palette and removing the support
+     *  requirement that procedural placement can't satisfy in open gaps. */
+    val SSELITH_LADDER: RegistrySupplier<Block> = BLOCKS.register("sselith_ladder") {
+        org.shipwrights.enderkinesis.block.SselithLadderBlock(
+            BlockBehaviour.Properties.copy(Blocks.LADDER)
+                .mapColor(MapColor.DEEPSLATE)
+                .sound(SoundType.DEEPSLATE_TILES)
+        )
+    }
+
+    /** Sselith Trapdoor — deepslate-textured hinged hatch. Same behaviour as
+     *  vanilla wooden trapdoors (right-click to open / close; doesn't need a
+     *  backer), but registered as a [net.minecraft.world.level.block.state.properties.BlockSetType.STONE]-typed
+     *  trapdoor for the deepslate sound profile and the stone open/close
+     *  click. Replaces every [Blocks.BAMBOO_TRAPDOOR] placement the chunk
+     *  generator emits (platform connection trapdoors). */
+    val SSELITH_TRAPDOOR: RegistrySupplier<Block> = BLOCKS.register("sselith_trapdoor") {
+        net.minecraft.world.level.block.TrapDoorBlock(
+            BlockBehaviour.Properties.copy(Blocks.BAMBOO_TRAPDOOR)
+                .mapColor(MapColor.DEEPSLATE)
+                .sound(SoundType.DEEPSLATE_TILES),
+            net.minecraft.world.level.block.state.properties.BlockSetType.STONE,
+        )
+    }
+
+    /** Sselith Lamp — full opaque cube with distinct side / top-bottom
+     *  textures, emitting at the same light level as a vanilla ochre
+     *  froglight (15). Replaces every [Blocks.OCHRE_FROGLIGHT] placement
+     *  the Sselith chunk generator used to make (the bottom-of-archway-
+     *  chain hanging block) so the dimension's palette stays Sselith-
+     *  themed while keeping the same brightness budget. */
+    val SSELITH_LAMP: RegistrySupplier<Block> = BLOCKS.register("sselith_lamp") {
+        Block(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.DEEPSLATE)
+                .requiresCorrectToolForDrops()
+                .strength(1.5f, 6.0f)
+                .sound(SoundType.DEEPSLATE_TILES)
+                .lightLevel { 15 }
+        )
+    }
+
+    /** Sselith Lantern — sitting-only lantern variant (no hanging form). Emits
+     *  light at the same level as a vanilla lantern and replaces every
+     *  [Blocks.LANTERN] placement the Sselith chunk generator used to make. */
+    val SSELITH_LANTERN: RegistrySupplier<Block> = BLOCKS.register("sselith_lantern") {
+        org.shipwrights.enderkinesis.block.SselithLanternBlock(
+            BlockBehaviour.Properties.copy(Blocks.LANTERN)
+                .lightLevel { 15 }
+                .noOcclusion()
+        )
+    }
+
+    /** Fractal Projector — placeholder for an unobtainable Sselith Globe
+     *  structural block. Bedrock-tier unbreakable, invisible (no render),
+     *  pistons can't push it. No BlockItem, no creative entry, no loot — the
+     *  block exists only because the globe NBT references it. */
+    val FRACTAL_PROJECTOR: RegistrySupplier<Block> = BLOCKS.register("fractal_projector") {
+        org.shipwrights.enderkinesis.block.FractalProjectorBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.NONE)
+                .strength(-1f, 3600000f)
+                .noLootTable()
+                .pushReaction(net.minecraft.world.level.material.PushReaction.BLOCK)
+                .sound(SoundType.STONE)
+                .lightLevel { 15 }
+        )
+    }
+
     // Wogor wood, the trees of the swamp dimension. Mangrove-styled trees use these as the
     // trunk/branches; leaves currently fall back to vanilla mangrove leaves until a Wogor
     // leaves texture is authored.
@@ -389,6 +594,29 @@ object EKBlocks {
     val WOGOR_LOG: RegistrySupplier<Block> = BLOCKS.register("wogor_log") {
         RotatedPillarBlock(wogorWoodProps())
     }
+
+    /** **Binding Roots** — cobweb-feeling pillar block, cross-rendered, used
+     *  as the anchor for ship-merge into the host body (see
+     *  [org.shipwrights.enderkinesis.block.BindingRootsMerger]). Behaves like
+     *  vanilla cobweb to entities: no collision, sticky on entry, fall-damage
+     *  cleared. Pillar `axis` blockstate so the cross model can rotate to
+     *  match placement direction (Y = upright cross, X / Z = cross laid
+     *  along the axis). `noOcclusion` keeps the cross visible without solid
+     *  shading; `strength(4.0F)` matches vanilla cobweb (sword-fast, shears
+     *  fastest); `noLootTable` for now — drops will get a loot-table once
+     *  the recipe / drop design lands. */
+    val BINDING_ROOTS: RegistrySupplier<Block> = BLOCKS.register("binding_roots") {
+        org.shipwrights.enderkinesis.block.BindingRootsBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .noCollission()
+                .noOcclusion()
+                .strength(4.0f)
+                .sound(SoundType.WET_GRASS)
+                .randomTicks()
+        )
+    }
+
 
     /** Wogor wood — vanilla's 6-sided bark variant. Same `wogor_log` side
      *  texture on every face (no end-grain). This is the block the
@@ -415,6 +643,63 @@ object EKBlocks {
         org.shipwrights.enderkinesis.block.WogorLeavesBlock(
             BlockBehaviour.Properties.copy(Blocks.MANGROVE_LEAVES)
         )
+    }
+
+    // Wogor plank variants. WoodType.OAK / BlockSetType.OAK chosen for the
+    // standard wood sound profile and the fence-gate / button / pressure-
+    // plate state machinery; registering a dedicated Wogor wood type would
+    // only matter once we want distinct open/close clicks.
+    val WOGOR_STAIRS: RegistrySupplier<Block> = BLOCKS.register("wogor_stairs") {
+        StairBlock(WOGOR_PLANKS.get().defaultBlockState(), wogorWoodProps())
+    }
+    val WOGOR_SLAB: RegistrySupplier<Block> = BLOCKS.register("wogor_slab") {
+        SlabBlock(wogorWoodProps())
+    }
+    val WOGOR_FENCE: RegistrySupplier<Block> = BLOCKS.register("wogor_fence") {
+        FenceBlock(wogorWoodProps())
+    }
+    val WOGOR_FENCE_GATE: RegistrySupplier<Block> = BLOCKS.register("wogor_fence_gate") {
+        FenceGateBlock(wogorWoodProps(), WoodType.OAK)
+    }
+    val WOGOR_PRESSURE_PLATE: RegistrySupplier<Block> = BLOCKS.register("wogor_pressure_plate") {
+        PressurePlateBlock(
+            PressurePlateBlock.Sensitivity.EVERYTHING,
+            BlockBehaviour.Properties.copy(Blocks.OAK_PRESSURE_PLATE).mapColor(MapColor.COLOR_BROWN),
+            BlockSetType.OAK,
+        )
+    }
+    val WOGOR_BUTTON: RegistrySupplier<Block> = BLOCKS.register("wogor_button") {
+        ButtonBlock(
+            BlockBehaviour.Properties.copy(Blocks.OAK_BUTTON),
+            BlockSetType.OAK,
+            30,   // ticks pressed — matches vanilla wood buttons
+            true, // arrows can press
+        )
+    }
+
+    // Re-skinned obsidian / crying obsidian / sand used inside the
+    // Sureibjin dream coast. Behaviour is identical to the vanilla
+    // counterpart — same class, properties copied via Properties.copy
+    // so hardness, blast resistance, mining tool, sound type, and map
+    // colour all match. Only the texture (and the falling-sand dust
+    // colour, sampled from the dream-sand palette) differs.
+
+    /** Dream-coast obsidian — tendrils, rocks, debris. */
+    val DREAM_OBSIDIAN: RegistrySupplier<Block> = BLOCKS.register("dream_obsidian") {
+        Block(BlockBehaviour.Properties.copy(Blocks.OBSIDIAN))
+    }
+
+    /** Dream-coast crying obsidian — interspersed with [DREAM_OBSIDIAN] in
+     *  Sureibjin tendrils / rocks for the same patina the vanilla pair has. */
+    val DREAM_CRYING_OBSIDIAN: RegistrySupplier<Block> = BLOCKS.register("dream_crying_obsidian") {
+        Block(BlockBehaviour.Properties.copy(Blocks.CRYING_OBSIDIAN))
+    }
+
+    /** Dream-coast sand — falling-block behaviour identical to vanilla
+     *  sand. Dust colour 0xC4B695 sampled from the dream-sand palette so
+     *  the puff matches the block. */
+    val DREAM_SAND: RegistrySupplier<Block> = BLOCKS.register("dream_sand") {
+        SandBlock(0xC4B695, BlockBehaviour.Properties.copy(Blocks.SAND))
     }
 
     fun register() = BLOCKS.register()

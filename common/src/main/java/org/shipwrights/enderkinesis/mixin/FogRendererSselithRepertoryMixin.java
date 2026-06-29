@@ -9,6 +9,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.FogRenderer;
 import org.shipwrights.enderkinesis.dimension.SselithRepertory;
+import org.shipwrights.enderkinesis.sselith.SselithEclipse;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -52,10 +53,15 @@ public abstract class FogRendererSselithRepertoryMixin {
         CallbackInfo ci
     ) {
         if (level.dimension() != SselithRepertory.INSTANCE.getLEVEL_KEY()) return;
+        // Drive fog toward pure black at full eclipse so distant geometry behind a
+        // pitch-black lightmap doesn't get re-tinted by the standard yellow fog blend.
+        // Fractional gameTime + partialTick → per-frame smoothness across the ramps.
+        float eclipse = SselithEclipse.intensity((double) level.getGameTime() + partialTick);
+        float darken = 1.0f - eclipse;
         // Uniform push is in `levelFogColor` (hooked below); writing the static fields here is enough.
-        fogRed = SSELITH_FOG_R;
-        fogGreen = SSELITH_FOG_G;
-        fogBlue = SSELITH_FOG_B;
+        fogRed = SSELITH_FOG_R * darken;
+        fogGreen = SSELITH_FOG_G * darken;
+        fogBlue = SSELITH_FOG_B * darken;
     }
 
     /**

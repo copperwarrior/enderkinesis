@@ -7,6 +7,7 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.chunk.ChunkGenerator
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.dimension.SselithRepertoryChunkGenerator
+import org.shipwrights.enderkinesis.dimension.SureibjinChunkGenerator
 import org.shipwrights.enderkinesis.dimension.WohlonnogondoniaChunkGenerator
 
 /**
@@ -25,6 +26,9 @@ object EKChunkGenerators {
 
     val WOHLONNOGONDONIA: RegistrySupplier<Codec<out ChunkGenerator>> =
         CHUNK_GENERATORS.register("wohlonnogondonia") { WohlonnogondoniaChunkGenerator.CODEC }
+
+    val SUREIBJIN: RegistrySupplier<Codec<out ChunkGenerator>> =
+        CHUNK_GENERATORS.register("sureibjin") { SureibjinChunkGenerator.CODEC }
 
     fun register() = CHUNK_GENERATORS.register()
 }

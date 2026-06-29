@@ -115,7 +115,10 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
             }
             cachedNearbyShipIds = ids.toLongArray()
             emitConeParticles(level)
-            applyConeForcesToEntities(level, cachedPowerLevel / 15.0)
+            // Block-sourced scale³ multiplier — matches the physTick path.
+            val hostS1 = hostShip?.transform?.shipToWorldScaling?.x() ?: 1.0
+            val hostS3 = hostS1 * hostS1 * hostS1
+            applyConeForcesToEntities(level, (cachedPowerLevel / 15.0) * hostS3)
             if (level.random.nextInt(TRACE_INTERVAL_TICKS) == 0) attemptAssemblyTrace(level)
         } else {
             cachedNearbyShipIds = EMPTY_IDS
@@ -242,7 +245,11 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         val chance = (1.0 - resistance / RESISTANCE_SCALE).coerceAtLeast(0.0)
         if (rand.nextDouble() > chance) return
 
-        val ship = ShipAssembler.assembleToShip(level, setOf(pos.immutable()), 1.0) ?: return
+        // Pull in anything attached to the chewed block — the torch on the wall, the
+        // grass on top of the dirt, etc. Shared helper with the lattice / tome / rod paths.
+        val blocks = org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
+            .expandWithAttachments(level, setOf(pos.immutable()))
+        val ship = ShipAssembler.assembleToShip(level, blocks, 1.0) ?: return
         // Remember the assembled ship so [checkAssembliesLeftCone] can turn it back into
         // a vanilla falling block when it drifts out of the cone, and so we can run a
         // one-time remass the first tick the ship is loaded.
@@ -420,10 +427,14 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         val power = cachedPowerLevel
         if (power <= 0) return
         val powerFraction = power / 15.0
+        // Block-sourced scale³ multiplier (matches all other block-sourced
+        // appliers). World-placed hooks (no host ship) get 1.0.
+        val hostS1 = physShip?.transform?.shipToWorldScaling?.x() ?: 1.0
+        val hostS3 = hostS1 * hostS1 * hostS1
         for (id in cachedNearbyShipIds) {
             val s = physLevel.getShipById(id) ?: continue
             if (s.isStatic || s.mass <= 0.0) continue
-            applyConeForces(s, powerFraction)
+            applyConeForces(s, powerFraction * hostS3)
         }
     }
 

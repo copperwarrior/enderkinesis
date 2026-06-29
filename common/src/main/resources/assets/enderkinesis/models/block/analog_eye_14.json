@@ -1,0 +1,21 @@
+{
+	"texture_size": [128, 16],
+	"textures": {
+		"particle": "enderkinesis:block/ancrite_block",
+		"eye": "enderkinesis:block/analog_eye"
+	},
+	"elements": [
+		{
+			"from": [4, 0, 4],
+			"to": [12, 3, 12],
+			"faces": {
+				"north": {"uv": [14, 5, 15, 8], "texture": "#eye"},
+				"east":  {"uv": [14, 5, 15, 8], "texture": "#eye"},
+				"south": {"uv": [14, 5, 15, 8], "texture": "#eye"},
+				"west":  {"uv": [14, 5, 15, 8], "texture": "#eye"},
+				"up":    {"uv": [15, 16, 14, 8], "texture": "#eye"},
+				"down":  {"uv": [15, 0, 14, 8], "texture": "#eye"}
+			}
+		}
+	]
+}

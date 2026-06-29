@@ -49,6 +49,14 @@ object LatticeRegistry {
      *  snapshot, never a CME. */
     fun zones(level: Level): Collection<LatticeCatchZone> =
         byLevel[level]?.values ?: emptyList()
+
+    /** Like [zones] but also exposes the publishing BE so callers can resolve the lattice's
+     *  ship via [be.blockPos] (shipyard coords, the BlockPos VS2's `getShipManagingPos` is
+     *  defined on). The zone alone exposes only the inflated world ellipsoid, whose centre is
+     *  a world chunk — never a shipyard chunk — so it can't be used directly with
+     *  `getShipManagingPos`. Used by the mesh renderer's hull-footprint cutout. */
+    fun entries(level: Level): Set<Map.Entry<CrepusculiteLatticeBlockEntity, LatticeCatchZone>> =
+        byLevel[level]?.entries ?: emptySet()
 }
 
 /**

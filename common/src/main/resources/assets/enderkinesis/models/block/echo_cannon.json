@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "minecraft:block/sculk",
+    "down":     "minecraft:block/sculk",
+    "up":       "minecraft:block/sculk",
+    "north":    "minecraft:block/sculk_catalyst_bottom",
+    "south":    "minecraft:block/sculk",
+    "west":     "minecraft:block/sculk",
+    "east":     "minecraft:block/sculk"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "": [
+      { "model": "enderkinesis:block/dream_obsidian" },
+      { "model": "enderkinesis:block/dream_obsidian", "y": 90 },
+      { "model": "enderkinesis:block/dream_obsidian", "y": 180 },
+      { "model": "enderkinesis:block/dream_obsidian", "y": 270 }
+    ]
+  }
+}

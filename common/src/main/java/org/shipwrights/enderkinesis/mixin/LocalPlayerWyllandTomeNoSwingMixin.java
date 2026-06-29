@@ -3,35 +3,23 @@ package org.shipwrights.enderkinesis.mixin;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.InteractionHand;
-import org.shipwrights.enderkinesis.registry.EKItems;
+import org.shipwrights.enderkinesis.item.RecitalHelper;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Suppresses every arm-swing animation the local player would otherwise
- * play while holding the Wylland Tome in main hand. The tome is a
- * grab-and-rotate tool, not a melee weapon — every left-click is the
- * start of a grab gesture and every right-click is a repair gesture;
- * neither should produce a hit-swing animation.
+ * Suppresses the local player's arm-swing while holding the Wylland Tome — it's a grab
+ * tool, not a melee weapon.
  *
- * <p>The pre-existing {@link MinecraftWyllandTomeSwingMixin} suppresses
- * the swing from {@code Minecraft.startAttack()} on the click edge, but
- * {@code Minecraft.continueAttack(true)} is called every tick while the
- * attack key is held and routes through {@code
- * MultiPlayerGameMode.continueDestroyBlock → startDestroyBlock}, which
- * does NOT consult {@code Item.canAttackBlock} on its first tick — it
- * returns {@code true} and {@code continueAttack} then calls {@code
- * player.swing}. Cancelling at the {@code LocalPlayer.swing} entry
- * point catches that path AND any other source (server-driven {@code
- * ClientboundAnimatePacket}, future code paths) in one place.
- *
- * <p>Targeted only at {@link LocalPlayer} so other players or NPCs
- * around the local client can still play their normal swing animations
- * even if they happen to be rendered holding a Wylland Tome — the
- * filter on {@code Minecraft.getInstance().player == this} is just a
- * defensive identity guard. */
+ * <p>Cancelling at {@code LocalPlayer.swing} (rather than at the click edge in
+ * {@link MinecraftWyllandTomeSwingMixin} alone) catches the held-attack-key path:
+ * {@code continueAttack → MultiPlayerGameMode.startDestroyBlock} does NOT consult
+ * {@code Item.canAttackBlock} on its first tick, so the swing fires anyway. Cancelling
+ * at {@code swing} also catches server-driven {@code ClientboundAnimatePacket}s in one
+ * place. {@link LocalPlayer}-only so other players holding tomes still animate.
+ */
 @Mixin(LocalPlayer.class)
 public abstract class LocalPlayerWyllandTomeNoSwingMixin {
 
@@ -46,8 +34,9 @@ public abstract class LocalPlayerWyllandTomeNoSwingMixin {
         Object self = this;
         if (Minecraft.getInstance().player != self) return;
         LocalPlayer p = (LocalPlayer) self;
-        if (p.getMainHandItem().getItem()
-                == EKItems.INSTANCE.getWYLLAND_TOME().get()) {
+        // Recognise both the bare tome AND the Staff of Recital with the
+        // tome active — the staff proxies the same left-click gesture.
+        if (RecitalHelper.isHoldingWyllandTome(p)) {
             ci.cancel();
         }
     }

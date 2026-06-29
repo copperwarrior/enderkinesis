@@ -1,6 +1,12 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "minecraft:block/cube",
   "textures": {
-    "all": "enderkinesis:block/wogor_planks"
+    "particle": "enderkinesis:block/wogor_planks",
+    "down":  "enderkinesis:block/wogor_planks",
+    "up":    "enderkinesis:block/wogor_planks",
+    "north": "enderkinesis:block/wogor_planks",
+    "south": "enderkinesis:block/wogor_planks",
+    "east":  "enderkinesis:block/wogor_planks",
+    "west":  "enderkinesis:block/wogor_planks"
   }
 }

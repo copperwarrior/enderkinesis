@@ -16,6 +16,7 @@ import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.item.WyllandTomeItem
 import org.shipwrights.enderkinesis.item.WyllandTomeNetwork
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 
@@ -217,6 +218,19 @@ object WyllandTomeClient {
             }
         }
 
+        // Orb of Potential VS Body — sphere-test the player's aim ray
+        // against every loaded orb BE we know about client-side. Done
+        // BEFORE the block clip so an orb in front of a wall wins. We
+        // use the body's current `renderTransform` so the click hits
+        // where the player actually sees the orb (not the BE position,
+        // which is the static anchor).
+        val orbHit = pickOrb(level, eye, end)
+        if (orbHit != null) {
+            WyllandTomeNetwork.sendBeginGrabOrb(orbHit)
+            grabbing = true
+            return
+        }
+
         // Block hit — if the block belongs to a VS2 ship, grab the ship.
         // VS2's `MixinLevel.clip` routes through `clipIncludeShips`,
         // which returns a BlockHitResult with `.blockPos` in shipyard
@@ -237,6 +251,10 @@ object WyllandTomeClient {
         val bp = (blockHit as BlockHitResult).blockPos
         val ship = level.getLoadedShipManagingPos(bp)
         if (ship != null) {
+            // Massless-ship reject lives server-side (inertiaData isn't exposed
+            // on ClientShip in this VS2 build); the server replies with GRAB_END
+            // so the optimistic `grabbing = true` set below gets cleared within
+            // a tick.
             // Re-derive the hit position in ship-frame, against the
             // block's actual outline voxelshape. Use the ship's render
             // transform on the client so the result matches what the
@@ -272,6 +290,58 @@ object WyllandTomeClient {
         grabbing = true
     }
 
+    /** Sphere-test the aim ray against every orb body the client
+     *  knows about (synced from server via [OrbBodyNetwork]). Returns
+     *  the closest hit body's id, or null if no orb is within reach. */
+    private fun pickOrb(level: net.minecraft.world.level.Level, eye: Vec3, end: Vec3): Long? {
+        val orbs = org.shipwrights.enderkinesis.body.ClientOrbRegistry.snapshot()
+        if (orbs.isEmpty()) return null
+        val dirRaw = end.subtract(eye)
+        val rayLen = dirRaw.length()
+        if (rayLen <= 0.0) return null
+        val invLen = 1.0 / rayLen
+        val dx = dirRaw.x * invLen
+        val dy = dirRaw.y * invLen
+        val dz = dirRaw.z * invLen
+        val radius = 1.5
+        val radius2 = radius * radius
+
+        var bestId: Long? = null
+        var bestT = Double.MAX_VALUE
+        // Same dim guard as the orb renderer / light driver — VS2's
+        // allBodies spans every loaded dim, so a stale Sselith orb
+        // can be picked from the overworld without this check.
+        val currentDimId = level.dimensionId
+        for (bodyId in orbs) {
+            if (bodyId == 0L) continue
+            val body = level.shipObjectWorld.allBodies.getById(bodyId)
+                as? org.valkyrienskies.core.api.bodies.ClientVsBody ?: continue
+            if (body.dimension != currentDimId) continue
+            val pos = body.renderTransform.toWorld
+                .transformPosition(org.joml.Vector3d())
+            // Standard ray-sphere intersection. ocX/Y/Z = sphere centre
+            // minus ray origin; project onto ray direction, then
+            // check the perpendicular squared distance against r².
+            val ocX = pos.x - eye.x
+            val ocY = pos.y - eye.y
+            val ocZ = pos.z - eye.z
+            val t = ocX * dx + ocY * dy + ocZ * dz
+            if (t <= 0.0 || t > rayLen) continue
+            val perpX = ocX - dx * t
+            val perpY = ocY - dy * t
+            val perpZ = ocZ - dz * t
+            val perp2 = perpX * perpX + perpY * perpY + perpZ * perpZ
+            if (perp2 > radius2) continue
+            // Closest hit distance along the ray = t - sqrt(r² - perp²).
+            val hitT = t - kotlin.math.sqrt(radius2 - perp2)
+            if (hitT in 0.0..bestT) {
+                bestT = hitT
+                bestId = bodyId
+            }
+        }
+        return bestId
+    }
+
     /** Vanilla-style entity pickup raycast — narrow box around the ray. */
     private fun pickEntity(player: Player, eye: Vec3, end: Vec3): EntityHitResult? {
         val level = player.level()
@@ -302,8 +372,21 @@ object WyllandTomeClient {
         val level = mc.level ?: return
         val eye = player.eyePosition
         val look = player.lookAngle
-        // Start: player chest height.
-        val start = Vec3(eye.x, eye.y - WyllandTomeItem.BEAM_ORIGIN_DROP, eye.z)
+        // Start: player chest height — UNLESS the player is invoking the
+        // Wylland Tome through a Staff of Recital, in which case the beam
+        // emanates from the staff's tip instead of the screen centre. The
+        // tip is approximated as a forward + right + slight-down offset
+        // from the eye, matching where the first-person held item renders.
+        // The exact offsets are eyeballed (literally) to look like the
+        // staff model's far end.
+        val start = if (org.shipwrights.enderkinesis.item.RecitalHelper.isHoldingWyllandViaRecitalStaff(player)) {
+            // Right vector perpendicular to look in XZ — same trick vanilla
+            // uses for arm-bobbing offsets.
+            val right = net.minecraft.world.phys.Vec3(-look.z, 0.0, look.x).normalize().scale(0.45)
+            eye.add(look.scale(1.1)).add(right).add(0.0, -0.25, 0.0)
+        } else {
+            Vec3(eye.x, eye.y - WyllandTomeItem.BEAM_ORIGIN_DROP, eye.z)
+        }
         // End: the actual grab anchor on the held object. Falls back to
         // a look-projected guess until the first server sync arrives.
         val end = syncedAnchor

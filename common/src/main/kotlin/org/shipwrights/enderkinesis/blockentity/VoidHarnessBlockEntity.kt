@@ -92,8 +92,10 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         val power = cachedPowerLevel
         if (power <= 0) return
-        // Force magnitude scales linearly with redstone level — 0 at unpowered, full at 15.
-        val peakForce = FORCE_MAGNITUDE * (power / 15.0)
+        // Block-sourced scale³ multiplier. World-placed harness stays at 1.0.
+        val hostS1 = physShip?.transform?.shipToWorldScaling?.x() ?: 1.0
+        val hostS3 = hostS1 * hostS1 * hostS1
+        val peakForce = FORCE_MAGNITUDE * (power / 15.0) * hostS3
         val hx = cachedHx
         val hy = cachedHy
         val hz = cachedHz

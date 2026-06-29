@@ -1,0 +1,7 @@
+{
+  "parent": "enderkinesis:block/orb_link_scrying_covered",
+  "textures": {
+    "3": "minecraft:block/red_wool",
+    "particle": "minecraft:block/red_wool"
+  }
+}

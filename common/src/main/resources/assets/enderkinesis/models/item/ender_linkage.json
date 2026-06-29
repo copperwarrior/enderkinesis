@@ -1,0 +1,7 @@
+{
+  "parent": "enderkinesis:block/ender_linkage",
+  "textures": {
+    "2":        "enderkinesis:block/ender_linkage",
+    "particle": "minecraft:block/purpur_block"
+  }
+}

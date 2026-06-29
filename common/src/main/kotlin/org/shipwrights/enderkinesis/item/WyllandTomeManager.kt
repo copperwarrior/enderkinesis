@@ -148,6 +148,21 @@ object WyllandTomeManager {
                 // and xPower/yPower/zPower lives in [applyToEntity].
                 if (entity is AbstractHurtingProjectile) entity.owner = player
             }
+            is GrabTarget.Orb -> {
+                val world = player.serverLevel().shipObjectWorld
+                val body = world.allBodies.getById(target.bodyId) ?: return
+                // Record the body's position in the player-look basis
+                // at grab time (right, up-perp, forward). On every
+                // subsequent server tick we rebuild the world target
+                // from THIS player's current basis — no forward jump,
+                // and the orb stays at the same on-screen offset as
+                // the player turns regardless of where on the orb's
+                // silhouette they clicked.
+                val localOffset = computeGrabLocalOffset(player, body.kinematics.position)
+                org.shipwrights.enderkinesis.body.OrbGrabState.beginGrab(
+                    player.uuid, target.bodyId, body.kinematics.rotation, localOffset
+                )
+            }
         }
     }
 
@@ -168,7 +183,18 @@ object WyllandTomeManager {
         // otherwise the player's "frame of reference" becomes the thing
         // they're trying to throw around and the result is a feedback
         // loop / teleport mess.
-        if (draggingShipIdOf(player) == ship.id) return
+        if (draggingShipIdOf(player) == ship.id) {
+            WyllandTomeNetwork.sendGrabEnd(player)
+            return
+        }
+        // Massless ships are a no-op for the force inducer; installing a
+        // grab on one only burns a slot. The client sets `grabbing = true`
+        // optimistically on packet send (it can't read inertia in this VS2
+        // build), so a GRAB_END reply is what tears the local state down.
+        if (ship.inertiaData.mass <= 0.0) {
+            WyllandTomeNetwork.sendGrabEnd(player)
+            return
+        }
         val grabPointLocal = Vector3d(shipLocalX, shipLocalY, shipLocalZ)
         val offset = Vector3d(grabPointLocal).sub(
             ship.transform.positionInShip
@@ -239,8 +265,13 @@ object WyllandTomeManager {
 
         val blocks = floodFillSphere(level, pos)
         if (blocks.isEmpty()) return
+        // Pull in anything that's structurally attached to the ripped set — tall grass
+        // on the dirt we yanked, a torch on the wall, the head of a bed whose foot is
+        // already inside, etc. Shared with the lattice and rod assembly paths.
+        val withAttached = org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
+            .expandWithAttachments(level, blocks)
 
-        val ship = ShipAssembler.assembleToShip(level, blocks, 1.0)
+        val ship = ShipAssembler.assembleToShip(level, withAttached, 1.0)
         // Convert the world hit point into the new ship's shipyard
         // (local) frame. The transform is set up by `assembleToShip`
         // before it returns (kinematics are written via
@@ -250,12 +281,10 @@ object WyllandTomeManager {
         val localHit = Vector3d(hitX, hitY, hitZ)
         ship.transform.worldToShip.transformPosition(localHit)
 
-        // Install the grab record IMMEDIATELY. The previous scheme
-        // deferred install via a tick-task that polled `loadedShips`,
-        // which left the player without a working grab for at least one
-        // tick (and sometimes more, when VS2's preTick mass-check
-        // bounced the promotion to a later tick). With the grab record
-        // in place from the moment of assembly, all client inputs
+        // Install the grab record IMMEDIATELY — deferring via a tick-task that polls
+        // `loadedShips` leaves the player without a working grab for at least one tick (and
+        // sometimes more, when VS2's preTick mass-check bounces the promotion). With the
+        // record in place from the moment of assembly, all client inputs
         // (rotate, scroll, distance) accumulate from t=0 and the beam
         // visual lines up with a real grab record — applyGrab tolerates
         // a null `loadedShips.getById` lookup for [LOAD_GRACE_TICKS]
@@ -341,18 +370,40 @@ object WyllandTomeManager {
         )
         while (queue.isNotEmpty()) {
             val p = queue.removeFirst()
+            val pState = level.getBlockState(p)
+            val pIsLinkage = pState.block is org.shipwrights.enderkinesis.block.EnderLinkageBlock
             for (off in offsets) {
                 val n = BlockPos(p.x + off[0], p.y + off[1], p.z + off[2])
-                if (!visited.add(n)) continue
-                val dx = (n.x - origin.x).toDouble()
-                val dy = (n.y - origin.y).toDouble()
-                val dz = (n.z - origin.z).toDouble()
-                if (dx * dx + dy * dy + dz * dz > r2) continue
+                // `included` = added to the rip, `visited` = definitively rejected
+                // (path-independent reasons). Either way: skip — no need to re-examine.
+                if (n in included || n in visited) continue
                 val ns = level.getBlockState(n)
-                if (ns.isAir) continue
-                if (level.getLoadedShipManagingPos(n) != null) continue
-                if (level.isBlockInShipyard(n)) continue
-                if (ns.getDestroySpeed(level, n) < 0f) continue
+                if (ns.isAir) { visited.add(n); continue }
+                // Sphere radius gates the flood normally, but linkages bypass it on either
+                // end — that's their whole job. A chain of linkages extends the rip's
+                // effective reach so a block past `FLOOD_RADIUS` still gets pulled in if
+                // it's linkage-connected back into the sphere.
+                val nIsLinkage = ns.block is org.shipwrights.enderkinesis.block.EnderLinkageBlock
+                if (!pIsLinkage && !nIsLinkage) {
+                    val dx = (n.x - origin.x).toDouble()
+                    val dy = (n.y - origin.y).toDouble()
+                    val dz = (n.z - origin.z).toDouble()
+                    // PATH-DEPENDENT, same as the structural gate: if a non-linkage path
+                    // rejects this cell on the radius bound, a future BFS hop *through a
+                    // linkage* can still admit it (linkages bypass radius on either end).
+                    // Skip without marking `visited` so that rehabilitation path stays open.
+                    if (dx * dx + dy * dy + dz * dz > r2) continue
+                }
+                if (level.getLoadedShipManagingPos(n) != null) { visited.add(n); continue }
+                if (level.isBlockInShipyard(n)) { visited.add(n); continue }
+                if (ns.getDestroySpeed(level, n) < 0f) { visited.add(n); continue }
+                // Sturdy-face structural gate. PATH-DEPENDENT: a linkage with only
+                // DOWN=true rejects entry from the side but accepts from below, so a
+                // failure here can't lock the cell out — another approach direction
+                // might pass. Skip without marking `visited` so a later BFS hop can retry.
+                // (Cells that fail from every direction simply never get added.)
+                if (!org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
+                        .isStructuralLink(level, pState, p, ns, n, off[0], off[1], off[2])) continue
                 val immutableN = n.immutable()
                 included.add(immutableN)
                 // Soft blocks keep the flood going; hard ones are skin only.
@@ -366,6 +417,9 @@ object WyllandTomeManager {
 
     /** Player let go of the grab key. */
     fun release(player: ServerPlayer) {
+        // Always clear the orb-grab side too — orb grabs and ship/entity
+        // grabs use disjoint storage, so a release should clear both.
+        org.shipwrights.enderkinesis.body.OrbGrabState.release(player.uuid)
         val g = grabs.remove(player.uuid) ?: return
         deactivateShipInducer(player, g)
     }
@@ -402,6 +456,18 @@ object WyllandTomeManager {
      *  single delta quaternion and left-multiplied onto [idealRotation]
      *  so it accumulates in world frame. */
     fun applyRotateInput(player: ServerPlayer, yawDelta: Double, pitchDelta: Double) {
+        // Orb grabs share the same yaw/pitch composition formula —
+        // accumulate on top of the orb's ideal rotation.
+        if (org.shipwrights.enderkinesis.body.OrbGrabState.grabFor(player.uuid) != null) {
+            val yawRad = Math.toRadians(player.yRot.toDouble())
+            val rightX = Math.cos(yawRad)
+            val rightZ = Math.sin(yawRad)
+            val deltaRot = Quaterniond()
+                .rotateAxis(Math.toRadians(-yawDelta), 0.0, 1.0, 0.0)
+                .rotateAxis(Math.toRadians(pitchDelta), rightX, 0.0, rightZ)
+            org.shipwrights.enderkinesis.body.OrbGrabState.composeIdealRotation(player.uuid, deltaRot)
+            return
+        }
         val g = grabs[player.uuid] ?: return
         if (g.shipId != null) {
             val yawRad = Math.toRadians(player.yRot.toDouble())
@@ -426,6 +492,15 @@ object WyllandTomeManager {
      *  the player's current look direction — for ships only; entities
      *  have no roll DOF and silently ignore. */
     fun applyRollInput(player: ServerPlayer, degrees: Double) {
+        // Orb roll: same formula as ships, applied to the orb's ideal
+        // rotation via [OrbGrabState].
+        if (org.shipwrights.enderkinesis.body.OrbGrabState.grabFor(player.uuid) != null) {
+            val look = player.lookAngle
+            val deltaRot = Quaterniond()
+                .rotateAxis(Math.toRadians(degrees), look.x, look.y, look.z)
+            org.shipwrights.enderkinesis.body.OrbGrabState.composeIdealRotation(player.uuid, deltaRot)
+            return
+        }
         val g = grabs[player.uuid] ?: return
         g.shipId ?: return
         val look = player.lookAngle
@@ -444,6 +519,16 @@ object WyllandTomeManager {
      *  [delta] pulls closer (scroll-up), negative pushes away
      *  (scroll-down). Clamped to the configured min/max grab distance. */
     fun adjustDistance(player: ServerPlayer, delta: Double) {
+        // Orb grabs maintain their own hold distance in [OrbGrabState].
+        val orbBodyId = org.shipwrights.enderkinesis.body.OrbGrabState.grabFor(player.uuid)
+        if (orbBodyId != null) {
+            org.shipwrights.enderkinesis.body.OrbGrabState.adjustGrabForward(
+                orbBodyId, delta,
+                WyllandTomeItem.MIN_GRAB_DISTANCE,
+                WyllandTomeItem.MAX_GRAB_DISTANCE,
+            )
+            return
+        }
         val g = grabs[player.uuid] ?: return
         g.grabDistance = (g.grabDistance + delta).coerceIn(
             WyllandTomeItem.MIN_GRAB_DISTANCE,
@@ -481,6 +566,13 @@ object WyllandTomeManager {
     }
 
     private fun tickAll(level: ServerLevel) {
+        // Refresh per-orb target positions from the holder's aim ray
+        // each server tick. The phys-tick spring force in
+        // OrbGravityCanceller reads these. Done before the ship/entity
+        // tick path so a player holding both kinds of grabs (not
+        // possible today, but defensive) gets consistent ordering.
+        tickOrbGrabs(level)
+
         if (grabs.isEmpty()) return
         val it = grabs.entries.iterator()
         while (it.hasNext()) {
@@ -495,6 +587,80 @@ object WyllandTomeManager {
             }
             applyGrab(player, g, level)
         }
+    }
+
+    /** Per-server-tick: for each player actively grabbing an orb,
+     *  compute the world point the spring should pull the orb toward
+     *  (eye + look · grab-distance) and stash it in [OrbGrabState] so
+     *  the phys tick can apply the force. Auto-releases the grab if
+     *  the player stops holding the tome or leaves the dimension. */
+    private fun tickOrbGrabs(level: ServerLevel) {
+        org.shipwrights.enderkinesis.body.OrbGrabState.forEachGrab { uuid, bodyId ->
+            val player = level.getPlayerByUUID(uuid) as? ServerPlayer ?: return@forEachGrab
+            if (player.level() !== level) return@forEachGrab
+            if (!player.isAlive || player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) {
+                org.shipwrights.enderkinesis.body.OrbGrabState.release(uuid)
+                WyllandTomeNetwork.sendGrabEnd(player)
+                return@forEachGrab
+            }
+            // Default grab distance — same constant ships use as a
+            // starting hold distance.
+            val localOffset = org.shipwrights.enderkinesis.body.OrbGrabState
+                .grabOffsetFor(bodyId) ?: return@forEachGrab
+            org.shipwrights.enderkinesis.body.OrbGrabState.updateTarget(
+                bodyId,
+                playerLocalToWorld(player, localOffset)
+            )
+        }
+    }
+
+    /** Compute the body's position in the player's look-relative basis:
+     *  right (x), world-up-perp (y), forward along look (z). Used at
+     *  grab start to anchor the orb's relative offset from the cursor.
+     *  Forward component is clamped to the Tome's grab-distance window. */
+    private fun computeGrabLocalOffset(
+        player: ServerPlayer, bodyWorldPos: org.joml.Vector3dc,
+    ): org.joml.Vector3dc {
+        val eye = player.eyePosition
+        val look = player.lookAngle
+        val lookV = org.joml.Vector3d(look.x, look.y, look.z)
+        val worldUp = org.joml.Vector3d(0.0, 1.0, 0.0)
+        // Project world-up perpendicular to look. When the player is
+        // looking straight up / down, `worldUp - look·(look·worldUp)`
+        // collapses to ~zero; fall back to a fixed world axis to keep
+        // a well-defined basis. (Same trick the existing ship grab uses.)
+        val dotUL = lookV.dot(worldUp)
+        val upPerp = org.joml.Vector3d(worldUp).sub(org.joml.Vector3d(lookV).mul(dotUL))
+        if (upPerp.lengthSquared() < 1e-6) upPerp.set(0.0, 0.0, 1.0)
+        upPerp.normalize()
+        val right = org.joml.Vector3d(lookV).cross(upPerp).normalize()
+
+        val rel = org.joml.Vector3d(bodyWorldPos).sub(org.joml.Vector3d(eye.x, eye.y, eye.z))
+        val local = org.joml.Vector3d(rel.dot(right), rel.dot(upPerp), rel.dot(lookV))
+        if (local.z < WyllandTomeItem.MIN_GRAB_DISTANCE) local.z = WyllandTomeItem.MIN_GRAB_DISTANCE
+        if (local.z > WyllandTomeItem.MAX_GRAB_DISTANCE) local.z = WyllandTomeItem.MAX_GRAB_DISTANCE
+        return local
+    }
+
+    /** Reconstruct a world position from a player-local offset
+     *  (right, up-perp, forward) and the player's CURRENT look basis. */
+    private fun playerLocalToWorld(
+        player: ServerPlayer, localOffset: org.joml.Vector3dc,
+    ): org.joml.Vector3d {
+        val eye = player.eyePosition
+        val look = player.lookAngle
+        val lookV = org.joml.Vector3d(look.x, look.y, look.z)
+        val worldUp = org.joml.Vector3d(0.0, 1.0, 0.0)
+        val dotUL = lookV.dot(worldUp)
+        val upPerp = org.joml.Vector3d(worldUp).sub(org.joml.Vector3d(lookV).mul(dotUL))
+        if (upPerp.lengthSquared() < 1e-6) upPerp.set(0.0, 0.0, 1.0)
+        upPerp.normalize()
+        val right = org.joml.Vector3d(lookV).cross(upPerp).normalize()
+
+        return org.joml.Vector3d(eye.x, eye.y, eye.z)
+            .add(org.joml.Vector3d(right).mul(localOffset.x()))
+            .add(org.joml.Vector3d(upPerp).mul(localOffset.y()))
+            .add(org.joml.Vector3d(lookV).mul(localOffset.z()))
     }
 
     private fun applyGrab(player: ServerPlayer, g: Grab, level: ServerLevel) {
@@ -724,5 +890,6 @@ object WyllandTomeManager {
          *  server stores it as-is. */
         data class Ship(val shipId: Long, val shipLocalX: Double, val shipLocalY: Double, val shipLocalZ: Double) : GrabTarget
         data class Entity(val entityUuid: UUID) : GrabTarget
+        data class Orb(val bodyId: Long) : GrabTarget
     }
 }

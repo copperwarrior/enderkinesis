@@ -9,6 +9,7 @@ import net.minecraft.tags.TagKey
 import net.minecraft.world.level.biome.Biome
 import net.minecraft.world.level.levelgen.GenerationStep
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.fabric.compat.trinkets.TrinketsCompat
 
 /**
  * Fabric-side initializer. Common content is registered through Architectury in
@@ -19,6 +20,9 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 class EnderkinesisModFabric : ModInitializer {
     override fun onInitialize() {
         EnderkinesisMod.init()
+
+        // Wire accessory-mod compat (no-op if the mod isn't loaded).
+        TrinketsCompat.init()
 
 val canSpawnIn: TagKey<Biome> = TagKey.create(
             Registries.BIOME, EnderkinesisMod.id("geode_can_spawn_in")

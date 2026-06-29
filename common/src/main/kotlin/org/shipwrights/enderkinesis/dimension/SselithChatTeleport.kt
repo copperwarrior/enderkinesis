@@ -65,9 +65,18 @@ object SselithChatTeleport {
     private const val MIN_BOOKSHELVES = 4
 
     /** Player arrival point in Sselith. */
-    private const val SSELITH_ARRIVAL_X = 0.5
-    private const val SSELITH_ARRIVAL_Y = 2.0
-    private const val SSELITH_ARRIVAL_Z = 0.5
+    private const val SSELITH_ARRIVAL_X = 0.0
+    private const val SSELITH_ARRIVAL_Y = 200.0
+    private const val SSELITH_ARRIVAL_Z = 0.0
+    /** Arrival yaw 34.5° / pitch −34.5° — the holy number that names the
+     *  invocation itself (`vraestmorocht-schest-kelkargh-skarn-moroch` =
+     *  34.5 in the Sselith numeral system) carried into both axes. Pitch
+     *  is negated so the player arrives looking up at the holy bearing
+     *  instead of down at the floor. Anchors the camera at a deliberate
+     *  pose on every crossing rather than carrying the player's pre-cross
+     *  rotation over. */
+    private const val SSELITH_ARRIVAL_YAW = 34.5f
+    private const val SSELITH_ARRIVAL_PITCH = -34.5f
 
     private data class ReturnPoint(
         val dimension: ResourceKey<Level>,
@@ -116,7 +125,7 @@ object SselithChatTeleport {
         player.teleportTo(
             sselithLevel,
             SSELITH_ARRIVAL_X, SSELITH_ARRIVAL_Y, SSELITH_ARRIVAL_Z,
-            player.yRot, player.xRot,
+            SSELITH_ARRIVAL_YAW, SSELITH_ARRIVAL_PITCH,
         )
         return true
     }

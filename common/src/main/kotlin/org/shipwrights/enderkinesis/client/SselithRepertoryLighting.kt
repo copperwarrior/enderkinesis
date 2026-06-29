@@ -7,7 +7,9 @@ import net.minecraft.util.Mth
 import org.joml.Matrix4f
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
+import org.shipwrights.enderkinesis.sselith.SselithEclipse
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 
 /**
@@ -35,7 +37,6 @@ import kotlin.math.sin
  */
 object SselithRepertoryLighting {
 
-    // ---- lightmap tints ----
 
     /** Pure-sky cell tint — warm yellow, matching the visible Sselith sun. */
     private const val SKY_TINT_R = 1.00f
@@ -50,10 +51,19 @@ object SselithRepertoryLighting {
     /** Floor on the sky-light gradient at level 0 so totally-shadowed cells aren't black. */
     private const val SKY_FLOOR = 0.05f
 
+    /** At full eclipse: block-light cells are remapped through `(block/15)^this`. */
+    private const val ECLIPSE_BLOCK_CRUSH_POW = 3.0
+
+    /** Multiplier on the eclipsed block-light curve. Boosts the actual rendered output
+     *  while keeping the curve shape — pushes high cells past 1.0 (clamped in the
+     *  channel sum, so bright spots saturate to warm-yellow at the tint's natural
+     *  ceiling) without lifting low cells noticeably above the crush. */
+    private const val ECLIPSE_BLOCK_BRIGHTNESS_BOOST = 1.5f
+
+
     /** Opaque pure-white ABGR pixel value used for the FULL_BRIGHT slot. */
     private const val FULL_BRIGHT_WHITE = 0xFFFFFFFF.toInt()
 
-    // ---- per-face sky-light attenuation ----
 
     /** Minimum sky-light multiplier for a face pointing directly away from the sun.
      *  Range [SKY_ATTEN_MIN, 1.0] is applied multiplicatively to the sky-light *nibble*
@@ -61,12 +71,10 @@ object SselithRepertoryLighting {
      *  directional cast; larger → gentler. */
     private const val SKY_ATTEN_MIN = 0.30f
 
-    // ---- entity diffuse lights ----
 
     private const val SUN_LIGHT_STRENGTH = 1.0f
     private const val FILL_LIGHT_STRENGTH = 0.25f
 
-    // ---- sun direction ----
 
     /** World-space unit vector pointing from the player to the sun. Cached. */
     val sunDirection: Vector3f by lazy { computeSunDirection() }
@@ -112,7 +120,6 @@ object SselithRepertoryLighting {
         return level.dimension() == SselithRepertory.LEVEL_KEY
     }
 
-    // ---- lightmap writer ----
 
     /**
      * Fill the 16×16 lightmap so sky-light contributions read as yellow and block-light
@@ -122,7 +129,13 @@ object SselithRepertoryLighting {
      * (15, 15) → pure white because that slot is sampled by GUI text / HUD / held-item
      * overlays as `LightTexture.FULL_BRIGHT`.
      */
-    fun writeLightmap(image: NativeImage) {
+    fun writeLightmap(image: NativeImage, partialTick: Float = 0f) {
+        val eclipse = currentEclipseIntensity(partialTick)
+        // Sky-light + ambient floor → 0 globally at full eclipse. Block-light cells
+        // get a high-power crush so only the very top (cell 15) keeps natural torch
+        // brightness; 14 and below fall off rapidly toward black.
+        val skyScale = 1f - eclipse
+
         for (skyLight in 0..15) {
             for (blockLight in 0..15) {
                 if (blockLight == 15 && skyLight == 15) {
@@ -131,9 +144,8 @@ object SselithRepertoryLighting {
                 }
 
                 val sky = skyLight / 15f
-                val block = blockLight / 15f
-                val skyB = SKY_FLOOR + (1f - SKY_FLOOR) * sky
-                val blockB = block * block * 0.96f + block * 0.04f
+                val skyB = (SKY_FLOOR + (1f - SKY_FLOOR) * sky) * skyScale
+                val blockB = blockBrightness(blockLight, eclipse)
 
                 val r = Mth.clamp(skyB * SKY_TINT_R + blockB * BLOCK_TINT_R, 0f, 1f)
                 val g = Mth.clamp(skyB * SKY_TINT_G + blockB * BLOCK_TINT_G, 0f, 1f)
@@ -148,7 +160,26 @@ object SselithRepertoryLighting {
         }
     }
 
-    // ---- per-face sky-light attenuation ----
+    /** Block-light brightness lerped between the natural near-quadratic curve and the
+     *  eclipsed `(block/15)^N` crush, by eclipse intensity. The high power leaves only
+     *  the top end visible at full eclipse while preserving the warm torch tint. */
+    private fun blockBrightness(blockLight: Int, eclipse: Float): Float {
+        val block = blockLight / 15f
+        val natural = block * block * 0.96f + block * 0.04f
+        val eclipsed = block.toDouble().pow(ECLIPSE_BLOCK_CRUSH_POW).toFloat() * ECLIPSE_BLOCK_BRIGHTNESS_BOOST
+        return Mth.lerp(eclipse, natural, eclipsed)
+    }
+
+    /** Client-side eclipse intensity, sampled from the sselith level's gameTime so the
+     *  visual matches the server's damage schedule frame-for-frame without sync packets.
+     *  Includes `partialTick` so the ramp fade interpolates per render frame, not per
+     *  game tick — eliminates the 20Hz stepping in the lightmap during the 4-second
+     *  ramps. */
+    fun currentEclipseIntensity(partialTick: Float = 0f): Float {
+        val level = Minecraft.getInstance().level ?: return 0f
+        return SselithEclipse.intensity(level.gameTime.toDouble() + partialTick)
+    }
+
 
     /**
      * Reduce the **sky-light** portion of a packed `(block_light, sky_light)` UV based
@@ -177,7 +208,6 @@ object SselithRepertoryLighting {
         return cleared or (newSkyLevel shl 20)
     }
 
-    // ---- entity diffuse lights ----
 
     /** Two view-space unit vectors written into the shader light slots. */
     fun fillShaderLights(viewMatrix: Matrix4f, outSun: Vector3f, outFill: Vector3f) {

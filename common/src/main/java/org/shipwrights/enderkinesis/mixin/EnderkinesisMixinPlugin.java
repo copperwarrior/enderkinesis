@@ -43,6 +43,29 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
         if (mixinClassName.endsWith(".SodiumCloudRendererFadeMixin")) {
             return sodiumPresent;
         }
+        // Sodium's WorldSlice doesn't exist without Sodium — gate the
+        // ambient-floor mirror so a non-Sodium runtime doesn't fail PREPARE.
+        if (mixinClassName.endsWith(".WorldSliceWohlonAmbientMixin")) {
+            return sodiumPresent;
+        }
+        // Same WorldSlice target as Wohlon — the orb dynamic-light
+        // mirror exists because Sodium's mesh build reads light from
+        // its cloned `DataLayer` arrays, bypassing the vanilla
+        // `LightEngine.getLightValue` hook.
+        if (mixinClassName.endsWith(".WorldSliceOrbDynamicLightMixin")) {
+            return sodiumPresent;
+        }
+        // Sodium overwrites `LevelRenderer.setupRender` with an
+        // implementation that no longer calls `LocalPlayer.getX/Y/Z()`,
+        // so the scrying-camera @WrapOperations have nothing to bind
+        // to — Mixin would fail with "0 target(s) scanned". Skip the
+        // mixin entirely under Sodium. The scrying feature itself
+        // degrades (the camera moves but the chunk-grid stays at the
+        // player), which is a known limitation with Sodium installed
+        // — but the game boots.
+        if (mixinClassName.endsWith(".LevelRendererScryingMixin")) {
+            return !sodiumPresent;
+        }
         return true;
     }
 

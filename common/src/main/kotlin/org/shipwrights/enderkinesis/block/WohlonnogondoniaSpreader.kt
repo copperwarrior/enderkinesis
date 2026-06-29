@@ -27,52 +27,25 @@ import net.minecraft.world.level.chunk.LevelChunkSection
 import net.minecraft.world.level.chunk.PalettedContainer
 import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
-import org.shipwrights.enderkinesis.mixin.ChunkMapGetChunksAccessor
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKGameRules
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
 /**
- * Wohlonnogondonia biome spreader.
+ * Wohlon biome spreader — four wired features:
  *
- * Four features wired together (per the user's design spec):
+ *  1. Spread: every [SPREAD_INTERVAL_TICKS], one Wohlon cell per loaded chunk converts a
+ *     random face-or-vertex neighbour (14-neighbourhood: 6 faces + 8 vertices, skipping
+ *     the 12 edge midpoints of the 26-neighbourhood).
+ *  2. Force-load: per-dim [TaintedChunkData] tracks every chunk that has ever held Wohlon
+ *     biome; every in-game hour (1000 ticks) one unloaded tainted chunk is force-loaded
+ *     so spread + block conversion continue without a nearby player.
+ *  3. Conversion tags `converts_to_wogor_wood` / `_mud` / `_wogor_leaves` drive replacement.
+ *  4. Random-tick: each tick, `randomTickSpeed` positions per section — if biome cell is
+ *     Wohlon and the block matches a converts-to tag, it's replaced.
  *
- *  1. **Biome spread in non-Wohlon dimensions.** Every
- *     [SPREAD_INTERVAL_TICKS], pick one Wohlon biome cell at
- *     random from every loaded chunk in this dimension and
- *     convert one of its 14 face-or-vertex neighbour cells to
- *     Wohlon. 14 = 6 face-adjacent + 8 vertex-adjacent — the
- *     "no edge midpoints" subset of the 26-neighbourhood.
- *     `400` ticks ⇒ 3 conversions per minute.
- *
- *  2. **Force-load tainted chunks at 1/hour.** Tracks every
- *     chunk that has ever held a Wohlon biome cell in this
- *     dimension via per-dim [TaintedChunkData] SavedData. Every
- *     in-game hour (1000 ticks), force-load one unloaded
- *     tainted chunk so it can spread + convert blocks even
- *     when no player is nearby.
- *
- *  3. **Conversion tags.**
- *     - `enderkinesis:converts_to_wogor_wood` → wogor wood
- *     - `enderkinesis:converts_to_mud` → mud
- *     - `enderkinesis:converts_to_wogor_leaves` → wogor
- *       leaves (the canopy block Wohlon's chunkgen uses)
- *
- *  4. **Random-tick Wohlon biome blocks.** Every server tick,
- *     for every loaded chunk with Wohlon biome cells: pick
- *     `randomTickSpeed` random positions per section and, if
- *     the position's biome cell is Wohlon AND the block is in
- *     one of the converts-to tags, replace it. Same rate as
- *     vanilla random tick (3-per-section-per-tick at default
- *     game rule).
- *
- * All state lives in per-dimension [TaintedChunkData] SavedData;
- * the manager itself is stateless. The tainted chunk set is
- * populated lazily during the spread step (every loaded chunk
- * that has Wohlon biome gets added) and grown by spread events.
- * It is never shrunk — by design, once Wohlon biome touches a
- * chunk that chunk stays in the spread/conversion economy.
+ * Tainted set grows only — once Wohlon touches a chunk it stays in the economy forever.
  */
 object WohlonnogondoniaSpreader {
 
@@ -455,11 +428,7 @@ object WohlonnogondoniaSpreader {
      *  [SERVER_STOPPED] with the rest of the per-session state. */
     private val cacheCapWarned: ConcurrentHashMap<ResourceKey<Level>, Boolean> = ConcurrentHashMap()
 
-    /** Reusable per-tick chunk-list buffer. Avoids re-allocating
-     *  the list every server tick. */
-    private val loadedChunkBuffer: ArrayList<LevelChunk> = ArrayList(256)
-
-    /** Per-dimension list of in-progress portal seed jobs. A job
+/** Per-dimension list of in-progress portal seed jobs. A job
      *  starts when [startPortalSeed] is called by the heart
      *  candle ritual; it converts its queue of biome cells over
      *  [SEED_TOTAL_TICKS] ticks (one batch per tick).
@@ -579,12 +548,11 @@ object WohlonnogondoniaSpreader {
 
     private fun tickLevel(level: ServerLevel) {
         val gameTime = level.gameTime
-        val isWohlon = level.dimension() == Wohlonnogondonia.LEVEL_KEY
-
-        if (isWohlon) {
-            tickConversionsWohlon(level)
-            return
-        }
+        // Wohlonnogondonia's chunkgen places wogor blocks directly — there's
+        // no convertible source for the spreader to ever flip, and every
+        // biome cell is already Wohlon. Random-ticking sections here just
+        // burned 30% of mspt in pickConversion lookups that always missed.
+        if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) return
 
         // Non-Wohlon dimension. Skip the spreader entirely if
         // Wohlon biome has never touched this dimension AND no
@@ -941,25 +909,7 @@ object WohlonnogondoniaSpreader {
         if (list.isEmpty()) seedJobs.remove(level.dimension())
     }
 
-    /** Fill [buffer] with the currently-loaded `LevelChunk`s in
-     *  [level] and return it. Uses a shared, reusable buffer to
-     *  avoid per-tick allocation; the previous `Sequence`-based
-     *  iterator chewed 5.5 s of `BaseContinuationImpl.resumeWith`
-     *  cost over the profile sample. Goes through the mixin
-     *  invoker on [ChunkMap.getChunks] (vanilla method is
-     *  package-private). */
-    private fun loadedChunksInto(level: ServerLevel, buffer: ArrayList<LevelChunk>): ArrayList<LevelChunk> {
-        buffer.clear()
-        @Suppress("CAST_NEVER_SUCCEEDS")
-        val accessor = level.chunkSource.chunkMap as ChunkMapGetChunksAccessor
-        for (holder in accessor.`enderkinesis$getChunks`()) {
-            val chunk = holder.fullChunk ?: continue
-            buffer.add(chunk)
-        }
-        return buffer
-    }
-
-    /** Pick one unloaded chunk and force-load it (vanilla
+/** Pick one unloaded chunk and force-load it (vanilla
      *  `getChunk` is synchronous), giving its biome-spread + block-
      *  conversion logic a turn even when no player is nearby. We
      *  don't explicitly unload — vanilla's chunk-keep-alive will
@@ -1059,30 +1009,7 @@ object WohlonnogondoniaSpreader {
         return seen.toLongArray()
     }
 
-    /** Wohlon-dimension path: every chunk has Wohlon biome (it's
-     *  the only biome there), so no per-section "is this Wohlon?"
-     *  check is needed. Just random-tick all sections directly.
-     *  No biome flips will ever happen here (every cell is already
-     *  Wohlon, so the non-Wohlon branch in tickChunkConversions
-     *  never fires), so we pass an empty mutable set that nobody
-     *  writes to. */
-    private fun tickConversionsWohlon(level: ServerLevel) {
-        val randomTickSpeed = level.gameRules.getInt(GameRules.RULE_RANDOMTICKING)
-        if (randomTickSpeed <= 0) return
-        val effectiveTickRate = randomTickSpeed * spreadSpeed(level)
-        val random = level.random
-        val mutPos = BlockPos.MutableBlockPos()
-        val chunks = loadedChunksInto(level, loadedChunkBuffer)
-        for (i in 0 until chunks.size) {
-            val chunk = chunks[i]
-            // Wohlon dim has no frontier (every cell is Wohlon),
-            // so pass null — the in-cell conversion path treats
-            // null as "all interior" and converts at full rate.
-            tickChunkConversions(level, chunk, ALL_SECTIONS_MASK, effectiveTickRate, random, mutPos, null)
-        }
-    }
-
-    /** Non-Wohlon-dimension path: walk only the tainted chunks
+/** Non-Wohlon-dimension path: walk only the tainted chunks
      *  (the chunks that hold any Wohlon biome cells), random-
      *  tick the sections inside them that contain Wohlon cells.
      *
@@ -1303,7 +1230,14 @@ object WohlonnogondoniaSpreader {
                     val rate = (baseRate * spreadSpeed(level)).coerceAtMost(1.0)
                     if (random.nextDouble() >= rate) return@repeat
                     mutPos.set(bx, by, bz)
-                    level.setBlock(mutPos, sourceTarget, 2)
+                    // Flag 2 | 16 = UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE.
+                    // Without the 16 bit Level.setBlock still fires the
+                    // updateNeighbourShapes + updateIndirectNeighbourShapes
+                    // cascade through CollectingNeighborUpdater — 90% of the
+                    // spreader's cost in profiling. Targets here are full
+                    // solid cubes with no neighbor-dependent shape, so the
+                    // cascade is wasted.
+                    level.setBlock(mutPos, sourceTarget, 2 or 16)
                     converted++
                     return@repeat
                 }
@@ -1321,18 +1255,15 @@ object WohlonnogondoniaSpreader {
                     if (sourceTarget != null) {
                         mutPos.set(chunkBaseX + lx, sectionBaseY + ly, chunkBaseZ + lz)
                         converted++
-                        // Flag 2 (UPDATE_CLIENTS only): no neighbour-
-                        // notify chain — both blocks are inert solids.
-                        level.setBlock(mutPos, sourceTarget, 2)
+                        // Flag 2 | 16 — see the boundary-fringe setBlock
+                        // above for the rationale on the 16 bit.
+                        level.setBlock(mutPos, sourceTarget, 2 or 16)
                     }
                 }
 
-                // Phase 2 removed the per-random-tick spread
-                // enqueue that used to live here. The spread step
-                // is now [tickFrontierSpread], which samples
-                // directly from the per-chunk frontier bitmask in
-                // [ChunkSpreadState] — cost scales with the
-                // boundary cell count, not the tainted volume.
+                // Spread happens in [tickFrontierSpread], not per-random-tick — sampled
+                // directly from the per-chunk frontier bitmask in [ChunkSpreadState] so
+                // cost scales with boundary cell count, not tainted volume.
             }
         }
         return converted
@@ -1485,7 +1416,6 @@ object WohlonnogondoniaSpreader {
         state.lastActivityGameTime = level.gameTime
     }
 
-    // ---------------- Frontier maintenance (Phase 2) ---------------
 
     /** The 6 face-adjacent biome-cell offsets. Cached so we don't
      *  allocate a fresh array per [updateFrontierForFlip] call —
@@ -1641,7 +1571,6 @@ object WohlonnogondoniaSpreader {
         }
     }
 
-    // ---------------- Frontier-driven spread sampler (Phase 2) ----
 
     /** How many spread samples to attempt per tick. Each sample
      *  picks a random frontier cell and tries to enqueue one
@@ -1654,7 +1583,6 @@ object WohlonnogondoniaSpreader {
      *  faster at higher speeds. */
     private const val FRONTIER_SAMPLES_PER_TICK_BASE: Int = 2
 
-    // ---------------- Tiering thresholds (Phase 3) -----------------
 
     /** Ticks-since-last-activity boundary between hot and warm
      *  tiers. 200 ticks ≈ 10 s — long enough that a chunk that
@@ -1944,12 +1872,7 @@ object WohlonnogondoniaSpreader {
      *  and ticked by [tickSeedJobs]. */
     private data class SeedJob(val cells: ArrayDeque<CellCoord>, var ticksRemaining: Int)
 
-    /** Pre-computed mask "all 64 possible section indexes set" —
-     *  used as the section-eligibility mask in the Wohlon-dim
-     *  path where every section is biome-Wohlon by construction. */
-    private const val ALL_SECTIONS_MASK: Long = -1L
-
-    /** Persistent set of chunks (by `ChunkPos.toLong`) that have
+/** Persistent set of chunks (by `ChunkPos.toLong`) that have
      *  ever held a Wohlon biome cell in this dimension. */
     class TaintedChunkData : SavedData() {
 

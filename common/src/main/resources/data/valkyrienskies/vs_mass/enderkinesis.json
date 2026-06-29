@@ -26,5 +26,13 @@
   { "block": "enderkinesis:ancrite_chain",  "mass":  300.0 },
   { "block": "enderkinesis:ancrite_beam",   "mass": 1000.0 },
 
-  { "block": "enderkinesis:orb_of_linking", "mass":  100.0 }
+  { "block": "enderkinesis:orb_of_linking", "mass":  100.0 },
+
+  { "block": "enderkinesis:ender_linkage",
+    "mass": 10.0,
+    "friction": 0.0,
+    "elasticity": 0.0,
+    "no_collision": true },
+
+  { "block": "enderkinesis:shulker_strut_top", "mass": 100.0, "friction": 0.9 }
 ]

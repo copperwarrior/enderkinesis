@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.InteractionHand
@@ -9,7 +10,9 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.Block
+import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.EntityBlock
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityTicker
@@ -18,6 +21,8 @@ import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import net.minecraft.world.level.material.FluidState
+import net.minecraft.world.level.material.Fluids
 import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.physics.CrepusculiteLatticeForceInducer
@@ -151,20 +156,136 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
             queue.add(origin.immutable())
             while (queue.isNotEmpty()) {
                 val p = queue.removeFirst()
+                val pState = level.getBlockState(p)
                 for (dx in -1..1) for (dy in -1..1) for (dz in -1..1) {
                     if (dx == 0 && dy == 0 && dz == 0) continue
                     val n = BlockPos(p.x + dx, p.y + dy, p.z + dz)
                     if (!blocks.add(n)) continue                       // already seen
-                    if (level.getBlockState(n).isAir || level.isBlockInShipyard(n)) {
+                    val nState = level.getBlockState(n)
+                    if (nState.isAir || level.isBlockInShipyard(n)) {
                         blocks.remove(n)                                // air / other ship bounds it
+                        continue
+                    }
+                    // Sturdy-face structural gate: the connection from `p` to `n` only
+                    // counts when both blocks have a full sturdy face touching the
+                    // cardinal axes of the move (see [isStructuralLink]). Filters out
+                    // leaves / vines / panes / gates that aren't really hull material
+                    // from being scooped into the assembly via diagonal corners.
+                    if (!isStructuralLink(level, pState, p, nState, n, dx, dy, dz)) {
+                        blocks.remove(n)
                         continue
                     }
                     if (blocks.size > MAX_ASSEMBLY_BLOCKS) return AssembleOutcome.TOO_LARGE
                     queue.add(n)
                 }
             }
-            ShipAssembler.assembleToShip(level, blocks, 1.0)
+            val withAttached = expandWithAttachments(level, blocks)
+            ShipAssembler.assembleToShip(level, withAttached, 1.0)
             return AssembleOutcome.OK
+        }
+
+        /** Structural-link gate. For each non-zero axis component of the move from
+         *  `fromPos` to `toPos`, both blocks must present a sturdy face along that axis
+         *  — `fromState`'s face in the move direction *and* `toState`'s opposite face.
+         *
+         *  Uses the 3-arg `BlockState.isFaceSturdy` (defaults to `SupportType.FULL`),
+         *  matching the gate vanilla uses to decide whether things like rails, scaffolds,
+         *  and torches can attach to a face. Net effect: leaves, vines, panes, fences,
+         *  most "decorative" blocks fail at least one of the directional sturdy checks
+         *  and don't get pulled into the assembly. Full blocks (stone, dirt, planks,
+         *  ores) and the rigid hull blocks the player is likely to be building with all
+         *  pass.
+         *
+         *  For diagonal / corner moves (≥2 non-zero components), every applicable axis
+         *  must pass — both blocks need sturdy faces in *each* direction we're crossing.
+         *  That preserves the 26-neighbour intent (a diagonal staircase of solid cubes
+         *  still connects) while rejecting diagonals through non-structural blocks. */
+        @JvmStatic
+        fun isStructuralLink(
+            level: net.minecraft.world.level.LevelReader,
+            fromState: BlockState, fromPos: BlockPos,
+            toState: BlockState, toPos: BlockPos,
+            dx: Int, dy: Int, dz: Int,
+        ): Boolean {
+            if (dx != 0) {
+                val face = if (dx > 0) Direction.EAST else Direction.WEST
+                if (!fromState.isFaceSturdy(level, fromPos, face)) return false
+                if (!toState.isFaceSturdy(level, toPos, face.opposite)) return false
+            }
+            if (dy != 0) {
+                val face = if (dy > 0) Direction.UP else Direction.DOWN
+                if (!fromState.isFaceSturdy(level, fromPos, face)) return false
+                if (!toState.isFaceSturdy(level, toPos, face.opposite)) return false
+            }
+            if (dz != 0) {
+                val face = if (dz > 0) Direction.SOUTH else Direction.NORTH
+                if (!fromState.isFaceSturdy(level, fromPos, face)) return false
+                if (!toState.isFaceSturdy(level, toPos, face.opposite)) return false
+            }
+            return true
+        }
+
+        /** Expand an assembly block-set with anything that *depends* on a block already
+         *  in the set — tall grass on the grass block we're scooping, the torch on the
+         *  stone wall, the head of the bed whose foot is in the set, the upper half of
+         *  a double-tall plant, snow layers, carpets, vines, signs, etc.
+         *
+         *  Method: for each block already in the set, look at its 6 cardinal neighbours;
+         *  for any neighbour that isn't in the set, check whether removing the in-set
+         *  block (by handing the neighbour a [LevelReader] that returns AIR at the in-set
+         *  position) makes the neighbour's [BlockState.canSurvive] fail. If it does, the
+         *  neighbour is structurally attached to the in-set block and joins the assembly.
+         *
+         *  Iterates until quiescent so chained attachments (LOWER double-plant → UPPER
+         *  double-plant → ...) are picked up in subsequent passes.
+         *
+         *  Result is a [LinkedHashSet] ordered by Y *descending*. That order is preserved
+         *  through VS2's `moveBlocksFromTo` clear loop (`for (pos in blocks)` over a
+         *  `LinkedHashSet`), and it sidesteps a cascade in VS2's pass-1 BARRIER
+         *  substitution: pass 1 uses `Block.UPDATE_CLIENTS`, which fires `updateShape`
+         *  on neighbours without `UPDATE_SUPPRESS_DROPS`. A supported plant
+         *  (`BushBlock.updateShape` → `canSurvive`) sees its supporter go BARRIER, fails
+         *  the dirt/farmland check, and pops out as an item before VS2 can sweep its
+         *  own position. Top-down order means the plant is BARRIER first — by the time
+         *  the supporter switches, the UP neighbour is already a (non-BushBlock)
+         *  BARRIER, `updateShape` no-ops, and nothing drops. Helps every single-block
+         *  vertical attachment (grass, saplings, flowers, snow, carpets). True mutually-
+         *  dependent multi-block structures (doors, beds, double-tall plants) still
+         *  cascade — that one needs a VS2-side fix to add `UPDATE_SUPPRESS_DROPS` or
+         *  `UPDATE_KNOWN_SHAPE` to the pass-1 flag. */
+        @JvmStatic
+        fun expandWithAttachments(level: ServerLevel, blocks: Set<BlockPos>): Set<BlockPos> {
+            val expanded = HashSet(blocks)
+            var changed = true
+            while (changed) {
+                changed = false
+                // Snapshot to avoid mutating the set during iteration.
+                val frontier = expanded.toList()
+                for (p in frontier) {
+                    for (dir in Direction.values()) {
+                        val n = p.relative(dir)
+                        if (n in expanded) continue
+                        val ns = level.getBlockState(n)
+                        if (ns.isAir) continue
+                        // Don't steal blocks that belong to another ship's claim or are
+                        // unbreakable — same gates the flood-fills already use.
+                        if (level.getLoadedShipManagingPos(n) != null) continue
+                        if (level.isBlockInShipyard(n)) continue
+                        if (ns.getDestroySpeed(level, n) < 0f) continue
+                        // Hide p; if n still survives, it didn't depend on p. The mock
+                        // reader returns AIR at p only — everything else is the real world,
+                        // so canSurvive's neighbour checks see the rest of the structure.
+                        val mock = AttachmentMockReader(level, p)
+                        if (!ns.canSurvive(mock, n)) {
+                            expanded.add(n.immutable())
+                            changed = true
+                        }
+                    }
+                }
+            }
+            return expanded
+                .sortedByDescending { it.y }
+                .toCollection(LinkedHashSet())
         }
 
         /** Light emitted at analogue redstone [power] (0..15): 0 → 15, 15 → 1, linear. */
@@ -176,4 +297,22 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
             (CrepusculiteLatticeForceInducer.DEFAULT_FLUID_DENSITY * (1.0 - power / 15.0))
                 .coerceAtLeast(0.0)
     }
+}
+
+/** [LevelReader] facade that pretends a single position is air. Used by
+ *  [CrepusculiteLatticeBlock.expandWithAttachments] to ask each candidate neighbour
+ *  "would you still survive if THIS block were gone?" without actually mutating the world.
+ *  Kotlin's `by` delegation forwards every other [LevelReader] method to the real level. */
+private class AttachmentMockReader(
+    private val delegate: LevelReader,
+    private val hidden: BlockPos,
+) : LevelReader by delegate {
+    override fun getBlockState(pos: BlockPos): BlockState =
+        if (sameCoords(pos, hidden)) Blocks.AIR.defaultBlockState() else delegate.getBlockState(pos)
+
+    override fun getFluidState(pos: BlockPos): FluidState =
+        if (sameCoords(pos, hidden)) Fluids.EMPTY.defaultFluidState() else delegate.getFluidState(pos)
+
+    private fun sameCoords(a: BlockPos, b: BlockPos): Boolean =
+        a.x == b.x && a.y == b.y && a.z == b.z
 }

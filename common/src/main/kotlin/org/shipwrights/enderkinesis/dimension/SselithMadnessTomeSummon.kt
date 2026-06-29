@@ -29,33 +29,13 @@ import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEffects
 
 /**
- * The Cataloger's tome-summon flourish, applied to **players** under
- * the effects of Sselith Madness:
+ * Player-side gift flourish under Sselith Madness, in-Repertory only: random per-tick roll
+ * picks a dart-style raycast to a Sselith bookshelf, locks the camera there for
+ * [STARE_DURATION_TICKS] via [ClientboundPlayerLookAtPacket], then drops one [PICKABLE_TOMES_TAG]
+ * tome the player doesn't already own into their inventory.
  *
- *  - **Where**: only inside Sselith's Repertory ([SselithRepertory]).
- *  - **Trigger**: per-tick random roll at 1/[TRIGGER_DENOMINATOR],
- *    gated by a post-summon cooldown. Active any time the player has
- *    a non-zero Sselith Madness level.
- *  - **Target pick**: a dart-style raycast from the player's eye in a
- *    random direction (full yaw, ±[PITCH_RANGE_DEG] pitch). Must
- *    hit a Sselith bookshelf within [TRACE_DISTANCE] blocks or the
- *    attempt is wasted (the player resumes whatever they were doing).
- *  - **Stare**: on a successful raycast, the player enters a
- *    [STARE_DURATION_TICKS]-tick stare phase — every tick a
- *    [ClientboundPlayerLookAtPacket] is sent so the camera is held
- *    onto the bookshelf, and a few glyph particles are sown around
- *    the shelf so the player can see Sselith working. The stare gives
- *    the gift a visible cause.
- *  - **Delivery**: at the end of the stare we pick a random item from
- *    [PICKABLE_TOMES_TAG] that the player doesn't already carry,
- *    place it in the first empty slot, and play a final particle puff
- *    + page-turn sound at the shelf and the player. If the player's
- *    inventory has no room, or every eligible tome is already owned,
- *    the gift is skipped silently.
- *
- * Server-only state. Cleared on logout, dimension change, death, or
- * loss of the Sselith Madness effect — the stare aborts cleanly if
- * the player leaves Sselith mid-summon.
+ * Server-only state, cleared on logout / dimension change / death / effect loss — the stare
+ * aborts cleanly if the player leaves mid-summon.
  */
 object SselithMadnessTomeSummon {
 
@@ -142,7 +122,10 @@ object SselithMadnessTomeSummon {
 
         val inSselith = level.dimension() == SselithRepertory.LEVEL_KEY
         val amp = player.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: -1
-        val eligible = inSselith && amp >= 0
+        // Amplifier convention: amp 0 = level 1, amp 2 = level 3. The tome summon is
+        // a late-stage Madness gift; we gate at level 3+ so it doesn't fire for players
+        // who've only briefly touched the effect.
+        val eligible = inSselith && amp >= MIN_MADNESS_AMPLIFIER
         // Log eligibility transitions once each so a player going
         // through Sselith sees confirmation that the tick loop is
         // running and they're in the candidate pool.
@@ -544,6 +527,13 @@ object SselithMadnessTomeSummon {
      *  pass the random-direction raycast and the [COOLDOWN_AFTER_TICKS]
      *  floor. */
     private const val TRIGGER_DENOMINATOR = 1200
+
+    /** Lowest [net.minecraft.world.effect.MobEffectInstance.amplifier] of the Sselith
+     *  Madness effect at which the tome summon becomes eligible. Amplifier convention:
+     *  amp 0 = level 1, amp 2 = level 3. We gate at level 3 because the summon is a
+     *  late-stage Madness gift — players shouldn't pick one up after a brief touch
+     *  of the effect. */
+    private const val MIN_MADNESS_AMPLIFIER = 2
 
     /** Cooldown after a successful summon or a "no eligible tome"
      *  outcome. 90 s is long enough that even a player AFK in a

@@ -1,0 +1,32 @@
+{
+  "multipart": [
+    { "apply": { "model": "enderkinesis:block/ender_linkage/middle" } },
+
+    { "when": { "north": "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/north_face"   } },
+    { "when": { "south": "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/south_face"   } },
+    { "when": { "east":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/east_face"    } },
+    { "when": { "west":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/west_face"    } },
+    { "when": { "up":    "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/up_face"      } },
+    { "when": { "down":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/down_face"    } },
+
+    { "when": { "north": "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/middle_north" } },
+    { "when": { "south": "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/middle_south" } },
+    { "when": { "east":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/middle_east"  } },
+    { "when": { "west":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/middle_west"  } },
+    { "when": { "up":    "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/middle_up"    } },
+    { "when": { "down":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/middle_down"  } },
+
+    { "when": { "north": "true", "east":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/north_east" } },
+    { "when": { "north": "true", "west":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/north_west" } },
+    { "when": { "north": "true", "up":    "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/north_up"   } },
+    { "when": { "north": "true", "down":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/north_down" } },
+    { "when": { "south": "true", "east":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/south_east" } },
+    { "when": { "south": "true", "west":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/south_west" } },
+    { "when": { "south": "true", "up":    "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/south_up"   } },
+    { "when": { "south": "true", "down":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/south_down" } },
+    { "when": { "east":  "true", "up":    "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/east_up"    } },
+    { "when": { "east":  "true", "down":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/east_down"  } },
+    { "when": { "west":  "true", "up":    "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/west_up"    } },
+    { "when": { "west":  "true", "down":  "true" }, "apply": { "model": "enderkinesis:block/ender_linkage/west_down"  } }
+  ]
+}

@@ -18,11 +18,14 @@ import org.shipwrights.enderkinesis.client.CatalogerTomeWorldRenderer
 import org.shipwrights.enderkinesis.client.EnderkinesisModClient
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer
 import org.shipwrights.enderkinesis.client.SselithDimensionEffects
+import org.shipwrights.enderkinesis.client.SureibjinDimensionEffects
 import org.shipwrights.enderkinesis.client.WohlonnogondoniaDimensionEffects
 import org.shipwrights.enderkinesis.client.WyllandTomeBEWLR
+import net.fabricmc.fabric.api.client.rendering.v1.ArmorRenderer
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
 import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
 import org.shipwrights.enderkinesis.client.model.PrismaticGoatModel
+import org.shipwrights.enderkinesis.client.model.TightRobeArmorModel
 import org.shipwrights.enderkinesis.registry.EKItems
 
 class EnderkinesisModFabricClient : ClientModInitializer {
@@ -57,6 +60,42 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             PrismaticGoatModel.createBodyLayer()
         }
 
+        // Tight-fit robe armor — two HumanoidModel bakes at CubeDeformation(0.15f) instead
+        // of vanilla's 0.5/1.0, plus an ArmorRenderer registration for every robe item so
+        // the model is swapped in at render time. Forge picks up the namespaced texture
+        // path via ScalingRobeArmorItem.getArmorTexture; no per-loader Forge wiring needed.
+        EntityModelLayerRegistry.registerModelLayer(TightRobeArmorModel.INNER_LAYER) {
+            TightRobeArmorModel.createInnerLayer()
+        }
+        EntityModelLayerRegistry.registerModelLayer(TightRobeArmorModel.OUTER_LAYER) {
+            TightRobeArmorModel.createOuterLayer()
+        }
+        // Standalone witch-hat layer — baked at 128×128 to match the artist's
+        // Blockbench texture atlas. Rendered as a second pass on top of the
+        // Blue Witch helmet by [TightRobeArmorRenderer].
+        EntityModelLayerRegistry.registerModelLayer(TightRobeArmorModel.WITCH_HAT_LAYER) {
+            TightRobeArmorModel.createWitchHatLayer()
+        }
+        val tightRobeRenderer = TightRobeArmorRenderer()
+        // Mystic Wind: tagged-item right-clicks fire a 0.1-second backward
+        // wind pulse on the wearer's robes.
+        TightRobeArmorRenderer.registerEvents(tightRobeRenderer)
+        ArmorRenderer.register(
+            tightRobeRenderer,
+            EKItems.END_CULT_HOOD.get(),
+            EKItems.END_CULT_ROBES.get(),
+            EKItems.END_CULT_ROBE_BOTTOMS.get(),
+            EKItems.END_CULT_SHOES.get(),
+            EKItems.SCHOLAR_HOOD.get(),
+            EKItems.SCHOLAR_ROBES.get(),
+            EKItems.SCHOLAR_ROBE_BOTTOMS.get(),
+            EKItems.SCHOLAR_SHOES.get(),
+            EKItems.BLUE_WITCH_HAT.get(),
+            EKItems.BLUE_WITCH_ROBES.get(),
+            EKItems.BLUE_WITCH_ROBE_BOTTOMS.get(),
+            EKItems.BLUE_WITCH_SANDALS.get(),
+        )
+
         // Register the custom Sselith DimensionSpecialEffects. The dimension_type
         // JSON declares `effects: enderkinesis:sselith_repertory`; this is what
         // resolves that ID into a usable effects instance. SkyType.NONE is the
@@ -75,6 +114,18 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         LOG.info(
             "Registered Wohlonnogondonia DimensionSpecialEffects (id={}, skyType=NORMAL, no sunset gradient)",
             wohlonEffectsId,
+        )
+
+        // Sureibjin — the dream coast. NORMAL sky for now (vanilla gradient
+        // driven by the desaturated biome palette); custom noise-flow shader
+        // is a follow-up.
+        val sureibjinEffectsId = EnderkinesisMod.id("sureibjin")
+        DimensionRenderingRegistry.registerDimensionEffects(
+            sureibjinEffectsId, SureibjinDimensionEffects()
+        )
+        LOG.info(
+            "Registered Sureibjin DimensionSpecialEffects (id={}, skyType=NONE, custom dream sky)",
+            sureibjinEffectsId,
         )
 
         // Wylland Tome — register the three open-tome sub-models so
@@ -111,6 +162,15 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             WyllandTomeBEWLR.renderByItem(stack, mode, poseStack, vertexConsumers, light, overlay)
         }
 
+        // Magic Missile — renders as the vanilla ShulkerBulletModel via [MagicMissileBEWLR].
+        BuiltinItemRendererRegistry.INSTANCE.register(
+            EKItems.MAGIC_MISSILE.get(),
+        ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
+            org.shipwrights.enderkinesis.client.MagicMissileBEWLR.renderByItem(
+                stack, mode, poseStack, vertexConsumers, light, overlay,
+            )
+        }
+
         // Cataloger tome-summon flourish — drawn from the level
         // renderer's post-entity event so it stands free of the
         // cataloger's own frustum culling. The book's quads end up in
@@ -130,6 +190,34 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             val consumers = ctx.consumers() ?: return@AfterTranslucent
             val camera = ctx.camera().position
             OrbBeamLineRenderer.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            // Magic Missile pulse-beam trails — same render-type and pipeline stage as the
+            // orb network beam so the visual reads consistently with the rest of the mod.
+            org.shipwrights.enderkinesis.client.MagicMissileTrailRenderer.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            // Crepusculite Lattice virtual sea — additive mesh over the existing particle
+            // system. Toggle via CrepusculiteLatticeMeshRenderer.enabled (default true) or
+            // delete this block to revert to the particle-only render path.
+            org.shipwrights.enderkinesis.client.CrepusculiteLatticeMeshRenderer.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            // Staff of Aegis — shield wireframe drawn at the same stage so
+            // it composites over translucent blocks and reads consistently
+            // with the particles inside.
+            org.shipwrights.enderkinesis.client.AegisClient.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            // Staff of Sundering — laser beam + tip rings + spiral. Same
+            // pass; additive blend keeps it composing over translucents.
+            org.shipwrights.enderkinesis.client.SunderingClient.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            // Echo Cannon — fading blue-green wireframe around each
+            // active beam. Same translucent-pass slot for the same
+            // compositing reasons as Aegis / Sundering.
+            org.shipwrights.enderkinesis.client.EchoCannonClient.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
         })

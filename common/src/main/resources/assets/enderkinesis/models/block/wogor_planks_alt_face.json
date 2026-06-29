@@ -1,0 +1,15 @@
+{
+  "textures": {
+    "particle": "enderkinesis:block/wogor_planks_alt",
+    "face": "enderkinesis:block/wogor_planks_alt"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to":   [16, 16, 0],
+      "faces": {
+        "north": { "uv": [0, 0, 16, 16], "texture": "#face", "cullface": "north" }
+      }
+    }
+  ]
+}

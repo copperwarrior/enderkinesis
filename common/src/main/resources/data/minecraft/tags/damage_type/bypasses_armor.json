@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    "enderkinesis:light_damage",
+    "enderkinesis:light_damage_sunburnt",
+    "enderkinesis:light_damage_dark"
+  ]
+}

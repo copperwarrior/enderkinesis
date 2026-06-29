@@ -27,30 +27,14 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.BlockEntityPhysicsListener
 
 /**
- * Backing block entity for the [ShulkerPufferBlock] thruster.
+ * Thrust direction is local `-FACING` (Newton's third — exhaust out the front, reaction
+ * into the back). [physTick] rotates it through `shipToWorldRotation` and hands it to
+ * [PhysShip.applyWorldForceToModelPos] at the block's shipyard position, so off-axis
+ * puffers naturally produce torque (VS2 derives linear + angular from off-COM application).
  *
- *  ## Responsibilities (game-tick side, via [serverTick])
- *
- *  - Refresh [cachedPower] / [cachedFacing] from the blockstate (volatile, so [physTick] on
- *    the physics thread sees them).
- *  - Burn through the dragon's breath slot: when powered and out of fuel ticks, consume one
- *    item from the slot and reset [fuelTicks] to [FUEL_TICKS_PER_DOSE]. Drain one fuel tick
- *    per game tick while powered.
- *  - Emit dragon's-breath particles out the nozzle, denser/faster when fuelled.
- *
- *  ## Responsibilities (physics-tick side, via [physTick])
- *
- *  Apply a body-frame thrust force at the puffer's shipyard position. The local thrust
- *  direction is `-FACING` (Newton's third — exhaust out the front face, reaction into the
- *  back). Magnitude is `MAX_FORCE × (power / 15) × (fueled ? FUEL_BOOST : 1)`. The local
- *  direction is rotated through `shipToWorldRotation` to a world-frame vector, then handed
- *  to [PhysShip.applyWorldForceToModelPos] alongside the block's shipyard position — VS2
- *  computes the resulting linear + torque effect from off-COM application internally, so
- *  off-axis puffers naturally rotate the ship.
- *
- *  Setup: like [VoidHarnessBlockEntity], VS2's `MixinLevelChunk` auto-registers any
- *  [BlockEntityPhysicsListener] on chunk load, so the BE only has to *be* one — no explicit
- *  attach/detach.
+ * Caches [cachedPower]/[cachedFacing] as volatiles in [serverTick] for the phys thread to
+ * read. Auto-attached: VS2's `MixinLevelChunk` registers any [BlockEntityPhysicsListener]
+ * on chunk load, so being one is sufficient — no explicit attach/detach.
  */
 @OptIn(PhysTickOnly::class, VsBeta::class)
 class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
@@ -195,7 +179,16 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
         physShip.transform.shipToWorldRotation.transform(worldThrust)
 
         val baseMag = MAX_FORCE * (power / 15.0)
-        val mag = if (cachedFueled) baseMag * FUEL_BOOST else baseMag
+        val rawMag = if (cachedFueled) baseMag * FUEL_BOOST else baseMag
+        // Block-sourced forces scale as scale³ — VS2's fluid drag is
+        // cross-section-aware (∝ scale²), so a linear (× scale) multiplier
+        // gives drag-divided steady-state velocity ∝ 1/scale (smaller ships
+        // fly faster, bigger sluggish). Cubic scaling cancels that and the
+        // ship-lengths-per-second the wielder sees stays constant across
+        // any Staff-of-Scales setting. Same conclusion ZPL reaches the
+        // other way (mass ∝ scale³ + force ∝ scale⁴).
+        val s = physShip.transform.shipToWorldScaling.x()
+        val mag = rawMag * s * s * s
 
         // Apply at the block's shipyard centre. Off-COM application produces a torque, which
         // is what makes a puffer mounted away from the ship's centre naturally rotate it —
@@ -304,7 +297,6 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
         )
     }
 
-    // --- Container (single-slot fuel inventory) --------------------------------------------
 
     override fun getContainerSize(): Int = 1
     override fun isEmpty(): Boolean = items.all { it.isEmpty }
@@ -327,7 +319,6 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
     override fun canPlaceItem(slot: Int, stack: ItemStack): Boolean =
         stack.`is`(Items.DRAGON_BREATH)
 
-    // --- NBT --------------------------------------------------------------------------------
 
     override fun saveAdditional(tag: CompoundTag) {
         super.saveAdditional(tag)

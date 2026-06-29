@@ -88,6 +88,18 @@ class CrepusculiteLatticeForceInducer(
         val transform = physShip.transform
         val s2w = transform.shipToWorld
         val com = transform.positionInShip
+        // Block-sourced scale³ multiplier — keeps ship-lengths-per-second
+        // constant across Staff-of-Scales settings against VS2's scale²
+        // cross-section drag.
+        val s1 = transform.shipToWorldScaling.x()
+        val hostScale = s1 * s1 * s1
+
+        // Block half-height in world units = `0.5 * s1` — a hard-coded `0.5` reports a
+        // half-submerged block on a 2× ship as fully submerged (world-Y bottom is 0.5 below
+        // centre, not 1.0). `submergeRamp` is also a block-unit depth, so it scales by `s1`
+        // for partial buoyancy to span the same fraction of the scaled block.
+        val blockHalfHeight = 0.5 * s1
+        val scaledSubmergeRamp = submergeRamp * s1
 
         // Centre of mass in world space, plus the ship's world linear/angular velocity, so each
         // block's local point velocity v_p = v + ω × (blockWorld − comWorld) can be damped.
@@ -110,8 +122,10 @@ class CrepusculiteLatticeForceInducer(
             // The water line follows the Gerstner surface at this block's world XZ — the exact
             // same field the visual particles ride (shared params + game time = perfectly synced).
             val surfaceY = waterLineY + GerstnerOcean.heightAt(world.x, world.z, waveTime, waveIntensity)
-            // Softened submersion ramp (lower stiffness -> dampable).
-            val frac = ((surfaceY - (world.y - 0.5)) / submergeRamp).coerceIn(0.0, 1.0)
+            // Softened submersion ramp (lower stiffness -> dampable). Both block half-height
+            // and ramp depth scale with `s1` so a scaled block submerges across the same
+            // fraction of its own size as a unit block does.
+            val frac = ((surfaceY - (world.y - blockHalfHeight)) / scaledSubmergeRamp).coerceIn(0.0, 1.0)
             if (frac <= 0.0) continue
             submerged++
 
@@ -126,11 +140,12 @@ class CrepusculiteLatticeForceInducer(
             val rotZ = omega.x() * rwy - omega.y() * rwx
 
             // Buoyancy up + linear drag + angular drag, all applied at this block position.
-            val dLin = -dragCoefficient * frac
-            val dAng = -angularDragCoefficient * frac
+            // Scaled by host ship's scale (block-sourced output grows with the block).
+            val dLin = -dragCoefficient * frac * hostScale
+            val dAng = -angularDragCoefficient * frac * hostScale
             val force = Vector3d(
                 vel.x() * dLin + rotX * dAng,
-                fluidDensity * GRAVITY * frac + vel.y() * dLin + rotY * dAng,
+                fluidDensity * GRAVITY * frac * hostScale + vel.y() * dLin + rotY * dAng,
                 vel.z() * dLin + rotZ * dAng,
             )
             val rel = Vector3d(cx - com.x(), cy - com.y(), cz - com.z())

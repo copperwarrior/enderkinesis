@@ -1,0 +1,20 @@
+{
+  "variants": {
+    "powered=false": [
+      {
+        "model": "enderkinesis:block/wogor_pressure_plate"
+      },
+      {
+        "model": "enderkinesis:block/wogor_pressure_plate_alt"
+      }
+    ],
+    "powered=true": [
+      {
+        "model": "enderkinesis:block/wogor_pressure_plate_down"
+      },
+      {
+        "model": "enderkinesis:block/wogor_pressure_plate_down_alt"
+      }
+    ]
+  }
+}

@@ -4,30 +4,31 @@ import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.tags.ItemTags
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.EquipmentSlot
+import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.ai.attributes.AttributeModifier
 import net.minecraft.world.entity.ai.attributes.Attributes
 import net.minecraft.world.item.ArmorItem
 import net.minecraft.world.item.ArmorMaterial
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.crafting.Ingredient
+import net.minecraft.world.item.enchantment.Enchantment
 import net.minecraft.world.item.enchantment.EnchantmentHelper
 import net.minecraft.world.item.enchantment.Enchantments
 import net.minecraft.world.level.Level
 import java.util.UUID
 
 /**
- * Per-realm armor material. The material `name` doubles as the worn-armor texture key —
- * vanilla `HumanoidArmorLayer` builds the path as
- * `(minecraft:)textures/models/armor/{name}_layer_{1|2}.png`, so we ship pre-coloured
- * placeholder PNGs at those exact paths under the mod's `assets/minecraft/...` overlay.
- * No DyeableArmorItem / runtime tint involved.
+ * The material `name` feeds the worn-armor texture lookup. Textures live at
+ * `assets/enderkinesis/textures/models/armor/{name}_layer_{1|2}.png`; on Forge the path
+ * is returned via [ScalingRobeArmorItem.getArmorTexture], and Fabric's
+ * `TightRobeArmorRenderer` builds the same path explicitly.
  *
- *  - **Defense per type = 0** — [ScalingRobeArmorItem] writes ARMOR / ARMOR_TOUGHNESS
- *    attribute modifiers into the stack's NBT every inventory tick based on the current
- *    enchantment score, so the material's static defense would just stack on top.
- *  - **Enchantment value = 30** — higher than gold (25) and netherite (15). The whole
- *    armour-scaling design relies on robes soaking enchantments well.
- *  - **Repair = any-colour wool** — per spec; uses the vanilla `minecraft:wool` item tag.
+ *  - **Defense per type = 0** — [ScalingRobeArmorItem] writes the real values into NBT
+ *    every inventory tick based on enchantment score.
+ *  - **Enchantment value = 30** — higher than gold (25) and netherite (15). Robes are
+ *    designed to soak enchantments.
+ *  - **Repair = any-colour wool** — vanilla `minecraft:wool` item tag.
  */
 class RobeArmorMaterial(private val materialName: String) : ArmorMaterial {
     override fun getDurabilityForType(type: ArmorItem.Type): Int = when (type) {
@@ -45,31 +46,35 @@ class RobeArmorMaterial(private val materialName: String) : ArmorMaterial {
     override fun getKnockbackResistance(): Float = 0f
 
     companion object {
-        /** Ygann End Cult — name keys the `end_cult_layer_{1,2}.png` worn-armor textures. */
         val END_CULT = RobeArmorMaterial("end_cult")
-        /** Sselith Scholar. */
         val SCHOLAR = RobeArmorMaterial("scholar")
-        /** Wohlon Blue Witch. */
         val BLUE_WITCH = RobeArmorMaterial("blue_witch")
     }
 }
 
 /**
- * Armour whose ARMOR and ARMOR_TOUGHNESS attribute modifiers are derived from the stack's
- * enchantments. The score walks linearly:
+ * Armour whose ARMOR + ARMOR_TOUGHNESS scale with the wearer's combined enchantment
+ * score across every worn piece AND every Curios/Trinkets accessory:
  *
  * ```
- * score 0.0 → "just below leather" (LEATHER_DEFENSE[type] − 1, toughness 0)
- * score 1.0 → "netherite tier"     (NETHERITE_DEFENSE[type], toughness 3)
- * score 1.5 → 1.5× netherite       (NETHERITE_DEFENSE[type] × 1.5, toughness 4.5)
- * score >1.5 → capped at the 1.5× values
+ * s = 0.0 → leather − 1   (toughness 0)
+ * s = 1.0 → netherite     (toughness 3)
+ * s = 1.5 → 1.5× nether   (toughness 4.5, old hard-cap point)
+ * s → ∞   → 2× netherite  (asymptote past 1.5; diminishing returns, no hard cap)
  * ```
  *
- * **Why the NBT round-trip:** vanilla 1.20.1's `Item.getDefaultAttributeModifiers` takes
- * only the slot, not the stack — there's no clean per-stack hook. Writing the modifiers
- * to the stack's `AttributeModifiers` NBT makes `ItemStack.getAttributeModifiers` return
- * our dynamic values; we keep the NBT in sync via [inventoryTick], cached against a
- * stored score so we only rewrite when the enchantment loadout actually changes.
+ * Score = mean per-piece `sum(level/maxLevel)/numEnchants` against a reference set: armour
+ * uses the slot-specific [HEAD_MAX]/[CHEST_MAX]/[LEGS_MAX]/[FEET_MAX] map ([FEET_EITHER]
+ * picks Depth-Strider-or-Frost-Walker); accessories use the generic [GENERIC_MAX].
+ *
+ * Accessory inputs come through [AccessoryGatherer] — common stays free of Curios/Trinkets
+ * symbols; each loader's compat module registers a gatherer closure under a
+ * `Platform.isModLoaded` guard. With no provider, score falls back to the four armour slots.
+ *
+ * NBT round-trip: 1.20.1's `Item.getDefaultAttributeModifiers` takes only the slot, no
+ * per-stack hook — so we write modifiers to the stack's `AttributeModifiers` tag in
+ * [inventoryTick], cached against the stored score to skip rewrites when the loadout
+ * hasn't changed.
  */
 class ScalingRobeArmorItem(
     material: ArmorMaterial,
@@ -83,14 +88,24 @@ class ScalingRobeArmorItem(
         // Server-only. The client receives the NBT changes via the stack sync from the
         // server side; running on both would just race.
         if (level.isClientSide) return
-        syncAttributeModifiers(stack)
+        if (entity !is LivingEntity) return
+        syncAttributeModifiers(stack, entity)
+    }
+
+    /** Forge `IItemExtension.getArmorTexture` shim — invoked by `HumanoidArmorLayer`.
+     *  Fabric uses [org.shipwrights.enderkinesis.fabric.client.TightRobeArmorRenderer] which
+     *  builds the same path independently. */
+    @Suppress("unused")
+    fun getArmorTexture(stack: ItemStack, entity: Entity, slot: EquipmentSlot, type: String?): String {
+        val layer = if (slot == EquipmentSlot.LEGS) 2 else 1
+        return "enderkinesis:textures/models/armor/${material.name}_layer_$layer.png"
     }
 
     /** Recompute the enchantment score and rewrite the ARMOR/ARMOR_TOUGHNESS modifier
      *  NBT iff the score has shifted from what we last wrote. Cached score lives under
      *  [SCORE_NBT_KEY] so the no-op path is cheap. */
-    private fun syncAttributeModifiers(stack: ItemStack) {
-        val score = enchantmentScore(this.type, stack)
+    private fun syncAttributeModifiers(stack: ItemStack, wearer: LivingEntity) {
+        val score = combinedEnchantmentScore(wearer)
         val tag = stack.tag
         // No-op if we've already written modifiers for an equivalent score (the small
         // epsilon absorbs floating-point drift). Without this check every inventory tick
@@ -127,8 +142,12 @@ class ScalingRobeArmorItem(
         private const val SCORE_NBT_KEY = "EkRobeScore"
         /** Score deltas under this don't trigger a NBT rewrite — kills idle thrash. */
         private const val SCORE_EPSILON = 0.001
-        /** Hard cap on the input score; anything above maps to the same final stats. */
-        private const val MAX_SCORE: Double = 1.5
+        /**
+         * Diminishing-returns rate past the old `1.5 × netherite` cap point. `k = 2` keeps
+         * the slope continuous at s = 1.5 — the linear segment between s = 1 and s = 1.5
+         * climbs at rate `N` per score unit, and `2 · (0.5 N) = N` matches that exactly.
+         */
+        private const val DIMINISH_K: Double = 2.0
 
         /** Vanilla's per-type armour-modifier UUIDs. Reusing them means the AttributeMap
          *  diff/merge path treats our modifiers as the standard armour slot. */
@@ -154,32 +173,65 @@ class ScalingRobeArmorItem(
         )
         private const val NETHERITE_TOUGHNESS: Double = 3.0
 
-        /** Piecewise linear: 0 → leather − 1, 1 → netherite, 1.5 → 1.5× netherite. */
+        /**
+         * Piecewise:
+         *  - s ∈ [0, 1]   : linear (leather − 1) → netherite (slope `N − L + 1`)
+         *  - s ∈ [1, 1.5] : linear netherite → 1.5 × netherite (slope `N`, where the old
+         *                    cap used to land)
+         *  - s > 1.5      : asymptotic approach to `2 × netherite` (diminishing returns).
+         *  Slope is continuous at s = 1.5.
+         */
         private fun interpolateArmor(type: ArmorItem.Type, score: Double): Double {
-            val capped = score.coerceIn(0.0, MAX_SCORE)
+            val s = score.coerceAtLeast(0.0)
             val base = (LEATHER_DEFENSE.getValue(type) - 1).toDouble()
             val netherite = NETHERITE_DEFENSE.getValue(type).toDouble()
-            val ceiling = netherite * 1.5
-            return if (capped <= 1.0) base + (netherite - base) * capped
-            else netherite + (ceiling - netherite) * (capped - 1.0) / 0.5
+            val priorCap = 1.5 * netherite
+            return when {
+                s <= 1.0 -> base + (netherite - base) * s
+                s <= 1.5 -> netherite * s
+                else -> priorCap + 0.5 * netherite * (1.0 - Math.exp(-DIMINISH_K * (s - 1.5)))
+            }
         }
 
-        /** Same curve as armour but anchored at toughness 0 / 3 / 4.5. */
+        /** Same shape as [interpolateArmor]: linear 0 → 4.5 over s ∈ [0, 1.5], then
+         *  asymptotic approach to 6 past s = 1.5. */
         private fun interpolateToughness(score: Double): Double {
-            val capped = score.coerceIn(0.0, MAX_SCORE)
-            val ceiling = NETHERITE_TOUGHNESS * 1.5
-            return if (capped <= 1.0) NETHERITE_TOUGHNESS * capped
-            else NETHERITE_TOUGHNESS + (ceiling - NETHERITE_TOUGHNESS) * (capped - 1.0) / 0.5
+            val s = score.coerceAtLeast(0.0)
+            val priorCap = NETHERITE_TOUGHNESS * 1.5
+            return if (s <= 1.5) NETHERITE_TOUGHNESS * s
+            else priorCap + (NETHERITE_TOUGHNESS * 0.5) * (1.0 - Math.exp(-DIMINISH_K * (s - 1.5)))
         }
 
-        /** Mean contribution across the type's reference enchantment set. Each
-         *  contribution is `actualLevel / maxLevel` (uncapped — overlevel via /enchant
-         *  pushes the score past 1.0 toward the 1.5× ceiling). Either-groups contribute
-         *  the maximum of the two members so Depth-Strider-or-Frost-Walker counts as one
-         *  slot in the average rather than two. */
-        private fun enchantmentScore(type: ArmorItem.Type, stack: ItemStack): Double {
-            val singles = maxEnchantsForType(type)
-            val eitherGroups = eitherEnchantsForType(type)
+        /** Mean per-item score across every worn piece (armor + curios + trinkets),
+         *  excluding mainhand + offhand. Each item's score is computed against its slot-
+         *  appropriate reference set (or [GENERIC_MAX] for non-armor accessories). */
+        private fun combinedEnchantmentScore(wearer: LivingEntity): Double {
+            val stacks = ArrayList<ItemStack>(8)
+            // Vanilla armor: HEAD, CHEST, LEGS, FEET. Exclude hands explicitly.
+            for (slot in EquipmentSlot.values()) {
+                if (slot.type == EquipmentSlot.Type.ARMOR) {
+                    val s = wearer.getItemBySlot(slot)
+                    if (!s.isEmpty) stacks.add(s)
+                }
+            }
+            stacks.addAll(AccessoryGatherer.gather(wearer))
+            if (stacks.isEmpty()) return 0.0
+            return stacks.sumOf { stackScore(it) } / stacks.size
+        }
+
+        /** Score for a single stack — `Σ(level/max) / numEnchants` against either the
+         *  slot-specific reference map (armor pieces) or [GENERIC_MAX] (accessories). */
+        private fun stackScore(stack: ItemStack): Double {
+            val item = stack.item
+            val singles: Map<Enchantment, Int>
+            val eitherGroups: List<Map<Enchantment, Int>>
+            if (item is ArmorItem) {
+                singles = maxEnchantsForType(item.type)
+                eitherGroups = eitherEnchantsForType(item.type)
+            } else {
+                singles = GENERIC_MAX
+                eitherGroups = emptyList()
+            }
             val totalUnits = singles.size + eitherGroups.size
             if (totalUnits == 0) return 0.0
             val singleSum = singles.entries.sumOf { (ench, max) ->
@@ -204,6 +256,15 @@ class ScalingRobeArmorItem(
             ArmorItem.Type.BOOTS -> FEET_EITHER
             else -> emptyList()
         }
+
+        /** Generic reference set for curios / trinkets / non-armor worn items. Just the
+         *  durability-and-protection trio that meaningfully overlaps every accessory
+         *  type — slot-specific enchants like Aqua Affinity don't generalise. */
+        private val GENERIC_MAX = mapOf(
+            Enchantments.UNBREAKING to 3,
+            Enchantments.MENDING to 1,
+            Enchantments.ALL_DAMAGE_PROTECTION to 4,
+        )
 
         // Per-slot reference enchantment sets per the user's spec.
         private val HEAD_MAX = mapOf(
@@ -237,5 +298,46 @@ class ScalingRobeArmorItem(
         private val FEET_EITHER = listOf(
             mapOf(Enchantments.DEPTH_STRIDER to 3, Enchantments.FROST_WALKER to 2),
         )
+    }
+}
+
+/**
+ * Registration point for accessory-mod compat — Curios on Forge, Trinkets on Fabric. The
+ * common module knows nothing about either API; each platform's compat code does a
+ * `Platform.isModLoaded(...)` check at init and calls [register] with a gatherer closure
+ * that uses the platform-specific API directly (with the API added as `modCompileOnly`
+ * in that module's `build.gradle`).
+ *
+ * Empty by default — if no platform registers anything, [gather] returns an empty list
+ * and the combined enchantment score is computed solely from the four vanilla armor
+ * slots. Multiple providers can register (e.g. a single platform with both Curios and
+ * another accessory mod loaded); their stacks are concatenated.
+ *
+ * Suggested usage in a platform module:
+ * ```
+ * // forge/.../compat/curios/CuriosCompat.kt
+ * object CuriosCompat {
+ *     fun init() {
+ *         if (!Platform.isModLoaded("curios")) return
+ *         AccessoryGatherer.register { e ->
+ *             val handler = CuriosApi.getCuriosInventory(e).orElse(null) ?: return@register emptyList()
+ *             val items = handler.equippedCurios
+ *             (0 until items.slots).mapNotNull { items.getStackInSlot(it).takeUnless { s -> s.isEmpty } }
+ *         }
+ *     }
+ * }
+ * ```
+ */
+object AccessoryGatherer {
+    private val providers = ArrayList<(LivingEntity) -> List<ItemStack>>()
+
+    fun register(provider: (LivingEntity) -> List<ItemStack>) {
+        providers.add(provider)
+    }
+
+    fun gather(wearer: LivingEntity): List<ItemStack> {
+        if (providers.isEmpty()) return emptyList()
+        if (providers.size == 1) return providers[0](wearer)
+        return providers.flatMap { it(wearer) }
     }
 }

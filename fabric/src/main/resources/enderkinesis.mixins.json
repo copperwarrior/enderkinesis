@@ -2,6 +2,7 @@
   "required": true,
   "package": "org.shipwrights.enderkinesis.fabric.mixin",
   "compatibilityLevel": "JAVA_17",
+  "plugin": "org.shipwrights.enderkinesis.fabric.mixin.EnderkinesisFabricMixinPlugin",
   "mixins": [
   ],
   "client": [

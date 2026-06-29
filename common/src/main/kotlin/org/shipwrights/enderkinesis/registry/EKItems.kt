@@ -28,7 +28,15 @@ import org.shipwrights.enderkinesis.item.MysticSpinelItem
 import org.shipwrights.enderkinesis.item.RobeArmorMaterial
 import org.shipwrights.enderkinesis.item.ScalingRobeArmorItem
 import net.minecraft.world.item.ArmorItem
+import org.shipwrights.enderkinesis.item.ScrollOfSculkCatastropheItem
 import org.shipwrights.enderkinesis.item.ScrollOfUnravellingItem
+import org.shipwrights.enderkinesis.item.StaffOfAegisItem
+import org.shipwrights.enderkinesis.item.StaffOfCommandItem
+import org.shipwrights.enderkinesis.item.StaffOfConcealmentItem
+import org.shipwrights.enderkinesis.item.StaffOfDensityItem
+import org.shipwrights.enderkinesis.item.StaffOfRecitalItem
+import org.shipwrights.enderkinesis.item.StaffOfScalesItem
+import org.shipwrights.enderkinesis.item.StaffOfSunderingItem
 import org.shipwrights.enderkinesis.item.TomeOfBindingItem
 import org.shipwrights.enderkinesis.item.TomeOfChainingItem
 import org.shipwrights.enderkinesis.item.TomeOfCouplingItem
@@ -40,9 +48,11 @@ import org.shipwrights.enderkinesis.item.TomeOfFilteringItem
 import org.shipwrights.enderkinesis.item.TomeOfHingingItem
 import org.shipwrights.enderkinesis.item.TomeOfPullingItem
 import org.shipwrights.enderkinesis.item.TomeOfPushingItem
+import org.shipwrights.enderkinesis.item.TomeOfScryingItem
 import org.shipwrights.enderkinesis.item.TomeOfTransportationItem
 import org.shipwrights.enderkinesis.item.TomeOfVacuumItem
 import org.shipwrights.enderkinesis.item.TomeOfVentriloquismItem
+import org.shipwrights.enderkinesis.item.WeyyeFruitItem
 import org.shipwrights.enderkinesis.item.WyllandTomeItem
 
 /**
@@ -58,6 +68,23 @@ object EKItems {
 
     /** Raw crepusculite, smelted/used in crafting. */
     val CREPUSCULITE: RegistrySupplier<Item> = ITEMS.register("crepusculite") { Item(props()) }
+
+    /** Rod of Levitation. Right-click an entity → Levitation I for 4 s. Right-click a
+     *  block → assemble as a 1×1×1 ship that hovers 2 blocks up for 4 s then dissolves
+     *  back to a [net.minecraft.world.entity.item.FallingBlockEntity]. Left-click a ship
+     *  block → off-COM nudge in the player's look direction. See
+     *  [org.shipwrights.enderkinesis.item.RodOfLevitationItem]. */
+    val ROD_OF_LEVITATION: RegistrySupplier<Item> = ITEMS.register("rod_of_levitation") {
+        org.shipwrights.enderkinesis.item.RodOfLevitationItem(props().stacksTo(1))
+    }
+
+    /** Magic Missile — homing projectile. Right-click to fire in look direction; the primary
+     *  use case is from a dispenser. Stacks normally. See
+     *  [org.shipwrights.enderkinesis.item.MagicMissileItem] and
+     *  [org.shipwrights.enderkinesis.entity.MagicMissileEntity]. */
+    val MAGIC_MISSILE: RegistrySupplier<Item> = ITEMS.register("magic_missile") {
+        org.shipwrights.enderkinesis.item.MagicMissileItem(props())
+    }
 
     /** Crepusculite Charm — passive levitation. While in the holder's inventory and the
      *  jump key is held, lifts the player up to 5 blocks above the ground beneath them
@@ -90,6 +117,18 @@ object EKItems {
 
     /** Ancrite scrap — raw item form of the ender-metal "ancrite". */
     val ANCRITE_SCRAP: RegistrySupplier<Item> = ITEMS.register("ancrite_scrap") { Item(props()) }
+
+    /** Wey'ye fruit — fully restores hunger + saturation (even when
+     *  full) and irreversibly inflicts the permanent Ambrosial Craving
+     *  debuff. See [WeyyeFruitItem]. */
+    val WEYYE_FRUIT: RegistrySupplier<Item> =
+        ITEMS.register("weyye_fruit") { WeyyeFruitItem(props()) }
+
+    /** Java-callable accessor for [WEYYE_FRUIT.get()] — used by client
+     *  and server code that compares stack items without bouncing
+     *  through the Kotlin object's instance getter. */
+    @JvmStatic
+    fun weyyeFruit(): Item = WEYYE_FRUIT.get()
 
     /** The Almanac of Everywhere — obtained by right-clicking a lattice with a book. */
     val ALMANAC_OF_EVERYWHERE: RegistrySupplier<Item> =
@@ -179,6 +218,13 @@ object EKItems {
     val TOME_OF_DISINTEGRATION: RegistrySupplier<Item> =
         ITEMS.register("tome_of_disintegration") { TomeOfDisintegrationItem(props().stacksTo(1)) }
 
+    /** Tome of Scrying — single-use tome that converts an Orb of Linking into an
+     *  [org.shipwrights.enderkinesis.block.OrbOfScryingBlock]. The scrying orb chunkloads
+     *  its own chunk and is right-clickable to view through to the nearest other scrying
+     *  orb in the player's look direction. */
+    val TOME_OF_SCRYING: RegistrySupplier<Item> =
+        ITEMS.register("tome_of_scrying") { TomeOfScryingItem(props().stacksTo(1)) }
+
     /** Tome of Ventriloquism — sounds within 7 blocks of a SEND orb are mirrored to every
      *  linked RECEIVE orb at the same relative offset. Channels mirrored: BLOCKS, HOSTILE,
      *  NEUTRAL, PLAYERS, RECORDS, VOICE. MASTER/MUSIC/WEATHER/AMBIENT pass through unchanged. */
@@ -196,6 +242,24 @@ object EKItems {
      *  A rigid coupling rod. Refuses world↔world and same-ship. */
     val TOME_OF_COUPLING: RegistrySupplier<Item> =
         ITEMS.register("tome_of_coupling") { TomeOfCouplingItem(props().stacksTo(1)) }
+
+    // Mystic Staves — powerful single-purpose tools. Each placeholder for now; their
+    // models reference `minecraft:item/iron_sword` so they look like swords in hand and
+    // hotbar until artwork lands. Behaviour added one staff at a time (see tasks).
+    val STAFF_OF_COMMAND: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_command") { StaffOfCommandItem(props().stacksTo(1)) }
+    val STAFF_OF_CONCEALMENT: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_concealment") { StaffOfConcealmentItem(props().stacksTo(1)) }
+    val STAFF_OF_DENSITY: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_density") { StaffOfDensityItem(props().stacksTo(1)) }
+    val STAFF_OF_SCALES: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_scales") { StaffOfScalesItem(props().stacksTo(1)) }
+    val STAFF_OF_RECITAL: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_recital") { StaffOfRecitalItem(props().stacksTo(1)) }
+    val STAFF_OF_AEGIS: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_aegis") { StaffOfAegisItem(props().stacksTo(1)) }
+    val STAFF_OF_SUNDERING: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_sundering") { StaffOfSunderingItem(props().stacksTo(1)) }
 
     /** Mystic Gems — right-click triggers a 7-block-diameter themed burst centred on the
      *  holder; per-stack 10-second cooldown, item is not consumed. See [MysticGemItem]
@@ -220,8 +284,7 @@ object EKItems {
      *  ARMOR + ARMOR_TOUGHNESS from the stack's enchantments, walking from "just below
      *  leather" at zero enchantments up to 1.5× netherite at the cap. Each family has
      *  its own [RobeArmorMaterial] so the worn-armor renderer pulls the matching
-     *  pre-coloured placeholder texture (`{realm}_layer_{1,2}.png` under the mod's
-     *  `assets/minecraft/textures/models/armor/` overlay). */
+     *  `{realm}_layer_{1,2}.png` from `assets/enderkinesis/textures/models/armor/`. */
     private fun robe(name: String, mat: RobeArmorMaterial, type: ArmorItem.Type): RegistrySupplier<Item> =
         ITEMS.register(name) { ScalingRobeArmorItem(mat, type, props().stacksTo(1)) }
 
@@ -249,18 +312,34 @@ object EKItems {
             ScrollOfUnravellingItem(props().rarity(Rarity.RARE))
         }
 
+    /** Scroll of Sculk Catastrophe — single-use right-click consumable that
+     *  sculk-converts the player's immediate surroundings. Generates on the
+     *  lectern in the `sselith_specimen_sculk` structure; see
+     *  [ScrollOfSculkCatastropheItem]. */
+    val SCROLL_OF_SCULK_CATASTROPHE: RegistrySupplier<Item> =
+        ITEMS.register("scroll_of_sculk_catastrophe") {
+            ScrollOfSculkCatastropheItem(props().stacksTo(1).rarity(Rarity.RARE))
+        }
+
     val CREPUSCULITE_ORE_ITEM = blockItem("crepusculite_ore", EKBlocks.CREPUSCULITE_ORE)
     val CREPUSCULITE_BLOCK_ITEM = blockItem("crepusculite_block", EKBlocks.CREPUSCULITE_BLOCK)
     val CREPUSCULITE_GLASS_ITEM = blockItem("crepusculite_glass", EKBlocks.CREPUSCULITE_GLASS)
     val CREPUSCULITE_LATTICE_ITEM = blockItem("crepusculite_lattice", EKBlocks.CREPUSCULITE_LATTICE)
     val ENDER_ASTROLABE_ITEM = blockItem("ender_astrolabe", EKBlocks.ENDER_ASTROLABE)
+    val MAGIC_MISSILE_LAUNCHER_ITEM = blockItem("magic_missile_launcher", EKBlocks.MAGIC_MISSILE_LAUNCHER)
+    val ECHO_CANNON_ITEM = blockItem("echo_cannon", EKBlocks.ECHO_CANNON)
     val EYEROSCOPE_ITEM = blockItem("eyeroscope", EKBlocks.EYEROSCOPE)
     val PURPUR_BALLAST_ITEM = blockItem("purpur_ballast", EKBlocks.PURPUR_BALLAST)
+    val ENDER_LINKAGE_ITEM = ITEMS.register("ender_linkage") {
+        org.shipwrights.enderkinesis.item.EnderLinkageBlockItem(EKBlocks.ENDER_LINKAGE.get(), props())
+    }
     val PLANAR_ANCHOR_ITEM = blockItem("planar_anchor", EKBlocks.PLANAR_ANCHOR)
     val ANCRITE_CHAIN_ITEM = blockItem("ancrite_chain", EKBlocks.ANCRITE_CHAIN)
+    val ANCRITE_EYE_ITEM = blockItem("analog_eye", EKBlocks.ANCRITE_EYE)
     val VOID_HARNESS_ITEM = blockItem("void_harness", EKBlocks.VOID_HARNESS)
     val VOID_HOOK_ITEM = blockItem("void_hook", EKBlocks.VOID_HOOK)
     val SHULKER_PUFFER_ITEM = blockItem("shulker_puffer", EKBlocks.SHULKER_PUFFER)
+    val SHULKER_STRUT_ITEM = blockItem("shulker_strut", EKBlocks.SHULKER_STRUT)
     val AETHER_PAD_ITEM = blockItem("aether_pad", EKBlocks.AETHER_PAD)
 
     val ANCRITE_BLOCK_ITEM = blockItem("ancrite_block", EKBlocks.ANCRITE_BLOCK)
@@ -277,7 +356,13 @@ object EKItems {
     val ANCRITE_BEAM_ITEM = blockItem("ancrite_beam", EKBlocks.ANCRITE_BEAM)
 
     val SSELITH_BOOKSHELF_ITEM = blockItem("sselith_bookshelf", EKBlocks.SSELITH_BOOKSHELF)
+    val SSELITH_LANTERN_ITEM = blockItem("sselith_lantern", EKBlocks.SSELITH_LANTERN)
+    val SSELITH_LAMP_ITEM = blockItem("sselith_lamp", EKBlocks.SSELITH_LAMP)
+    val SSELITH_LADDER_ITEM = blockItem("sselith_ladder", EKBlocks.SSELITH_LADDER)
+    val SSELITH_TRAPDOOR_ITEM = blockItem("sselith_trapdoor", EKBlocks.SSELITH_TRAPDOOR)
+    val SSELITH_LECTERN_ITEM = blockItem("sselith_lectern", EKBlocks.SSELITH_LECTERN)
     val ORB_OF_LINKING_ITEM = blockItem("orb_of_linking", EKBlocks.ORB_OF_LINKING)
+    val ORB_OF_SCRYING_ITEM = blockItem("orb_of_scrying", EKBlocks.ORB_OF_SCRYING)
     val HEART_OF_THE_WILD_ITEM = blockItem("heart_of_the_wild", EKBlocks.HEART_OF_THE_WILD)
     val CRYSTAL_EXPLOSIVE_ITEM = blockItem("crystal_explosive", EKBlocks.CRYSTAL_EXPLOSIVE)
     val HEART_CANDLE_ITEM = blockItem("heart_candle", EKBlocks.HEART_CANDLE)
@@ -286,6 +371,23 @@ object EKItems {
     val WOGOR_WOOD_ITEM = blockItem("wogor_wood", EKBlocks.WOGOR_WOOD)
     val WOGOR_PLANKS_ITEM = blockItem("wogor_planks", EKBlocks.WOGOR_PLANKS)
     val WOGOR_LEAVES_ITEM = blockItem("wogor_leaves", EKBlocks.WOGOR_LEAVES)
+    val WOGOR_STAIRS_ITEM = blockItem("wogor_stairs", EKBlocks.WOGOR_STAIRS)
+    val WOGOR_SLAB_ITEM = blockItem("wogor_slab", EKBlocks.WOGOR_SLAB)
+    val WOGOR_FENCE_ITEM = blockItem("wogor_fence", EKBlocks.WOGOR_FENCE)
+    val WOGOR_FENCE_GATE_ITEM = blockItem("wogor_fence_gate", EKBlocks.WOGOR_FENCE_GATE)
+    val WOGOR_PRESSURE_PLATE_ITEM = blockItem("wogor_pressure_plate", EKBlocks.WOGOR_PRESSURE_PLATE)
+    val WOGOR_BUTTON_ITEM = blockItem("wogor_button", EKBlocks.WOGOR_BUTTON)
+
+    /** Binding Roots block item — places the pillar block, which on
+     *  player-placement registers itself with `BindingRootsMerger`'s scanner.
+     *  See [org.shipwrights.enderkinesis.block.BindingRootsBlock]. */
+    val BINDING_ROOTS_ITEM = blockItem("binding_roots", EKBlocks.BINDING_ROOTS)
+
+    // Sureibjin dream variants — see [EKBlocks.DREAM_OBSIDIAN] etc.
+    val DREAM_OBSIDIAN_ITEM = blockItem("dream_obsidian", EKBlocks.DREAM_OBSIDIAN)
+    val DREAM_CRYING_OBSIDIAN_ITEM = blockItem("dream_crying_obsidian", EKBlocks.DREAM_CRYING_OBSIDIAN)
+    val DREAM_SAND_ITEM = blockItem("dream_sand", EKBlocks.DREAM_SAND)
+
 
     /** Tag of [Instrument] records — the 19 cave-ambience variants
      *  that the prismatic-goat horn picks from. Wired to

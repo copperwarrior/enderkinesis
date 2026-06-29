@@ -3,46 +3,18 @@ package org.shipwrights.enderkinesis.client
 import net.minecraft.Util
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
-import org.shipwrights.enderkinesis.EnderkinesisMod
+import net.minecraft.client.renderer.EffectInstance
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.util.Sga
 
 /**
- * HUD overlay that plays while the local player is the subject of a tome
- * summon. Mirrors the Orb of Scrying overlay (brown radial vignette with a
- * fBm-perturbed boundary, drifting Sselith SGA glyphs, screen-space
- * refraction) but ties the whole effect to the BOOK animation rather than
- * the full summon timeline: invisible while the closed book flies out from
- * the shelf, ramps in alongside the page-opening animation at the start of
- * dwell, holds at full while the book is fully open, then ramps out during
- * the inbound flight after the book has been taken (or closed in the
- * inventory-full scenario). Only fires for the *local* player — other
- * players running summons nearby drive the world-space book renderer but
- * never the local HUD.
+ * Local-only HUD overlay for tome summon: vignette + outward-drifting SGA glyphs +
+ * screen-space refraction PostChain, all driven by a single envelope tied to the book's
+ * open/close animation (not the full summon timeline).
  *
- *  - Vignette: uses [TomeSummonRenderTypes.VIGNETTE] — a standalone copy
- *    of the scrying vignette shader with an `Intensity` uniform driven by
- *    the envelope, so the warble amplitude and the wall opacity both wind
- *    up together. At envelope=0 the shader short-circuits the noise and
- *    produces a fully transparent quad.
- *  - Glyphs: spawn at screen centre and drift outward to a deterministic
- *    per-glyph edge target — the inverse trajectory of
- *    [ScryingClient.renderSgaGlyphs] (which spawns at edges and drifts to
- *    centre). Per-glyph alpha fades in over the first 15% of its life and
- *    out over the last 15%, then is multiplied by the envelope so the
- *    whole field comes and goes with the vignette.
- *  - Refraction: a screen-space PostChain (`tome_summon_refract.json`,
- *    independent copy of the scrying one) that warps the rendered world
- *    through a per-cell Voronoi displacement and adds yellow tendrils on
- *    the cell boundaries. Loaded via [updateRefractionUniforms] each
- *    frame; its `Intensity` uniform is driven by the same envelope so the
- *    refraction strength and the tendril alpha wind up alongside the
- *    vignette. Yields to scrying if both happen to be active — vanilla
- *    only supports one PostChain at a time.
- *
- * The render-pass split (vignette at the GUI HEAD inject, glyphs at the
- * RETURN inject) matches scrying so the glyphs land above every late
- * vanilla composite and the vignette sits under chat / F3 / tooltips.
+ * Vanilla only supports one PostChain at a time, so the refraction yields to scrying when
+ * both fire. The render-pass split (vignette at GUI HEAD, glyphs at RETURN) matches
+ * scrying — keeps glyphs above late vanilla composites and the vignette below chat/F3.
  */
 object TomeSummonOverlay {
 
@@ -64,77 +36,55 @@ object TomeSummonOverlay {
         renderOutwardGlyphs(graphics, w, h, intensity)
     }
 
-    /** Drives the screen-space refraction PostChain. Called from
-     *  [org.shipwrights.enderkinesis.mixin.CameraScryingMixin] at the TAIL of
-     *  `Camera.setup` so it fires every frame regardless of HUD-hide state.
-     *  Mirrors [ScryingClient.updateRefractionUniforms] but for our own
-     *  copy of the post-effect; the [Intensity] uniform is driven from the
-     *  same envelope as the vignette and glyphs. */
-    @JvmStatic
-    fun updateRefractionUniforms(partialTick: Float) {
-        val mc = Minecraft.getInstance()
-        val player = mc.player
-        // Compute envelope first — this drives both whether we keep the
-        // PostChain loaded AND the Intensity uniform value below. Includes
-        // the post-end fade for the gift scenario where the summon state
-        // disappears while the overlay is still ramping down.
-        val intensity = if (player != null) currentEnvelopeIntensity(partialTick) else 0f
-        if (intensity <= 0.005f) {
-            ensureRefractionInactive()
-            return
-        }
-        // Scrying takes precedence — if it owns the post-effect we leave it
-        // alone rather than fight over the single PostChain slot.
-        if (ScryingClient.isActive()) {
-            ensureRefractionInactive()
-            return
-        }
-        ensureRefractionActive()
-        if (!refractionActive) return
+    /** Cached EffectInstance for the tome_summon_refract program. Lazily loaded
+     *  on the first [renderRefraction] frame the envelope is non-zero. Survives
+     *  across envelope-zero gaps so the GLSL compile doesn't repeat on every
+     *  summon — actively closed only by [closeRefractionEffect] (resource
+     *  reload, world leave). */
+    @Volatile private var refractionEffect: EffectInstance? = null
 
-        val gr = mc.gameRenderer as org.shipwrights.enderkinesis.mixin.GameRendererPostEffectInvoker
-        val chain = gr.`enderkinesis$getPostEffect`() ?: run {
-            // Something else tore down our PostChain (e.g. F4-bound mod keybind);
-            // mark inactive and let the next frame re-attach.
-            refractionActive = false
-            return
-        }
-        val passes = (chain as org.shipwrights.enderkinesis.mixin.PostChainAccessor).`enderkinesis$getPasses`()
-        val tSec = (Util.getMillis() / 1000.0).toFloat()
-        for (pass in passes) {
-            val effect = (pass as org.shipwrights.enderkinesis.mixin.PostPassAccessor).`enderkinesis$getEffect`()
-            effect.safeGetUniform("SessionTime").set(tSec)
-            effect.safeGetUniform("Intensity").set(intensity)
-        }
-        // [ConcealmentPostEffect.tick] unconditionally writes
-        // `effectActive = cloakActive` every frame on top of whatever
-        // anyone else set, so without re-asserting here our PostChain
-        // would be loaded but `GameRenderer.render` would never actually
-        // call `postEffect.process`. Mixin order is arranged so this call
-        // runs AFTER concealment's tick, making our write authoritative
-        // for the frame.
-        gr.`enderkinesis$setEffectActive`(true)
-    }
-
-    @Volatile private var refractionActive: Boolean = false
-
-    private fun ensureRefractionActive() {
-        if (refractionActive) return
-        val mc = Minecraft.getInstance()
-        try {
-            (mc.gameRenderer as org.shipwrights.enderkinesis.mixin.GameRendererPostEffectInvoker)
-                .`enderkinesis$loadEffect`(EnderkinesisMod.id("shaders/post/tome_summon_refract.json"))
-            refractionActive = true
+    private fun ensureRefractionLoaded(mc: Minecraft): EffectInstance? {
+        refractionEffect?.let { return it }
+        return try {
+            EffectInstance(mc.resourceManager, "tome_summon_refract").also { refractionEffect = it }
         } catch (t: Throwable) {
-            refractionActive = false
-            LOG.warn("Failed to load tome-summon refraction post-effect", t)
+            LOG.warn("Failed to load tome-summon refraction shader program", t)
+            null
         }
     }
 
-    private fun ensureRefractionInactive() {
-        if (!refractionActive) return
-        refractionActive = false
-        Minecraft.getInstance().gameRenderer.shutdownEffect()
+    /** Release the cached EffectInstance. No callers yet — left here as the
+     *  symmetric counterpart to [ensureRefractionLoaded] for future
+     *  resource-reload or world-leave hooks. */
+    @Suppress("unused")
+    fun closeRefractionEffect() {
+        refractionEffect?.close()
+        refractionEffect = null
+    }
+
+    /** Run one refraction pass over the current main framebuffer.
+     *
+     *  Called from [org.shipwrights.enderkinesis.mixin.LevelRendererBubblePassMixin]
+     *  at the TAIL of `LevelRenderer.renderLevel`. Skips entirely when the
+     *  envelope is at zero, or when scrying is also active — the two effects
+     *  used to share vanilla's single PostChain slot so a precedence rule was
+     *  necessary; with the direct [RefractionPass] dispatch they could in
+     *  principle compose, but visually they'd fight (both rewrite the
+     *  background via the same fragment-shader pattern), so the same yield-to-
+     *  scrying rule is retained. */
+    @JvmStatic
+    fun renderRefraction(partialTick: Float) {
+        val mc = Minecraft.getInstance()
+        if (mc.player == null) return
+        if (ScryingClient.isActive()) return
+        val intensity = currentEnvelopeIntensity(partialTick)
+        if (intensity <= 0.005f) return
+        val effect = ensureRefractionLoaded(mc) ?: return
+        val tSec = (Util.getMillis() / 1000.0).toFloat()
+        RefractionPass.run(effect) { eff ->
+            eff.safeGetUniform("SessionTime").set(tSec)
+            eff.safeGetUniform("Intensity").set(intensity)
+        }
     }
 
     private val LOG: org.slf4j.Logger =

@@ -11,7 +11,7 @@ import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.block.Block
-import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.LecternBlock
 import net.minecraft.world.level.block.entity.LecternBlockEntity
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.sselith.BookPaginator
@@ -49,7 +49,10 @@ object CatalogerScribe {
      */
     fun fileLectern(level: ServerLevel, pos: BlockPos): Boolean {
         val state = level.getBlockState(pos)
-        if (!state.`is`(Blocks.LECTERN)) return false
+        // Both vanilla `Blocks.LECTERN` and our Sselith lectern (which
+        // extends LecternBlock) qualify; instance check accepts every
+        // current and future LecternBlock subclass uniformly.
+        if (state.block !is LecternBlock) return false
         val be = level.getBlockEntity(pos) as? LecternBlockEntity ?: return false
 
         val book = be.book
@@ -88,7 +91,11 @@ object CatalogerScribe {
         // reset in setBook changes the signal) — mirrors vanilla's
         // LecternBlockEntity.bookChanged update.
         level.sendBlockUpdated(pos, state, state, Block.UPDATE_ALL)
-        level.updateNeighbourForOutputSignal(pos, Blocks.LECTERN)
+        // Refresh the comparator from whatever specific lectern block this
+        // is (vanilla or Sselith) — the comparator signal depends on the
+        // BE's page count, which doesn't care about block identity, but
+        // `updateNeighbourForOutputSignal` does pin to a specific Block.
+        level.updateNeighbourForOutputSignal(pos, state.block)
         // The Cataloger's quill on the page — vanilla has no dedicated
         // writing sound, so the cartography-table scratch (pitched down a
         // touch, jittered) reads as scratching ink onto the book.

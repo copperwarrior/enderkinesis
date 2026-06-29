@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    "enderkinesis:scholar_hood",
+    "enderkinesis:scholar_robes",
+    "enderkinesis:scholar_robe_bottoms",
+    "enderkinesis:scholar_shoes",
+    "minecraft:golden_helmet",
+    "minecraft:golden_chestplate",
+    "minecraft:golden_leggings",
+    "minecraft:golden_boots"
+  ]
+}

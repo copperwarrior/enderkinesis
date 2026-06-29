@@ -26,6 +26,13 @@ object EKParticles {
     val SPLASH: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("crepusculite_splash") { EKOceanParticleType() }
 
+    /** Short-lived foam-green dot spawned at a wave crest. The mesh renderer carries the
+     *  wave geometry now, so the original SURFACE particle's purple→foam shift is gone;
+     *  this is the standalone "white-cap" highlight that the mesh can't paint per-pixel.
+     *  Visually based on the foam-green portion of the old SURFACE particle's palette. */
+    val FOAM_CREST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("crepusculite_foam_crest") { EKOceanParticleType() }
+
     /** Ender-green recolour of vanilla `PORTAL`, used by the Planar Anchor's portal disc. Same
      *  inward-pulling motion as `PortalParticle`; only the colour tint differs. */
     val PLANAR_SPIRAL: RegistrySupplier<ParticleType<*>> =
@@ -83,11 +90,72 @@ object EKParticles {
     val WOHLON_FIREFLY: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("wohlonnogondonia_firefly") { EKOceanParticleType() }
 
+    /** Sselith Bookmoth — a single warm-yellow (#CAAD53) pixel that
+     *  flickers and flutters around a Sselith Lantern. Spawned by
+     *  [org.shipwrights.enderkinesis.block.SselithLanternBlock.animateTick]
+     *  on the client; behaviour lives in
+     *  [org.shipwrights.enderkinesis.client.SselithBookmothParticle]. */
+    val SSELITH_BOOKMOTH: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_bookmoth") { EKOceanParticleType() }
+
+    /** Tiny white sparkle inside the Staff-of-Aegis shield box. Zero
+     *  gravity / zero friction so the cloud stays contained. See
+     *  [org.shipwrights.enderkinesis.client.AegisSparkleParticle]. */
+    val AEGIS_SPARKLE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("aegis_sparkle") { EKOceanParticleType() }
+
+    /** Staff-of-Sundering stage-1 particle. Reuses vanilla's portal sprite
+     *  for the "ender wisp" silhouette, but tinted warm pale-orange (no
+     *  vanilla purple) and given a clean constant per-tick forward velocity
+     *  so the cloud streams down the beam. See
+     *  [org.shipwrights.enderkinesis.client.SunderingBeamParticle]. */
+    val SUNDERING_BEAM_PARTICLE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sundering_beam_particle") { EKOceanParticleType() }
+
+    /** Staff-of-Sundering stage 2+/3+ ring + stage-4 spiral fire particle.
+     *  Uses the vanilla flame sprite for the actual fire silhouette, has
+     *  zero motion (the rings rotate by being respawned at advancing
+     *  angular positions each tick), and lives ~5 ticks with a sin alpha
+     *  envelope. See [org.shipwrights.enderkinesis.client.SunderingFireParticle]. */
+    val SUNDERING_FIRE_PARTICLE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sundering_fire_particle") { EKOceanParticleType() }
+
+    /** Staff-of-Sundering SUNDER glyph-ring particle. Uses the SGA glyph
+     *  atlas (`minecraft:sga_a..sga_z`); the spawning caller picks the
+     *  specific letter via the `vy` slot of `addParticle`, the angular slot
+     *  via `vx`, and the particle re-derives its world position every
+     *  tick from the local player's current beam tip so the ring stays
+     *  locked to the staff as the player turns. See
+     *  [org.shipwrights.enderkinesis.client.SunderingGlyphParticle]. */
+    val SUNDERING_GLYPH_PARTICLE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sundering_glyph_particle") { EKOceanParticleType() }
+
+    /** Magic-missile detonation spark. Identical lifecycle to vanilla
+     *  `FireworkParticles.SparkParticle` (firework sprite atlas, gravity 0.004,
+     *  ~48-60-tick life, alpha + colour fade in the second half) but with the
+     *  fade direction hard-coded to MagicMissileTrailRenderer's OUTLINE → GLOW
+     *  pink palette so the burst reads as the same beam that produced the
+     *  streak. See [org.shipwrights.enderkinesis.client.MissileBurstSparkParticle]. */
+    val MISSILE_BURST_SPARK: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("missile_burst_spark") { EKOceanParticleType() }
+
+    /** Magic-missile detonation flash. Verbatim port of vanilla
+     *  `FireworkParticles.OverlayParticle` (4-tick life, size grows then shrinks on a
+     *  sin curve, alpha ramps down), tinted with the OUTLINE pink so the bright pop
+     *  reads as the same beam. Vanilla `ParticleTypes.FLASH` can't carry a colour
+     *  through a `SimpleParticleType`, so we register our own. See
+     *  [org.shipwrights.enderkinesis.client.MissileBurstFlashParticle]. */
+    val MISSILE_BURST_FLASH: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("missile_burst_flash") { EKOceanParticleType() }
+
+
     fun ocean(): EKOceanParticleType = OCEAN.get() as EKOceanParticleType
 
     fun oceanDeep(): EKOceanParticleType = OCEAN_DEEP.get() as EKOceanParticleType
 
     fun splash(): EKOceanParticleType = SPLASH.get() as EKOceanParticleType
+
+    fun foamCrest(): EKOceanParticleType = FOAM_CREST.get() as EKOceanParticleType
 
     fun planarSpiral(): EKOceanParticleType = PLANAR_SPIRAL.get() as EKOceanParticleType
 
@@ -104,6 +172,21 @@ object EKParticles {
     fun sselithGlyph(): EKOceanParticleType = SSELITH_GLYPH.get() as EKOceanParticleType
 
     fun wohlonFirefly(): EKOceanParticleType = WOHLON_FIREFLY.get() as EKOceanParticleType
+
+    fun sselithBookmoth(): EKOceanParticleType = SSELITH_BOOKMOTH.get() as EKOceanParticleType
+
+    fun aegisSparkle(): EKOceanParticleType = AEGIS_SPARKLE.get() as EKOceanParticleType
+
+    fun sunderingBeamParticle(): EKOceanParticleType = SUNDERING_BEAM_PARTICLE.get() as EKOceanParticleType
+
+    fun sunderingFireParticle(): EKOceanParticleType = SUNDERING_FIRE_PARTICLE.get() as EKOceanParticleType
+
+    fun sunderingGlyphParticle(): EKOceanParticleType = SUNDERING_GLYPH_PARTICLE.get() as EKOceanParticleType
+
+    fun missileBurstSpark(): EKOceanParticleType = MISSILE_BURST_SPARK.get() as EKOceanParticleType
+
+    fun missileBurstFlash(): EKOceanParticleType = MISSILE_BURST_FLASH.get() as EKOceanParticleType
+
 
     fun register() = PARTICLES.register()
 }

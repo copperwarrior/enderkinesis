@@ -9,12 +9,17 @@ import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.util.Mth
+import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.item.MapItem
+import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import net.minecraft.world.phys.HitResult
+import net.minecraft.world.phys.Vec3
 import org.joml.Quaterniondc
 import org.joml.Vector3d
 import org.joml.primitives.AABBd
@@ -49,7 +54,8 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 @OptIn(PhysTickOnly::class, VsBeta::class)
 class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.EYEROSCOPE.get(), pos, state),
-    BlockEntityPhysicsListener {
+    BlockEntityPhysicsListener,
+    Commandable {
 
     @Volatile override lateinit var dimension: DimensionId
 
@@ -60,6 +66,16 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         private set
 
     @Volatile private var compassPinPos: BlockPos? = null
+
+    /** World-frame target point set by the Staff of Command's block-hit branch. When
+     *  non-null, [physTick] recomputes the steer yaw every tick from the current
+     *  eyeroscope world position to this point — the same dynamic pattern compass-pin
+     *  uses. A static yaw would freeze at command time and drift as the ship rotated
+     *  the eyeroscope's world position around the COM, which is what produced the
+     *  "aims off, inconsistent error" symptom. Cleared by compass insert, ledger
+     *  insert, right-click empty-hand (static-yaw override), and the staff's no-hit
+     *  fallback. Persists across save/load. */
+    @Volatile private var staffPinWorld: Vec3? = null
 
     private var nextPinRefreshTick: Long = 0L
 
@@ -174,7 +190,59 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         staticTargetPitchRad = if (upgraded) pitchRad else 0f
         cachedTargetYawRad = yawRad
         cachedTargetPitchRad = staticTargetPitchRad
+        staffPinWorld = null   // explicit static heading overrides any prior staff pin
         syncAfterChange()
+    }
+
+    /** Staff of Command implementation. Default (empty off-hand): clip a ray from the
+     *  wielder's eye in their look direction. If it hits a block, latch the hit world
+     *  point as a **dynamic pin** ([staffPinWorld]) — [physTick] recomputes the steer
+     *  yaw every tick from the eyeroscope's current world position, so the heading
+     *  stays accurate as the ship rotates the eyeroscope around its COM. If the ray
+     *  misses, fall back to a static yaw matching the wielder's look direction (the
+     *  same semantic as right-clicking the eyeroscope empty-handed). Future off-hand
+     *  modes are gated by the [contextStack] check below.
+     *
+     *  Why dynamic rather than a frozen yaw: storing one yaw at command time only works
+     *  when the eyeroscope sits exactly on the ship COM. Anywhere else, ship rotation
+     *  translates the eyeroscope's world position, and the angle it needs to face the
+     *  same world point drifts — which is the "aims off, error not consistent" symptom
+     *  the original frozen-yaw implementation produced. The compass-pin mode handles
+     *  the same problem by tracking a world position and recomputing yaw every tick;
+     *  the staff hits pin shares that machinery. */
+    override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
+        if (!contextStack.isEmpty) return  // reserved for future off-hand-driven modes
+        val serverLevel = level as? ServerLevel ?: return
+
+        // 256-block reach raycast. clip()'s BlockHitResult is mixed-frame on VS2 ship
+        // blocks, but .location is always world coords — that's what we latch.
+        val eye = player.getEyePosition(1f)
+        val look = player.getViewVector(1f)
+        val end = eye.add(look.scale(256.0))
+        val hit = serverLevel.clip(
+            ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player),
+        )
+
+        if (hit.type == HitResult.Type.BLOCK) {
+            staffPinWorld = hit.location
+            // Pin overrides any prior static yaw; cachedTargetYawRad goes NaN so the
+            // physTick branch order picks the pin path. (setStaticTargetYaw would
+            // overwrite this; we intentionally don't call it here.)
+            staticTargetYawRad = Float.NaN
+            cachedTargetYawRad = Float.NaN
+            staticTargetPitchRad = 0f
+            cachedTargetPitchRad = 0f
+            syncAfterChange()
+            return
+        }
+
+        // Ray missed every block — fall back to the wielder's look direction.
+        // VS2 mixes ship rotation into Player.getLookAngle, so this is world-frame
+        // even when the wielder is standing on a turned ship. setStaticTargetYaw
+        // clears [staffPinWorld] internally so a previous staff pin is dropped.
+        val yawRad = Math.atan2(-look.x, look.z).toFloat()
+        val pitchRad = Math.asin(-look.y).toFloat()
+        setStaticTargetYaw(yawRad, pitchRad)
     }
 
     /** Echo-shard right-click. No-op if already upgraded so a second shard isn't silently
@@ -193,6 +261,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     fun insertCompass(stack: ItemStack, pinned: BlockPos) {
         compassStack = stack
         compassPinPos = pinned
+        staffPinWorld = null                               // compass-pin overrides any staff pin
         nextPinRefreshTick = 0L                            // refresh on the very next serverTick
         cachedPinShip = null                               // force resolution on next resolver pass
         // Don't touch cachedTargetYawRad here — pin-mode physTick computes its own target from
@@ -208,6 +277,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     fun insertLedger(stack: ItemStack) {
         compassStack = stack
         compassPinPos = null
+        staffPinWorld = null
         cachedPinShip = null
         nextPinRefreshTick = 0L
         lastPhysInDeadZone = false
@@ -222,6 +292,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     fun insertHuntingLedger(stack: ItemStack, placer: java.util.UUID?) {
         compassStack = stack
         compassPinPos = null
+        staffPinWorld = null
         cachedPinShip = null
         nextPinRefreshTick = 0L
         lastPhysInDeadZone = false
@@ -827,6 +898,31 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
                 }
             }
 
+            // Staff-of-Command pin mode — same dynamic-yaw pattern the compass pin uses,
+            // but the target is a raw world point captured by the staff's raycast hit
+            // (no owning-ship tracking, no game-tick refresh cycle). Recomputing every
+            // physics tick from the eyeroscope's current world position is what keeps
+            // the heading accurate while the ship rotates.
+            val staff = staffPinWorld
+            if (staff != null) {
+                val myWorld = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
+                physShip.transform.shipToWorld.transformPosition(myWorld)
+                val dx = staff.x - myWorld.x
+                val dy = staff.y - myWorld.y
+                val dz = staff.z - myWorld.z
+                val horizDistSq = dx * dx + dz * dz
+                if (horizDistSq >= pdDeadZoneSq()) {
+                    val targetYaw = Math.atan2(-dx, dz).toFloat()
+                    if (upgraded) {
+                        val targetPitch = Math.atan2(-dy, Math.sqrt(horizDistSq)).toFloat()
+                        physTick3Axis(physShip, targetYaw, targetPitch, powerScale)
+                    } else {
+                        physTickYawOnly(physShip, targetYaw, powerScale)
+                    }
+                }
+                return
+            }
+
             // Static yaw mode — cached target was stamped from a player look on the game
             // thread; physics tick just reads it.
             val staticYaw = cachedTargetYawRad
@@ -1045,6 +1141,9 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         compassPinPos?.let {
             tag.putInt("PinX", it.x); tag.putInt("PinY", it.y); tag.putInt("PinZ", it.z)
         }
+        staffPinWorld?.let {
+            tag.putDouble("StaffPinX", it.x); tag.putDouble("StaffPinY", it.y); tag.putDouble("StaffPinZ", it.z)
+        }
         huntingLedgerPlacer?.let { tag.putUUID("HuntingPlacer", it) }
     }
 
@@ -1056,6 +1155,9 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         compassStack = if (tag.contains("Compass")) ItemStack.of(tag.getCompound("Compass")) else ItemStack.EMPTY
         compassPinPos = if (tag.contains("PinX")) {
             BlockPos(tag.getInt("PinX"), tag.getInt("PinY"), tag.getInt("PinZ"))
+        } else null
+        staffPinWorld = if (tag.contains("StaffPinX")) {
+            Vec3(tag.getDouble("StaffPinX"), tag.getDouble("StaffPinY"), tag.getDouble("StaffPinZ"))
         } else null
         huntingLedgerPlacer = if (tag.hasUUID("HuntingPlacer")) tag.getUUID("HuntingPlacer") else null
         // In static mode, the cache is just the static yaw. In compass mode, leave it NaN

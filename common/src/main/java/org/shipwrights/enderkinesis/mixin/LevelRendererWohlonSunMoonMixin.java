@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.Slice;
 /**
  * Swaps the sun and moon textures inside
  * {@link LevelRenderer#renderSky LevelRenderer.renderSky} for
- * {@code enderkinesis:textures/wogor_eye.png} while the live dimension is
+ * {@code enderkinesis:textures/environment/wogor_eye.png} while the live dimension is
  * {@link Wohlonnogondonia}.
  *
  * <p>Vanilla binds the sun/moon textures via two
@@ -42,7 +42,7 @@ public abstract class LevelRendererWohlonSunMoonMixin {
     @Shadow @Nullable private ClientLevel level;
 
     private static final ResourceLocation ENDERKINESIS$WOGOR_EYE =
-        new ResourceLocation("enderkinesis", "textures/wogor_eye.png");
+        new ResourceLocation("enderkinesis", "textures/environment/wogor_eye.png");
 
     private static final ResourceLocation ENDERKINESIS$VANILLA_SUN =
         new ResourceLocation("textures/environment/sun.png");

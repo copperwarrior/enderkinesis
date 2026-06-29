@@ -37,9 +37,8 @@ import kotlin.math.sqrt
  */
 object YgannAbyssWatchingEyes {
 
-    private val TEXTURE: ResourceLocation = EnderkinesisMod.id("textures/watching_eye.png")
+    private val TEXTURE: ResourceLocation = EnderkinesisMod.id("textures/environment/watching_eye.png")
 
-    // --- Big-pair tuning -----------------------------------------------------------------
 
     /** Very rare — averages roughly one big-pair appearance every ~100 s. */
     private const val BIG_PAIR_CHANCE_PER_TICK: Double = 0.0005
@@ -50,7 +49,6 @@ object YgannAbyssWatchingEyes {
     private const val BIG_PAIR_EYE_WIDTH: Float = 10f
     private const val BIG_PAIR_EYE_GAP: Float = 3f
 
-    // --- Cloud tuning --------------------------------------------------------------------
 
     /** One cloud roll every 5 s on average — matches the original single-pair rate. */
     private const val CLOUD_CHANCE_PER_TICK: Double = 0.01
@@ -86,7 +84,6 @@ object YgannAbyssWatchingEyes {
      *  the previous 15° so individual pairs read as distinct rather than overlapping. */
     private const val CLOUD_SPREAD_DEG: Double = 25.0
 
-    // --- Oscillation (shared by both apparitions) ----------------------------------------
 
     /** Position-oscillation period in ticks. Slowed from the original 160 (8 s) to 360
      *  ticks (18 s at 20 TPS) — the previous "breathing" cadence still felt like swinging
@@ -103,7 +100,6 @@ object YgannAbyssWatchingEyes {
      *  motion path from looping cleanly — the eye traces a slow Lissajous figure. */
     private const val OSC_EL_FREQ_RATIO: Float = 1.3f
 
-    // --- Shared placement ----------------------------------------------------------------
 
     private const val SKY_DISTANCE: Float = 100f
     private const val MIN_ELEVATION_DEG: Double = 10.0

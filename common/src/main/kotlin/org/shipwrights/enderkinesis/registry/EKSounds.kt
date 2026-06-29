@@ -26,6 +26,11 @@ object EKSounds {
     val YGANN_DRONE: RegistrySupplier<SoundEvent> = ambient("ambient.ygann_abyss.drone")
     val YGANN_CHANT: RegistrySupplier<SoundEvent> = ambient("ambient.ygann_abyss.chant")
 
+    /** Sureibjin dream-coast ambience — continuous looping track played at the
+     *  coastline and over the ocean. Cuts out when the player walks deep into
+     *  the western sand dune. See [org.shipwrights.enderkinesis.client.SureibjinAmbience]. */
+    val SUREIBJIN_AMBIENCE_LOOP: RegistrySupplier<SoundEvent> = ambient("ambient.sureibjin.loop")
+
     /** Sselith's Repertory dimension ambience — original murmur cues
      *  (5 samples × `r` companions = 10 takes; sound manager picks one
      *  per play) plus the continuous [SSELITH_AMBIENT_LOOP] base track. */
@@ -70,6 +75,16 @@ object EKSounds {
     val PRISMATIC_HORN_CAVES: List<RegistrySupplier<SoundEvent>> = (1..19).map { idx ->
         val name = "horn.cave_$idx"
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }
+    }
+
+    /** Magic-missile detonation blast — vanilla firework-rocket blast audio, but
+     *  re-registered as a *variable-range* event (same attenuation curve as
+     *  `entity.generic.explode`). Paired with a vanilla-explosion-style volume of
+     *  `4.0f` at the call site this gives ~64 blocks of audible range, vs. the 320
+     *  blocks vanilla `FIREWORK_ROCKET_BLAST` reaches at volume 20.
+     *  Backed by `minecraft:entity/firework/blast1`/`blast2` via `sounds.json`. */
+    val MISSILE_BURST_BLAST: RegistrySupplier<SoundEvent> = SOUNDS.register("missile_burst_blast") {
+        SoundEvent.createVariableRangeEvent(EnderkinesisMod.id("missile_burst_blast"))
     }
 
     private fun ambient(name: String): RegistrySupplier<SoundEvent> =

@@ -1,0 +1,90 @@
+{
+  "texture_size": [
+    32,
+    32
+  ],
+  "textures": {
+    "2": "enderkinesis:block/ender_linkage",
+    "particle": "minecraft:block/purpur_block"
+  },
+  "elements": [
+    {
+      "name": "west_up",
+      "from": [
+        3.53033,
+        13.39429,
+        7.5
+      ],
+      "to": [
+        12.53033,
+        14.39429,
+        8.5
+      ],
+      "rotation": {
+        "angle": 45,
+        "axis": "z",
+        "origin": [
+          8,
+          8,
+          8
+        ]
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            5,
+            2,
+            9.5,
+            2.5
+          ],
+          "texture": "#2"
+        },
+        "east": {
+          "uv": [
+            7,
+            8,
+            7.5,
+            8.5
+          ],
+          "texture": "#2"
+        },
+        "south": {
+          "uv": [
+            5,
+            2.5,
+            9.5,
+            3
+          ],
+          "texture": "#2"
+        },
+        "west": {
+          "uv": [
+            7,
+            8,
+            7.5,
+            8.5
+          ],
+          "texture": "#2"
+        },
+        "up": {
+          "uv": [
+            9.5,
+            3.5,
+            5,
+            3
+          ],
+          "texture": "#2"
+        },
+        "down": {
+          "uv": [
+            9.5,
+            3,
+            5,
+            3.5
+          ],
+          "texture": "#2"
+        }
+      }
+    }
+  ]
+}

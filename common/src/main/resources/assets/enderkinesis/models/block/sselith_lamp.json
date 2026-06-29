@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "side": "enderkinesis:block/sselith_lamp_side",
+    "top": "enderkinesis:block/sselith_lamp_top",
+    "bottom": "enderkinesis:block/sselith_lamp_top"
+  }
+}

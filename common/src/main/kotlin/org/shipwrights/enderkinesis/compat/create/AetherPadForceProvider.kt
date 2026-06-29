@@ -44,6 +44,10 @@ class AetherPadForceProvider : ShipPhysicsListener {
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
         val now = nowMs()
+        // Block-sourced scale³ multiplier — preserves ship-lengths-per-second
+        // across Staff-of-Scales settings (VS2's drag is cross-section ∝ scale²).
+        val s1 = physShip.transform.shipToWorldScaling.x()
+        val s = s1 * s1 * s1
         val iter = staged.entries.iterator()
         while (iter.hasNext()) {
             val (_, f) = iter.next()
@@ -52,7 +56,7 @@ class AetherPadForceProvider : ShipPhysicsListener {
                 continue
             }
             physShip.applyWorldForceToModelPos(
-                Vector3d(f.fx, f.fy, f.fz),
+                Vector3d(f.fx * s, f.fy * s, f.fz * s),
                 Vector3d(f.mx, f.my, f.mz),
             )
         }

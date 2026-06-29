@@ -51,6 +51,12 @@ dependencies {
 
     modCompileOnly("com.simibubi.create:create-fabric:${rootProject.create_fabric_version}")
 
+    // Sodium — required at compile time for WorldSliceWohlonAmbientMixin to
+    // reference WorldSlice. The mixin itself is gated by
+    // EnderkinesisMixinPlugin on `sodium.mixins.json` presence, so the JAR
+    // ships without a hard runtime dep on Sodium.
+    modCompileOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
+
 
     // For unit testing.
     var kotestVersion = "5.4.1"
