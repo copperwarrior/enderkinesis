@@ -25,6 +25,13 @@ import net.fabricmc.fabric.api.client.rendering.v1.ArmorRenderer
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
 import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
 import org.shipwrights.enderkinesis.client.model.PrismaticGoatModel
+import org.shipwrights.enderkinesis.client.model.StatueBlackGoatModel
+import org.shipwrights.enderkinesis.client.model.StatueCatalogerModel
+import org.shipwrights.enderkinesis.client.model.StatueCountingModel
+import org.shipwrights.enderkinesis.client.model.StatueSteveModel
+import org.shipwrights.enderkinesis.client.model.StatueTentacledBeastModel
+import org.shipwrights.enderkinesis.client.model.StatueTentaclesModel
+import org.shipwrights.enderkinesis.client.model.StatueYellowTowerModel
 import org.shipwrights.enderkinesis.client.model.TightRobeArmorModel
 import org.shipwrights.enderkinesis.registry.EKItems
 
@@ -59,6 +66,15 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         EntityModelLayerRegistry.registerModelLayer(PrismaticGoatModel.LAYER_LOCATION) {
             PrismaticGoatModel.createBodyLayer()
         }
+
+        // Six statue layers, drawn by StatueBlockEntityRenderer.
+        EntityModelLayerRegistry.registerModelLayer(StatueSteveModel.LAYER_LOCATION)           { StatueSteveModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueCatalogerModel.LAYER_LOCATION)       { StatueCatalogerModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueTentaclesModel.LAYER_LOCATION)       { StatueTentaclesModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueTentacledBeastModel.LAYER_LOCATION)  { StatueTentacledBeastModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueYellowTowerModel.LAYER_LOCATION)     { StatueYellowTowerModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueBlackGoatModel.LAYER_LOCATION)       { StatueBlackGoatModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueCountingModel.LAYER_LOCATION)        { StatueCountingModel.createBodyLayer() }
 
         // Tight-fit robe armor — two HumanoidModel bakes at CubeDeformation(0.15f) instead
         // of vanilla's 0.5/1.0, plus an ArmorRenderer registration for every robe item so
@@ -169,6 +185,18 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             org.shipwrights.enderkinesis.client.MagicMissileBEWLR.renderByItem(
                 stack, mode, poseStack, vertexConsumers, light, overlay,
             )
+        }
+
+        // Statues — every Ulder Statue item renders its full Blockbench model in
+        // inventory / hand / dropped via [StatueBEWLR].
+        for (statue in EKItems.STATUE_ITEMS) {
+            BuiltinItemRendererRegistry.INSTANCE.register(
+                statue.get(),
+            ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
+                org.shipwrights.enderkinesis.client.StatueBEWLR.renderByItem(
+                    stack, mode, poseStack, vertexConsumers, light, overlay,
+                )
+            }
         }
 
         // Cataloger tome-summon flourish — drawn from the level

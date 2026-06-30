@@ -12,9 +12,12 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.MagicMissileEntity
+import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
 import org.shipwrights.enderkinesis.entity.PrismaticGoat
+import org.shipwrights.enderkinesis.entity.WikLakHostEntity
 import org.shipwrights.enderkinesis.mixin.SpawnPlacementsInvoker
 
 /** All entity types added by Enderkinesis. */
@@ -44,6 +47,43 @@ object EKEntities {
                 .build("magic_missile")
         }
 
+    /** The Archive — slow-drifting paper-tornado that wanders Sselith and
+     *  collapses into its contained items on player contact. Custom Entity
+     *  (not a Mob — no AI/health/attributes), 1×3×1 bbox so it threads through
+     *  1-block corridors. `MISC` category so it doesn't compete with the
+     *  Cataloger's CREATURE cap or trigger hostile-mob spawn rules. */
+    val ARCHIVE: RegistrySupplier<EntityType<ArchiveEntity>> =
+        ENTITIES.register(ArchiveEntity.ID_PATH) {
+            EntityType.Builder.of(::ArchiveEntity, MobCategory.MISC)
+                .sized(1.0f, 3.0f)
+                .clientTrackingRange(8)
+                .updateInterval(3)
+                .build(ArchiveEntity.ID.toString())
+        }
+
+    /** Player Corpse — visual stand-in spawned by [WikLakDeathRedirect] at
+     *  the player's intercepted death position. Player-skinned, no AI,
+     *  immediately killed so vanilla [Mob.tickDeath] plays it out. */
+    val PLAYER_CORPSE: RegistrySupplier<EntityType<PlayerCorpseEntity>> =
+        ENTITIES.register(PlayerCorpseEntity.ID_PATH) {
+            EntityType.Builder.of(::PlayerCorpseEntity, MobCategory.MISC)
+                .sized(0.6f, 1.8f)
+                .clientTrackingRange(10)
+                .build(PlayerCorpseEntity.ID.toString())
+        }
+
+    /** Wik-Lak Host — player-summoned humanoid construct (see
+     *  [WikLakHostEntity]). MISC category so it doesn't compete for the
+     *  CREATURE spawn cap; built constructs are never natural spawns
+     *  anyway. Player-sized bbox. */
+    val WIK_LAK_HOST: RegistrySupplier<EntityType<WikLakHostEntity>> =
+        ENTITIES.register(WikLakHostEntity.ID_PATH) {
+            EntityType.Builder.of(::WikLakHostEntity, MobCategory.MISC)
+                .sized(0.6f, 1.8f)        // player size
+                .clientTrackingRange(10)
+                .build(WikLakHostEntity.ID.toString())
+        }
+
     /** Prismatic Goat — passive quadruped that spawns in Wohlon
      *  biomes. Vanilla-goat-sized bbox so existing pathfinder budgets
      *  and collision math fit without tuning. */
@@ -59,6 +99,9 @@ object EKEntities {
         ENTITIES.register()
         // Attributes — without this every Cataloger crashes on creation.
         EntityAttributeRegistry.register(CATALOGER) { Cataloger.createAttributes() }
+        EntityAttributeRegistry.register(ARCHIVE) { ArchiveEntity.createAttributes() }
+        EntityAttributeRegistry.register(WIK_LAK_HOST) { WikLakHostEntity.createAttributes() }
+        EntityAttributeRegistry.register(PLAYER_CORPSE) { PlayerCorpseEntity.createAttributes() }
         // Vanilla goat attributes verbatim — `PrismaticGoat`
         // extends `Goat` directly, so its base stats match.
         EntityAttributeRegistry.register(PRISMATIC_GOAT) {

@@ -1,0 +1,86 @@
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": { "type": "minecraft:uniform", "min": 3, "max": 7 },
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 8,
+          "functions": [
+            { "function": "minecraft:set_count", "count": { "type": "minecraft:uniform", "min": 1, "max": 3 } }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:scholar_hood",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:scholar_robes",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:scholar_robe_bottoms",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:scholar_shoes",
+          "weight": 1
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "conditions": [
+        { "condition": "minecraft:random_chance", "chance": 0.05 }
+      ],
+      "entries": [
+        { "type": "minecraft:item", "name": "minecraft:music_disc_13" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_cat" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_blocks" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_chirp" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_far" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_mall" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_mellohi" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_stal" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_strad" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_ward" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_11" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_wait" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_otherside" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_pigstep" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_5" },
+        { "type": "minecraft:item", "name": "minecraft:music_disc_relic" },
+        { "type": "minecraft:item", "name": "enderkinesis:music_disc_mystery" },
+        { "type": "minecraft:item", "name": "enderkinesis:almanac_of_everywhere" },
+        { "type": "minecraft:item", "name": "enderkinesis:wylland_tome" },
+        { "type": "minecraft:item", "name": "enderkinesis:guide_to_stratus" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_signal" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_binding" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_chaining" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_elasticity" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_transportation" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_vacuum" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_pulling" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_pushing" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_filtering" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_hinging" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_disintegration" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_scrying" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_ventriloquism" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_spring" },
+        { "type": "minecraft:item", "name": "enderkinesis:tome_of_coupling" }
+      ]
+    }
+  ]
+}

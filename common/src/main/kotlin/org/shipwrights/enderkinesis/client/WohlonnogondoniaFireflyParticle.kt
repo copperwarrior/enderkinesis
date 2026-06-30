@@ -31,7 +31,7 @@ import kotlin.math.sin
  * Spawned by [WohlonnogondoniaFireflies] at low density on the client, only while the
  * local player is in Wohlon.
  */
-class WohlonnogondoniaFireflyParticle(
+open class WohlonnogondoniaFireflyParticle(
     level: ClientLevel,
     private val anchorX: Double,
     private val anchorY: Double,

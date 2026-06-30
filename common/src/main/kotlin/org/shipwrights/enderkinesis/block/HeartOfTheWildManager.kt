@@ -100,12 +100,49 @@ object HeartOfTheWildManager {
         // calling onBlockDestroyed below.
     }
 
+    /** Thread-local flag: while true, [onBlockDestroyed] returns
+     *  immediately without enrolling the destroyed position or stashing a
+     *  bud target. Use [withEnrollSuppressed] around a block of code that
+     *  should consume blocks without arming the wogor regrowth pipeline —
+     *  e.g. the Wik-Lak Host's mud-and-skull construction in
+     *  [org.shipwrights.enderkinesis.entity.WikLakConstruction], where
+     *  the three pattern blocks are intentionally sacrificed and must
+     *  not later sprout a bud where the host stands. */
+    private val enrollSuppressed: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
+
+    /** Run [block] with the regrowth-enroll path suppressed for any
+     *  block destruction it triggers on this thread. Re-entrant via
+     *  save/restore so nested callers compose. */
+    fun <T> withEnrollSuppressed(block: () -> T): T {
+        val previous = enrollSuppressed.get()
+        enrollSuppressed.set(true)
+        try {
+            return block()
+        } finally {
+            enrollSuppressed.set(previous)
+        }
+    }
+
     @JvmStatic
     fun onBlockDestroyed(server: ServerLevel, pos: BlockPos, oldState: BlockState) {
         // Chunkgen workers fire LevelChunk.setBlockState during paint flushes, which would
         // mutate our plain HashMaps concurrently with tickServerLevel AND enroll millions of
         // paint positions during pre-gen. Filter to server-thread destructions only.
         if (!server.server.isSameThread) return
+
+        // Suppressed path — see [withEnrollSuppressed]. The construction
+        // wraps its block-consumption in this guard so the wogor bud
+        // pipeline doesn't latch onto the sacrificed blocks.
+        if (enrollSuppressed.get()) return
+
+        // Shape-preserving regrow: resolve a wogor variant matching the destroyed
+        // block's shape family ([WogorVariantPicker]) and stash it for the bud's
+        // maturation tick ([WogorBudBlock.tick]) to consume. Variant blocks are
+        // skipped — restashing them would just round-trip back to themselves.
+        val pickedTarget = WogorVariantPicker.pick(oldState)
+        if (pickedTarget.block != oldState.block) {
+            WogorBudTargetData.put(server, pos.immutable(), pickedTarget)
+        }
 
         val ship = server.getLoadedShipManagingPos(pos)
         val scopeMap: MutableMap<Long, PositionPool> = if (ship != null) {
@@ -140,6 +177,7 @@ object HeartOfTheWildManager {
     ) {
         scopeMap.getOrPut(chunkKey(pos)) { PositionPool() }.add(pos)
     }
+
 
     /** Wohlon's implicit dimension consumer. Fires every 15–20
      *  ticks regardless of Heart presence, giving the dimension

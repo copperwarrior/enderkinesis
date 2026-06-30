@@ -24,6 +24,13 @@ import org.shipwrights.enderkinesis.client.SureibjinDimensionEffects
 import org.shipwrights.enderkinesis.client.WohlonnogondoniaDimensionEffects
 import org.shipwrights.enderkinesis.client.WyllandTomeBEWLR
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
+import org.shipwrights.enderkinesis.client.model.StatueBlackGoatModel
+import org.shipwrights.enderkinesis.client.model.StatueCatalogerModel
+import org.shipwrights.enderkinesis.client.model.StatueCountingModel
+import org.shipwrights.enderkinesis.client.model.StatueSteveModel
+import org.shipwrights.enderkinesis.client.model.StatueTentacledBeastModel
+import org.shipwrights.enderkinesis.client.model.StatueTentaclesModel
+import org.shipwrights.enderkinesis.client.model.StatueYellowTowerModel
 
 /**
  * Forge client entrypoint. Routes `FMLClientSetupEvent` into the common
@@ -47,6 +54,13 @@ class EnderkinesisModForgeClient {
         @JvmStatic
         fun registerLayerDefinitions(event: EntityRenderersEvent.RegisterLayerDefinitions) {
             event.registerLayerDefinition(CatalogerModel.LAYER_LOCATION, CatalogerModel::createBodyLayer)
+            event.registerLayerDefinition(StatueSteveModel.LAYER_LOCATION,          StatueSteveModel::createBodyLayer)
+            event.registerLayerDefinition(StatueCatalogerModel.LAYER_LOCATION,      StatueCatalogerModel::createBodyLayer)
+            event.registerLayerDefinition(StatueTentaclesModel.LAYER_LOCATION,      StatueTentaclesModel::createBodyLayer)
+            event.registerLayerDefinition(StatueTentacledBeastModel.LAYER_LOCATION, StatueTentacledBeastModel::createBodyLayer)
+            event.registerLayerDefinition(StatueYellowTowerModel.LAYER_LOCATION,    StatueYellowTowerModel::createBodyLayer)
+            event.registerLayerDefinition(StatueBlackGoatModel.LAYER_LOCATION,      StatueBlackGoatModel::createBodyLayer)
+            event.registerLayerDefinition(StatueCountingModel.LAYER_LOCATION,       StatueCountingModel::createBodyLayer)
         }
 
         /** Register the three open-Wylland-Tome sub-models so the

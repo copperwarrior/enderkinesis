@@ -235,7 +235,9 @@ class WanderToTaggedBlockGoal(
         val originY = origin.y
         poiManager.getInSquare(
             { holder ->
-                holder.`is`(EKPoiTypes.CATALOGER_TARGET_KEY) || holder.`is`(PoiTypes.LIBRARIAN)
+                holder.`is`(EKPoiTypes.CATALOGER_TARGET_KEY)
+                    || holder.`is`(PoiTypes.LIBRARIAN)
+                    || holder.`is`(EKPoiTypes.STATUE_KEY)
             },
             origin,
             searchRadius,

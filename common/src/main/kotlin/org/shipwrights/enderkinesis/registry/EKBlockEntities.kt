@@ -21,6 +21,7 @@ import org.shipwrights.enderkinesis.blockentity.PlanarAnchorBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutTopBlockEntity
+import org.shipwrights.enderkinesis.blockentity.StatueBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHarnessBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
 
@@ -170,6 +171,19 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::MagicMissileLauncherBlockEntity, EKBlocks.MAGIC_MISSILE_LAUNCHER.get()
             ).build(null) as BlockEntityType<MagicMissileLauncherBlockEntity>
+        }
+
+    /** One BE type shared across all six statue blocks — the BE itself holds no
+     *  per-statue state; the kind is read from the block at the BE's position by
+     *  the BER. Listing all six blocks in `validBlocks` is what lets vanilla
+     *  attach the shared type to each. */
+    @Suppress("UNCHECKED_CAST")
+    val STATUE: RegistrySupplier<BlockEntityType<StatueBlockEntity>> =
+        BLOCK_ENTITIES.register("statue") {
+            BlockEntityType.Builder.of(
+                ::StatueBlockEntity,
+                *EKBlocks.STATUES.map { it.get() }.toTypedArray(),
+            ).build(null) as BlockEntityType<StatueBlockEntity>
         }
 
     fun register() = BLOCK_ENTITIES.register()

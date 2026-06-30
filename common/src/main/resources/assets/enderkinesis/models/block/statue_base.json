@@ -1,0 +1,6 @@
+{
+  "credit": "Particle-texture-only block; visible geometry is drawn by StatueBlockEntityRenderer.",
+  "textures": {
+    "particle": "block/deepslate"
+  }
+}

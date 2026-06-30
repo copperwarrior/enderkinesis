@@ -77,6 +77,17 @@ object WohlonnogondoniaSpreader {
     private val CONVERTS_TO_WOGOR_LEAVES: TagKey<Block> =
         TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "converts_to_wogor_leaves"))
 
+    /** Hard-stop tag: any block in this set is exempt from every
+     *  conversion regardless of which `converts_to_*` tag would have
+     *  matched. Lets us keep the broad mod-compat tags like
+     *  `#minecraft:mineable/shovel` in [CONVERTS_TO_MUD] (so modded
+     *  shovel-mineable ground reliably converts) while explicitly
+     *  excluding members of those tags that don't fit the Wohlon
+     *  aesthetic — vanilla snow / snow_block / powder_snow are the
+     *  initial entries; modpack authors can extend the data file. */
+    private val WOHLON_CONVERSION_BLOCKLIST: TagKey<Block> =
+        TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "wohlon_conversion_blocklist"))
+
     /** Tag → conversion supplier. The supplier takes the source
      *  block state so it can copy across compatible properties
      *  (axis on logs/wood, persistent/distance/waterlogged on
@@ -1237,7 +1248,7 @@ object WohlonnogondoniaSpreader {
                     // spreader's cost in profiling. Targets here are full
                     // solid cubes with no neighbor-dependent shape, so the
                     // cascade is wasted.
-                    level.setBlock(mutPos, sourceTarget, 2 or 16)
+                    setShapeAware(level, mutPos, state, sourceTarget, 2 or 16)
                     converted++
                     return@repeat
                 }
@@ -1257,7 +1268,7 @@ object WohlonnogondoniaSpreader {
                         converted++
                         // Flag 2 | 16 — see the boundary-fringe setBlock
                         // above for the rationale on the 16 bit.
-                        level.setBlock(mutPos, sourceTarget, 2 or 16)
+                        setShapeAware(level, mutPos, state, sourceTarget, 2 or 16)
                     }
                 }
 
@@ -1450,6 +1461,37 @@ object WohlonnogondoniaSpreader {
         val sectionIdx = (qy shr 2) - chunk.minSection
         if (sectionIdx < 0 || sectionIdx >= chunk.sections.size) return null
         return chunk.sections[sectionIdx].getNoiseBiome(qx and 3, qy and 3, qz and 3)
+    }
+
+    /** True iff every block in the 4×4×4 volume of biome cell
+     *  `(qx, qy, qz)` is air. Used by [tickFrontierSpread] to suppress
+     *  horizontal / diagonal spread into pure-sky cells — biome paint
+     *  with no blocks to convert just bleeds the colour and fog into
+     *  empty space. Vertical-up climb via the [enqueueVerticalSpread]
+     *  cascade is intentionally exempt, so a column above a freshly-
+     *  tainted cell still claims its sky.
+     *
+     *  Fast path: [LevelChunkSection.hasOnlyAir] short-circuits the
+     *  per-block scan for sections vanilla already knows are empty.
+     *  Slow path: 64 `getBlockState` reads against the section's
+     *  palette — cheap relative to the spread-drain cost. Returns
+     *  `false` (let the cell through) if the chunk isn't loaded; the
+     *  spread budget is small enough that the occasional optimistic
+     *  paint of an unloaded cell is fine. */
+    private fun cellIsAllAir(level: ServerLevel, qx: Int, qy: Int, qz: Int): Boolean {
+        val chunk = level.chunkSource.getChunkNow(qx shr 2, qz shr 2) ?: return false
+        val sectionIdx = (qy shr 2) - chunk.minSection
+        if (sectionIdx < 0 || sectionIdx >= chunk.sections.size) return false
+        val section = chunk.sections[sectionIdx]
+        if (section.hasOnlyAir()) return true
+        val bxBase = qx shl 2
+        val byBase = qy shl 2
+        val bzBase = qz shl 2
+        for (lx in 0..3) for (ly in 0..3) for (lz in 0..3) {
+            val state = section.getBlockState(bxBase + lx and 15, byBase + ly and 15, bzBase + lz and 15)
+            if (!state.isAir) return false
+        }
+        return true
     }
 
     /** True iff any of the 6 face-adjacent biome cells of
@@ -1716,6 +1758,13 @@ object WohlonnogondoniaSpreader {
                 0.0, 0.0,
             )
             if (noiseValue < SPREAD_NOISE_THRESHOLD) return@repeat
+            // Air-only cells get spread only from the vertical-up cascade
+            // ([enqueueVerticalSpread] from [setBiomeCellSilent]). The
+            // frontier sampler covers horizontal / diagonal / down moves
+            // and a +Y face / edge / vertex pick; gating all of them here
+            // means the biome doesn't bleed into open sky around tainted
+            // ground, only climbs the column directly above it.
+            if (cellIsAllAir(level, nqx, nqy, nqz)) return@repeat
             enqueueCellSpread(level, nqx, nqy, nqz)
         }
     }
@@ -1723,12 +1772,36 @@ object WohlonnogondoniaSpreader {
     /** Map a block-state to its conversion target via the
      *  converts-to tags, or null if no tag matches. The supplier
      *  receives the source state so it can inherit compatible
-     *  properties (axis, persistent, distance, waterlogged, etc.). */
+     *  properties (axis, persistent, distance, waterlogged, etc.).
+     *
+     *  Blocks in [WOHLON_CONVERSION_BLOCKLIST] short-circuit to null
+     *  even when they match a converts_to tag — used to carve snow
+     *  and other thematically-wrong blocks out of the broad
+     *  `#minecraft:mineable/shovel` set without having to enumerate
+     *  every wanted block by hand. */
     private fun pickConversion(state: BlockState): BlockState? {
+        if (state.`is`(WOHLON_CONVERSION_BLOCKLIST)) return null
         for ((tag, supplier) in CONVERSIONS) {
             if (state.`is`(tag)) return supplier(state)
         }
         return null
+    }
+
+    /** Place [target] at [pos] with a shape-preserving detour: if [target] is
+     *  [EKBlocks.WOGOR_WOOD], route through [WogorVariantPicker] so a destroyed
+     *  vanilla stair / slab / fence / wall / pane / button / pillar regrows into
+     *  the matching wogor shape variant instead of a full cube. The picker's
+     *  fallback is plain wogor_wood, so non-shape sources behave identically to
+     *  the pre-picker code path. Other conversions (wogor_log / mud / wogor_leaves)
+     *  pass through unchanged. */
+    private fun setShapeAware(
+        level: ServerLevel, pos: BlockPos, source: BlockState, target: BlockState, flags: Int,
+    ) {
+        if (target.`is`(EKBlocks.WOGOR_WOOD.get())) {
+            level.setBlock(pos, WogorVariantPicker.pick(source), flags)
+            return
+        }
+        level.setBlock(pos, target, flags)
     }
 
     /** Write [biome] into the biome cell at world-quarter

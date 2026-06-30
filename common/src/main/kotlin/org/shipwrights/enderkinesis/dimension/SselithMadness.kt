@@ -11,12 +11,14 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.util.Mth
 import net.minecraft.world.effect.MobEffectInstance
+import net.minecraft.world.entity.ai.village.poi.PoiManager
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKPoiTypes
 
 /**
  * Leveling for the **Sselith Madness** effect ([EKEffects.SSELITH_MADNESS]).
@@ -82,6 +84,12 @@ object SselithMadness {
     /** Amplifier (level − 1) gating the menu-walk dust — 3 = level 4, matching the
      *  client's `SselithMenuWalk` activation threshold. */
     private const val MENU_WALK_MIN_AMP = 3
+
+    /** Cube-radius for the "near a statue" aura. Standing within this many blocks of
+     *  any Ulder Statue doubles the madness growth rate. Backed by a PoiManager
+     *  `getInRange` query against [EKPoiTypes.STATUE_KEY] so cost is constant
+     *  regardless of the dim's total statue count. */
+    private const val STATUE_AURA_RADIUS = 6
 
     fun init() {
         TickEvent.PLAYER_POST.register(::tickPlayer)
@@ -150,7 +158,8 @@ object SselithMadness {
                     progress.put(uuid, 0)
                 }
                 level < MAX_LEVEL -> {
-                    val banked = progress.addTo(uuid, 1) + 1
+                    val growthRate = if (isNearStatue(player)) 2 else 1
+                    val banked = progress.addTo(uuid, growthRate) + growthRate
                     if (banked >= GROWTH_INTERVAL_TICKS) {
                         level++
                         applyLevel(player, level)
@@ -189,6 +198,19 @@ object SselithMadness {
         if (level - 1 >= Cataloger.PLAYER_CATALOGER_MIN_AMP) {
             pushNearbyCatalogers(player)
         }
+    }
+
+    /** True if any Ulder Statue POI sits within [STATUE_AURA_RADIUS] of the player.
+     *  Short-circuits on the first match via `findAny`. Caller has already verified
+     *  the player is in Sselith. */
+    private fun isNearStatue(player: ServerPlayer): Boolean {
+        val poi: PoiManager = player.serverLevel().poiManager
+        return poi.getInRange(
+            { holder -> holder.`is`(EKPoiTypes.STATUE_KEY) },
+            player.blockPosition(),
+            STATUE_AURA_RADIUS,
+            PoiManager.Occupancy.ANY,
+        ).findAny().isPresent
     }
 
     /** Mirror of [Cataloger.pushNearbyCatalogers] for high-madness

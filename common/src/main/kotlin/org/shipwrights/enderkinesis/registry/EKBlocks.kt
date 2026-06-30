@@ -38,6 +38,8 @@ import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
 import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutTopBlock
+import org.shipwrights.enderkinesis.block.StatueBlock
+import org.shipwrights.enderkinesis.block.StatueKind
 import org.shipwrights.enderkinesis.block.WogorBudBlock
 
 /**
@@ -672,9 +674,33 @@ object EKBlocks {
         ButtonBlock(
             BlockBehaviour.Properties.copy(Blocks.OAK_BUTTON),
             BlockSetType.OAK,
-            30,   // ticks pressed — matches vanilla wood buttons
-            true, // arrows can press
+            30,
+            true,
         )
+    }
+
+    // Wogor wood-shape variants — geometry-only, wogor_log-textured. Distinct
+    // from the planks family above. These exist as nearest-match targets for
+    // [WogorVariantPicker] when the wohlon regrows over a destroyed block of
+    // the matching shape, so any shape interactions (power, press, gate)
+    // would conflict with the bud-pipeline timing — they're stripped out.
+    val WOGOR_WOOD_STAIRS: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_stairs") {
+        StairBlock(WOGOR_WOOD.get().defaultBlockState(), wogorWoodProps())
+    }
+    val WOGOR_WOOD_SLAB: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_slab") {
+        SlabBlock(wogorWoodProps())
+    }
+    val WOGOR_WOOD_FENCE: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_fence") {
+        FenceBlock(wogorWoodProps())
+    }
+    val WOGOR_WOOD_WALL: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_wall") {
+        WallBlock(wogorWoodProps())
+    }
+    val WOGOR_WOOD_PANE: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_pane") {
+        net.minecraft.world.level.block.IronBarsBlock(wogorWoodProps().noOcclusion())
+    }
+    val WOGOR_WOOD_BUTTON: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_button") {
+        org.shipwrights.enderkinesis.block.WogorButtonBlock(wogorWoodProps().noCollission())
     }
 
     // Re-skinned obsidian / crying obsidian / sand used inside the
@@ -701,6 +727,47 @@ object EKBlocks {
     val DREAM_SAND: RegistrySupplier<Block> = BLOCKS.register("dream_sand") {
         SandBlock(0xC4B695, BlockBehaviour.Properties.copy(Blocks.SAND))
     }
+
+    /** Decorative statues — six Blockbench-style entity-model blocks rendered by
+     *  [org.shipwrights.enderkinesis.client.StatueBlockEntityRenderer]. The block's
+     *  voxel shape is the pedestal cube only; the model's head/decoration extends
+     *  above (handled by `noOcclusion()` so neighbours don't cull against it). */
+    private fun statueProps() = BlockBehaviour.Properties.of()
+        .mapColor(MapColor.STONE)
+        .requiresCorrectToolForDrops()
+        .strength(2.0f, 6.0f)
+        .sound(SoundType.STONE)
+        .noOcclusion()
+
+    val STATUE_STEVE: RegistrySupplier<Block> = BLOCKS.register("statue_steve") {
+        StatueBlock(StatueKind.STEVE, statueProps())
+    }
+    val STATUE_CATALOGER: RegistrySupplier<Block> = BLOCKS.register("statue_cataloger") {
+        StatueBlock(StatueKind.CATALOGER, statueProps())
+    }
+    val STATUE_TENTACLES: RegistrySupplier<Block> = BLOCKS.register("statue_tentacles") {
+        StatueBlock(StatueKind.TENTACLES, statueProps())
+    }
+    val STATUE_TENTACLED_BEAST: RegistrySupplier<Block> = BLOCKS.register("statue_tentacled_beast") {
+        StatueBlock(StatueKind.TENTACLED_BEAST, statueProps())
+    }
+    val STATUE_YELLOW_TOWER: RegistrySupplier<Block> = BLOCKS.register("statue_yellow_tower") {
+        StatueBlock(StatueKind.YELLOW_TOWER, statueProps())
+    }
+    val STATUE_BLACK_GOAT: RegistrySupplier<Block> = BLOCKS.register("statue_black_goat") {
+        StatueBlock(StatueKind.BLACK_GOAT, statueProps())
+    }
+    val STATUE_COUNTING: RegistrySupplier<Block> = BLOCKS.register("statue_counting") {
+        StatueBlock(StatueKind.COUNTING, statueProps())
+    }
+
+    /** All statue block suppliers in registration order, for the shared
+     *  BlockEntityType + creative tab + per-platform layer registrations. */
+    val STATUES: List<RegistrySupplier<Block>> = listOf(
+        STATUE_STEVE, STATUE_CATALOGER, STATUE_TENTACLES,
+        STATUE_TENTACLED_BEAST, STATUE_YELLOW_TOWER, STATUE_BLACK_GOAT,
+        STATUE_COUNTING,
+    )
 
     fun register() = BLOCKS.register()
 }

@@ -1,6 +1,0 @@
-{
-  "parent": "minecraft:block/cube_all",
-  "textures": {
-    "all": "enderkinesis:block/wogor_planks_alt"
-  }
-}

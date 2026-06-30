@@ -87,6 +87,7 @@ object EnderkinesisMod {
         EKPoiTypes.register()
 
         org.shipwrights.enderkinesis.block.WohlonnogondoniaCatastrophe.registerLifecycleHooks()
+        org.shipwrights.enderkinesis.block.WogorBudTargetData.init()
 
         // Transient: the lattice re-asserts the attachment while active, so it never needs persisting.
         vsCore.registerAttachment(
@@ -163,6 +164,8 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.command.AegisDebugCommands.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaTreeGrower.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaWorldRootGrower.init()
+        org.shipwrights.enderkinesis.entity.WikLakConstruction.init()
+        org.shipwrights.enderkinesis.entity.WikLakDeathRedirect.init()
 
         YgannAbyssGuard.init()
         YgannAbyssBlockSweeper.init()

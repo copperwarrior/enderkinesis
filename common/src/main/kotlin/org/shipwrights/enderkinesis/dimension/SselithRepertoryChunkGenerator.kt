@@ -925,6 +925,9 @@ class SselithRepertoryChunkGenerator(
                         if (block.`is`(Blocks.BAMBOO_WALL_SIGN)) {
                             attachFloorSign(chunk, mutable, block, y)
                         }
+                        if (block.block is org.shipwrights.enderkinesis.block.StatueBlock) {
+                            attachStatueBlockEntity(chunk, mutable)
+                        }
                         tileYMod++
                         if (tileYMod == MAZE_CELL_Y) { tileYMod = 0; cellY++ }
                     }
@@ -3616,7 +3619,13 @@ class SselithRepertoryChunkGenerator(
         // the wall-top decoration-pool blocks (lantern / 1..4 lit
         // yellow candles) hanging over a non-chiseled wall.
         if (wallOutlineAt(wx, wy - 1, wz)) {
-            if (isChiseledColumn(wx, wz)) return CHISELED_DEEPSLATE
+            if (isChiseledColumn(wx, wz)) {
+                // Rare statue swap — replaces the chiseled top with an Ulder
+                // statue facing the adjacent corridor. Same deterministic hash
+                // so `chiseledPostSignAt` can detect this case and skip the sign.
+                chiseledPostStatueAt(wx, wy, wz)?.let { return it }
+                return CHISELED_DEEPSLATE
+            }
             val decoration = wallTopDecoration(wx, wz)
             if (decoration != null) return decoration
         }
@@ -4368,6 +4377,21 @@ class SselithRepertoryChunkGenerator(
         chunk.setBlockEntityNbt(template)
     }
 
+    /** Attach the StatueBlockEntity NBT for a procedurally-placed Ulder statue.
+     *  Same chunkgen-pending-NBT path as [attachFloorSign] — chunk.setBlockState
+     *  doesn't auto-construct BEs for EntityBlocks at gen time, so without this
+     *  the BE never spawns, the BER never fires, and the block renders invisible
+     *  (just the 2-block hitbox). The BE itself carries no per-instance state;
+     *  only `id` + position are needed in the pending tag. */
+    private fun attachStatueBlockEntity(chunk: ChunkAccess, pos: BlockPos) {
+        val nbt = CompoundTag()
+        nbt.putString("id", "enderkinesis:statue")
+        nbt.putInt("x", pos.x)
+        nbt.putInt("y", pos.y)
+        nbt.putInt("z", pos.z)
+        chunk.setBlockEntityNbt(nbt)
+    }
+
     /** Bamboo wall sign hung on the interior face of a chiseled deepslate
      *  post. Sign sits at the TOP of the 3-tall post — that's the Y where
      *  the post column is filled by the `isChiseledColumn ∧ isWallOutline(_,
@@ -4385,8 +4409,40 @@ class SselithRepertoryChunkGenerator(
             // at wy-1 (decorBlockAt's "one block above a wall outline" rule
             // returns CHISELED_DEEPSLATE there for chiseled columns).
             if (!isWallOutline(px, wy - 1, pz)) continue
+            // If the post itself got swapped to a statue, suppress its sign.
+            if (chiseledPostStatueAt(px, wy, pz) != null) continue
             if (positiveMod(mazeHash(px, wy, pz, 271), 100) >= CHISELED_POST_SIGN_PERCENT) continue
             return cachedBambooWallSign(CARDINAL_SIGN_FACING[i])
+        }
+        return null
+    }
+
+    /** Rare per-post statue swap. Position must be the *top* of a chiseled post
+     *  (caller in [decorBlockAt] gates on `wallOutlineAt(wx, wy-1, wz) && isChiseledColumn`).
+     *  Picks the Ulder statue kind by a second hash and orients FACING toward the
+     *  first cardinal neighbour that's a path floor — the statue looks down the
+     *  corridor the totem decorates. Returns null if the roll fails or no
+     *  adjacent path is found (defensive; chiseled posts always border a path).
+     *
+     *  Hash is deterministic so the sign-placement pass can ask the same question
+     *  for the same post and agree on whether to suppress its sign. */
+    private fun chiseledPostStatueAt(wx: Int, wy: Int, wz: Int): BlockState? {
+        if (positiveMod(mazeHash(wx, wy, wz, 757), 100) >= CHISELED_POST_STATUE_PERCENT) return null
+        val facing = nearestPathDirectionFromPostTop(wx, wy, wz) ?: return null
+        val statues = org.shipwrights.enderkinesis.registry.EKBlocks.STATUES
+        val kindIdx = positiveMod(mazeHash(wx, wy, wz, 821), statues.size)
+        return statues[kindIdx].get().defaultBlockState()
+            .setValue(HorizontalDirectionalBlock.FACING, facing)
+    }
+
+    /** From a post top at (wx, wy, wz) where wy-1 is the wall outline and wy-2 is
+     *  the corridor floor level, find the first cardinal neighbour whose floor
+     *  cell is a path. Returns null if none — which shouldn't happen for a
+     *  legitimate post but is handled defensively. */
+    private fun nearestPathDirectionFromPostTop(wx: Int, wy: Int, wz: Int): Direction? {
+        val floorY = wy - 2
+        for (dir in CARDINAL_DIRS) {
+            if (isPathFloor(wx + dir.stepX, floorY, wz + dir.stepZ)) return dir
         }
         return null
     }
@@ -6527,6 +6583,18 @@ class SselithRepertoryChunkGenerator(
         /** Per-post chance (0-100) that a chiseled wall post hangs a bamboo
          *  sign on its interior face. */
         private const val CHISELED_POST_SIGN_PERCENT = 45
+
+        /** Per-post chance (0-100) of swapping the chiseled-deepslate top with
+         *  an Ulder statue. Statue posts also suppress the bamboo sign on the
+         *  same post (sign and statue check the same hash). */
+        private const val CHISELED_POST_STATUE_PERCENT = 3
+
+        /** Cardinal directions paired with [CARDINAL_DX]/[CARDINAL_DZ] —
+         *  index 0=east, 1=west, 2=south, 3=north — for the statue-facing
+         *  lookup that needs a typed [Direction] rather than raw (dx, dz). */
+        private val CARDINAL_DIRS: Array<Direction> = arrayOf(
+            Direction.EAST, Direction.WEST, Direction.SOUTH, Direction.NORTH,
+        )
 
         /** Lowest cellY that maps to a named floor; lower cells clamp to this. */
         private const val MIN_NAMED_CELL_Y = -4

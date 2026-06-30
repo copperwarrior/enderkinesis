@@ -90,6 +90,14 @@ object EKParticles {
     val WOHLON_FIREFLY: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("wohlonnogondonia_firefly") { EKOceanParticleType() }
 
+    /** One-shot Wik-Lak bind-thread firefly. Same sprite + flicker as
+     *  [WOHLON_FIREFLY] but with a ~1-second lifetime — used by
+     *  [org.shipwrights.enderkinesis.entity.WikLakConstruction] to draw a
+     *  beaded line between the new host and its creator at the moment of
+     *  summoning, then vanish. */
+    val WIK_LAK_BIND: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("wik_lak_bind") { EKOceanParticleType() }
+
     /** Sselith Bookmoth — a single warm-yellow (#CAAD53) pixel that
      *  flickers and flutters around a Sselith Lantern. Spawned by
      *  [org.shipwrights.enderkinesis.block.SselithLanternBlock.animateTick]
@@ -129,6 +137,15 @@ object EKParticles {
      *  [org.shipwrights.enderkinesis.client.SunderingGlyphParticle]. */
     val SUNDERING_GLYPH_PARTICLE: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("sundering_glyph_particle") { EKOceanParticleType() }
+
+    /** Archive tornado dust. Each particle physically orbits a vertical axis
+     *  (passed in via the velocity slot as `(centerX, centerY, centerZ)`)
+     *  while rising, so the spiraling column shape comes from per-particle
+     *  motion rather than the spawn pattern. Reuses the sselith_dust sprite
+     *  atlas via [archive_spiral_dust.json]; behaviour in
+     *  [org.shipwrights.enderkinesis.client.ArchiveSpiralDustParticle]. */
+    val ARCHIVE_SPIRAL_DUST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("archive_spiral_dust") { EKOceanParticleType() }
 
     /** Magic-missile detonation spark. Identical lifecycle to vanilla
      *  `FireworkParticles.SparkParticle` (firework sprite atlas, gravity 0.004,
@@ -173,6 +190,8 @@ object EKParticles {
 
     fun wohlonFirefly(): EKOceanParticleType = WOHLON_FIREFLY.get() as EKOceanParticleType
 
+    fun wikLakBind(): EKOceanParticleType = WIK_LAK_BIND.get() as EKOceanParticleType
+
     fun sselithBookmoth(): EKOceanParticleType = SSELITH_BOOKMOTH.get() as EKOceanParticleType
 
     fun aegisSparkle(): EKOceanParticleType = AEGIS_SPARKLE.get() as EKOceanParticleType
@@ -186,6 +205,8 @@ object EKParticles {
     fun missileBurstSpark(): EKOceanParticleType = MISSILE_BURST_SPARK.get() as EKOceanParticleType
 
     fun missileBurstFlash(): EKOceanParticleType = MISSILE_BURST_FLASH.get() as EKOceanParticleType
+
+    fun archiveSpiralDust(): EKOceanParticleType = ARCHIVE_SPIRAL_DUST.get() as EKOceanParticleType
 
 
     fun register() = PARTICLES.register()

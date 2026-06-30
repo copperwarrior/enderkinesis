@@ -53,6 +53,27 @@ object EKPoiTypes {
         return block.stateDefinition.possibleStates.toHashSet()
     }
 
+    /** Ulder Statue blockstates — every facing of all 7 statue kinds. Used by both
+     *  the cataloger wander goal (so a cataloger walks toward statues like signs /
+     *  lecterns) and by [org.shipwrights.enderkinesis.dimension.SselithMadness]
+     *  (madness growth doubles for any player within range of one). Statue blockstates
+     *  can't ALSO sit in [CATALOGER_TARGET] because vanilla enforces unique blockstate
+     *  → PoiType mapping. */
+    val STATUE_KEY: ResourceKey<PoiType> =
+        ResourceKey.create(Registries.POINT_OF_INTEREST_TYPE, EnderkinesisMod.id("statue"))
+
+    val STATUE: RegistrySupplier<PoiType> = POI_TYPES.register("statue") {
+        PoiType(statueStates(), MAX_TICKETS, VALID_RANGE)
+    }
+
+    private fun statueStates(): Set<BlockState> {
+        val states = HashSet<BlockState>()
+        for (supplier in EKBlocks.STATUES) {
+            states.addAll(supplier.get().stateDefinition.possibleStates)
+        }
+        return states
+    }
+
     /** True for blocks the Cataloger treats as a POI target: every sign and
      *  banner (any wood / colour, standing / wall / hanging — matched by class so
      *  we don't enumerate 70+ blocks and stay correct for any added later), plus
@@ -72,6 +93,13 @@ object EKPoiTypes {
             block === Blocks.GOLD_BLOCK ||
             block is org.shipwrights.enderkinesis.block.SselithLecternBlock
 
+    /** Statues live in their own [STATUE] POI but are still cataloger targets — the
+     *  wander goal ORs the two POI keys in [WanderToTaggedBlockGoal]. Membership in
+     *  this set is what tells the Sselith chunkgen to register a POI record at gen
+     *  time (same path as [POI_TARGET_BLOCK_SET]). */
+    private fun isStatueBlock(block: Block): Boolean =
+        block is org.shipwrights.enderkinesis.block.StatueBlock
+
     /** Every block the cataloger considers a POI — [isCatalogerTargetBlock] plus
      *  the lectern (registered with vanilla `PoiTypes.LIBRARIAN`). Fast O(1)
      *  membership check used by [org.shipwrights.enderkinesis.dimension.SselithRepertoryChunkGenerator]
@@ -84,7 +112,7 @@ object EKPoiTypes {
     val POI_TARGET_BLOCK_SET: Set<Block> by lazy {
         val set = HashSet<Block>()
         for (block in BuiltInRegistries.BLOCK) {
-            if (isCatalogerTargetBlock(block)) set.add(block)
+            if (isCatalogerTargetBlock(block) || isStatueBlock(block)) set.add(block)
         }
         set.add(Blocks.LECTERN)
         set
@@ -124,6 +152,9 @@ object EKPoiTypes {
             val scryingHolder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
                 .getHolderOrThrow(SCRYING_ORB_KEY)
             PoiTypesInvoker.`enderkinesis$registerBlockStates`(scryingHolder, scryingHolder.value().matchingStates())
+            val statueHolder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
+                .getHolderOrThrow(STATUE_KEY)
+            PoiTypesInvoker.`enderkinesis$registerBlockStates`(statueHolder, statueHolder.value().matchingStates())
         }
     }
 }

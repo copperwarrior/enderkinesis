@@ -29,6 +29,17 @@ object EnderkinesisModClient {
         // server-bound classes out of the client environment.
         org.shipwrights.enderkinesis.body.OrbBodyNetworkClient.initClient()
 
+        // Wik-Lak redirect flash — receive S2C trigger and stamp the
+        // player UUID into [WikLakRedirectFlashTracker] for the player
+        // render layer to read each frame.
+        dev.architectury.networking.NetworkManager.registerReceiver(
+            dev.architectury.networking.NetworkManager.Side.S2C,
+            org.shipwrights.enderkinesis.entity.WikLakRedirectFlashNetwork.FLASH,
+        ) { buf, _ ->
+            val uuid = buf.readUUID()
+            org.shipwrights.enderkinesis.client.WikLakRedirectFlashTracker.startFade(uuid)
+        }
+
         // Orb of Potential client-side dynamic lighting: each client
         // tick the driver picks the N closest orbs to the camera and
         // tells the block-light engine to emit from their positions.
@@ -146,6 +157,11 @@ object EnderkinesisModClient {
             EyeroscopeRenderer()
         }
 
+        // Statues — single BER picks the right Blockbench model by block kind.
+        BlockEntityRendererRegistry.register(EKBlockEntities.STATUE.get()) { ctx ->
+            StatueBlockEntityRenderer(ctx)
+        }
+
         // The Planar Anchor draws the chain to its outboard cloud and seeds the particle swirl.
         BlockEntityRendererRegistry.register(EKBlockEntities.PLANAR_ANCHOR.get()) { ctx ->
             PlanarAnchorRenderer(ctx)
@@ -252,6 +268,10 @@ object EnderkinesisModClient {
             SselithDustParticle.Provider(sprites)
         }
 
+        ParticleProviderRegistry.register(EKParticles.archiveSpiralDust()) { sprites ->
+            ArchiveSpiralDustParticle.Provider(sprites)
+        }
+
         // Reusable enchanted-book bezier beam — used by the Wylland Tome (player → grab point)
         // and the Tome of Signal's orb network (send orb → receivers). One particle type, many
         // simultaneous beams: each particle carries a `pathId` referencing a `BeamPath` in the
@@ -280,6 +300,13 @@ object EnderkinesisModClient {
         // [WohlonnogondoniaFireflyParticle].
         ParticleProviderRegistry.register(EKParticles.wohlonFirefly()) { sprites ->
             WohlonnogondoniaFireflyParticle.Provider(sprites)
+        }
+
+        // Wik-Lak bind thread — same glitter sprite + flicker as the ambient
+        // firefly, but with a ~1-second lifetime so the bind line at
+        // construction time vanishes instead of lingering as glitter.
+        ParticleProviderRegistry.register(EKParticles.wikLakBind()) { sprites ->
+            WikLakBindFireflyParticle.Provider(sprites)
         }
 
         // Sselith Bookmoths — a single warm-yellow pixel that flickers and
@@ -406,11 +433,32 @@ object EnderkinesisModClient {
             CatalogerRenderer(ctx)
         }
 
+        // Archive — paper / book whirlwind. Renderer draws orbiting item models
+        // sampled from a fixed generic mix (paper + book); the actual loot list
+        // is server-side only and only matters at collapse.
+        EntityRendererRegistry.register(EKEntities.ARCHIVE) { ctx ->
+            ArchiveRenderer(ctx)
+        }
+
         // Prismatic Goat — plain quadruped renderer; the model owns
         // its walk + idle animation, the renderer just supplies the
         // texture and a small shadow.
         EntityRendererRegistry.register(EKEntities.PRISMATIC_GOAT) { ctx ->
             PrismaticGoatRenderer(ctx)
+        }
+
+        // Wik-Lak Host — player-skinned construct; vanilla PlayerModel via
+        // ModelLayers.PLAYER (already registered by the vanilla player renderer)
+        // means no per-loader EntityModelLayer wiring is needed.
+        EntityRendererRegistry.register(EKEntities.WIK_LAK_HOST) { ctx ->
+            WikLakHostRenderer(ctx)
+        }
+
+        // Player Corpse — visual stand-in for the player's body after a
+        // Wik-Lak death-redirect. Resolves skin via tab-list PlayerInfo
+        // so the corpse renders with the actual player's appearance.
+        EntityRendererRegistry.register(EKEntities.PLAYER_CORPSE) { ctx ->
+            PlayerCorpseRenderer(ctx)
         }
 
         // Magic Missile — spinning shulker-spark billboard + [BeamPath] trail behind it that

@@ -377,6 +377,12 @@ object EKItems {
     val WOGOR_FENCE_GATE_ITEM = blockItem("wogor_fence_gate", EKBlocks.WOGOR_FENCE_GATE)
     val WOGOR_PRESSURE_PLATE_ITEM = blockItem("wogor_pressure_plate", EKBlocks.WOGOR_PRESSURE_PLATE)
     val WOGOR_BUTTON_ITEM = blockItem("wogor_button", EKBlocks.WOGOR_BUTTON)
+    val WOGOR_WOOD_STAIRS_ITEM = blockItem("wogor_wood_stairs", EKBlocks.WOGOR_WOOD_STAIRS)
+    val WOGOR_WOOD_SLAB_ITEM = blockItem("wogor_wood_slab", EKBlocks.WOGOR_WOOD_SLAB)
+    val WOGOR_WOOD_FENCE_ITEM = blockItem("wogor_wood_fence", EKBlocks.WOGOR_WOOD_FENCE)
+    val WOGOR_WOOD_WALL_ITEM = blockItem("wogor_wood_wall", EKBlocks.WOGOR_WOOD_WALL)
+    val WOGOR_WOOD_PANE_ITEM = blockItem("wogor_wood_pane", EKBlocks.WOGOR_WOOD_PANE)
+    val WOGOR_WOOD_BUTTON_ITEM = blockItem("wogor_wood_button", EKBlocks.WOGOR_WOOD_BUTTON)
 
     /** Binding Roots block item — places the pillar block, which on
      *  player-placement registers itself with `BindingRootsMerger`'s scanner.
@@ -445,6 +451,36 @@ object EKItems {
                 props(),
             )
         }
+
+    /** Archive spawn egg — paper-cream primary with sselith warm-yellow trim,
+     *  matching the dust spiral the tornado emits in-world. */
+    val ARCHIVE_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("archive_spawn_egg") {
+            ArchitecturySpawnEggItem(
+                EKEntities.ARCHIVE,
+                0xE8DEB8,
+                0xD9C45B,
+                props(),
+            )
+        }
+
+    /** Statue block-items — six decorative statues rendered by the
+     *  StatueBlockEntityRenderer. The in-world view is the Blockbench model;
+     *  the inventory icon is a plain `item/generated` texture (the same atlas
+     *  the model samples) for now. */
+    val STATUE_STEVE_ITEM = blockItem("statue_steve", EKBlocks.STATUE_STEVE)
+    val STATUE_CATALOGER_ITEM = blockItem("statue_cataloger", EKBlocks.STATUE_CATALOGER)
+    val STATUE_TENTACLES_ITEM = blockItem("statue_tentacles", EKBlocks.STATUE_TENTACLES)
+    val STATUE_TENTACLED_BEAST_ITEM = blockItem("statue_tentacled_beast", EKBlocks.STATUE_TENTACLED_BEAST)
+    val STATUE_YELLOW_TOWER_ITEM = blockItem("statue_yellow_tower", EKBlocks.STATUE_YELLOW_TOWER)
+    val STATUE_BLACK_GOAT_ITEM = blockItem("statue_black_goat", EKBlocks.STATUE_BLACK_GOAT)
+    val STATUE_COUNTING_ITEM = blockItem("statue_counting", EKBlocks.STATUE_COUNTING)
+
+    val STATUE_ITEMS: List<RegistrySupplier<out Item>> = listOf(
+        STATUE_STEVE_ITEM, STATUE_CATALOGER_ITEM, STATUE_TENTACLES_ITEM,
+        STATUE_TENTACLED_BEAST_ITEM, STATUE_YELLOW_TOWER_ITEM, STATUE_BLACK_GOAT_ITEM,
+        STATUE_COUNTING_ITEM,
+    )
 
     fun register() = ITEMS.register()
 }

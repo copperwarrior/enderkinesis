@@ -114,15 +114,44 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         random: RandomSource,
     ) {
         val age = state.getValue(AGE)
-        if (age < MAX_AGE) {
+        // Peek so we can compute the per-target terminal age WITHOUT removing
+        // the entry — small targets (button / pane / fence) mature at AGE 0,
+        // medium (slab / wall) at AGE 1, full shapes at MAX_AGE. The bud
+        // skips the intermediate visual stages it doesn't need.
+        val target = WogorBudTargetData.peek(level, pos)
+        val terminalAge = if (target != null) terminalAgeFor(target) else MAX_AGE
+        if (age < terminalAge) {
             level.setBlock(pos, state.setValue(AGE, age + 1), UPDATE_CLIENTS)
             scheduleNextGrow(level, pos, random)
         } else {
-            val facing = state.getValue(FACING)
-            val wogor = EKBlocks.WOGOR_WOOD.get().defaultBlockState()
-                .setValue(BlockStateProperties.AXIS, facing.axis)
-            level.setBlock(pos, wogor, UPDATE_ALL)
+            // Shape-preserving regrow: place the wogor variant resolved at
+            // destroy-time by [WogorVariantPicker] and stashed in
+            // [WogorBudTargetData]. Seed buds planted by the portal / tree
+            // growers have no stashed target — they mature into plain
+            // WOGOR_WOOD aligned to the bud's facing axis as before.
+            if (target != null) {
+                WogorBudTargetData.take(level, pos)
+                level.setBlock(pos, target, UPDATE_ALL)
+            } else {
+                val facing = state.getValue(FACING)
+                val wogor = EKBlocks.WOGOR_WOOD.get().defaultBlockState()
+                    .setValue(BlockStateProperties.AXIS, facing.axis)
+                level.setBlock(pos, wogor, UPDATE_ALL)
+            }
         }
+    }
+
+    /** Bud AGE the bud should mature at for [target]'s shape footprint:
+     *   - 0 (size 4)  — button, pane, fence post
+     *   - 1 (size 8)  — slab, wall
+     *   - 2 (size 12) — stairs, full cubes (log / wood / fallback) */
+    private fun terminalAgeFor(target: BlockState): Int = when (target.block) {
+        EKBlocks.WOGOR_WOOD_BUTTON.get(),
+        EKBlocks.WOGOR_WOOD_PANE.get(),
+        EKBlocks.WOGOR_WOOD_FENCE.get() -> 0
+        EKBlocks.WOGOR_WOOD_SLAB.get(),
+        EKBlocks.WOGOR_WOOD_WALL.get() -> 1
+        else -> MAX_AGE
     }
 
     private fun scheduleNextGrow(level: Level, pos: BlockPos, random: RandomSource) {

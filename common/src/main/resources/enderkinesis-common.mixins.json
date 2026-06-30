@@ -25,6 +25,7 @@
     "TomeLecternBookMixin",
     "FogRendererSselithRepertoryMixin",
     "FogRendererSureibjinMixin",
+    "PlayerRendererWikLakFlashLayerMixin",
     "FogRendererWohlonBiomeMixin",
     "GameRendererYgannAbyssOverlayMixin",
     "GuiYgannAbyssOverlayMixin",

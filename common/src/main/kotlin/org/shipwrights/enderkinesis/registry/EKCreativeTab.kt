@@ -79,6 +79,12 @@ object EKCreativeTab {
             output.accept(EKItems.WOGOR_FENCE_GATE_ITEM.get())
             output.accept(EKItems.WOGOR_PRESSURE_PLATE_ITEM.get())
             output.accept(EKItems.WOGOR_BUTTON_ITEM.get())
+            output.accept(EKItems.WOGOR_WOOD_STAIRS_ITEM.get())
+            output.accept(EKItems.WOGOR_WOOD_SLAB_ITEM.get())
+            output.accept(EKItems.WOGOR_WOOD_FENCE_ITEM.get())
+            output.accept(EKItems.WOGOR_WOOD_WALL_ITEM.get())
+            output.accept(EKItems.WOGOR_WOOD_PANE_ITEM.get())
+            output.accept(EKItems.WOGOR_WOOD_BUTTON_ITEM.get())
             output.accept(EKItems.BINDING_ROOTS_ITEM.get())
             output.accept(EKItems.ALMANAC_OF_EVERYWHERE.get())
             output.accept(EKItems.WYLLAND_TOME.get())
@@ -133,6 +139,8 @@ object EKCreativeTab {
             output.accept(EKItems.SCROLL_OF_SCULK_CATASTROPHE.get())
             output.accept(EKItems.ECHO_CANNON_ITEM.get())
 
+            for (statue in EKItems.STATUE_ITEMS) output.accept(statue.get())
+
             // Prismatic-goat-horn variants — 19 ItemStacks, one per
             // cave instrument, the same way vanilla shows 8 distinct
             // goat-horn stacks. The `instrument` NBT key is a plain
@@ -160,6 +168,7 @@ object EKCreativeTab {
         // tab registry is ready.
         CreativeTabRegistry.modify(CreativeTabRegistry.defer(CreativeModeTabs.SPAWN_EGGS)) { _, output, _ ->
             output.accept(EKItems.CATALOGER_SPAWN_EGG.get())
+            output.accept(EKItems.ARCHIVE_SPAWN_EGG.get())
         }
     }
 }

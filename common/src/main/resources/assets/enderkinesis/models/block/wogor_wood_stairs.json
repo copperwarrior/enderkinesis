@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/stairs",
+  "textures": {
+    "bottom": "enderkinesis:block/wogor_log",
+    "top": "enderkinesis:block/wogor_log",
+    "side": "enderkinesis:block/wogor_log"
+  }
+}

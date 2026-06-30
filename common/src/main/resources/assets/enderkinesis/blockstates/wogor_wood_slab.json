@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "type=bottom": { "model": "enderkinesis:block/wogor_wood_slab" },
+    "type=double": { "model": "enderkinesis:block/wogor_wood" },
+    "type=top":    { "model": "enderkinesis:block/wogor_wood_slab_top" }
+  }
+}

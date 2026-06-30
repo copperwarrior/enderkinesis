@@ -8,6 +8,13 @@
     "minecraft:enchanting_table",
     "minecraft:chiseled_bookshelf",
     "minecraft:gold_block",
-    "enderkinesis:orb_of_linking"
+    "enderkinesis:orb_of_linking",
+    "enderkinesis:statue_steve",
+    "enderkinesis:statue_cataloger",
+    "enderkinesis:statue_tentacles",
+    "enderkinesis:statue_tentacled_beast",
+    "enderkinesis:statue_yellow_tower",
+    "enderkinesis:statue_black_goat",
+    "enderkinesis:statue_counting"
   ]
 }
