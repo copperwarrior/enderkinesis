@@ -68,10 +68,8 @@ object WohlonnogondoniaSurfaceRoots {
         val seed = hash32(regionX, regionZ, 0x70F1FA52.toInt())
         if ((seed and 0xF) == 0) return EMPTY_PATHS
 
-        val startWX = regionX * TUNNEL_REGION_SIZE +
-            (hash32(regionX, regionZ, 1) and (TUNNEL_REGION_SIZE - 1))
-        val startWZ = regionZ * TUNNEL_REGION_SIZE +
-            (hash32(regionX, regionZ, 2) and (TUNNEL_REGION_SIZE - 1))
+        val startWX = regionX * TUNNEL_REGION_SIZE + regionStartOffset(regionX, regionZ, 1)
+        val startWZ = regionZ * TUNNEL_REGION_SIZE + regionStartOffset(regionX, regionZ, 2)
 
         if (motherTreeExclusionSq > 0L) {
             val startDistSq = startWX.toLong() * startWX + startWZ.toLong() * startWZ
@@ -300,8 +298,14 @@ object WohlonnogondoniaSurfaceRoots {
         return TunnelPath(points, count, taperTailSteps = taperTail)
     }
 
+    /** Hub offset inside a region. Modulo, not a bit mask: the region size is 48, and a mask
+     *  of 47 never gives 16 to 31. */
+    fun regionStartOffset(regionX: Int, regionZ: Int, axisSalt: Int): Int =
+        Math.floorMod(hash32(regionX, regionZ, axisSalt), TUNNEL_REGION_SIZE)
+
     fun hash32(a: Int, b: Int, salt: Int): Int {
-        var h = a * 0x9E3779B1.toInt() xor (b * 0x85EBCA77.toInt()) xor (salt * 0xC2B2AE3D.toInt())
+        var h = a * 0x9E3779B1.toInt() xor (b * 0x85EBCA77.toInt()) xor (salt * 0xC2B2AE3D.toInt()) xor
+            WohlonWorldSeed.salt
         h = (h xor (h ushr 15)) * 0x2C1B3C6D.toInt()
         h = (h xor (h ushr 12)) * 0x297A2D39.toInt()
         h = h xor (h ushr 15)

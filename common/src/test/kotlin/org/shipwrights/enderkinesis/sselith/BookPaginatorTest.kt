@@ -50,6 +50,37 @@ class BookPaginatorTest {
     }
 
     @Test
+    fun `an over-long compound breaks after a hyphen and the line continues`() {
+        val pages = BookPaginator.paginate("za vraestmorocht-schest-kelkargh-skarn-moroch, za")
+        assertWellFormed(pages)
+        val lines = pages.single().split('\n')
+        lines.dropLast(1).forEach { it.last() shouldBe '-' }
+        lines.last() shouldBe "skarn-moroch, za"
+    }
+
+    @Test
+    fun `a full page comes before a short last page`() {
+        val text = (1..BookPaginator.LINES_PER_PAGE * 2 + 2).joinToString("\n") { "zhaelk$it" }
+        val pages = BookPaginator.paginate(text)
+        assertWellFormed(pages)
+        pages.map { it.split('\n').size } shouldBe listOf(14, 14, 2)
+        pages.joinToString("\n") shouldBe text
+    }
+
+    @Test
+    fun `unwrap gives back the text of each section`() {
+        val first = "Zhaelk Tesk\n\n" + "za vraestmorocht-schest-kelkargh-skarn-moroch, okht zhol velkt ".repeat(12).trim()
+        val second = "Regarnkh\n\n" + "zhaelk regarnkh leamorgh ".repeat(40).trim()
+        val pages = BookPaginator.paginate(first) + BookPaginator.paginate(second)
+        BookPaginator.unwrap(pages) shouldBe listOf(first, second)
+    }
+
+    @Test
+    fun `an em dash has its default font width`() {
+        BookPaginator.serifCharWidth('\u2014') shouldBe 9
+    }
+
+    @Test
     fun `translated Sselith prose paginates into well-formed pages`() {
         val english = ("The keeper of the great library files every book in its proper place. " +
             "Knowledge is the only power that endures, and the rule of the anchor binds all. ").repeat(8)

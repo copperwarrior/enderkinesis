@@ -41,12 +41,11 @@ class StaffOfRecitalItem(properties: Properties) : Item(properties) {
         if (action != ClickAction.SECONDARY) return false
         if (other.isEmpty) return false
         if (!RecitalHelper.isEligibleTome(other)) return false
-        if (RecitalHelper.addTome(stack, other)) {
-            other.shrink(other.count)
-            playInsert(player)
-            return true
-        }
-        return false
+        val replaced = RecitalHelper.addTome(stack, other) ?: return false
+        // The tome that the staff held goes to the cursor. Before, it was deleted.
+        access.set(replaced)
+        playInsert(player)
+        return true
     }
 
     override fun overrideStackedOnOther(
@@ -54,8 +53,11 @@ class StaffOfRecitalItem(properties: Properties) : Item(properties) {
     ): Boolean {
         if (action != ClickAction.SECONDARY) return false
         if (slot.item.isEmpty) {
+            val active = RecitalHelper.getActiveTome(stack) ?: return false
+            if (!slot.mayPlace(active)) return false
             val removed = RecitalHelper.removeActiveTome(stack) ?: return false
-            slot.safeInsert(removed)
+            val rest = slot.safeInsert(removed)
+            if (!rest.isEmpty) player.inventory.placeItemBackInInventory(rest)
             playRemove(player)
             return true
         }
@@ -168,12 +170,8 @@ class StaffOfRecitalItem(properties: Properties) : Item(properties) {
     ) {
         super.inventoryTick(stack, level, entity, slotId, isSelected)
         if (entity !is Player) return
-        val tomes = RecitalHelper.readTomes(stack)
-        if (tomes.isEmpty()) return
-        val idx = RecitalHelper.getActiveIndex(stack).coerceIn(0, tomes.size - 1)
-        val tome = tomes[idx]
-        tome.item.inventoryTick(tome, level, entity, slotId, isSelected)
-        tomes[idx] = tome
-        RecitalHelper.writeTomes(stack, tomes)
+        RecitalHelper.tickActiveTome(stack) { tome ->
+            tome.item.inventoryTick(tome, level, entity, slotId, isSelected)
+        }
     }
 }

@@ -4,11 +4,13 @@ import com.mojang.blaze3d.platform.NativeImage
 import net.minecraft.client.Minecraft
 import net.minecraft.core.Direction
 import net.minecraft.util.Mth
+import net.minecraft.world.effect.MobEffects
 import org.joml.Matrix4f
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.sselith.SselithEclipse
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sin
 
@@ -75,6 +77,14 @@ object SselithRepertoryLighting {
     private const val SUN_LIGHT_STRENGTH = 1.0f
     private const val FILL_LIGHT_STRENGTH = 0.25f
 
+    /** Constant lightmap subtraction for the whole dimension; Owl's Mark peaks just below it.
+     *  Fades out with the eclipse so eclipses keep their original brightness. */
+    private const val BASE_DARKEN = 0.40f
+
+    // Vanilla LightTexture.calculateDarknessScale constants.
+    private const val DARKNESS_PULSE_AMPLITUDE = 0.45f
+    private const val DARKNESS_PULSE_RATE = Math.PI.toFloat() * 0.025f
+
 
     /** World-space unit vector pointing from the player to the sun. Cached. */
     val sunDirection: Vector3f by lazy { computeSunDirection() }
@@ -135,6 +145,10 @@ object SselithRepertoryLighting {
         // get a high-power crush so only the very top (cell 15) keeps natural torch
         // brightness; 14 and below fall off rapidly toward black.
         val skyScale = 1f - eclipse
+        // Vanilla subtracts this from every cell; our cancelled updateLightTexture never would.
+        val darkness = maxOf(
+            BASE_DARKEN * skyScale, darknessPulse(partialTick), OwlsMarkClient.lightmapSubtraction(partialTick),
+        )
 
         for (skyLight in 0..15) {
             for (blockLight in 0..15) {
@@ -147,9 +161,9 @@ object SselithRepertoryLighting {
                 val skyB = (SKY_FLOOR + (1f - SKY_FLOOR) * sky) * skyScale
                 val blockB = blockBrightness(blockLight, eclipse)
 
-                val r = Mth.clamp(skyB * SKY_TINT_R + blockB * BLOCK_TINT_R, 0f, 1f)
-                val g = Mth.clamp(skyB * SKY_TINT_G + blockB * BLOCK_TINT_G, 0f, 1f)
-                val b = Mth.clamp(skyB * SKY_TINT_B + blockB * BLOCK_TINT_B, 0f, 1f)
+                val r = Mth.clamp(skyB * SKY_TINT_R + blockB * BLOCK_TINT_R - darkness, 0f, 1f)
+                val g = Mth.clamp(skyB * SKY_TINT_G + blockB * BLOCK_TINT_G - darkness, 0f, 1f)
+                val b = Mth.clamp(skyB * SKY_TINT_B + blockB * BLOCK_TINT_B - darkness, 0f, 1f)
 
                 val ri = (r * 255f).toInt()
                 val gi = (g * 255f).toInt()
@@ -164,10 +178,35 @@ object SselithRepertoryLighting {
      *  eclipsed `(block/15)^N` crush, by eclipse intensity. The high power leaves only
      *  the top end visible at full eclipse while preserving the warm torch tint. */
     private fun blockBrightness(blockLight: Int, eclipse: Float): Float {
-        val block = blockLight / 15f
+        // The eclipse drop is here, not in mesh light: a baked value goes stale as intensity changes.
+        val block = SselithEclipse.eclipsedBlockLight(blockLight.toFloat(), eclipse) / 15f
         val natural = block * block * 0.96f + block * 0.04f
         val eclipsed = block.toDouble().pow(ECLIPSE_BLOCK_CRUSH_POW).toFloat() * ECLIPSE_BLOCK_BRIGHTNESS_BOOST
         return Mth.lerp(eclipse, natural, eclipsed)
+    }
+
+    /** The local player's Darkness effect factor, 0 to 1, as vanilla fog and lightmap read it. */
+    @JvmStatic
+    fun darknessFactor(partialTick: Float): Float {
+        val player = Minecraft.getInstance().player ?: return 0f
+        val data = player.getEffect(MobEffects.DARKNESS)?.factorData?.orElse(null) ?: return 0f
+        return data.getFactor(player, partialTick)
+    }
+
+    /** Vanilla FogRenderer's Darkness dimming of the fog colour: `(1 − factor)²`. */
+    @JvmStatic
+    fun darknessDim(partialTick: Float): Float {
+        val clear = 1f - darknessFactor(partialTick)
+        return clear * clear
+    }
+
+    private fun darknessPulse(partialTick: Float): Float {
+        val mc = Minecraft.getInstance()
+        val player = mc.player ?: return 0f
+        val scale = mc.options.darknessEffectScale().get().toFloat()
+        val gamma = darknessFactor(partialTick) * scale
+        val wave = Mth.cos((player.tickCount - partialTick) * DARKNESS_PULSE_RATE)
+        return max(0f, wave * DARKNESS_PULSE_AMPLITUDE * gamma) * scale
     }
 
     /** Client-side eclipse intensity, sampled from the sselith level's gameTime so the

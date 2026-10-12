@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.blockentity
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.Level
@@ -55,13 +54,6 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
                     val ship = level.getLoadedShipManagingPos(pos)
                     if (ship != null) ship.transform.shipToWorld.transformPosition(worldPos)
 
-                    LOG.info(
-                        "detonate pos={} world=({},{},{}) impulse={} rawRadius={} clampedRadius={}",
-                        pos,
-                        "%.2f".format(worldPos.x), "%.2f".format(worldPos.y), "%.2f".format(worldPos.z),
-                        "%.1f".format(impulse),
-                        "%.2f".format(rawRadius), "%.2f".format(radius),
-                    )
 
                     // Suppress the self-chain: our own block is about to be destroyed
                     // by this explosion, which fires its `Block.wasExploded` and would
@@ -81,12 +73,6 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
                     } finally {
                         EXPLODING_POSITIONS.remove(pos)
                     }
-                } else {
-                    LOG.info(
-                        "drop pos={} impulse={} radius={} below MIN_EXPLOSION_RADIUS={}",
-                        pos, "%.1f".format(impulse),
-                        "%.2f".format(rawRadius), MIN_EXPLOSION_RADIUS,
-                    )
                 }
             }
         }
@@ -96,10 +82,6 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
      *  the largest impulse seen since the last drain via a lock-free max-CAS. */
     fun queueDetonation(impulse: Double) {
         if (impulse < IMPACT_IMPULSE_THRESHOLD) {
-            LOG.info(
-                "reject pos={} impulse={} below IMPACT_IMPULSE_THRESHOLD={}",
-                blockPos, "%.1f".format(impulse), "%.1f".format(IMPACT_IMPULSE_THRESHOLD),
-            )
             return
         }
         val packed = java.lang.Double.doubleToRawLongBits(impulse)
@@ -144,7 +126,6 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     companion object {
-        private val LOG = LogUtils.getLogger()
 
         /** Positions of crystal-explosive blocks whose self-detonation `level.explode`
          *  call is currently in flight. `Block.wasExploded` consults this set so the
@@ -167,12 +148,6 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
             if (ship != null) ship.transform.shipToWorld.transformPosition(worldPos)
             val immut = pos.immutable()
             level.server.execute {
-                LOG.info(
-                    "chain pos={} world=({},{},{}) radius={}",
-                    immut,
-                    "%.2f".format(worldPos.x), "%.2f".format(worldPos.y), "%.2f".format(worldPos.z),
-                    CHAIN_EXPLOSION_RADIUS,
-                )
                 EXPLODING_POSITIONS.add(immut)
                 try {
                     level.explode(

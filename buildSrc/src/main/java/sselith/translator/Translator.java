@@ -17,14 +17,6 @@ import opennlp.tools.postag.POSTaggerME;
 public final class Translator {
 
     private static final Set<String> DEMONSTRATIVES = Set.of("this", "that", "these", "those");
-    private static final Set<Character> NO_SPACE_BEFORE = Set.of(
-            '.', ',', ';', ':', '!', '?', ')', ']', '}');
-    private static final Set<Character> NO_SPACE_AFTER = Set.of(
-            '(', '[', '{');
-    // Paired-emphasis chars: open (space-before) on first occurrence, close (space-after) on
-    // matched pair. Apostrophe is paired here because the tokenizer pre-collapses contractions,
-    // so a standalone `'` in the stream is always a quote.
-    private static final Set<Character> PAIRED_PUNCT = Set.of('*', '_', '"', '\'');
     private static final Pattern HEADING = Pattern.compile("^(\\s*)(#+\\s+)(.*)$");
     private static final Pattern LIST_ITEM = Pattern.compile("^(\\s*)([-*]\\s+)(.*)$");
     private static final Pattern HORIZONTAL_RULE = Pattern.compile("^\\s*-{3,}\\s*$");
@@ -83,8 +75,9 @@ public final class Translator {
             if (i > 0) out.append("\n");
             out.append(translateLine(lines[i]));
         }
-        String withFormats = reinsertFormatTokens(out.toString(), s.slots);
-        return reinsertFormatTokens(withFormats, inv.slots);
+        List<FormatSlot> slots = new ArrayList<>(s.slots);
+        slots.addAll(inv.slots);
+        return reinsertFormatTokens(out.toString(), slots);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -157,14 +150,38 @@ public final class Translator {
 
     private static String reinsertFormatTokens(String text, List<FormatSlot> slots) {
         if (slots.isEmpty()) return text;
-        String result = text;
+        java.util.Map<String, String> originals = new java.util.HashMap<>();
+        int maxMarkerLength = 0;
         for (FormatSlot slot : slots) {
-            // Case-insensitive because applySentenceCase may have
-            // uppercased a sentence-initial marker (e.g. {@code Qzfmt0qz}).
-            Pattern p = Pattern.compile(Pattern.quote(slot.marker), Pattern.CASE_INSENSITIVE);
-            result = p.matcher(result).replaceAll(Matcher.quoteReplacement(slot.original));
+            originals.put(slot.marker, slot.original);
+            maxMarkerLength = Math.max(maxMarkerLength, slot.marker.length());
         }
-        return result;
+        // One pass with a bounded look-ahead. Adjacent markers have no separator, so at each marker
+        // prefix the longest known marker wins. applySentenceCase can change the case of a marker.
+        int minMarkerLength = MARKER_PREFIX.length() + 1 + MARKER_SUFFIX.length();
+        StringBuilder sb = new StringBuilder(text.length());
+        int i = 0;
+        while (i < text.length()) {
+            if (!text.regionMatches(true, i, MARKER_PREFIX, 0, MARKER_PREFIX.length())) {
+                sb.append(text.charAt(i));
+                i++;
+                continue;
+            }
+            String original = null;
+            int end = Math.min(text.length(), i + maxMarkerLength);
+            for (; end >= i + minMarkerLength; end--) {
+                original = originals.get(text.substring(i, end).toLowerCase(Locale.ROOT));
+                if (original != null) break;
+            }
+            if (original == null) {
+                sb.append(text.charAt(i));
+                i++;
+            } else {
+                sb.append(original);
+                i = end;
+            }
+        }
+        return sb.toString();
     }
 
     private String translateLine(String line) {
@@ -204,6 +221,8 @@ public final class Translator {
         String[] lemmas = lemmatizer.lemmatize(surface, pennTags);
 
         List<String> outputs = new ArrayList<>(tokens.size());
+        // The source whitespace before each output, parallel to `outputs`.
+        List<String> gaps = new ArrayList<>(tokens.size());
         int maxMulti = dict.getMaxMultiWordTokens();
         int i = 0;
         while (i < tokens.size()) {
@@ -214,17 +233,23 @@ public final class Translator {
             // mixed with punctuation.
             int matchedN = tryMultiWordLookup(tokens, lemmas, pennTags, i, maxMulti, outputs);
             if (matchedN > 0) {
+                gaps.add(tokens.get(i).gap());
                 i += matchedN;
                 continue;
             }
             EnglishTokenizer.Token tok = tokens.get(i);
             String prevOriginal = i > 0 ? tokens.get(i - 1).original() : null;
             String rendered = renderToken(tok, pennTags[i], lemmas[i], outputs, prevOriginal);
-            if (rendered != null) outputs.add(rendered);
+            if (rendered != null) {
+                outputs.add(rendered);
+                gaps.add(numeralGap(tok, i > 0 ? tokens.get(i - 1) : null));
+            }
             i++;
         }
 
-        return applySentenceCase(joinTokens(outputs));
+        int end = text.length();
+        while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) end--;
+        return applySentenceCase(joinTokens(outputs, gaps)) + text.substring(end);
     }
 
     /**
@@ -341,16 +366,22 @@ public final class Translator {
         }
         StringBuilder sb = new StringBuilder(text);
         boolean capitalizeNext = true;
+        // Letters attached to a placeholder (`%s` + POSS suffix, `%sx`) are part of its word.
+        boolean attachedToMask = false;
         for (int i = 0; i < sb.length(); i++) {
-            if (masked[i]) continue;
+            if (masked[i]) {
+                attachedToMask = true;
+                continue;
+            }
             char c = sb.charAt(i);
             if (Character.isLetter(c)) {
-                if (capitalizeNext) {
+                if (capitalizeNext && !attachedToMask) {
                     sb.setCharAt(i, Character.toUpperCase(c));
                     capitalizeNext = false;
                 }
-            } else if (c == '.' || c == '!' || c == '?') {
-                capitalizeNext = true;
+            } else {
+                attachedToMask = false;
+                if (c == '.' || c == '!' || c == '?') capitalizeNext = true;
             }
         }
         return sb.toString();
@@ -408,6 +439,12 @@ public final class Translator {
             return tok.original();
         }
 
+        // A section word before a Roman numeral ("Page I", "Chapter V") makes it a number. This runs
+        // before the dictionary, which has the pronoun "i" and letter labels for the same tokens.
+        if (isSectionNumeral(tok.original(), prevOriginal)) {
+            return capitalizeFirstLetter(NumeralConverter.integerToCardinal(parseRoman(tok.original())));
+        }
+
         // Surface-form lookup wins over lemma + morphology. The dictionary
         // stores many inflected forms directly ("crafting" → "kraekhn",
         // "walked" → "volkhakht", "was" → "krevirkh", "running" → "morvolkh"),
@@ -435,13 +472,27 @@ public final class Translator {
         // assembled algorithmically and must not be shortcut by these loan-roots.
         SselithDictionary.LexiconEntry entry = dict.lookup(effectiveLemma);
         String engPrefix = null;
+        // The lemmatizer dictionary does not list every inflected form ("voices", "listening"). The
+        // runtime translator has no lemmatizer and uses these stems, so the two agree on such words.
+        String stemTag = null;
+        if (entry == null) {
+            for (Stem candidate : candidateStems(tok.normalized())) {
+                entry = dict.lookup(candidate.stem());
+                if (entry != null) {
+                    stemTag = candidate.pennTag();
+                    break;
+                }
+            }
+        }
 
         if (entry == null) {
             // Pure digit string → algorithmic base-6 (dict has no digit-string keys).
             if (NUMERIC.matcher(tok.original()).matches()) {
                 try {
                     double v = Double.parseDouble(tok.original());
-                    return NumeralConverter.decimalToSselith(v);
+                    if (NumeralConverter.isConvertible(v)) {
+                        return NumeralConverter.decimalToSselith(v);
+                    }
                 } catch (NumberFormatException ignored) {
                     // fall through to normal handling
                 }
@@ -475,23 +526,56 @@ public final class Translator {
         }
 
         if (entry == null) {
-            // Universal pronoun fallback.
-            String pronoun = pronounFor(tok.original(), pennTag, effectiveLemma);
+            // Universal pronoun fallback. The tagger can call a lone letter ("(s)") a pronoun.
+            String pronoun = tok.original().length() > 1 ? pronounFor(tok.original(), pennTag, effectiveLemma) : null;
             if (pronoun != null) return applyCase(tok.casePattern(), pronoun);
             // Passthrough: keep original case so proper-noun-shaped misclassifications survive.
             return tok.original();
         }
 
-        return applyCase(tok.casePattern(), applyMorphology(entry, engPrefix, pennTag));
+        return applyCase(tok.casePattern(), applyMorphology(entry, engPrefix, stemTag != null ? stemTag : pennTag));
+    }
+
+    private record Stem(String stem, String pennTag) {}
+
+    /** Candidate stems of a surface form, most specific first, with the Penn tag that the removed
+     *  ending implies. Kept in lock-step with {@code candidateStems} in the runtime {@code Sselith.kt}. */
+    private static List<Stem> candidateStems(String word) {
+        List<Stem> out = new ArrayList<>();
+        int n = word.length();
+        if (n > 3 && word.endsWith("ies")) out.add(new Stem(word.substring(0, n - 3) + "y", "NNS"));
+        if (n > 3 && word.endsWith("ied")) out.add(new Stem(word.substring(0, n - 3) + "y", "VBD"));
+        if (n > 4 && word.endsWith("ing")) {
+            out.add(new Stem(word.substring(0, n - 3), "VBG"));
+            out.add(new Stem(word.substring(0, n - 3) + "e", "VBG"));
+            if (n > 5 && word.charAt(n - 4) == word.charAt(n - 5)) out.add(new Stem(word.substring(0, n - 4), "VBG"));
+        }
+        if (n > 3 && word.endsWith("ed")) {
+            out.add(new Stem(word.substring(0, n - 2), "VBD"));
+            out.add(new Stem(word.substring(0, n - 1), "VBD"));
+            if (n > 4 && word.charAt(n - 3) == word.charAt(n - 4)) out.add(new Stem(word.substring(0, n - 3), "VBD"));
+        }
+        if (n > 3 && word.endsWith("es")) {
+            out.add(new Stem(word.substring(0, n - 2), "NNS"));
+            out.add(new Stem(word.substring(0, n - 1), "NNS"));
+        }
+        if (n > 2 && word.endsWith("s") && !word.endsWith("ss")) out.add(new Stem(word.substring(0, n - 1), "NNS"));
+        if (n > 4 && word.endsWith("est")) out.add(new Stem(word.substring(0, n - 3), "NNS"));
+        if (n > 3 && word.endsWith("er")) out.add(new Stem(word.substring(0, n - 2), "NNS"));
+        return out;
     }
 
     private static boolean isRomanNumeral(String original, String prevOriginal) {
         if (original == null || !ROMAN.matcher(original).matches()) return false;
-        if (original.length() > 1) return true;
-        // Single uppercase Roman char (I/V/X/L/C/D/M) is ambiguous with English "I" the
-        // pronoun and bare letter labels. Require a section-word context immediately before.
-        if (prevOriginal == null) return false;
-        return ROMAN_CONTEXT_WORDS.contains(prevOriginal.toLowerCase(Locale.ROOT));
+        return original.length() > 1 || isSectionNumeral(original, prevOriginal);
+    }
+
+    // The section word must have a capital: "Page I" is a number, "the book I read" is the pronoun.
+    private static boolean isSectionNumeral(String original, String prevOriginal) {
+        if (original == null || prevOriginal == null || prevOriginal.isEmpty()) return false;
+        if (!ROMAN.matcher(original).matches()) return false;
+        return Character.isUpperCase(prevOriginal.charAt(0))
+                && ROMAN_CONTEXT_WORDS.contains(prevOriginal.toLowerCase(Locale.ROOT));
     }
 
     private static int parseRoman(String s) {
@@ -560,42 +644,35 @@ public final class Translator {
                     stem = MorphologyEngine.attachSuffix(stem, dict.getSuffixes().get("INF"), vowels);
                 }
             }
-            case "ADJ" -> stem = MorphologyEngine.attachSuffix(stem, dict.getSuffixes().get("ADJ"), vowels);
-            case "ADV" -> stem = MorphologyEngine.attachSuffix(stem, dict.getSuffixes().get("ADV"), vowels);
-            default -> { /* DET/ADP/CCONJ/SCONJ/AUX/PART/INTJ/PRON: bare stem */ }
+            // Lexicon ADJ/ADV forms are final: a derived form carries -egh/-orl, and a root takes none.
+            default -> { /* ADJ/ADV/DET/ADP/CCONJ/SCONJ/AUX/PART/INTJ/PRON: bare stem */ }
         }
         return stem;
     }
 
-    private String joinTokens(List<String> tokens) {
-        StringBuilder sb = new StringBuilder();
-        boolean suppressLeadingSpace = true;
-        java.util.Map<Character, Boolean> openState = new java.util.HashMap<>();
-        for (Character c : PAIRED_PUNCT) openState.put(c, false);
+    private static final String NO_SPACE_BEFORE = ".,;:!?)]}";
+    private static final String NO_SPACE_AFTER = "([{";
 
-        for (String t : tokens) {
+    /** A number becomes hyphen-joined words, so a number that touches a word or symbol in the source
+     *  ("C418", "5×5×3") gets a space. Sentence punctuation and brackets stay attached. */
+    private static String numeralGap(EnglishTokenizer.Token tok, EnglishTokenizer.Token prev) {
+        if (prev == null || !tok.gap().isEmpty()) return tok.gap();
+        if (!startsWithDigit(tok) && !startsWithDigit(prev)) return tok.gap();
+        if (NO_SPACE_BEFORE.indexOf(tok.original().charAt(0)) >= 0) return tok.gap();
+        if (NO_SPACE_AFTER.indexOf(prev.original().charAt(prev.original().length() - 1)) >= 0) return tok.gap();
+        return " ";
+    }
+
+    private static boolean startsWithDigit(EnglishTokenizer.Token tok) {
+        return Character.isDigit(tok.original().charAt(0));
+    }
+
+    private static String joinTokens(List<String> tokens, List<String> gaps) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < tokens.size(); i++) {
+            String t = tokens.get(i);
             if (t.isEmpty()) continue;
-            // Single paired-emphasis character: behave as opening/closing based on state.
-            if (t.length() == 1 && PAIRED_PUNCT.contains(t.charAt(0))) {
-                char c = t.charAt(0);
-                boolean wasOpen = openState.get(c);
-                if (!wasOpen) {
-                    if (!suppressLeadingSpace) sb.append(' ');
-                    sb.append(t);
-                    suppressLeadingSpace = true;
-                } else {
-                    sb.append(t);
-                    suppressLeadingSpace = false;
-                }
-                openState.put(c, !wasOpen);
-                continue;
-            }
-            char first = t.charAt(0);
-            boolean noSpace = suppressLeadingSpace || NO_SPACE_BEFORE.contains(first);
-            if (!noSpace) sb.append(' ');
-            sb.append(t);
-            char last = t.charAt(t.length() - 1);
-            suppressLeadingSpace = NO_SPACE_AFTER.contains(last);
+            sb.append(gaps.get(i)).append(t);
         }
         return sb.toString();
     }

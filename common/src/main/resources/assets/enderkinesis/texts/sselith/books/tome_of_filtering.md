@@ -4,7 +4,7 @@ The orbs are willing carriers, but they do not discriminate. The Tome of Filteri
 
 ## Page II — The Binding
 
-Hold the tome in the working hand. In the other, hold the kind of thing the orb shall attend to: a dragon's breath, a copper ingot, a sselith manuscript. Right-click the orb. The orb learns the kind. From that moment, it ignores everything else.
+Hold the tome in the working hand. In the other, hold the kind of thing the orb shall attend to: a dragon's breath, a copper ingot, a Sselith manuscript. Right-click the orb. The orb learns the kind. From that moment, it ignores everything else.
 
 ## Page III — Of Releasing
 

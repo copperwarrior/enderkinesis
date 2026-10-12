@@ -1,9 +1,12 @@
 package org.shipwrights.enderkinesis.item
 
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.TagKey
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
@@ -14,6 +17,7 @@ import net.minecraft.world.entity.projectile.Projectile
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
@@ -56,19 +60,30 @@ object AegisManager {
     private const val SHIP_PUSH_MIN_FORCE: Double = 800.0
     private const val SHIP_PUSH_LIFT_FRACTION: Double = 0.05
 
+    private const val DEFLECT_RIPPLE_HALF_SIZE: Float = 0.6f
+    private const val PUSH_RIPPLE_MIN_HALF_SIZE: Float = 0.3f
+    private const val PUSH_RIPPLE_MAX_HALF_SIZE: Float = 2.5f
+
+    private const val FEEDBACK_COOLDOWN_TICKS: Long = 10L
+    private const val FEEDBACK_PRUNE_INTERVAL: Long = 20L
+
+    /** Entity id to the game time of its last sound and ripple. Server thread only. */
+    private val feedbackTicks: Int2LongOpenHashMap = Int2LongOpenHashMap()
+
     /** Tick. Idempotent: each affected entity is reflected/pushed once per
      *  call regardless of how many ticks they've been inside the box —
      *  vanilla projectiles can't be inside the box for >1 tick after
      *  reflection anyway because their velocity now points outward. */
     fun tick(level: ServerLevel, player: Player) {
         val frame = AegisBox.forPlayer(player)
+        pruneFeedback(level.gameTime)
         applyEntityEffects(level, player, frame)
         applyShipEffects(level, player, frame)
     }
 
     private fun applyEntityEffects(level: ServerLevel, player: Player, frame: AegisBox.Frame) {
         val entities = level.getEntities(player, frame.worldAabb) { e ->
-            e !== player && e.isAlive
+            e !== player && e.isAlive && !e.isSpectator
         }
         for (entity in entities) {
             // Two ways an entity can intersect:
@@ -87,14 +102,23 @@ object AegisManager {
             val away = if (awayRaw.lengthSqr() < 1e-6) frame.axisZ else awayRaw.normalize()
 
             if (entity is Projectile) {
+                if (isExemptProjectile(entity)) continue
                 reflectProjectile(entity, player, away)
             } else {
                 // Push every non-projectile entity inside the shield. The
                 // [DEFLECTABLE_TAG] is no longer required — TNT, mobs,
                 // players, items all get shoved away from the wielder.
-                pushEntity(entity, away)
+                pushEntity(entity, player, away)
             }
         }
+    }
+
+    /** An arrow in the ground (`inGround` is protected; such an arrow does not move), and a
+     *  trident on its Loyalty return (vanilla sets `noPhysics` for the return flight). */
+    private fun isExemptProjectile(proj: Projectile): Boolean {
+        if (proj !is AbstractArrow) return false
+        if (proj is net.minecraft.world.entity.projectile.ThrownTrident && proj.isNoPhysics) return true
+        return proj.x == proj.xOld && proj.y == proj.yOld && proj.z == proj.zOld
     }
 
     private fun reflectProjectile(proj: Projectile, player: Player, away: Vec3) {
@@ -104,7 +128,9 @@ object AegisManager {
         // shielder the "credited killer" for any downstream damage, and
         // (for arrows) lets the arrow strike its original shooter (the
         // owner-hit guard only protects the *current* owner = the player).
-        proj.owner = player
+        // A pearl keeps its thrower: with the shield user as owner, the pearl teleports the
+        // shield user to the place where it lands.
+        if (proj !is net.minecraft.world.entity.projectile.ThrownEnderpearl) proj.owner = player
 
         // Arrows have a special vanilla wrinkle: `AbstractArrow.setOwner`
         // flips `pickup → ALLOWED` whenever the new owner is a Player. We
@@ -146,6 +172,7 @@ object AegisManager {
         // accessor mixin, and arrows are unlikely to be stationary inside a
         // shield projection at 4 blocks away in normal play.)
         proj.hasImpulse = true
+        playFeedback(proj, player, EKSounds.AEGIS_DEFLECT.get(), DEFLECT_RIPPLE_HALF_SIZE)
     }
 
     /** Adds a single-tick away-from-player impulse (with a small upward
@@ -154,7 +181,7 @@ object AegisManager {
      *  a hard velocity replacement. For [ServerPlayer]s we also push a
      *  [ClientboundSetEntityMotionPacket] because vanilla overwrites the
      *  server-side delta with the next client move packet otherwise. */
-    private fun pushEntity(entity: Entity, away: Vec3) {
+    private fun pushEntity(entity: Entity, player: Player, away: Vec3) {
         val push = Vec3(
             away.x * DEFLECTABLE_PUSH_SPEED,
             away.y * DEFLECTABLE_PUSH_SPEED + DEFLECTABLE_LIFT,
@@ -166,6 +193,30 @@ object AegisManager {
             entity.hurtMarked = true
             entity.connection.send(ClientboundSetEntityMotionPacket(entity))
         }
+        val rippleHalfSize = (maxOf(entity.bbWidth, entity.bbHeight) * 0.5f)
+            .coerceIn(PUSH_RIPPLE_MIN_HALF_SIZE, PUSH_RIPPLE_MAX_HALF_SIZE)
+        playFeedback(entity, player, EKSounds.AEGIS_PUSH.get(), rippleHalfSize)
+    }
+
+    // A push runs each tick while the entity stays in the box. A reflected projectile also
+    // stays in the detection volume for some ticks, and the shield reflects it again.
+    private fun playFeedback(entity: Entity, wielder: Player, sound: SoundEvent, rippleHalfSize: Float) {
+        val level = entity.level() as? ServerLevel ?: return
+        val now = level.gameTime
+        if (feedbackTicks.containsKey(entity.id) && !isFeedbackExpired(now, feedbackTicks.get(entity.id))) return
+        feedbackTicks.put(entity.id, now)
+        val pos = entity.boundingBox.center
+        level.playSound(null, pos.x, pos.y, pos.z, sound, SoundSource.PLAYERS, 1f, 1f)
+        AegisNetwork.broadcastRipple(level, wielder, pos, rippleHalfSize)
+    }
+
+    // A time in the future is from a different world session.
+    private fun isFeedbackExpired(now: Long, last: Long): Boolean =
+        now - last !in 0 until FEEDBACK_COOLDOWN_TICKS
+
+    private fun pruneFeedback(now: Long) {
+        if (feedbackTicks.isEmpty() || now % FEEDBACK_PRUNE_INTERVAL != 0L) return
+        feedbackTicks.int2LongEntrySet().removeIf { isFeedbackExpired(now, it.longValue) }
     }
 
     private fun applyShipEffects(level: ServerLevel, player: Player, frame: AegisBox.Frame) {
@@ -182,9 +233,10 @@ object AegisManager {
             ids.addAll(gtpa.getAllConnectedShips(rs.id))
             ids
         } ?: emptySet()
+        val dim = level.dimensionId
         for (ship in level.shipObjectWorld.loadedShips) {
             val srv = ship as? LoadedServerShip ?: continue
-            if (srv.id in excluded) continue
+            if (srv.id in excluded || srv.chunkClaimDimension != dim) continue
             val sa = srv.worldAABB
             // Manual AABB overlap test — AABBdc.intersectsAABB only takes a
             // joml AABBd object, not 6 doubles, and we don't want to allocate.

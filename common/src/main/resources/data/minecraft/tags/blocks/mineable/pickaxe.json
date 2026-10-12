@@ -2,6 +2,7 @@
   "replace": false,
   "values": [
     "enderkinesis:ancrite_block",
+    "enderkinesis:owl_deepslate",
     "enderkinesis:raw_ancrite",
     "enderkinesis:refined_ancrite",
     "enderkinesis:ancrite_grate",
@@ -14,6 +15,7 @@
     "enderkinesis:refined_ancrite_wall",
     "enderkinesis:ancrite_beam",
     "enderkinesis:ender_astrolabe",
-    "enderkinesis:eyeroscope"
+    "enderkinesis:eyeroscope",
+    "enderkinesis:sselith_lamp"
   ]
 }

@@ -14,11 +14,14 @@ import net.minecraft.client.renderer.RenderType
 import net.minecraft.core.BlockPos
 import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
+import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.Pose
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.block.Blocks
 import org.shipwrights.enderkinesis.dimension.Sureibjin
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.mixin.LivingEntitySwimAmountAccessor
 import org.shipwrights.enderkinesis.mixin.LocalPlayerCrouchingAccessor
 
 /**
@@ -113,8 +116,10 @@ object SureibjinSilhouettes {
         // Entity render distance — vanilla's `Entity.shouldRenderAtSqrDistance`
         // gates at `boundingBox.size × 64 × Entity.viewScale`. Standing here
         // OFFSET_BLOCKS inside that radius keeps the silhouettes safely
-        // within the entity-culling cutoff.
-        val playerBoxSize = player.boundingBox.size
+        // within the entity-culling cutoff. The standing size is used, so a sneak
+        // or a swim of the player does not move the silhouettes.
+        val standing = player.getDimensions(Pose.STANDING)
+        val playerBoxSize = (standing.width * 2.0 + standing.height) / 3.0
         val entityRenderRange = playerBoxSize * 64.0 * Entity.getViewScale()
         val dist = (entityRenderRange - OFFSET_BLOCKS).toInt()
         if (dist <= 0) return
@@ -133,6 +138,9 @@ object SureibjinSilhouettes {
         val sz = doubleArrayOf(pz - dist, pz + dist, pz, pz)
         val yaw = floatArrayOf(0f, 180f, 90f, -90f)
 
+        // Fabulous: `translucentTarget.copyDepthFrom` runs before this hook and leaves framebuffer 0
+        // bound. The entity and text output shards are no-ops, so bind the main target here.
+        if (Minecraft.useShaderTransparency()) mc.mainRenderTarget.bindWrite(false)
         val baseBufferSource = mc.renderBuffers().bufferSource()
         val tintBufferSource = BlackTintBufferSource(baseBufferSource)
         val dispatcher = mc.entityRenderDispatcher
@@ -156,6 +164,15 @@ object SureibjinSilhouettes {
         val savedSwingingArm = player.swingingArm
         val savedAttackAnim = player.attackAnim
         val savedOAttackAnim = player.oAttackAnim
+        // A silhouette stands or sneaks only. The swim tilt and the death fall of the player are
+        // not copied. An elytra, a trident or a bed cannot occur with the empty dream inventory.
+        val swimAccessor = player as LivingEntitySwimAmountAccessor
+        val savedSwimAmount = swimAccessor.`enderkinesis$getSwimAmount`()
+        val savedSwimAmountO = swimAccessor.`enderkinesis$getSwimAmountO`()
+        val savedDeathTime = player.deathTime
+        swimAccessor.`enderkinesis$setSwimAmount`(0f)
+        swimAccessor.`enderkinesis$setSwimAmountO`(0f)
+        player.deathTime = 0
         // LivingEntityRenderer ignores the entityYaw param we pass and
         // instead rotLerps the entity's own yBodyRot/yBodyRotO each
         // frame — same for the head. Without override the silhouette
@@ -271,6 +288,9 @@ object SureibjinSilhouettes {
             player.swingingArm = savedSwingingArm
             player.attackAnim = savedAttackAnim
             player.oAttackAnim = savedOAttackAnim
+            swimAccessor.`enderkinesis$setSwimAmount`(savedSwimAmount)
+            swimAccessor.`enderkinesis$setSwimAmountO`(savedSwimAmountO)
+            player.deathTime = savedDeathTime
             player.yBodyRot = savedYBodyRot
             player.yBodyRotO = savedYBodyRotO
             player.yHeadRot = savedYHeadRot
@@ -552,8 +572,10 @@ object SureibjinSilhouettes {
             return this
         }
 
+        // The entity shader mixes the hurt overlay in after the vertex colour, so a hurt player
+        // would make the black silhouettes flash red.
         override fun overlayCoords(u: Int, v: Int): VertexConsumer {
-            delegate.overlayCoords(u, v)
+            delegate.overlayCoords(OverlayTexture.NO_OVERLAY)
             return this
         }
 

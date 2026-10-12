@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.compat.create
 
+import org.shipwrights.enderkinesis.util.ServerTicks
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
@@ -21,24 +22,24 @@ class ContraptionHarnessForceProvider : ShipPhysicsListener {
     private val lock = Any()
 
     private var fx = 0.0; private var fy = 0.0; private var fz = 0.0
-    private var lastAccumMs = Long.MIN_VALUE
+    private var lastAccumTick = NEVER
 
     private var hasOffCom = false
     private var owx = 0.0; private var owy = 0.0; private var owz = 0.0
     private var omx = 0.0; private var omy = 0.0; private var omz = 0.0
     private var peakForceMag = 0.0
-    private var lastOffComSetMs = Long.MIN_VALUE
+    private var lastOffComSetTick = NEVER
 
-    /** Add a world-frame force vector at the ship's COM. The accumulator auto-resets when more
-     *  than [ACCUM_RESET_MS] has elapsed since the last call (game-tick boundary); within a
-     *  single game tick multiple harnesses can contribute and their forces sum cleanly. */
+    /** Add a world-frame force vector at the ship's COM. The accumulator resets at each new
+     *  server tick; within a single game tick multiple harnesses can contribute and their
+     *  forces sum cleanly. */
     fun accumulateForce(x: Double, y: Double, z: Double) {
         synchronized(lock) {
-            val now = nowMs()
-            if (now - lastAccumMs > ACCUM_RESET_MS) {
+            val now = ServerTicks.now
+            if (now != lastAccumTick) {
                 fx = 0.0; fy = 0.0; fz = 0.0
             }
-            lastAccumMs = now
+            lastAccumTick = now
             fx += x; fy += y; fz += z
         }
     }
@@ -58,12 +59,12 @@ class ContraptionHarnessForceProvider : ShipPhysicsListener {
             omx = modelX; omy = modelY; omz = modelZ
             this.peakForceMag = peakForceMag
             hasOffCom = true
-            lastOffComSetMs = nowMs()
+            lastOffComSetTick = ServerTicks.now
         }
     }
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
-        val now = nowMs()
+        val now = ServerTicks.now
         // Snapshot under the lock; release before touching the phys API to keep critical
         // sections short. NB: do NOT clear `fx`/`fy`/`fz` or `hasOffCom` here — those are
         // overwritten by the game thread each game tick, and clearing them mid-game-tick would
@@ -73,13 +74,13 @@ class ContraptionHarnessForceProvider : ShipPhysicsListener {
         var offMx = 0.0; var offMy = 0.0; var offMz = 0.0
         var offPeak = 0.0; var haveOff = false
         synchronized(lock) {
-            if (now - lastAccumMs > STALENESS_MS) {
+            if (now - lastAccumTick > STALENESS_TICKS) {
                 fx = 0.0; fy = 0.0; fz = 0.0
             } else if (fx != 0.0 || fy != 0.0 || fz != 0.0) {
                 comX = fx; comY = fy; comZ = fz; haveCom = true
             }
             if (hasOffCom) {
-                if (now - lastOffComSetMs > STALENESS_MS) {
+                if (now - lastOffComSetTick > STALENESS_TICKS) {
                     hasOffCom = false
                 } else {
                     offWx = owx; offWz = owz
@@ -109,18 +110,10 @@ class ContraptionHarnessForceProvider : ShipPhysicsListener {
         }
     }
 
-    private fun nowMs(): Long = System.nanoTime() / 1_000_000L
-
     companion object {
-        /** Treat the COM accumulator as belonging to a "new game tick" if more than this many
-         *  milliseconds elapsed since the last [accumulateForce] call. 30 ms safely separates
-         *  server tick boundaries (game tick = 50 ms at 20 TPS) without splitting multiple
-         *  harnesses' calls that fire back-to-back within a single tick. */
-        private const val ACCUM_RESET_MS = 30L
-
-        /** If the game thread hasn't refreshed a channel in this long, the cached value is
-         *  considered abandoned and cleared. Two game-tick windows of slack — past that the
-         *  contraption is probably gone or the harness has lost power. */
-        private const val STALENESS_MS = 100L
+        /** If the game thread hasn't refreshed a channel in this many server ticks, the cached
+         *  value is considered abandoned and cleared. */
+        private const val STALENESS_TICKS = 2
+        private const val NEVER = Int.MIN_VALUE / 2
     }
 }

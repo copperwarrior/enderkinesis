@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.item
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
@@ -53,7 +52,6 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object OrbFilterLootIndex {
 
-    private val LOG = LogUtils.getLogger()
 
     private class Index(
         /** Reverse map: item → entity types whose loot table can drop it. */
@@ -143,10 +141,6 @@ object OrbFilterLootIndex {
                 if (set.add(type)) entriesAdded++
             }
         }
-        LOG.info(
-            "OrbFilterLootIndex built: {} entities scanned, {} item→entity mappings",
-            entitiesScanned, entriesAdded,
-        )
         return Index(itemToEntities)
     }
 

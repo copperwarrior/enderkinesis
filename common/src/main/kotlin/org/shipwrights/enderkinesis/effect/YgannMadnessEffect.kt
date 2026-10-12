@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.effect
 
-import net.minecraft.world.effect.MobEffect
 import net.minecraft.world.effect.MobEffectCategory
 
 /**
@@ -14,7 +13,7 @@ import net.minecraft.world.effect.MobEffectCategory
  * The screen-darkening overlay lives in `YgannAbyssVoidOverlay`.
  */
 class YgannMadnessEffect :
-    MobEffect(MobEffectCategory.HARMFUL, 0x3B1F4F) {
+    MadnessEffect(MobEffectCategory.HARMFUL, 0x3B1F4F) {
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = false
 }

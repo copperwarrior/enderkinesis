@@ -27,6 +27,7 @@ import net.minecraft.world.level.block.entity.LecternBlockEntity
 import net.minecraft.world.level.block.entity.SignBlockEntity
 import org.shipwrights.enderkinesis.dimension.SselithMadness
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.sselith.BookPaginator
 import org.shipwrights.enderkinesis.sselith.Sselith
 
 /**
@@ -54,6 +55,7 @@ object ScrollOfUnravelling {
 
     /** Sselith holy fraction; see `sselith_dictionary.json#numerals.holyNumber`. */
     private const val HOLY_NUMBER_FRACTION = 0.345
+    private const val MADNESS_COST_LEVELS = 2
 
     fun init() {
         InteractionEvent.RIGHT_CLICK_BLOCK.register(::onRightClickBlock)
@@ -77,6 +79,8 @@ object ScrollOfUnravelling {
                 val book = be.book
                 if (book.isEmpty) return EventResult.pass()
                 if (revealPages(book, rng)) {
+                    // The page count can change, and only setBook reads it again.
+                    be.setBook(book)
                     be.setChanged()
                     level.sendBlockUpdated(pos, state, state, Block.UPDATE_ALL)
                     // Comparator fires off the BE's page count, which doesn't care
@@ -102,7 +106,7 @@ object ScrollOfUnravelling {
             null, pos, SoundEvents.BOOK_PAGE_TURN, SoundSource.BLOCKS,
             1.0f, 0.7f + level.random.nextFloat() * 0.2f,
         )
-        if (player is ServerPlayer) SselithMadness.addLevel(player, 1)
+        if (player is ServerPlayer) SselithMadness.addLevel(player, MADNESS_COST_LEVELS)
         held.shrink(1)
 
         // interruptFalse halts vanilla so the lectern/sign UI never opens
@@ -111,33 +115,35 @@ object ScrollOfUnravelling {
     }
 
     /**
-     * Reverse-translate each page of [book] at the holy fraction. Writes
-     * back in place. Returns true iff at least one page actually changed
-     * — the caller uses that to decide whether to fan a BE update out.
+     * Reverse-translate the text of [book] at the holy fraction, then make new pages for it.
+     * Writes back in place. Returns true iff the text changed.
      */
     private fun revealPages(book: ItemStack, rng: Random): Boolean {
-        val written = book.`is`(Items.WRITTEN_BOOK)
+        // A SselithBookItem has the written-book page format.
+        val written = book.`is`(Items.WRITTEN_BOOK) || book.item is SselithBookItem
         val writable = book.`is`(Items.WRITABLE_BOOK)
         if (!written && !writable) return false
         val tag = book.tag ?: return false
         val pages = tag.getList("pages", Tag.TAG_STRING.toInt())
         if (pages.isEmpty()) return false
 
+        val plain = (0 until pages.size).map { i -> pages.getString(i).let { if (written) pageText(it) else it } }
+        // Only BookPaginator lines are soft wraps. Other books keep the line breaks of their author.
+        val sections =
+            if (TomeLore.hasSerifPages(book)) BookPaginator.unwrap(plain) else listOf(plain.joinToString("\n"))
+
         var changed = false
         val updated = ListTag()
-        for (i in 0 until pages.size) {
-            val raw = pages.getString(i)
-            val plain = if (written) pageText(raw) else raw
-            val translated = Sselith.translateToEnglish(plain, HOLY_NUMBER_FRACTION, rng)
-            if (translated != plain) changed = true
-            val encoded = if (written) {
-                Component.Serializer.toJson(Component.literal(translated))
-            } else {
-                translated
+        for (section in sections) {
+            val translated = Sselith.translateToEnglish(section, HOLY_NUMBER_FRACTION, rng)
+            if (translated != section) changed = true
+            for (page in BookPaginator.paginate(translated)) {
+                if (updated.size >= BookPaginator.MAX_PAGES) break
+                val encoded = if (written) Component.Serializer.toJson(Component.literal(page)) else page
+                updated.add(StringTag.valueOf(encoded))
             }
-            updated.add(StringTag.valueOf(encoded))
         }
-        if (!changed) return false
+        if (!changed || updated.isEmpty()) return false
         tag.put("pages", updated)
         return true
     }

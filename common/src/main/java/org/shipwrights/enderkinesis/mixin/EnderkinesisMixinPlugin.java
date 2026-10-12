@@ -29,31 +29,39 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
      *  {@code MixinTargetAlreadyLoadedException} at PREPARE. JSON has no such side effect. */
     private static final String SODIUM_PRESENCE_MARKER = "sodium.mixins.json";
 
+    // Embeddium 0.3.x keeps the Sodium package names but ships its own config name.
+    private static final String EMBEDDIUM_PRESENCE_MARKER = "embeddium.mixins.json";
+
     private boolean sodiumPresent = false;
+    private boolean embeddiumPresent = false;
 
     @Override
     public void onLoad(String mixinPackage) {
         sodiumPresent = getClass().getClassLoader().getResource(SODIUM_PRESENCE_MARKER) != null;
+        embeddiumPresent = getClass().getClassLoader().getResource(EMBEDDIUM_PRESENCE_MARKER) != null;
     }
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         // Only filter the explicit Sodium-bridge mixins. Everything
         // else applies normally.
+        if (mixinClassName.endsWith(".SodiumLightPipelineSselithMixin")) {
+            return sodiumPresent || embeddiumPresent;
+        }
         if (mixinClassName.endsWith(".SodiumCloudRendererFadeMixin")) {
-            return sodiumPresent;
+            return sodiumPresent || embeddiumPresent;
         }
         // Sodium's WorldSlice doesn't exist without Sodium — gate the
         // ambient-floor mirror so a non-Sodium runtime doesn't fail PREPARE.
         if (mixinClassName.endsWith(".WorldSliceWohlonAmbientMixin")) {
-            return sodiumPresent;
+            return sodiumPresent || embeddiumPresent;
         }
         // Same WorldSlice target as Wohlon — the orb dynamic-light
         // mirror exists because Sodium's mesh build reads light from
         // its cloned `DataLayer` arrays, bypassing the vanilla
         // `LightEngine.getLightValue` hook.
         if (mixinClassName.endsWith(".WorldSliceOrbDynamicLightMixin")) {
-            return sodiumPresent;
+            return sodiumPresent || embeddiumPresent;
         }
         // Sodium overwrites `LevelRenderer.setupRender` with an
         // implementation that no longer calls `LocalPlayer.getX/Y/Z()`,
@@ -64,7 +72,8 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
         // player), which is a known limitation with Sodium installed
         // — but the game boots.
         if (mixinClassName.endsWith(".LevelRendererScryingMixin")) {
-            return !sodiumPresent;
+            // Embeddium overwrites setupRender too (checked in 0.3.31).
+            return !sodiumPresent && !embeddiumPresent;
         }
         return true;
     }

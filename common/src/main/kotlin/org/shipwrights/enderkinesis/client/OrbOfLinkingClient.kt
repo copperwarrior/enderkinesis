@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import org.valkyrienskies.mod.common.isBlockInShipyard
 import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
@@ -106,8 +107,8 @@ object OrbOfLinkingClient {
         // Resolve each endpoint via the precise renderer (active-face offset + ship transform)
         // when the BE is loaded; otherwise fall back to the BlockPos grid centre so the beam
         // still has a meaningful endpoint when one chunk is unloaded.
-        val s = sendCentre ?: orbRenderCentreOrFallback(level, sendPos)
-        val r = recvCentre ?: orbRenderCentreOrFallback(level, recvPos)
+        val s = sendCentre ?: orbRenderCentreOrFallback(level, sendPos) ?: return
+        val r = recvCentre ?: orbRenderCentreOrFallback(level, recvPos) ?: return
         val mid = Vec3(
             (s.x + r.x) * 0.5,
             (s.y + r.y) * 0.5 - BEAM_SAG,
@@ -154,7 +155,9 @@ object OrbOfLinkingClient {
      *  beam endpoint is still close enough for the link to read at distance. */
     private fun orbRenderCentreOrFallback(
         level: net.minecraft.client.multiplayer.ClientLevel, pos: BlockPos,
-    ): Vec3 = OrbClientGeometry.worldCenter(level, pos) ?: Vec3.atCenterOf(pos)
+    ): Vec3? = OrbClientGeometry.worldCenter(level, pos)
+        // A ship orb that cannot be resolved has shipyard coordinates only; no beam then.
+        ?: if (level.isBlockInShipyard(pos)) null else Vec3.atCenterOf(pos)
 
     /** Render-frame world centre of the orb at [pos]. Delegates to [OrbClientGeometry] —
      *  same helper the Tome of Transportation client uses, so both modules agree on what

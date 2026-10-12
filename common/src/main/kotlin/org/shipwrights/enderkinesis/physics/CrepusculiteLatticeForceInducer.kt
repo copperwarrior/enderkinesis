@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.physics
 
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
+import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -11,6 +12,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
  * a step, which (with submersion-scaled drag) is what keeps the ship from bouncing. Force-at-
  * position follows vstuffcontinued's thruster pattern (`blockCenter − transform.positionInShip`).
  */
+@OptIn(VsBeta::class)
 class CrepusculiteLatticeForceInducer(
     /** World-space Y of the virtual sea surface (lattice world Y when this was created). */
     var waterLineY: Double = 0.0,
@@ -40,7 +42,7 @@ class CrepusculiteLatticeForceInducer(
 ) : ShipPhysicsListener {
 
     /** Ship-local block coords as x,y,z triples; set on the server thread. */
-    @Transient private var blocks: IntArray = IntArray(0)
+    @Transient @Volatile private var blocks: IntArray = IntArray(0)
 
     /**
      * World game time (ticks), pushed from the server thread by the lattice block entity. The
@@ -82,8 +84,14 @@ class CrepusculiteLatticeForceInducer(
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
         if (physShip.isStatic || physShip.mass <= 0.0) return
         if (fluidDensity <= 0.0) return            // disabled (redstone 15)
+        // One read of each field that the server thread writes.
+        val blocks = this.blocks
+        val waveTime = this.waveTime
+        val waveIntensity = this.waveIntensity
+        val waterLineY = this.waterLineY
         val blockCount = blocks.size / 3
         if (blockCount == 0) return
+        val gravity = physLevel.aerodynamicUtils.getAtmosphereForDimension(physLevel.dimension).third
 
         val transform = physShip.transform
         val s2w = transform.shipToWorld
@@ -110,13 +118,14 @@ class CrepusculiteLatticeForceInducer(
 
         var submerged = 0
         var i = 0
+        val world = Vector3d()
         while (i < blocks.size) {
             val cx = blocks[i] + 0.5
             val cy = blocks[i + 1] + 0.5
             val cz = blocks[i + 2] + 0.5
             i += 3
 
-            val world = Vector3d(cx, cy, cz)
+            world.set(cx, cy, cz)
             s2w.transformPosition(world)
 
             // The water line follows the Gerstner surface at this block's world XZ — the exact
@@ -145,9 +154,10 @@ class CrepusculiteLatticeForceInducer(
             val dAng = -angularDragCoefficient * frac * hostScale
             val force = Vector3d(
                 vel.x() * dLin + rotX * dAng,
-                fluidDensity * GRAVITY * frac * hostScale + vel.y() * dLin + rotY * dAng,
+                fluidDensity * gravity * frac * hostScale + vel.y() * dLin + rotY * dAng,
                 vel.z() * dLin + rotZ * dAng,
             )
+            // VS2 queues these two objects with no copy, so each call needs new ones.
             val rel = Vector3d(cx - com.x(), cy - com.y(), cz - com.z())
             physShip.applyInvariantForceToPos(force, rel)
         }
@@ -157,9 +167,6 @@ class CrepusculiteLatticeForceInducer(
         /** kg/m³ of virtual fluid (water = 1000). The maximum density the lattice produces — the
          *  redstone signal scales [fluidDensity] from 0 up to this. */
         const val DEFAULT_FLUID_DENSITY = 1100.0
-
-        /** VS2 world gravity magnitude (m/s²); VS2 uses g = 10. */
-        private const val GRAVITY = 10.0
 
         /** Ticks of silence from the authority lattice (no `serverTick` refresh) before a
          *  follower may claim authority. Sized to comfortably exceed normal per-tick scheduling

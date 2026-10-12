@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.biome.Biome;
+import org.shipwrights.enderkinesis.dimension.WohlonBiomePresence;
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -42,10 +43,13 @@ public abstract class WorldSliceWohlonAmbientMixin {
         method = "getBrightness(Lnet/minecraft/world/level/LightLayer;Lnet/minecraft/core/BlockPos;)I",
         at = @At("RETURN"),
         cancellable = true,
+        // 0: the name mapping of this vanilla override is not verified on Embeddium; no match must not stop the launch.
+        require = 0,
         remap = true
     )
     private void enderkinesis$wohlonAmbientFloor(LightLayer layer, BlockPos pos, CallbackInfoReturnable<Integer> cir) {
         if (layer != LightLayer.BLOCK) return;
+        if (!WohlonBiomePresence.nearby) return;
         int stored = cir.getReturnValueI();
         if (stored >= WOHLON_AMBIENT_BLOCKLIGHT) return;
 

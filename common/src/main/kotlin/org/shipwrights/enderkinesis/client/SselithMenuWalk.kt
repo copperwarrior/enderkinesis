@@ -13,20 +13,23 @@ import net.minecraft.util.Mth
 import net.minecraft.world.entity.ai.util.LandRandomPos
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.pathfinder.Path
+import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.Vec3
+import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.dimension.SselithMadness
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.WanderToTaggedBlockGoal
-import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKEntities
+import org.valkyrienskies.mod.common.getShipsIntersecting
+import org.valkyrienskies.mod.common.toWorldCoordinates
+import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 
 /**
  * Phase 2 of Sselith Madness — the menu-walk.
  *
- * While the local player has Sselith Madness at level ≥ 4 (amplifier ≥
- * [MADNESS_THRESHOLD_AMP]) *and* a control-taking screen is open, the player's body
- * walks like a Cataloger — pathing to `#enderkinesis:cataloger_targets` blocks and
+ * While [SselithControlLoss] reports that the madness holds the local player, the
+ * player's body walks like a Cataloger — pathing to `#enderkinesis:cataloger_targets` blocks and
  * staring at them. Movement is synthesised client-side (the client owns player
  * movement, so the server accepts it with no rubber-banding); with a screen open
  * the world still ticks in multiplayer, the only place the pause-menu case shows.
@@ -58,14 +61,6 @@ import org.shipwrights.enderkinesis.registry.EKEntities
  */
 object SselithMenuWalk {
 
-    /** Min amplifier (level − 1) for the madness to take the wheel. 3 = level 4,
-     *  which only seizes control while a screen is open. */
-    private const val MADNESS_THRESHOLD_AMP = 3
-
-    /** At this amplifier (4 = level 5, the max) the madness drives the body even
-     *  with no screen open — full possession, the player can't override it. */
-    private const val FULL_POSSESSION_AMP = 4
-
     private const val WALK_IMPULSE = 0.5f
     /** Player-only aim/turn easing — fraction of the remaining angle closed each
      *  tick (ease-out). The ghost Cataloger keeps its own snappy `MoveControl`
@@ -91,6 +86,7 @@ object SselithMenuWalk {
     private const val SCAN_BUDGET_PER_TICK = 20000
 
     private const val ARRIVE_DIST_SQ = 2.25
+    private const val NEAR_POI_RADIUS = 5
     private const val STARE_TICKS = 20 * 12
     private const val SCAN_COOLDOWN = 20 * 2
     private const val RECOMPUTE_INTERVAL = 10
@@ -110,6 +106,7 @@ object SselithMenuWalk {
     private var ticksUntilRecompute = 0
     private var recomputeAttempts = 0
     private var ghost: Cataloger? = null
+    private var active = false
 
     // Rolling POI cache (client-side stand-in for the server PoiManager query).
     private var poiCache: List<BlockPos> = emptyList()
@@ -135,6 +132,10 @@ object SselithMenuWalk {
             reset()
             return
         }
+        if (!active) {
+            active = true
+            startAtNearPoi(player)
+        }
         tickScan(player)
         when (phase) {
             Phase.SEEKING -> seek(player)
@@ -145,6 +146,70 @@ object SselithMenuWalk {
     }
 
     // ---- phases -------------------------------------------------------------
+
+    /** [poiCache] is empty on the first ticks, so [seek] would walk the player away
+     *  from the POI block they opened. [move] goes to the stare when the player is at the block. */
+    private fun startAtNearPoi(player: LocalPlayer) {
+        val t = interactedPoi(player) ?: closestPoi(player) ?: return
+        target = t
+        lastTarget = t
+        phase = Phase.MOVING
+        ticksUntilRecompute = 0
+        recomputeAttempts = 0
+        val g = ghostFor(player) ?: return
+        syncGhost(g, player)
+        frontPath(player, g, t)?.let { g.navigation.moveTo(it, MOVE_SPEED) }
+    }
+
+    private fun interactedPoi(player: LocalPlayer): BlockPos? {
+        val mc = Minecraft.getInstance()
+        if (mc.screen == null) return null
+        val pos = (mc.hitResult as? BlockHitResult)?.blockPos ?: return null
+        if (poiDistSq(player, pos) > NEAR_POI_RADIUS * NEAR_POI_RADIUS) return null
+        return pos.takeIf { player.level().getBlockState(it).`is`(CATALOGER_TARGETS) }
+    }
+
+    private fun closestPoi(player: LocalPlayer): BlockPos? {
+        val level = player.level()
+        var closest = closestPoiAround(player, player.blockPosition(), null)
+        // Ship blocks are in shipyard chunks, so a scan in the world frame does not find them.
+        for (ship in level.getShipsIntersecting(player.boundingBox.inflate(NEAR_POI_RADIUS.toDouble()))) {
+            val local = ship.worldToShip.transformPosition(Vector3d(player.x, player.y, player.z))
+            closest = closestPoiAround(player, BlockPos.containing(local.x, local.y, local.z), closest)
+        }
+        return closest
+    }
+
+    private fun closestPoiAround(player: LocalPlayer, origin: BlockPos, best: BlockPos?): BlockPos? {
+        val level = player.level()
+        val cursor = BlockPos.MutableBlockPos()
+        var closest = best
+        var closestDistSq = best?.let { poiDistSq(player, it) } ?: (NEAR_POI_RADIUS * NEAR_POI_RADIUS).toDouble()
+        for (dy in -NEAR_POI_RADIUS..NEAR_POI_RADIUS) {
+            for (dx in -NEAR_POI_RADIUS..NEAR_POI_RADIUS) {
+                for (dz in -NEAR_POI_RADIUS..NEAR_POI_RADIUS) {
+                    cursor.set(origin.x + dx, origin.y + dy, origin.z + dz)
+                    if (!level.getBlockState(cursor).`is`(CATALOGER_TARGETS)) continue
+                    val distSq = poiDistSq(player, cursor)
+                    if (distSq > closestDistSq) continue
+                    closest = cursor.immutable()
+                    closestDistSq = distSq
+                }
+            }
+        }
+        return closest
+    }
+
+    // VS2 makes Entity.distanceToSqr change a shipyard point to the world frame.
+    private fun poiDistSq(player: LocalPlayer, pos: BlockPos): Double =
+        player.distanceToSqr(pos.x + 0.5, pos.y.toDouble(), pos.z + 0.5)
+
+    /** Path to the tile in front of a faced target (lectern, sign…), the same rule the
+     *  Cataloger uses. Null when the target has no facing or the tile is unreachable. */
+    private fun frontPath(player: LocalPlayer, g: Cataloger, tgt: BlockPos): Path? {
+        val front = WanderToTaggedBlockGoal.frontTileOf(player.level().getBlockState(tgt), tgt) ?: return null
+        return g.navigation.createPath(front, 0)?.takeIf { it.canReach() }
+    }
 
     private fun seek(player: LocalPlayer) {
         val g = ghostFor(player) ?: run { standStill(player); return }
@@ -168,9 +233,9 @@ object SselithMenuWalk {
 
     private fun move(player: LocalPlayer) {
         val t = target ?: run { phase = Phase.SEEKING; return }
-        val g = ghost ?: run { clearTarget(); return }
+        val g = ghostFor(player) ?: run { clearTarget(); return }
 
-        if (player.distanceToSqr(t.x + 0.5, t.y.toDouble(), t.z + 0.5) <= ARRIVE_DIST_SQ) {
+        if (poiDistSq(player, t) <= ARRIVE_DIST_SQ) {
             lookAt = voxelShapeCenter(player, t)
             phase = Phase.STARING
             staringTicks = 0
@@ -203,9 +268,8 @@ object SselithMenuWalk {
         driveAlongPath(player, g)
     }
 
-    /** Picks a random reachable point within [SEARCH_RADIUS] (same source vanilla
-     *  `RandomStrollGoal` uses) and starts walking there. Reached only from [seek]
-     *  when no POI is available, so the wander never pre-empts cataloguing. */
+    /** Picks a random point within [SEARCH_RADIUS] and starts walking there. Reached only from
+     *  [seek] when no POI is available, so the wander never pre-empts cataloguing. */
     private fun startWander(player: LocalPlayer, g: Cataloger) {
         syncGhost(g, player)
         val pos = LandRandomPos.getPos(g, SEARCH_RADIUS, SEARCH_RADIUS / 2)
@@ -213,17 +277,16 @@ object SselithMenuWalk {
             standStill(player)
             return
         }
-        val p = g.navigation.createPath(BlockPos.containing(pos), 0)
-        if (p != null && p.canReach()) {
-            g.navigation.moveTo(p, MOVE_SPEED)
-            phase = Phase.WANDERING
-        } else {
-            standStill(player)
-        }
+        // Same budget and partial-path rule as CatalogerWanderGoal. A full-budget pathfind that
+        // must reach the point fails most ticks in the maze, and each failure stalls a frame.
+        g.navigation.setMaxVisitedNodesMultiplier(Cataloger.WANDER_NODE_MULTIPLIER)
+        val started = g.navigation.moveTo(pos.x, pos.y, pos.z, MOVE_SPEED)
+        g.navigation.setMaxVisitedNodesMultiplier(Cataloger.PATHFIND_NODE_MULTIPLIER)
+        if (started) phase = Phase.WANDERING else standStill(player)
     }
 
     private fun wander(player: LocalPlayer) {
-        val g = ghost ?: run { phase = Phase.SEEKING; return }
+        val g = ghostFor(player) ?: run { phase = Phase.SEEKING; return }
         // Keep checking for a real POI on the scan cadence; switch to it the moment
         // one appears — parity with the Cataloger's goal-priority interruption.
         if (scanCooldown > 0) {
@@ -266,7 +329,8 @@ object SselithMenuWalk {
 
     private fun stare(player: LocalPlayer) {
         standStill(player)
-        lookAtPoint(player, lookAt)
+        // lookAt is in the frame of the target block; a ship target moves each tick.
+        lookAtPoint(player, player.level().toWorldCoordinates(lookAt))
         if (++staringTicks >= STARE_TICKS) clearTarget()
     }
 
@@ -347,16 +411,7 @@ object SselithMenuWalk {
             val tgt = p.target?.immutable()
             if (tgt != null) {
                 lastTarget = tgt
-                // Prefer the tile in front of a faced target (lectern, sign…) —
-                // same rule the Cataloger uses; fall back to the adjacent approach.
-                val front = WanderToTaggedBlockGoal.frontTileOf(player.level().getBlockState(tgt), tgt)
-                val approach = if (front != null) {
-                    val fp = g.navigation.createPath(front, 0)
-                    if (fp != null && fp.canReach()) fp else p
-                } else {
-                    p
-                }
-                g.navigation.moveTo(approach, MOVE_SPEED)
+                g.navigation.moveTo(frontPath(player, g, tgt) ?: p, MOVE_SPEED)
                 return tgt
             }
         }
@@ -373,6 +428,12 @@ object SselithMenuWalk {
         g.moveTo(player.x, player.y, player.z, player.yRot, 0f)
         g.setOnGround(true)
         g.setDeltaMovement(Vec3.ZERO)
+        // VS2 selects the ship frame for a pathfind from this state. The ghost never
+        // ticks in the world, so it must get the state from the player.
+        val from = (player as? IEntityDraggingInformationProvider)?.draggingInformation ?: return
+        val to = (g as? IEntityDraggingInformationProvider)?.draggingInformation ?: return
+        to.lastShipStoodOn = if (from.isEntityBeingDraggedByAShip()) from.lastShipStoodOn else null
+        to.ticksSinceStoodOnShip = from.ticksSinceStoodOnShip
     }
 
     private fun ghostFor(player: LocalPlayer): Cataloger? {
@@ -470,6 +531,7 @@ object SselithMenuWalk {
     }
 
     private fun reset() {
+        active = false
         phase = Phase.SEEKING
         target = null
         staringTicks = 0
@@ -480,13 +542,16 @@ object SselithMenuWalk {
         ghost?.navigation?.stop()
     }
 
+    fun onDisconnect() {
+        reset()
+        clearTarget()
+        ghost = null
+    }
+
     private fun isActive(player: LocalPlayer): Boolean {
-        if (!player.isAlive || player.isSpectator) return false
-        val amp = player.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: return false
-        if (amp < MADNESS_THRESHOLD_AMP) return false
-        // Max level seizes control outright; below that it only takes over while a
-        // control-taking screen is open.
-        return amp >= FULL_POSSESSION_AMP || Minecraft.getInstance().screen != null
+        val lost = player.isAlive && !player.isSpectator && SselithControlLoss.tick(player)
+        SselithControlLoss.tickVignette(lost)
+        return lost
     }
 
     /** Hard cap (degrees per tick) on the rotational delta the ease can

@@ -17,7 +17,9 @@
     }
   },
   "spawners": {
-    "monster": [],
+    "monster": [
+      { "type": "enderkinesis:wohlem", "weight": 4, "minCount": 1, "maxCount": 1 }
+    ],
     "creature": [
       { "type": "enderkinesis:prismatic_goat", "weight": 6, "minCount": 2, "maxCount": 4 }
     ],

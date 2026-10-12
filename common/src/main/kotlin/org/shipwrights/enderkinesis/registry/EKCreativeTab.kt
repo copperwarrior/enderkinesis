@@ -28,16 +28,20 @@ object EKCreativeTab {
             output.accept(EKItems.CREPUSCULITE_CHARM.get())
             output.accept(EKItems.LEDGER_OF_WATCHING_EYES.get())
             output.accept(EKItems.LEDGER_OF_HUNTING_PINCERS.get())
+            output.accept(EKItems.PARALLELOGRAPH.get())
             output.accept(EKItems.CREPUSCULITE_ORE_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_BLOCK_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_GLASS_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_LATTICE_ITEM.get())
+            output.accept(EKItems.CREPUSCULITE_LIGHTSTONE_ITEM.get())
+            output.accept(EKItems.CRYSTAL_PEDESTAL_ITEM.get())
             output.accept(EKItems.ENDER_ASTROLABE_ITEM.get())
             output.accept(EKItems.MAGIC_MISSILE_LAUNCHER_ITEM.get())
             output.accept(EKItems.EYEROSCOPE_ITEM.get())
             output.accept(EKItems.PURPUR_BALLAST_ITEM.get())
             output.accept(EKItems.ENDER_LINKAGE_ITEM.get())
             output.accept(EKItems.ROD_OF_LEVITATION.get())
+            output.accept(EKItems.WAND_OF_GAMYLAN.get())
             output.accept(EKItems.MAGIC_MISSILE.get())
             output.accept(EKItems.PLANAR_ANCHOR_ITEM.get())
             output.accept(EKItems.ANCRITE_CHAIN_ITEM.get())
@@ -64,6 +68,8 @@ object EKCreativeTab {
             output.accept(EKItems.SSELITH_BOOKSHELF_ITEM.get())
             output.accept(EKItems.SSELITH_LANTERN_ITEM.get())
             output.accept(EKItems.SSELITH_LAMP_ITEM.get())
+            output.accept(EKItems.SSELITH_LADDER_ITEM.get())
+            output.accept(EKItems.OWL_DEEPSLATE_ITEM.get())
             output.accept(EKItems.SSELITH_LECTERN_ITEM.get())
             output.accept(EKItems.ORB_OF_LINKING_ITEM.get())
             output.accept(EKItems.ORB_OF_SCRYING_ITEM.get())
@@ -90,6 +96,8 @@ object EKCreativeTab {
             output.accept(EKItems.WYLLAND_TOME.get())
             output.accept(EKItems.MUSIC_DISC_MYSTERY.get())
             output.accept(EKItems.GUIDE_TO_STRATUS.get())
+            output.accept(EKItems.INCANTATION_OF_WINDS.get())
+            output.accept(EKItems.IRREVERANT_REMNANT_SPAWN_EGG.get())
             output.accept(EKItems.TOME_OF_SIGNAL.get())
             output.accept(EKItems.TOME_OF_BINDING.get())
             output.accept(EKItems.TOME_OF_CHAINING.get())
@@ -137,9 +145,28 @@ object EKCreativeTab {
 
             output.accept(EKItems.SCROLL_OF_UNRAVELLING.get())
             output.accept(EKItems.SCROLL_OF_SCULK_CATASTROPHE.get())
+            output.accept(EKItems.SCROLL_OF_ANIMATION.get())
+            output.accept(EKItems.OLD_PAPER.get())
+            output.accept(EKItems.SSELITH_BOOK.get())
+            output.accept(EKItems.WAYBREAD.get())
+            output.accept(EKItems.EIDETIC_BOOKMARK.get())
+            output.accept(EKItems.SCRIBES_DESK_ITEM.get())
+            output.accept(EKItems.FORGOTTEN_ITEM_ITEM.get())
+            output.accept(EKItems.PENFEATHER_OF_THE_ACCURSED_OWL.get())
+            output.accept(EKItems.ICHAERIC_INK_BOTTLE.get())
+            output.accept(EKItems.ICHAERIC_INK_BUCKET.get())
+            output.accept(EKItems.ICHAERIC_INK_JAR_ITEM.get())
+            output.accept(EKItems.INEGRIC_RETORT_ITEM.get())
             output.accept(EKItems.ECHO_CANNON_ITEM.get())
 
             for (statue in EKItems.STATUE_ITEMS) output.accept(statue.get())
+
+            // Moth Cloth — one item per DyeColor. Iterating in DyeColor
+            // declaration order (white → black) matches how vanilla groups
+            // wool in its Colored Blocks tab.
+            for (color in net.minecraft.world.item.DyeColor.values()) {
+                EKItems.MOTH_CLOTH_ITEMS_BY_COLOR[color]?.get()?.let(output::accept)
+            }
 
             // Prismatic-goat-horn variants — 19 ItemStacks, one per
             // cave instrument, the same way vanilla shows 8 distinct
@@ -169,6 +196,9 @@ object EKCreativeTab {
         CreativeTabRegistry.modify(CreativeTabRegistry.defer(CreativeModeTabs.SPAWN_EGGS)) { _, output, _ ->
             output.accept(EKItems.CATALOGER_SPAWN_EGG.get())
             output.accept(EKItems.ARCHIVE_SPAWN_EGG.get())
+            output.accept(EKItems.SSELITH_MOTH_SPAWN_EGG.get())
+            output.accept(EKItems.CONSTRILIAR_SPAWN_EGG.get())
+            output.accept(EKItems.SHULKONAUT_SPAWN_EGG.get())
         }
     }
 }

@@ -1,0 +1,57 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar"
+      }
+    },
+    {
+      "when": {
+        "bottles": "1"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_ink_1"
+      }
+    },
+    {
+      "when": {
+        "bottles": "2"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_ink_2"
+      }
+    },
+    {
+      "when": {
+        "bottles": "3"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_ink_3"
+      }
+    },
+    {
+      "when": {
+        "bottles": "4"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_ink_4"
+      }
+    },
+    {
+      "when": {
+        "bottles": "5"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_ink_5"
+      }
+    },
+    {
+      "when": {
+        "bottles": "6"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_ink_6"
+      }
+    }
+  ]
+}

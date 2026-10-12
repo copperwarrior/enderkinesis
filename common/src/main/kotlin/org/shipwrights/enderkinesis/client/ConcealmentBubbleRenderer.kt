@@ -62,6 +62,8 @@ object ConcealmentBubbleRenderer {
     @JvmField @Volatile var lastShipCenterV: Float = 0.5f
     @JvmField @Volatile var lastProgress: Float = 0f
 
+    private val bubbleBuffer: BufferBuilder by lazy { BufferBuilder(256 * 1024) }
+
     /** Called from [org.shipwrights.enderkinesis.mixin.LevelRendererBubblePassMixin]
      *  at the TAIL of `LevelRenderer.renderLevel`. */
     @JvmStatic
@@ -114,11 +116,11 @@ object ConcealmentBubbleRenderer {
         // "Already building!". Using a private builder guarantees zero interaction with
         // any other render path; we still wrap in try/finally so the state restore at
         // the bottom runs even on a thrown emit.
-        val buf = BufferBuilder(256 * 1024)
+        // One for the session: a 1.20.1 BufferBuilder holds native memory that is never freed.
+        val buf = bubbleBuffer
         buf.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR)
         var bufferOpen = true
 
-        var anyDrawn = false
         val v = Vector3d()
         // Track the cloak with the highest progress this frame so we can stash its
         // screen-space centre + progress for the post-effect uniforms below.
@@ -200,7 +202,6 @@ object ConcealmentBubbleRenderer {
                     emit(buf, v, s2w, cxL, cyL, czL, hxL, hyL, hzL, sP1, cP1, sT0, cT0, cam, r, g, b, a)
                 }
             }
-            anyDrawn = true
         }
 
             // Publish dominant cloak's centre & progress so the post-effect's uniforms
@@ -213,20 +214,15 @@ object ConcealmentBubbleRenderer {
                 lastProgress = domProgress
             }
 
-            if (anyDrawn) {
-                BufferUploader.drawWithShader(buf.end())
-                bufferOpen = false
-            } else {
-                // Discard the (potentially empty) buffer state so vanilla doesn't try to
-                // upload an empty draw.
-                buf.discard()
-                bufferOpen = false
-            }
+            // `discard()` does not end the build, and this builder lives for the session:
+            // the next `begin()` then throws "Already building!". This call ends the build
+            // also when no bubble was drawn.
+            val rendered = buf.endOrDiscardIfEmpty()
+            bufferOpen = false
+            if (rendered != null) BufferUploader.drawWithShader(rendered)
         } finally {
-            // Belt-and-braces: if anything in the loop threw, dump the builder so the
-            // next render path (PostPass.process, anyone else using the shared
-            // Tesselator) can `begin()` cleanly.
-            if (bufferOpen) buf.discard()
+            // If the loop threw, end the build so the next frame can `begin()`.
+            if (bufferOpen) buf.endOrDiscardIfEmpty()?.release()
 
             // Restore vanilla state regardless of how we got here.
             RenderSystem.enableCull()

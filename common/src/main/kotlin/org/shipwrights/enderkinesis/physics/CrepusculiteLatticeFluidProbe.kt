@@ -101,9 +101,9 @@ object CrepusculiteLatticeFluidProbe {
     }
 
     private fun entityInZone(zone: LatticeCatchZone, ex: Double, ey: Double, ez: Double, feetY: Double): Boolean {
-        val nx = (ex - zone.cx) / zone.ax
+        val nx = zone.localNx(ex, ez)
         val ny = (ey - zone.cy) / zone.ay
-        val nz = (ez - zone.cz) / zone.az
+        val nz = zone.localNz(ex, ez)
         if (nx * nx + ny * ny + nz * nz > 1.0) return false   // outside ellipsoid
         return feetY < zone.waterLineY                        // below nominal sea level
     }

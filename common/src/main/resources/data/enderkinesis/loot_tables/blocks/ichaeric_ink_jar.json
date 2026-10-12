@@ -1,0 +1,47 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:alternatives",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "name": "enderkinesis:ichaeric_ink_jar",
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:ichaeric_ink_jar",
+                  "properties": {
+                    "bottles": "0"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "minecraft:item",
+              "name": "enderkinesis:ichaeric_ink_jar",
+              "functions": [
+                {
+                  "function": "minecraft:copy_state",
+                  "block": "enderkinesis:ichaeric_ink_jar",
+                  "properties": [
+                    "bottles"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
+    }
+  ]
+}

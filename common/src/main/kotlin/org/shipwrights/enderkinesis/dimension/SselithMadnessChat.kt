@@ -11,7 +11,7 @@ import org.shipwrights.enderkinesis.sselith.Sselith
  * Sselith Madness chat corruption: a player under the effect has random words in
  * their chat messages replaced with their Sselith translation (via [Sselith]). The
  * share of words replaced scales with the madness level — a couple at level 1, up
- * to *every* word at level 5 — so the player's speech slips further into Sselith
+ * to *every* word at the max level — so the player's speech slips further into Sselith
  * the longer the madness holds.
  *
  * The original (signed) message is suppressed and a system message with the
@@ -23,8 +23,6 @@ import org.shipwrights.enderkinesis.sselith.Sselith
  * before this handler suppresses the original message.
  */
 object SselithMadnessChat {
-
-    private const val MAX_LEVEL = 5
 
     fun init() {
         ChatEvent.RECEIVED.register(
@@ -53,8 +51,8 @@ object SselithMadnessChat {
     }
 
     /** Replace a level-scaled random subset of [text]'s words with their Sselith
-     *  translation. Level 5 replaces all; lower levels replace `round(n·level/5)`
-     *  words (at least one), so level 1 is a couple words on a typical message. */
+     *  translation. The max level replaces all; lower levels replace
+     *  `round(n·level/MAX_LEVEL)` words (at least one), so level 1 is a couple words on a typical message. */
     private fun corrupt(text: String, level: Int): String {
         val words = text.split(" ")
         // Eligible: any token with a letter OR a digit. Digit tokens matter — they
@@ -64,8 +62,8 @@ object SselithMadnessChat {
         if (translatable.isEmpty()) return text
 
         val count =
-            if (level >= MAX_LEVEL) translatable.size
-            else maxOf(1, Math.round(translatable.size * (level.toDouble() / MAX_LEVEL)).toInt())
+            if (level >= SselithMadness.MAX_LEVEL) translatable.size
+            else maxOf(1, Math.round(translatable.size * (level.toDouble() / SselithMadness.MAX_LEVEL)).toInt())
 
         val chosen = translatable.shuffled().take(count).toHashSet()
         val out = words.toMutableList()

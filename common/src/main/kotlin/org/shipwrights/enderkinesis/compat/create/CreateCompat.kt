@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.compat.create
 
+import org.valkyrienskies.mod.common.dimensionId
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour
 import com.simibubi.create.content.contraptions.behaviour.MovementContext
 import dev.architectury.platform.Platform
@@ -37,8 +38,9 @@ object CreateCompat {
                     .useTransientSerializer()
                     .build()
             )
-            MovementBehaviour.REGISTRY.register(EKBlocks.VOID_HARNESS.get(), HarnessActor)
-            MovementBehaviour.REGISTRY.register(EKBlocks.AETHER_PAD.get(), AetherPadActor)
+            // `listen`, not `get`: on Forge the blocks do not exist until the registry event.
+            EKBlocks.VOID_HARNESS.listen { MovementBehaviour.REGISTRY.register(it, HarnessActor) }
+            EKBlocks.AETHER_PAD.listen { MovementBehaviour.REGISTRY.register(it, AetherPadActor) }
         } catch (t: Throwable) {
             LOG.warn("[EK] Create interop failed; ship actors will not act on contraptions ({}).", t.message)
         }
@@ -88,7 +90,9 @@ object CreateCompat {
         }
 
         val r2 = VoidHarnessBlockEntity.PULL_RADIUS * VoidHarnessBlockEntity.PULL_RADIUS
+        val dim = world.dimensionId
         for (ship in world.shipObjectWorld.loadedShips) {
+            if (ship.chunkClaimDimension != dim) continue
             val com = ship.transform.positionInWorld
             val dx = pos.x - com.x(); val dy = pos.y - com.y(); val dz = pos.z - com.z()
             val d2 = dx * dx + dy * dy + dz * dz

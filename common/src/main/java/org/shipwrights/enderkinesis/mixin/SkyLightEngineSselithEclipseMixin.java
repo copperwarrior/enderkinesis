@@ -16,19 +16,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Drives sky-light reads on the Sselith level toward 0 with eclipse intensity. At
- * full eclipse every {@code SkyLightEngine.getLightValue} call returns 0 regardless
- * of the underlying storage value, so debug overlays / mob-spawn / plant-growth /
- * lightmap UV all agree that "there is no sky" right now.
- *
- * <p>Pair to {@link BlockLightEngineSselithEclipseMixin}. Light-damage detection is
- * intentionally moved off the raw light value over in {@code SselithEclipse} (uses
- * {@code level.canSeeSky} instead) — depending on the suppressed value would mean
- * eclipses do no damage.
- *
- * <p>Server-side and client-side reads share {@link SselithEclipse#resolveLevelForLightEngine}
- * to identify the sselith Level reference, so the same intensity formula runs on
- * both sides against the same (gameTime, manualTriggerStart) inputs.
+ * Drives server sky-light reads on the Sselith level toward 0 with eclipse intensity.
+ * Light damage uses {@code level.canSeeSky}, because this value is 0 at full eclipse.
  */
 @Mixin(LightEngine.class)
 public abstract class SkyLightEngineSselithEclipseMixin {

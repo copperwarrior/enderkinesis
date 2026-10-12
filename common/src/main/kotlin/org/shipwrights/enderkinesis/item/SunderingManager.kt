@@ -1,10 +1,14 @@
 package org.shipwrights.enderkinesis.item
 
+import dev.architectury.event.events.common.TickEvent
+import dev.architectury.event.events.common.PlayerEvent
+import dev.architectury.event.events.common.LifecycleEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.LivingEntity
@@ -17,6 +21,7 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.UUID
 
 /** Server-side per-tick logic for the Staff of Sundering.
@@ -134,7 +139,7 @@ object SunderingManager {
     /** Ramp fraction at which block-breaking turns on. 0.5 lines up with the
      *  client's beacon-beam fade-in midpoint, so blocks visibly start
      *  evaporating just as the beacon takes over from the particle beam. */
-    private const val MINING_ENABLE_RAMP: Float = 0.5f
+    const val MINING_ENABLE_RAMP: Float = 0.5f
 
     private val VIRTUAL_TOOL: ItemStack = ItemStack(Items.NETHERITE_PICKAXE)
 
@@ -299,7 +304,7 @@ object SunderingManager {
 
         // Flame — random chance to set fire to a block within the stage-
         // sized cubic radius of the beam terminus.
-        handleFlameFire(level, rampF, ench, trace)
+        handleFlameFire(level, player, rampF, ench, trace)
 
         // Mining only targets the polyline's terminating block (if any).
         // Silk Touch disables mining outright.
@@ -341,8 +346,12 @@ object SunderingManager {
                 } finally {
                     DisintegrationLootingOverride.clear()
                 }
-                if (landed && knockbackStrength > 0.0 && entity is LivingEntity) {
-                    applyKnockback(entity, from, direction, knockbackStrength)
+                if (landed && entity is LivingEntity) {
+                    level.playSound(
+                        null, entity.x, entity.y, entity.z,
+                        EKSounds.SUNDERING_BURN.get(), SoundSource.PLAYERS, 1f, 1f,
+                    )
+                    if (knockbackStrength > 0.0) applyKnockback(entity, from, direction, knockbackStrength)
                 }
             }
             // Fire applies every tick the entity is in the beam, even on
@@ -464,9 +473,10 @@ object SunderingManager {
      *  effective rate grows fast enough that low levels still produce
      *  visible fire within seconds instead of feeling broken. */
     private fun handleFlameFire(
-        level: ServerLevel, rampF: Float, ench: SunderingEnchants, trace: BeamTrace,
+        level: ServerLevel, player: Player, rampF: Float, ench: SunderingEnchants, trace: BeamTrace,
     ) {
         if (ench.flame <= 0 || trace.finalBlockPos == null) return
+        if (!player.mayBuild()) return
         val stage = (rampF * STAGE_COUNT).toInt().coerceIn(1, STAGE_COUNT)
         val centre = trace.finalBlockPos!!
         val candidates = ench.flame
@@ -476,7 +486,7 @@ object SunderingManager {
             val dy = level.random.nextInt(stage * 2 + 1) - stage
             val dz = level.random.nextInt(stage * 2 + 1) - stage
             val target = centre.offset(dx, dy, dz)
-            if (!level.getBlockState(target).isAir) continue
+            if (!level.getBlockState(target).isAir || !level.mayInteract(player, target)) continue
             // Vanilla flame placement rule — at least one neighboring face
             // must be solid / flammable for fire to take hold.
             val hasNeighbour = Direction.values().any {
@@ -495,7 +505,8 @@ object SunderingManager {
         miningMult: Float, ench: SunderingEnchants,
     ) {
         val state = level.getBlockState(pos)
-        if (state.isAir) {
+        // Adventure mode and spawn protection apply to the beam as to a tool.
+        if (state.isAir || !player.mayBuild() || !level.mayInteract(player, pos)) {
             miningProgress.remove(player.uuid)
             return
         }
@@ -561,4 +572,29 @@ object SunderingManager {
         damageTickCounter.remove(player.uuid)
         channelingTickCounter.remove(player.uuid)
     }
+
+    fun init() {
+        PlayerEvent.PLAYER_QUIT.register { player -> release(player) }
+        LifecycleEvent.SERVER_STOPPED.register { _ ->
+            miningProgress.clear()
+            damageTickCounter.clear()
+            channelingTickCounter.clear()
+        }
+        TickEvent.SERVER_POST.register(TickEvent.Server(::releaseAbandoned))
+    }
+
+    /** Vanilla calls `stopUsingItem`, not `releaseUsing`, on a hotbar change and on death. */
+    private fun releaseAbandoned(server: net.minecraft.server.MinecraftServer) {
+        if (server.tickCount % ABANDON_CHECK_INTERVAL != 0) return
+        if (damageTickCounter.isEmpty() && miningProgress.isEmpty() && channelingTickCounter.isEmpty()) return
+        val stale = { uuid: UUID ->
+            val player = server.playerList.getPlayer(uuid)
+            player == null || !player.isUsingItem || player.useItem.item !is StaffOfSunderingItem
+        }
+        miningProgress.keys.removeIf(stale)
+        damageTickCounter.keys.removeIf(stale)
+        channelingTickCounter.keys.removeIf(stale)
+    }
+
+    private const val ABANDON_CHECK_INTERVAL = 20
 }

@@ -13,6 +13,7 @@ import net.minecraft.world.item.Items
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.LecternBlock
 import net.minecraft.world.level.block.entity.LecternBlockEntity
+import org.shipwrights.enderkinesis.item.TomeLore
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.sselith.BookPaginator
 import org.shipwrights.enderkinesis.sselith.Sselith
@@ -39,7 +40,7 @@ import kotlin.math.sin
 object CatalogerScribe {
 
     /** Book-tag boolean stamped on text the Cataloger has already filed. */
-    private const val SSELITH_FLAG = "EnderkinesisSselith"
+    private const val SSELITH_FLAG = TomeLore.SERIF_PAGES_FLAG
 
     /**
      * Translate the book on the lectern at [pos], if any. Returns true if

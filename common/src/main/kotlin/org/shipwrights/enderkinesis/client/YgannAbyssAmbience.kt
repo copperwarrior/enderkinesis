@@ -45,6 +45,19 @@ object YgannAbyssAmbience {
     private var current: SoundInstance? = null
     private var loop: SoundInstance? = null
 
+    // With the volume at 0 or no free channel, the engine drops the loop. The retry stays, because
+    // it is what starts the loop when the volume goes up. A count of ticks, not a game time.
+    private const val LOOP_RETRY_TICKS = 20
+    private var loopRetryCooldown = 0
+
+    // The schedule holds game times of the old world.
+    fun onDisconnect() {
+        loop = null
+        current = null
+        scheduled = false
+        loopRetryCooldown = 0
+    }
+
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel { level -> tick(level) })
     }
@@ -58,13 +71,15 @@ object YgannAbyssAmbience {
             loop = null
             current = null
             scheduled = false
+            loopRetryCooldown = 0
             return
         }
         if (mc.player == null) return
         val rng = level.random
 
         // Keep the continuous base loop running while in-dimension.
-        if (loop.let { it == null || !mc.soundManager.isActive(it) }) {
+        if (loop.let { it == null || !mc.soundManager.isActive(it) } && loopRetryCooldown-- <= 0) {
+            loopRetryCooldown = LOOP_RETRY_TICKS
             val l = SimpleSoundInstance(
                 EKSounds.YGANN_AMBIENCE_LOOP.get().location, SoundSource.AMBIENT, LOOP_VOLUME, 1.0f, rng,
                 true, 0, SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true,

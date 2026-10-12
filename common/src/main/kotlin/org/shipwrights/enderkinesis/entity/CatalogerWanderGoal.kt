@@ -19,6 +19,10 @@ class CatalogerWanderGoal(
     private val mob: PathfinderMob,
     private val radius: Int,
     private val speed: Double,
+    /** Node budget multiplier for wander pathfinds, so unreachable random targets fail fast. */
+    private val wanderNodeMultiplier: Float,
+    /** The navigation's normal multiplier, restored after each wander pathfind. */
+    private val defaultNodeMultiplier: Float,
 ) : Goal() {
 
     private var target: Vec3? = null
@@ -37,7 +41,10 @@ class CatalogerWanderGoal(
     override fun canContinueToUse(): Boolean = !mob.navigation.isDone
 
     override fun start() {
-        target?.let { mob.navigation.moveTo(it.x, it.y, it.z, speed) }
+        val pos = target ?: return
+        mob.navigation.setMaxVisitedNodesMultiplier(wanderNodeMultiplier)
+        mob.navigation.moveTo(pos.x, pos.y, pos.z, speed)
+        mob.navigation.setMaxVisitedNodesMultiplier(defaultNodeMultiplier)
     }
 
     override fun stop() {

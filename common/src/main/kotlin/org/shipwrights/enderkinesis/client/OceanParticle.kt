@@ -53,6 +53,14 @@ class OceanParticle(
     /** Per-particle scratch for wave-velocity sampling during splash ticks. */
     private val tmpWaveVel: org.joml.Vector3d = org.joml.Vector3d()
 
+    /** Lattice tint at spawn — read from the host lattice's published catch zone and
+     *  locked for the particle's lifetime so a dye change mid-particle doesn't recolour
+     *  in-flight droplets/motes. Defaults to ender-purple when no zone covers the spawn
+     *  point (rare; particle spawned outside the lattice). */
+    private val tintR: Float
+    private val tintG: Float
+    private val tintB: Float
+
     /**
      * Precomputed per-wave phase offset / amplitude (see [GerstnerOcean.precomputeSample]) for
      * surface/deep particles. Computed once here so the per-tick wave loop is just a sin/cos sum
@@ -65,6 +73,16 @@ class OceanParticle(
     init {
         pickSprite(sprites)
         hasPhysics = true               // collide with terrain / ship hulls like other particles
+        // Lock the host lattice's tint at spawn. Done before the mode branches so every
+        // particle type (surface, deep, splash, foam-crest) sees the same value.
+        val zone = org.shipwrights.enderkinesis.physics.LatticeRegistry.zoneAt(level, x, y, z)
+        if (zone != null) {
+            tintR = zone.tintR; tintG = zone.tintG; tintB = zone.tintB
+        } else {
+            tintR = org.shipwrights.enderkinesis.physics.LatticeCatchZone.DEFAULT_TINT_R
+            tintG = org.shipwrights.enderkinesis.physics.LatticeCatchZone.DEFAULT_TINT_G
+            tintB = org.shipwrights.enderkinesis.physics.LatticeCatchZone.DEFAULT_TINT_B
+        }
         if (mode == Mode.SPLASH) {
             // Ballistic: drifts with the velocity the server sent it, falls under gravity.
             // Sized up + longer-lived than the original "very light" tuning so the spray reads
@@ -223,9 +241,9 @@ class OceanParticle(
             val n = (disp[1] / GerstnerOcean.maxAmplitude).coerceIn(-1.0, 1.0)
             val foam = ((n - 0.4) / 0.6).coerceIn(0.0, 1.0)
             setColor(
-                lerp(ENDER_R, FOAM_R, foam),
-                lerp(ENDER_G, FOAM_G, foam),
-                lerp(ENDER_B, FOAM_B, foam),
+                lerp(tintR, FOAM_R, foam),
+                lerp(tintG, FOAM_G, foam),
+                lerp(tintB, FOAM_B, foam),
             )
             if (!foamBoosted && foam > 0.5) {
                 lifetime += FOAM_BONUS

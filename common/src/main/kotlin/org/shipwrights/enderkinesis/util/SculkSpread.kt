@@ -378,6 +378,16 @@ object SculkSpread {
      *      per active spread (shared with the instant bloom budget).
      *   3. Spawns a [FallingBlockEntity] for any plain sculk whose
      *      below-neighbour is air. */
+    private fun scanAreaLoaded(level: ServerLevel, center: BlockPos, r: Int): Boolean {
+        val chunks = level.chunkSource
+        for (cx in ((center.x - r) shr 4)..((center.x + r) shr 4)) {
+            for (cz in ((center.z - r) shr 4)..((center.z + r) shr 4)) {
+                if (chunks.getChunkNow(cx, cz) == null) return false
+            }
+        }
+        return true
+    }
+
     private fun postTickScan(
         level: ServerLevel, spread: ActiveSpread, spreader: SculkSpreader, rng: RandomSource,
     ) {
@@ -385,6 +395,8 @@ object SculkSpread {
         val scratch = BlockPos.MutableBlockPos()
         for (cursor in spreader.cursors) {
             val cp = cursor.pos
+            // A block read at the edge of the loaded area loads the chunk and keeps it loaded.
+            if (!scanAreaLoaded(level, cp, r)) continue
             for (dx in -r..r) {
                 for (dy in -r..r) {
                     for (dz in -r..r) {
@@ -456,4 +468,9 @@ object SculkSpread {
     /** Half-edge of the per-cursor neighbourhood swept each tick by
      *  [postTickScan]. */
     private const val CURSOR_SCAN_RADIUS = 2
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        byDimension.clear()
+    }
 }

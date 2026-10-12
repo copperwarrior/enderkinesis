@@ -1,10 +1,11 @@
 package org.shipwrights.enderkinesis.item
 
-import com.mojang.logging.LogUtils
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.bodies.ServerBaseVsBody
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.impl.game.ShipTeleportDataImpl
 import org.valkyrienskies.mod.common.dimensionId
@@ -12,7 +13,6 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-private val LOG = LogUtils.getLogger()
 
 /** Server-side application of Staff-of-Scales transform-scale changes.
  *
@@ -98,21 +98,16 @@ object ScalesManager {
      *  when `getLoadedShipManagingPos` resolves the same ship). */
     fun commitScaleOnShip(player: ServerPlayer, ship: LoadedServerShip, requestedScale: Double): Boolean {
         if (isDimensionBlacklisted(player)) {
-            LOG.info("[Scales] commitScale: dimension blacklisted, refusing")
             player.displayClientMessage(
                 Component.translatable("item.enderkinesis.staff_of_scales.blacklisted_dimension"), true,
             )
             return false
         }
         if (!isReachable(player, ship)) {
-            LOG.info("[Scales] commitScale: ship {} out of reach", ship.id)
             return false
         }
         val newScale = requestedScale.coerceIn(MIN_SCALE, MAX_SCALE)
-        val priorScale = ship.transform.shipToWorldScaling.x()
         applyScaleViaTeleport(ship, newScale, player.serverLevel())
-        LOG.info("[Scales] commitScale APPLIED (teleport) shipId={} prior={} new={}",
-            ship.id, priorScale, newScale)
         return true
     }
 
@@ -123,24 +118,19 @@ object ScalesManager {
      *  reach. */
     fun startResetTween(player: ServerPlayer, ship: LoadedServerShip) {
         if (isDimensionBlacklisted(player)) {
-            LOG.info("[Scales] startResetTween: dimension blacklisted, refusing")
             player.displayClientMessage(
                 Component.translatable("item.enderkinesis.staff_of_scales.blacklisted_dimension"), true,
             )
             return
         }
         if (!isReachable(player, ship)) {
-            LOG.info("[Scales] startResetTween: ship {} out of reach", ship.id)
             return
         }
         val currentScale = ship.transform.shipToWorldScaling.x()
         if (kotlin.math.abs(currentScale - 1.0) < 1e-4) {
-            LOG.info("[Scales] startResetTween: ship {} already at 1.0 — nothing to do", ship.id)
             return
         }
         resetTweens[player.uuid] = ResetTween(ship, currentScale, player.serverLevel().gameTime)
-        LOG.info("[Scales] startResetTween player={} shipId={} startScale={}",
-            player.name.string, ship.id, currentScale)
     }
 
     /** Advance all reset tweens whose ship lives in this level. Runs once
@@ -162,8 +152,6 @@ object ScalesManager {
                 .coerceIn(MIN_SCALE, MAX_SCALE)
             applyScaleViaTeleport(tween.ship, newScale, level)
             if (progress >= 1.0) {
-                LOG.info("[Scales] reset tween complete uuid={} shipId={} finalScale={}",
-                    uuid, tween.ship.id, newScale)
                 iter.remove()
             }
         }
@@ -189,10 +177,32 @@ object ScalesManager {
     fun commitScale(player: ServerPlayer, shipId: Long, requestedScale: Double): Boolean {
         val ship = player.level().shipObjectWorld.allShips.getById(shipId) as? LoadedServerShip
         if (ship == null) {
-            LOG.info("[Scales] commitScale: ship {} not found / not LoadedServerShip", shipId)
             return false
         }
         return commitScaleOnShip(player, ship, requestedScale)
+    }
+
+    // --- Body (non-ship VS body) variants ---
+
+    /** Read the body's current uniform scale (X axis). */
+    fun getCurrentScale(body: ServerBaseVsBody): Double = body.kinematics.transform.scaling.x()
+
+    /** Apply [requestedScale] to a non-ship VS body (e.g. a Ga'Mylan
+     *  cage). VS2 ships go through `teleportShip`, but bodies expose a
+     *  [ServerBaseVsBody.setTransform] that takes position + rotation +
+     *  scaling in one call. Position / rotation are preserved; only
+     *  scaling changes. */
+    fun commitScaleOnBody(player: ServerPlayer, body: ServerBaseVsBody, requestedScale: Double): Boolean {
+        if (isDimensionBlacklisted(player)) {
+            player.displayClientMessage(
+                Component.translatable("item.enderkinesis.staff_of_scales.blacklisted_dimension"), true,
+            )
+            return false
+        }
+        val newScale = requestedScale.coerceIn(MIN_SCALE, MAX_SCALE)
+        val tf = body.kinematics.transform
+        body.setTransform(tf.position, tf.rotation, Vector3d(newScale, newScale, newScale))
+        return true
     }
 
     private fun isReachable(player: ServerPlayer, ship: LoadedServerShip): Boolean {
@@ -203,5 +213,10 @@ object ScalesManager {
         val nz = pz.coerceIn(aabb.minZ(), aabb.maxZ())
         val dx = nx - px; val dy = ny - py; val dz = nz - pz
         return (dx * dx + dy * dy + dz * dz) <= INTERACTION_RANGE_SQ
+    }
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        resetTweens.clear()
     }
 }

@@ -5,9 +5,23 @@
       "rolls": 1.0,
       "bonus_rolls": 0.0,
       "entries": [
-        { "type": "minecraft:item", "name": "enderkinesis:statue_counting" }
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:statue_counting"
+        }
       ],
-      "conditions": [ { "condition": "minecraft:survives_explosion" } ]
+      "conditions": [
+        {
+          "condition": "minecraft:block_state_property",
+          "block": "enderkinesis:statue_counting",
+          "properties": {
+            "half": "lower"
+          }
+        },
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
     }
   ]
 }

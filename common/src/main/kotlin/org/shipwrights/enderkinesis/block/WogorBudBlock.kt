@@ -107,6 +107,19 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         scheduleNextGrow(level, pos, level.random)
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onRemove(
+        state: BlockState,
+        level: Level,
+        pos: BlockPos,
+        newState: BlockState,
+        isMoving: Boolean,
+    ) {
+        // A bud removed before maturity must not leave a target for a later bud.
+        if (!level.isClientSide && !newState.`is`(this)) WogorBudTargetData.take(level, pos)
+        super.onRemove(state, level, pos, newState, isMoving)
+    }
+
     override fun tick(
         state: BlockState,
         level: ServerLevel,
@@ -131,7 +144,8 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
             // WOGOR_WOOD aligned to the bud's facing axis as before.
             if (target != null) {
                 WogorBudTargetData.take(level, pos)
-                level.setBlock(pos, target, UPDATE_ALL)
+                // The destroy hook filters only bud → wood; a bud → variant change must not enroll.
+                HeartOfTheWildManager.withEnrollSuppressed { level.setBlock(pos, target, UPDATE_ALL) }
             } else {
                 val facing = state.getValue(FACING)
                 val wogor = EKBlocks.WOGOR_WOOD.get().defaultBlockState()

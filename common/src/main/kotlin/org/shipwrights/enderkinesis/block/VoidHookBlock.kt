@@ -77,7 +77,8 @@ class VoidHookBlock(properties: BlockBehaviour.Properties) : Block(properties), 
     ) {
         super.neighborChanged(state, level, pos, neighborBlock, neighborPos, isMoving)
         if (level.isClientSide) return
-        val signal = level.getBestNeighborSignal(pos)
+        val signal = (level.getBlockEntity(pos) as? VoidHookBlockEntity)?.effectivePower(level, pos)
+            ?: level.getBestNeighborSignal(pos)
         if (state.getValue(POWER) != signal) {
             level.setBlock(pos, state.setValue(POWER, signal), Block.UPDATE_CLIENTS)
         }
@@ -89,5 +90,6 @@ class VoidHookBlock(properties: BlockBehaviour.Properties) : Block(properties), 
 
         /** Redstone power 0–15 — scales pull force linearly. */
         val POWER = BlockStateProperties.POWER
+        const val MAX_POWER: Int = 15
     }
 }

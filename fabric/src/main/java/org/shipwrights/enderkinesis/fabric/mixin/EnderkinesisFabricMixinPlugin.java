@@ -31,9 +31,6 @@ public class EnderkinesisFabricMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        if (mixinClassName.endsWith(".SodiumBlockRendererCloakingMixin")) {
-            return sodiumPresent;
-        }
         return true;
     }
 

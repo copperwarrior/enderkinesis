@@ -20,7 +20,7 @@ object TomeSummonOverlay {
 
     @JvmStatic
     fun renderBackground(graphics: GuiGraphics, partialTick: Float) {
-        val intensity = currentEnvelopeIntensity(partialTick)
+        val intensity = shaderIntensity(partialTick)
         if (intensity <= 0.005f) return
         val w = graphics.guiWidth()
         val h = graphics.guiHeight()
@@ -53,10 +53,7 @@ object TomeSummonOverlay {
         }
     }
 
-    /** Release the cached EffectInstance. No callers yet — left here as the
-     *  symmetric counterpart to [ensureRefractionLoaded] for future
-     *  resource-reload or world-leave hooks. */
-    @Suppress("unused")
+    /** Release the cached EffectInstance, so the next draw loads the shader again. */
     fun closeRefractionEffect() {
         refractionEffect?.close()
         refractionEffect = null
@@ -77,7 +74,7 @@ object TomeSummonOverlay {
         val mc = Minecraft.getInstance()
         if (mc.player == null) return
         if (ScryingClient.isActive()) return
-        val intensity = currentEnvelopeIntensity(partialTick)
+        val intensity = shaderIntensity(partialTick)
         if (intensity <= 0.005f) return
         val effect = ensureRefractionLoaded(mc) ?: return
         val tSec = (Util.getMillis() / 1000.0).toFloat()
@@ -86,6 +83,14 @@ object TomeSummonOverlay {
             eff.safeGetUniform("Intensity").set(intensity)
         }
     }
+
+    /** Madness stage-up and control loss reuse the vignette and refraction shaders, but not the glyphs. */
+    private fun shaderIntensity(partialTick: Float): Float =
+        maxOf(
+            currentEnvelopeIntensity(partialTick),
+            SselithMadnessStageFx.intensity(),
+            SselithControlLoss.vignetteIntensity(partialTick),
+        )
 
     private val LOG: org.slf4j.Logger =
         org.slf4j.LoggerFactory.getLogger("EnderkinesisTomeSummonOverlay")

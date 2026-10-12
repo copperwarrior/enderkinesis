@@ -158,7 +158,7 @@ internal object WogorTreeSkeleton {
         // Per-origin lean seeds — different trees lean different directions.
         val leanSeedBase = (originX.toInt() * 0x9E3779B1.toInt()) xor
             (originY.toInt() * 0x85EBCA77.toInt()) xor
-            (originZ.toInt() * 0xC2B2AE3D.toInt())
+            (originZ.toInt() * 0xC2B2AE3D.toInt()) xor WohlonWorldSeed.salt
         val leanSeedX = leanSeedBase
         val leanSeedZ = leanSeedBase xor 0x12345678.toInt()
         // Different X/Z frequencies → the lean direction rotates as the
@@ -212,6 +212,7 @@ internal object WogorTreeSkeleton {
         val influenceCount = IntArray(maxNodes)
         val influencedIndices = IntArray(maxNodes)
         var influencedSize = 0
+        var everInfluenced = false
 
         for (iter in 0 until maxIterations) {
             if (activeCount == 0) break
@@ -293,6 +294,9 @@ internal object WogorTreeSkeleton {
             }
 
             if (influencedSize == 0) {
+                // Stuck: the canopy grew, and now no attractor is in reach and none was
+                // consumed. More bias-only steps would only add a bare pole.
+                if (everInfluenced && !anyKilled) break
                 // Bias-only growth: extend the most recent un-tipped node
                 // toward `defaultDir` so the trunk lifts off the ground
                 // until attractors latch on.
@@ -324,6 +328,7 @@ internal object WogorTreeSkeleton {
                 continue
             }
 
+            everInfluenced = true
             // Grow new nodes from each influenced node. The same per-iter
             // lean perturbation that drives bias-only growth is layered
             // onto the attractor pull here — so the global "the trunk
@@ -348,9 +353,6 @@ internal object WogorTreeSkeleton {
                 node.children.add(newNode)
                 nodes.add(newNode)
             }
-
-            // If nothing was killed AND nothing influenced, we're stuck.
-            if (!anyKilled && influencedSize == 0) break
         }
 
         // Pipe-model (Cepero, after da Vinci): radius² accumulates from

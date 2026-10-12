@@ -30,7 +30,10 @@ class HeartOfTheWildModel(private val bakedRoot: ModelPart) : HierarchicalModel<
     /** [KeyframeAnimations] applies additively — the resetPose loop is mandatory each frame. */
     fun animateIdleMillis(clockMillis: Long, rateScalar: Float) {
         bakedRoot.allParts.forEach { it.resetPose() }
-        val scaledMillis = (clockMillis.toDouble() * rateScalar.toDouble()).toLong()
+        // Vanilla converts the millis to Float before its modulo; millis since boot lose the
+        // frame steps after some days. Wrap to the loop first.
+        val loopMillis = (HeartOfTheWildAnimations.PULSE.lengthInSeconds() * 1000f).toLong().coerceAtLeast(1L)
+        val scaledMillis = (clockMillis.toDouble() * rateScalar.toDouble()).toLong() % loopMillis
         KeyframeAnimations.animate(
             this, HeartOfTheWildAnimations.PULSE,
             scaledMillis, 1f, ANIMATION_VECTOR_CACHE,

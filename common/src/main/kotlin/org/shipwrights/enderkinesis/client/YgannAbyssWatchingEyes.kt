@@ -140,6 +140,11 @@ object YgannAbyssWatchingEyes {
         })
     }
 
+    // The pairs hold game times of the old world.
+    fun onDisconnect() {
+        pairs = emptyList()
+    }
+
     private fun tick(level: ClientLevel) {
         if (level.dimension() != YgannAbyss.LEVEL_KEY) {
             if (pairs.isNotEmpty()) pairs = emptyList()
@@ -233,10 +238,11 @@ object YgannAbyssWatchingEyes {
         val activePairs = pairs
         if (activePairs.isEmpty()) return
 
-        val nowFloat = (level.gameTime + partialTick.toDouble()).toFloat()
+        // Double: a Float loses the partial tick above 2^24 ticks of world time.
+        val now = level.gameTime + partialTick.toDouble()
         val oscAmpAzRad = Math.toRadians(OSC_AMP_AZIMUTH_DEG.toDouble())
         val oscAmpElRad = Math.toRadians(OSC_AMP_ELEVATION_DEG.toDouble())
-        val twoPiOverPeriod = (2.0 * Math.PI / OSCILLATION_PERIOD_TICKS).toFloat()
+        val twoPiOverPeriod = 2.0 * Math.PI / OSCILLATION_PERIOD_TICKS
 
         RenderSystem.enableBlend()
         RenderSystem.blendFunc(
@@ -254,10 +260,10 @@ object YgannAbyssWatchingEyes {
 
         val pose = poseStack.last().pose()
         for (pair in activePairs) {
-            val age = nowFloat - pair.spawnTick
+            val age = (now - pair.spawnTick).toFloat()
             val alpha = computeAlpha(age, pair.visibleTicks, pair.fadeIn, pair.fadeOut)
             if (alpha <= 0f) continue
-            val dir = oscillatedDir(pair, nowFloat, twoPiOverPeriod, oscAmpAzRad, oscAmpElRad)
+            val dir = oscillatedDir(pair, now, twoPiOverPeriod, oscAmpAzRad, oscAmpElRad)
             drawPair(bb, pose, dir, alpha, pair.eyeWidth, pair.eyeGap)
         }
 
@@ -274,13 +280,13 @@ object YgannAbyssWatchingEyes {
      *  elevation. Each pair has independent random phases per axis so the swarm doesn't
      *  move in lockstep. */
     private fun oscillatedDir(
-        pair: EyePair, nowFloat: Float, twoPiOverPeriod: Float,
+        pair: EyePair, now: Double, twoPiOverPeriod: Double,
         oscAmpAzRad: Double, oscAmpElRad: Double,
     ): Vector3f {
-        val azPhase = nowFloat * twoPiOverPeriod + pair.phaseAzimuth
-        val elPhase = nowFloat * twoPiOverPeriod * OSC_EL_FREQ_RATIO + pair.phaseElevation
-        val az = pair.baseAzimuth + oscAmpAzRad * sin(azPhase.toDouble())
-        val el = (pair.baseElevation + oscAmpElRad * sin(elPhase.toDouble())).coerceIn(
+        val azPhase = now * twoPiOverPeriod + pair.phaseAzimuth
+        val elPhase = now * twoPiOverPeriod * OSC_EL_FREQ_RATIO + pair.phaseElevation
+        val az = pair.baseAzimuth + oscAmpAzRad * sin(azPhase)
+        val el = (pair.baseElevation + oscAmpElRad * sin(elPhase)).coerceIn(
             Math.toRadians(MIN_ELEVATION_DEG), Math.toRadians(MAX_ELEVATION_DEG),
         )
         val horiz = cos(el)

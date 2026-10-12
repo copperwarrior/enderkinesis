@@ -46,6 +46,7 @@ object WyllandTomeNetwork {
             val hy = buf.readDouble()
             val hz = buf.readDouble()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            if (!finite(hx, hy, hz)) return@registerReceiver
             ctx.queue {
                 WyllandTomeManager.beginGrab(
                     player,
@@ -69,6 +70,7 @@ object WyllandTomeNetwork {
             val hy = buf.readDouble()
             val hz = buf.readDouble()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            if (!finite(hx, hy, hz)) return@registerReceiver
             ctx.queue { WyllandTomeManager.beginGrabBlock(player, pos, hx, hy, hz) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, BEGIN_GRAB_ORB) { buf, ctx ->
@@ -89,19 +91,25 @@ object WyllandTomeNetwork {
             val yawDeg = buf.readDouble()
             val pitchDeg = buf.readDouble()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            if (!finite(yawDeg, pitchDeg)) return@registerReceiver
             ctx.queue { WyllandTomeManager.applyRotateInput(player, yawDeg, pitchDeg) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, APPLY_ROLL) { buf, ctx ->
             val degrees = buf.readDouble()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            if (!finite(degrees)) return@registerReceiver
             ctx.queue { WyllandTomeManager.applyRollInput(player, degrees) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, ADJUST_DISTANCE) { buf, ctx ->
             val delta = buf.readDouble()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            if (!finite(delta)) return@registerReceiver
             ctx.queue { WyllandTomeManager.adjustDistance(player, delta) }
         }
     }
+
+    // `coerceIn` keeps NaN, and a NaN force or torque reaches the physics thread.
+    private fun finite(vararg values: Double): Boolean = values.all { it.isFinite() }
 
     /** Hit position is in **ship-local (shipyard) coordinates** —
      *  the client re-derives this from a voxelshape clip in ship-frame

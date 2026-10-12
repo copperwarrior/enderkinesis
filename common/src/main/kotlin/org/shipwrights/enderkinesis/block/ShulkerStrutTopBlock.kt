@@ -17,6 +17,7 @@ import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutTopBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.util.ShipMoves
 
 /**
  * Lid half of the [ShulkerStrutBlock]. Lives exclusively inside the 1×1×1 VS2 ship the
@@ -80,7 +81,7 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
     ) {
         if (!state.`is`(newState.block)) {
             val basePos = (level.getBlockEntity(pos) as? ShulkerStrutTopBlockEntity)?.basePos
-            if (basePos != null &&
+            if (basePos != null && !ShipMoves.isMovingBlocks(level) &&
                 level.getBlockState(basePos).`is`(EKBlocks.SHULKER_STRUT.get())) {
                 level.destroyBlock(basePos, true)
             }

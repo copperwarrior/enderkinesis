@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.dimension
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.TickEvent
+import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.damagesource.DamageSource
@@ -55,12 +56,18 @@ object SselithVoidWrap {
     private const val WRAP_TOP = 512.0
     private const val WRAP_DELTA_Y = WRAP_TOP - WRAP_BOTTOM  // 1024
 
+    // Covers a player standing on the deck, whose feet sit just above the ship's world AABB.
+    private const val RIDER_MARGIN = 2.0
+
     fun init() {
         EntityEvent.LIVING_HURT.register(::onLivingHurt)
         TickEvent.SERVER_LEVEL_POST.register(TickEvent.ServerLevelTick { level ->
             if (level.dimension() != SselithRepertory.LEVEL_KEY) return@ServerLevelTick
-            wrapEntities(level)
-            wrapShips(level)
+            val fallers = wrapEntities(level)
+            val riders = wrapShips(level)
+            if (fallers.isNotEmpty() || riders.isNotEmpty()) {
+                SselithParallel.onWrapped(fallers + riders, level.gameTime)
+            }
         })
     }
 
@@ -91,7 +98,8 @@ object SselithVoidWrap {
      * mobs, players, projectiles, …) — preferable to an AABB query because the wrap
      * region is unbounded in (x, z).
      */
-    private fun wrapEntities(level: ServerLevel) {
+    private fun wrapEntities(level: ServerLevel): List<ServerPlayer> {
+        var wrappedPlayers: MutableList<ServerPlayer>? = null
         for (entity in level.allEntities) {
             if (entity.y >= WRAP_BOTTOM) continue
             // Passenger entities are repositioned by their vehicle's tick — moving them
@@ -123,6 +131,7 @@ object SselithVoidWrap {
                     entity.yRot, entity.xRot,
                     RelativeMovement.ALL,
                 )
+                (wrappedPlayers ?: ArrayList<ServerPlayer>().also { wrappedPlayers = it }).add(entity)
             } else {
                 // Non-player entities aren't a camera, so the visual smoothness concern
                 // doesn't apply. Some Entity subclasses do zero `deltaMovement` in their
@@ -130,12 +139,24 @@ object SselithVoidWrap {
                 val keepDelta = entity.deltaMovement
                 entity.teleportTo(entity.x, entity.y + WRAP_DELTA_Y, entity.z)
                 entity.deltaMovement = keepDelta
+                if (entity.isVehicle) {
+                    for (rider in entity.indirectPassengers) {
+                        if (rider is ServerPlayer) {
+                            (wrappedPlayers ?: ArrayList<ServerPlayer>().also { wrappedPlayers = it }).add(rider)
+                        }
+                    }
+                    // The client ignores `ClientboundTeleportEntityPacket` for a vehicle it controls. In single
+                    // player the server then accepts the old position and wraps again on each tick.
+                    (entity.controllingPassenger as? ServerPlayer)
+                        ?.connection?.send(ClientboundMoveVehiclePacket(entity))
+                }
             }
             // `fallDistance` is reset to gate mob landing-impact behaviour (slime jumping,
             // etc.) which we don't want triggered by the wrap. With FALL damage cancelled
             // dimension-wide this is redundant for damage purposes.
             entity.fallDistance = 0f
         }
+        return wrappedPlayers ?: emptyList()
     }
 
     /**
@@ -159,7 +180,7 @@ object SselithVoidWrap {
      *  Iteration uses `loadedShips` because only loaded ships have a current world
      *  position to test against [WRAP_BOTTOM]; unloaded ships hold stale data.
      */
-    private fun wrapShips(level: ServerLevel) {
+    private fun wrapShips(level: ServerLevel): List<ServerPlayer> {
         val world = level.shipObjectWorld
         val dimId = level.dimensionId
 
@@ -169,7 +190,9 @@ object SselithVoidWrap {
             if (ship.transform.positionInWorld.y() >= WRAP_BOTTOM) continue
             toWrap.add(ship)
         }
-        if (toWrap.isEmpty()) return
+        if (toWrap.isEmpty()) return emptyList()
+
+        val riders = level.players().filter { player -> toWrap.any { isAboard(player, it) } }
 
         val sow = world as ServerShipWorld
         for (ship in toWrap) {
@@ -187,5 +210,13 @@ object SselithVoidWrap {
             )
             vsCore.teleportShip(sow, ship, data)
         }
+        return riders
+    }
+
+    private fun isAboard(player: ServerPlayer, ship: LoadedServerShip): Boolean {
+        val box = ship.worldAABB
+        return player.x in box.minX() - RIDER_MARGIN..box.maxX() + RIDER_MARGIN &&
+            player.y in box.minY() - RIDER_MARGIN..box.maxY() + RIDER_MARGIN &&
+            player.z in box.minZ() - RIDER_MARGIN..box.maxZ() + RIDER_MARGIN
     }
 }

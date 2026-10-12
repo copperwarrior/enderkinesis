@@ -110,7 +110,8 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         if (state.getValue(STABLE)) return
         val now = level.gameTime
-        if (lastBreakTick < now) {
+        // `!=`, not `<`: the field is static, and a later world can have a lower game time.
+        if (lastBreakTick != now) {
             lastBreakTick = now
             val cx = pos.x + 0.5
             val cy = pos.y + 0.5

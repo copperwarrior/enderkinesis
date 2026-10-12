@@ -53,7 +53,7 @@ object TransportationGhostRenderer {
         val cameraPos = camera.position
 
         val gameTime = level.gameTime
-        val tSec = (gameTime + partialTick) / 20.0
+        val tSec = (gameTime.toDouble() + partialTick) / 20.0
 
         for (flight in flights) {
             val world = TransportationClient.renderPos(level, flight, partialTick) ?: continue

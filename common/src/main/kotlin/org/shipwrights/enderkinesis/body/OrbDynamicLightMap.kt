@@ -17,21 +17,22 @@ import kotlin.math.abs
  *  keeps server-side queries (mob spawning, plant growth, redstone)
  *  on the vanilla light value.
  *
- *  Storage is three parallel `IntArray`s + a single light-level int.
- *  Lookup walks the arrays and returns the maximum Manhattan-distance
- *  contribution. Reads are wait-free (volatile array reference; the
- *  arrays themselves are read-only between writes). Writes are
- *  publish-once-per-tick from the driver — we swap fresh arrays in,
- *  not mutate the live ones.
+ *  Storage is one immutable snapshot. Lookup walks it and returns the maximum
+ *  Manhattan-distance contribution. Reads are wait-free (one volatile reference).
+ *  The driver publishes a new snapshot once per tick.
  */
 object OrbDynamicLightMap {
-    @Volatile private var posXs: IntArray = IntArray(0)
-    @Volatile private var posYs: IntArray = IntArray(0)
-    @Volatile private var posZs: IntArray = IntArray(0)
-    @Volatile private var lightLevel: Int = 0
+    /** One snapshot: `xyz` is x, y, z for each orb in sequence. Never changed after publish. */
+    private class Snapshot(val xyz: IntArray, val lightLevel: Int)
+
+    private val EMPTY = Snapshot(IntArray(0), 0)
+
+    // One reference, not three arrays: a chunk-build worker that read a new array together
+    // with an old one indexed past the end of the shorter one.
+    @Volatile private var snapshot: Snapshot = EMPTY
 
     @JvmStatic
-    fun isEmpty(): Boolean = posXs.isEmpty()
+    fun isEmpty(): Boolean = snapshot.xyz.isEmpty()
 
     /** Maximum orb-light contribution at world position `(x, y, z)`,
      *  in `[0, 15]`. Each active orb contributes `lightLevel - manhattan(orb, here)`
@@ -40,17 +41,17 @@ object OrbDynamicLightMap {
      *  BFS — light decays by 1 per axis-aligned step. */
     @JvmStatic
     fun contributionAt(x: Int, y: Int, z: Int): Int {
-        // Snapshot the array references — they may be replaced
-        // mid-call by the driver's `setActive`, but each snapshot is
-        // internally consistent (we never mutate live arrays).
-        val xs = posXs; val ys = posYs; val zs = posZs
-        val lev = lightLevel
-        if (xs.isEmpty()) return 0
+        val snap = snapshot
+        val xyz = snap.xyz
+        if (xyz.isEmpty()) return 0
+        val lev = snap.lightLevel
         var max = 0
-        for (i in xs.indices) {
-            val dist = abs(x - xs[i]) + abs(y - ys[i]) + abs(z - zs[i])
+        var i = 0
+        while (i < xyz.size) {
+            val dist = abs(x - xyz[i]) + abs(y - xyz[i + 1]) + abs(z - xyz[i + 2])
             val contrib = lev - dist
             if (contrib > max) max = contrib
+            i += 3
         }
         return max
     }
@@ -60,16 +61,17 @@ object OrbDynamicLightMap {
      *  once per tick after working out which orbs are in range. */
     fun setActive(packedPositions: List<Long>, level: Int) {
         val n = packedPositions.size
-        val newX = IntArray(n)
-        val newY = IntArray(n)
-        val newZ = IntArray(n)
+        if (n == 0) {
+            snapshot = EMPTY
+            return
+        }
+        val xyz = IntArray(n * 3)
         for (i in 0 until n) {
             val p = packedPositions[i]
-            newX[i] = net.minecraft.core.BlockPos.getX(p)
-            newY[i] = net.minecraft.core.BlockPos.getY(p)
-            newZ[i] = net.minecraft.core.BlockPos.getZ(p)
+            xyz[i * 3] = net.minecraft.core.BlockPos.getX(p)
+            xyz[i * 3 + 1] = net.minecraft.core.BlockPos.getY(p)
+            xyz[i * 3 + 2] = net.minecraft.core.BlockPos.getZ(p)
         }
-        lightLevel = level
-        posXs = newX; posYs = newY; posZs = newZ
+        snapshot = Snapshot(xyz, level)
     }
 }

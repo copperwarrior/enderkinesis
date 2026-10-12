@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.item
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
@@ -22,6 +21,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 
 /**
@@ -53,7 +53,6 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_disintegration")
 
-    private val LOG = LogUtils.getLogger()
 
     /** HP damaged per beam-tick per [LivingEntity] in the unblocked segment. 2.0 = 1 heart
      *  per tick — fast enough that mobs caught in a beam die quickly, slow enough that
@@ -76,7 +75,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
      *    - 1.2 ≈ axis-aligned + cross with corner reach (default)
      *    - 1.5 ≈ axis-aligned 3×3 (9 blocks per slice)
      *    - 2.5 ≈ 5×5
-     *  Tune freely; per-tick mining cost scales with the slice size, not beam length. */
+     *  Tune freely; per-tick mining cost scales with the slice size and the mined depth. */
     private const val BLOCK_BEAM_RADIUS: Double = 1.2
 
     /** Thickness (in beam units) of the leading mining slice. 1.0 ≈ one block along the
@@ -118,9 +117,8 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
     /** Per-orb state — base mover bookkeeping (cursor + in-flight pending) plus the drop
      *  queue and per-block mining progress that Disintegration needs. */
     class DisintegrationState : MoverState() {
-        /** Items waiting to be dispatched. Fed by [runBeam], drained by [pullSourceStack].
-         *  Wiped at the end of every [serverTick]: anything not dispatched in the same
-         *  tick it was produced is disintegrated, not held over. */
+        /** Stacks of this tick. Fed by [runBeam], drained by [serverTick], which dispatches
+         *  each one and then wipes the remainder: nothing is held over to the next tick. */
         val dropQueue: ArrayDeque<ItemStack> = ArrayDeque()
         /** Accumulated mining ticks per block currently being chewed. Cleared on destroy. */
         val mining: MutableMap<BlockPos, Float> = HashMap()
@@ -132,10 +130,13 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val state = sendBe.tomeState(this) as? DisintegrationState ?: return
         runBeam(level, sendBe, state)
         super.serverTick(level, sendBe)
-        // Drop queue is the "couldn't push immediately" buffer; the orb's contract is to
-        // disintegrate anything that can't be routed in the same tick it was produced.
-        // Whatever survived dispatch (receiver full, no receiver linked, item left after
-        // the dispatcher's per-tick budget, bounce-back from a refused push) gets dropped.
+        // All drops of this tick go to the receiver in this tick, one flight for each stack.
+        // The orb does not buffer: a stack that no receiver takes (full, filtered out, not
+        // linked) is disintegrated, and the next stack still gets its turn.
+        var remaining = state.dropQueue.size
+        while (remaining-- > 0 && state.dropQueue.isNotEmpty()) {
+            if (!tryDispatch(level, sendBe, state)) state.dropQueue.removeFirst()
+        }
         state.dropQueue.clear()
     }
 
@@ -157,7 +158,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val sendFilter = sendBe.orbFilter()
         val sendShip = level.getShipManagingPos(sendPos)
         for (receiverPos in receivers) {
-            val recvBe = level.getBlockEntity(receiverPos) as? OrbOfLinkingBlockEntity ?: continue
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
             val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
             val recvShip = level.getShipManagingPos(receiverPos)
             val recvFilter = recvBe.orbFilter()
@@ -306,14 +307,6 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val vy = uz * dirX - ux * dirZ
         val vz = ux * dirY - uy * dirX
 
-        val box = AABB(from, to).inflate(radius + 0.5)
-        val minX = Math.floor(box.minX).toInt()
-        val maxX = Math.floor(box.maxX).toInt()
-        val minY = Math.floor(box.minY).toInt()
-        val maxY = Math.floor(box.maxY).toInt()
-        val minZ = Math.floor(box.minZ).toInt()
-        val maxZ = Math.floor(box.maxZ).toInt()
-
         // Pass 1: collect breakable cylinder-blocks with depth + spiral attrs. Ship-
         // inclusive — for each world cell in the AABB, resolveBlockAt finds the block
         // actually rendered there (ship block via shipToWorld transform if any ship's
@@ -323,50 +316,75 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         // centre, so spiral order is consistent across world + ship blocks in the same
         // beam. Dedup by storage pos handles the rare rotated-ship case where multiple
         // world cells project to the same shipyard block.
+        //
+        // The scan walks the beam axis in one-block steps and reads only the cells around
+        // each axis point. It stops when the leading slice is complete. The full bounding
+        // box of a 64-block diagonal beam is about 70,000 cells for each tick.
         val candidates = ArrayList<CylinderCandidate>()
         val seen = HashSet<BlockPos>()
-        for (x in minX..maxX) {
-            for (y in minY..maxY) {
-                for (z in minZ..maxZ) {
-                    val cx = (x + 0.5) - from.x
-                    val cy = (y + 0.5) - from.y
-                    val cz = (z + 0.5) - from.z
-                    val tNorm = (cx * abx + cy * aby + cz * abz) / abLenSq
-                    val tClamped = if (tNorm < 0.0) 0.0 else if (tNorm > 1.0) 1.0 else tNorm
-                    val perpX = cx - abx * tClamped
-                    val perpY = cy - aby * tClamped
-                    val perpZ = cz - abz * tClamped
-                    val distSq = perpX * perpX + perpY * perpY + perpZ * perpZ
-                    // Tapered radius: 0 at either orb, full at one block in, linear
-                    // ramp between. Blocks within the taper zone use the local (narrower)
-                    // radius; blocks in the middle use the full radius. radiusSq is the
-                    // broad-phase cap; the tapered check is the narrow-phase.
-                    val depthAlongBeam = tClamped * abLen
-                    val localRadius = beamRadiusAt(depthAlongBeam, abLen, radius)
-                    val localRadiusSq = localRadius * localRadius
-                    if (distSq > localRadiusSq) continue       // outside tapered cylinder
-                    if (distSq > radiusSq) continue            // belt-and-braces (≤ above)
-                    val lookup = resolveBlockAt(level, x, y, z, shipsInRange) ?: continue
-                    if (lookup.storagePos == skipA || lookup.storagePos == skipB) continue
-                    if (lookup.hardness < 0f) continue          // off-axis unbreakable: skip
-                    if (!seen.add(lookup.storagePos)) continue  // dedup across world cells
-                    // SEND + RECEIVE filter gate (both must allow):
-                    // - block filter on either side restricts which
-                    //   blocks the beam will chew through;
-                    // - off-axis blocks excluded by the filter are
-                    //   treated like unbreakables — the drill mines
-                    //   around them and continues toward the
-                    //   receiver instead of stopping cold.
-                    if (!sendFilter.matchesBlock(lookup.blockState)) continue
-                    if (!recvFilter.matchesBlock(lookup.blockState)) continue
-                    val uCoord = perpX * ux + perpY * uy + perpZ * uz
-                    val vCoord = perpX * vx + perpY * vy + perpZ * vz
-                    candidates.add(CylinderCandidate(
-                        lookup.storagePos, lookup.blockState, lookup.hardness,
-                        depth = tClamped * abLen,
-                        distFromLine = Math.sqrt(distSq),
-                        angle = Math.atan2(vCoord, uCoord),
-                    ))
+        val visited = it.unimi.dsi.fastutil.longs.LongOpenHashSet()
+        val reach = radius + 1.5
+        var minDepthSoFar = Double.MAX_VALUE
+        val lastStep = Math.ceil(abLen).toInt()
+        for (step in 0..lastStep) {
+            // A cell with depth d is read at step round(d) at the latest, so after this step
+            // the minimum is final for each depth below step + 0.5.
+            if (step > minDepthSoFar + SLICE_THICKNESS + 1.0) break
+            val along = Math.min(step.toDouble(), abLen)
+            val axisX = from.x + dirX * along
+            val axisY = from.y + dirY * along
+            val axisZ = from.z + dirZ * along
+            val minX = Math.floor(axisX - reach).toInt()
+            val maxX = Math.floor(axisX + reach).toInt()
+            val minY = Math.floor(axisY - reach).toInt()
+            val maxY = Math.floor(axisY + reach).toInt()
+            val minZ = Math.floor(axisZ - reach).toInt()
+            val maxZ = Math.floor(axisZ + reach).toInt()
+            for (x in minX..maxX) {
+                for (y in minY..maxY) {
+                    for (z in minZ..maxZ) {
+                        if (!visited.add(BlockPos.asLong(x, y, z))) continue
+                        val cx = (x + 0.5) - from.x
+                        val cy = (y + 0.5) - from.y
+                        val cz = (z + 0.5) - from.z
+                        val tNorm = (cx * abx + cy * aby + cz * abz) / abLenSq
+                        val tClamped = if (tNorm < 0.0) 0.0 else if (tNorm > 1.0) 1.0 else tNorm
+                        val perpX = cx - abx * tClamped
+                        val perpY = cy - aby * tClamped
+                        val perpZ = cz - abz * tClamped
+                        val distSq = perpX * perpX + perpY * perpY + perpZ * perpZ
+                        // Tapered radius: 0 at either orb, full at one block in, linear
+                        // ramp between. Blocks within the taper zone use the local (narrower)
+                        // radius; blocks in the middle use the full radius. radiusSq is the
+                        // broad-phase cap; the tapered check is the narrow-phase.
+                        val depthAlongBeam = tClamped * abLen
+                        val localRadius = beamRadiusAt(depthAlongBeam, abLen, radius)
+                        val localRadiusSq = localRadius * localRadius
+                        if (distSq > localRadiusSq) continue       // outside tapered cylinder
+                        if (distSq > radiusSq) continue            // belt-and-braces (≤ above)
+                        val lookup = resolveBlockAt(level, x, y, z, shipsInRange) ?: continue
+                        if (lookup.storagePos == skipA || lookup.storagePos == skipB) continue
+                        if (lookup.hardness < 0f) continue          // off-axis unbreakable: skip
+                        if (!seen.add(lookup.storagePos)) continue  // dedup across world cells
+                        // SEND + RECEIVE filter gate (both must allow):
+                        // - block filter on either side restricts which
+                        //   blocks the beam will chew through;
+                        // - off-axis blocks excluded by the filter are
+                        //   treated like unbreakables — the drill mines
+                        //   around them and continues toward the
+                        //   receiver instead of stopping cold.
+                        if (!sendFilter.matchesBlock(lookup.blockState)) continue
+                        if (!recvFilter.matchesBlock(lookup.blockState)) continue
+                        val uCoord = perpX * ux + perpY * uy + perpZ * uz
+                        val vCoord = perpX * vx + perpY * vy + perpZ * vz
+                        if (depthAlongBeam < minDepthSoFar) minDepthSoFar = depthAlongBeam
+                        candidates.add(CylinderCandidate(
+                            lookup.storagePos, lookup.blockState, lookup.hardness,
+                            depth = tClamped * abLen,
+                            distFromLine = Math.sqrt(distSq),
+                            angle = Math.atan2(vCoord, uCoord),
+                        ))
+                    }
                 }
             }
         }
@@ -474,7 +492,11 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val minZ = Math.min(from.z, to.z) - pad
         val maxZ = Math.max(from.z, to.z) + pad
         val result = ArrayList<Ship>()
-        for (ship in level.shipObjectWorld.allShips) {
+        // `loadedShips` with the dimension test: `allShips` has unloaded ships and the ships
+        // of each dimension, and a read at their shipyard coordinates hits the wrong level.
+        val dimId = level.dimensionId
+        for (ship in level.shipObjectWorld.loadedShips) {
+            if (ship.chunkClaimDimension != dimId) continue
             val sa = ship.worldAABB
             if (sa.maxX() < minX || sa.minX() > maxX) continue
             if (sa.maxY() < minY || sa.minY() > maxY) continue
@@ -668,11 +690,13 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
 
     override fun pullSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
         val state = sendBe.tomeState(this) as? DisintegrationState ?: return null
-        val head = state.dropQueue.firstOrNull() ?: return null
-        val one = head.split(1)
-        if (head.isEmpty) state.dropQueue.removeFirst()
-        return one
+        // The whole stack in one flight. One item for each flight needed a tick for each item,
+        // and the queue lives for one tick.
+        return state.dropQueue.removeFirstOrNull()
     }
+
+    /** A burst of drops in one tick must not hit the base cap of 16 flights. */
+    override val maxInFlightPerSend: Int = 4096
 
     override fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
         val state = sendBe.tomeState(this) as? DisintegrationState ?: return null

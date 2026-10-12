@@ -89,16 +89,15 @@ open class WohlonnogondoniaFireflyParticle(
 
         // Soft pull toward the orbit target — gives a smooth path without
         // teleporting the particle.
-        x += (targetX - x) * 0.10
-        y += (targetY - y) * 0.10
-        z += (targetZ - z) * 0.10
+        // setPos, not a field write: Forge culls a particle by its bounding box.
+        setPos(x + (targetX - x) * 0.10, y + (targetY - y) * 0.10, z + (targetZ - z) * 0.10)
 
         // Animate the sprite at the same low frequency as the orbit so the
         // glitter frame doesn't snap mid-pulse.
         val frame = ((tA / lifetime.toFloat()) * 8f).toInt().coerceIn(0, 7)
         if (frame != lastFrame) {
             lastFrame = frame
-            setSprite(sprites.get(frame, SPRITE_SET_SIZE))
+            setSprite(sprites.get(frame, SPRITE_SET_SIZE - 1))
         }
 
         // Flicker:
@@ -124,8 +123,9 @@ open class WohlonnogondoniaFireflyParticle(
 
     override fun getRenderType(): ParticleRenderType = ParticleRenderType.PARTICLE_SHEET_TRANSLUCENT
 
+    // `SpriteSet.get(age, lifetime)` picks index age·(size−1)/lifetime, so the max is size−1.
     private fun setSpriteFromIndex(frame: Int) {
-        setSprite(sprites.get(frame, SPRITE_SET_SIZE))
+        setSprite(sprites.get(frame, SPRITE_SET_SIZE - 1))
     }
 
     companion object {

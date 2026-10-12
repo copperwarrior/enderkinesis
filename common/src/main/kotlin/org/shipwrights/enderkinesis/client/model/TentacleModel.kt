@@ -44,6 +44,13 @@ class TentacleModel(private val root: ModelPart) : HierarchicalModel<Entity>() {
      * tip lands at its posed world transform, then renders just its cube. Call after the animation
      * has been applied, with the same placement [poseStack] used for the body.
      */
+    // `ModelPart.getAllParts` builds a stream on each call, and the field draws hundreds of tentacles in a frame.
+    private val allParts: List<ModelPart> = root.allParts.toList()
+
+    fun resetPose() {
+        for (part in allParts) part.resetPose()
+    }
+
     fun renderTip(
         poseStack: PoseStack,
         consumer: VertexConsumer,
@@ -55,7 +62,7 @@ class TentacleModel(private val root: ModelPart) : HierarchicalModel<Entity>() {
         root.translateAndRotate(poseStack)
         var part = root.getChild("tent_base")
         part.translateAndRotate(poseStack)
-        for (name in arrayOf("tend_1", "tent_2", "tent_3", "tent_4")) {
+        for (name in TIP_CHAIN) {
             part = part.getChild(name)
             part.translateAndRotate(poseStack)
         }
@@ -64,6 +71,8 @@ class TentacleModel(private val root: ModelPart) : HierarchicalModel<Entity>() {
     }
 
     companion object {
+        private val TIP_CHAIN = arrayOf("tend_1", "tent_2", "tent_3", "tent_4")
+
         fun createMesh(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

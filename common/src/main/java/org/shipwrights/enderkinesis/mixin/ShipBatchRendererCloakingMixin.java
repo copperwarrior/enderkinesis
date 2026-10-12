@@ -43,8 +43,9 @@ public abstract class ShipBatchRendererCloakingMixin {
     @Shadow @Final private ArrayList<ShipRenderObject> drawOrder;
 
     /**
-     * Blit the main FB's depth into the side FB's OWN depth attachment at the
-     * start of each layer's per-ship loop. Lets cloaked ships depth-test
+     * Bring the main FB's depth into the side FB's OWN depth attachment at the
+     * start of each layer's per-ship loop: a blit at the first layer, a merge at
+     * the later opaque layers. Lets cloaked ships depth-test
      * against current terrain in side FB (so terrain occludes the ship
      * correctly) while their depth WRITES go to side FB depth — main FB depth
      * is never polluted, so cutout terrain, other ships, and translucents
@@ -60,7 +61,14 @@ public abstract class ShipBatchRendererCloakingMixin {
     ) {
         for (ShipRenderObject obj : drawOrder) {
             if (ClientShipCloakingState.INSTANCE.getProgress(obj.ship.getId()) > 0.001f) {
-                ConcealmentShipFB.INSTANCE.copyMainDepth();
+                // Translucent terrain (water, glass) is in the main depth at this layer. A
+                // merge then removes each ship pixel behind water, so only the first-layer
+                // copy is permitted here.
+                if (renderType == RenderType.translucent() || renderType == RenderType.tripwire()) {
+                    ConcealmentShipFB.INSTANCE.copyMainDepth();
+                } else {
+                    ConcealmentShipFB.INSTANCE.mergeMainDepth();
+                }
                 return;
             }
         }

@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.block
 
 import dev.architectury.event.events.common.ChunkEvent
+import dev.architectury.event.events.common.LifecycleEvent
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
@@ -36,6 +37,7 @@ object WogorBudTargetData {
     > = ConcurrentHashMap()
 
     fun init() {
+        LifecycleEvent.SERVER_STOPPED.register { _ -> perDim.clear() }
         ChunkEvent.SAVE_DATA.register(ChunkEvent.SaveData { chunk, level, tag ->
             if (level == null) return@SaveData
             val map = chunkMapIfPresent(level.dimension(), chunk.pos) ?: return@SaveData

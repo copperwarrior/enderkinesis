@@ -19,8 +19,8 @@ class SselithTest {
     }
 
     @Test
-    fun `multi-word proper noun is preserved`() {
-        Sselith.translate("Sselith Repertory") shouldContain "Sselith Repertory"
+    fun `a proper name keeps its own form beside a translated word`() {
+        Sselith.translate("Sselith Repertory") shouldContain "Sselith Olmnemklokuet"
     }
 
     @Test
@@ -67,6 +67,70 @@ class SselithTest {
     fun `holy invocation renders correctly`() {
         // 34.5 → 34 (vraestmorocht-schest-kelkargh) + skarn + 0.5 (moroch). The holy number.
         Sselith.translate("34.5") shouldBe "Vraestmorocht-schest-kelkargh-skarn-moroch"
+    }
+
+    @Test
+    fun `scroll does not unravel the holy phrase after the paginator splits it`() {
+        val phrase = "vraestmorocht-schest-kelkargh-skarn-moroch"
+        val page = BookPaginator.paginate("Zhol $phrase, zhol.").joinToString("\n")
+        val out = Sselith.translateToEnglish(page, 1.0, java.util.Random(0))
+        out.replace("\n", "") shouldContain phrase
+        out.count { it == '\n' } shouldBe page.count { it == '\n' }
+    }
+
+    @Test
+    fun `scroll does not unravel the holy phrase with a line break in a word`() {
+        val phrase = "vraestmorocht-sches\nt-kelkargh-skarn-mo\nroch"
+        Sselith.translateToEnglish("Zhol $phrase, zhol.", 1.0, java.util.Random(0)) shouldContain phrase
+    }
+
+    @Test
+    fun `scroll unravels a holy word that is not in the phrase`() {
+        Sselith.translateToEnglish("moroch", 1.0, java.util.Random(0)) shouldBe "three"
+        Sselith.translateToEnglish("schest-moroch", 1.0, java.util.Random(0)) shouldBe "six-three"
+    }
+
+    @Test
+    fun `number out of the numeral range passes through unchanged`() {
+        Sselith.translate("99999999999999999999") shouldBe "99999999999999999999"
+    }
+
+    @Test
+    fun `source spacing is kept`() {
+        Sselith.translate("Zorblax-Quendimar Host") shouldStartWith "Zorblax-Quendimar "
+        Sselith.translate("Upgrade: ").endsWith(": ") shouldBe true
+        Sselith.translate("player(s)").endsWith("(s)") shouldBe true
+        Sselith.translate("other tomes' links") shouldContain "' "
+    }
+
+    @Test
+    fun `placeholders survive with attached letters`() {
+        Sselith.translate("%s's Head") shouldStartWith "%soch "
+        Sselith.translate("%s%s done") shouldStartWith "%s%s "
+        Sselith.translate("50% done").contains("done") shouldBe false
+    }
+
+    @Test
+    fun `section numeral wins over the dictionary`() {
+        Sselith.translate("Page I") shouldBe "Leampagkh Vir"
+        Sselith.translate("the book I read") shouldContainCI "zhol"
+    }
+
+    @Test
+    fun `lexicon adjective takes no second suffix`() {
+        Sselith.translate("good").lowercase() shouldBe "vielkh"
+        Sselith.translate("able").lowercase() shouldBe "kwevegh"
+    }
+
+    @Test
+    fun `reverse lookup prefers the root word`() {
+        Sselith.translateToEnglish("corkharg", 1.0, java.util.Random(0)) shouldBe "body"
+        Sselith.translateToEnglish("vielkh", 1.0, java.util.Random(0)) shouldBe "good"
+    }
+
+    @Test
+    fun `decimal below one keeps its fraction`() {
+        Sselith.translate("0.5") shouldBe "Ul-skarn-moroch"
     }
 
     @Test
@@ -184,6 +248,11 @@ class SselithTest {
     @Test
     fun `empty input returns empty`() {
         Sselith.translate("") shouldBe ""
+    }
+
+    @Test
+    fun `the Sselith form of speak translates back to speak`() {
+        Sselith.translateToEnglish("zhspraekh", 1.0, java.util.Random(0)) shouldBe "speak"
     }
 
     @Test

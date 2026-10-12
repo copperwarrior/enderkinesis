@@ -34,6 +34,7 @@ import kotlin.math.sqrt
 object MagicMissileTrailRenderer {
 
     private val trails = HashMap<Int, ArrayDeque<Drop>>()
+    private val liveIds = it.unimi.dsi.fastutil.ints.IntOpenHashSet()
 
     /** One trail snapshot. `pos` is in **worldspace** — captured as-is from the entity
      *  position (VS2 keeps projectiles in worldspace). No ship-frame transformation is
@@ -87,21 +88,18 @@ object MagicMissileTrailRenderer {
         val level = Minecraft.getInstance().level ?: return
         val gameTime = level.gameTime
 
-        val liveIds = HashSet<Int>()
-        for (entity in level.entitiesForRendering()) {
-            if (entity is MagicMissileEntity && !entity.isRemoved) liveIds.add(entity.id)
-        }
-        trails.keys.retainAll(liveIds)
-
         val matrix = poseStack.last().pose()
         val normal = poseStack.last().normal()
 
+        liveIds.clear()
         for (entity in level.entitiesForRendering()) {
             if (entity !is MagicMissileEntity || entity.isRemoved) continue
+            liveIds.add(entity.id)
             updateTrail(entity, gameTime, partialTicks, level)
             renderTrail(entity, gameTime, partialTicks, bufferSource,
                 matrix, normal, cameraX, cameraY, cameraZ)
         }
+        if (trails.isNotEmpty()) trails.keys.removeIf { !liveIds.contains(it) }
     }
 
     private fun updateTrail(
@@ -374,4 +372,8 @@ object MagicMissileTrailRenderer {
             .endVertex()
     }
 
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        trails.clear()
+    }
 }

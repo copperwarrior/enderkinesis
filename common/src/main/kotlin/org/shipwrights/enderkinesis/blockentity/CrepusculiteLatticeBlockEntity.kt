@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.blockentity
 
-import com.mojang.logging.LogUtils
 import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
@@ -34,12 +33,17 @@ import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.mod.common.getShipManagingPos
 
 class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.CREPUSCULITE_LATTICE.get(), pos, state) {
 
     /** Rescan the ship's blocks at most this often (server ticks); a full scan is expensive. */
     private var rescanCooldown = 0
+    private var publishedZone: LatticeCatchZone? = null
+    private var lastScanMass = Double.NaN
+    private var lastScanBox = 0L
+    private var forcedRescanIn = 0
 
     /** Ship-local block triples (x,y,z flattened). VS2 ships routinely roll/invert, so the
      *  ship's Y axis must never be collapsed — world up is the only valid vertical. */
@@ -76,6 +80,10 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
      */
     private var seaLevelDim: String? = null
 
+    /** Packed RGB tint applied to the wave mesh and ocean particles. Null means use
+     *  the default ender-purple; non-null comes from a dyed lattice. */
+    private var tintRgb: Int? = null
+
     /**
      * Nudge this lattice's sea level by [delta] blocks (the Guide to Stratus: right-click raises,
      * left-click lowers). Mutates the captured [seaLevel] directly, so the adjustment is
@@ -90,6 +98,13 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         seaLevel = next
         markChangedAndSync()
         return next
+    }
+
+    /** Set the wave/particle tint to the given packed RGB. Persisted in NBT and synced to
+     *  clients so the mesh renderer + ocean particles pick it up on the next tick. */
+    fun setTint(rgb: Int) {
+        tintRgb = rgb
+        markChangedAndSync()
     }
 
     /** Persist + push the BE data packet to nearby clients. `setChanged()` alone only marks
@@ -136,33 +151,33 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
      */
     private fun publishZone(level: Level, pos: BlockPos) {
         val ship = level.getLoadedShipManagingPos(pos)
-        if (ship == null) { LatticeRegistry.unregister(level, this); return }
+        if (ship == null) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
         val sb = ship.shipAABB
-        if (sb == null) { LatticeRegistry.unregister(level, this); return }
+        if (sb == null) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
         val waterLineY = seaLevel
-        if (waterLineY == null) { LatticeRegistry.unregister(level, this); return }
+        if (waterLineY == null) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
 
-        // World AABB of the ship: 8 shipyard-corner transforms → bounding world box.
+        // SHIP-LOCAL AABB drives the ellipse: extents come from the hull's own box, so
+        // the ocean's size/shape is constant — a world AABB balloons up to √2 on yawed
+        // ships and breathes as they turn. Centre is the local centre in world space.
         val s2w = ship.transform.shipToWorld
-        var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
-        var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
-        val corner = Vector3d()
-        for (cxI in intArrayOf(sb.minX(), sb.maxX() + 1)) {
-            for (cyI in intArrayOf(sb.minY(), sb.maxY() + 1)) {
-                for (czI in intArrayOf(sb.minZ(), sb.maxZ() + 1)) {
-                    corner.set(cxI.toDouble(), cyI.toDouble(), czI.toDouble())
-                    s2w.transformPosition(corner)
-                    if (corner.x < minX) minX = corner.x; if (corner.x > maxX) maxX = corner.x
-                    if (corner.y < minY) minY = corner.y; if (corner.y > maxY) maxY = corner.y
-                    if (corner.z < minZ) minZ = corner.z; if (corner.z > maxZ) maxZ = corner.z
-                }
-            }
-        }
-        val cx = (minX + maxX) * 0.5; val cy = (minY + maxY) * 0.5; val cz = (minZ + maxZ) * 0.5
-        val ax = (maxX - minX) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val ay = (maxY - minY) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val az = (maxZ - minZ) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) { LatticeRegistry.unregister(level, this); return }
+        val centre = Vector3d(
+            (sb.minX() + sb.maxX() + 1) * 0.5,
+            (sb.minY() + sb.maxY() + 1) * 0.5,
+            (sb.minZ() + sb.maxZ() + 1) * 0.5,
+        )
+        s2w.transformPosition(centre)
+        val cx = centre.x; val cy = centre.y; val cz = centre.z
+        val ax = (sb.maxX() + 1 - sb.minX()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val ay = (sb.maxY() + 1 - sb.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val az = (sb.maxZ() + 1 - sb.minZ()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
+        // Ellipse orientation = ship yaw (local X axis in world, horizontal part).
+        val xAxis = Vector3d(1.0, 0.0, 0.0)
+        s2w.transformDirection(xAxis)
+        val yaw = Math.atan2(-xAxis.z, xAxis.x)
+        val yawCos = Math.cos(yaw)
+        val yawSin = Math.sin(yaw)
 
         // Wave params: server reads the inducer's live values; client doesn't have the
         // inducer attachment (it's a server-only VS2 attachment), so it falls back to a
@@ -183,10 +198,35 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             waveIntensity = 1.0
         }
 
-        LatticeRegistry.publish(
-            level, this,
-            LatticeCatchZone(cx, cy, cz, ax, ay, az, waterLineY, waveTime, waveIntensity),
-        )
+        // Tint defaults to the static ender-purple; a dyed lattice overrides it AND
+        // flips `dyed=true` so the zone's derived deep/foam shades come into play.
+        val rgb = tintRgb
+        val zone = if (rgb != null) {
+            val tr = ((rgb shr 16) and 0xFF) / 255f
+            val tg = ((rgb shr 8) and 0xFF) / 255f
+            val tb = (rgb and 0xFF) / 255f
+            LatticeCatchZone(
+                cx, cy, cz, ax, ay, az, waterLineY, waveTime, waveIntensity,
+                yawCos, yawSin, tr, tg, tb, dyed = true, shipId = ship.id,
+            )
+        } else {
+            LatticeCatchZone(
+                cx, cy, cz, ax, ay, az, waterLineY, waveTime, waveIntensity, yawCos, yawSin,
+                shipId = ship.id,
+            )
+        }
+        // Owner rule: one ocean for each ship, from its highest lattice. The mesh, the
+        // particles, the fluid probe and the float effect all read the registry.
+        for ((other, otherZone) in LatticeRegistry.entries(level)) {
+            if (other === this || otherZone.shipId != ship.id || other.isRemoved) continue
+            if (comparePos(other.blockPos, blockPos) > 0) {
+                publishedZone = null
+                LatticeRegistry.unregister(level, this)
+                return
+            }
+        }
+        publishedZone = zone
+        LatticeRegistry.publish(level, this, zone)
     }
 
     /**
@@ -201,6 +241,30 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             seaLevel = worldY
             markChangedAndSync()
         }
+    }
+
+    /** FORCE the sea level (worldgen assembly): structure templates can carry a stale
+     *  captured level from the world they were EXPORTED in (wrong Y, wrong dimension —
+     *  the roaming end ship shipped an overworld stamp into the End, tearing down its
+     *  own inducer on first tick). The assembling processor knows the authoritative
+     *  answer and overwrites unconditionally. */
+    fun stampSeaLevel(worldY: Double, dim: String) {
+        if (seaLevel != worldY || seaLevelDim != dim) {
+            seaLevel = worldY
+            seaLevelDim = dim
+            markChangedAndSync()
+        }
+    }
+
+    /** Worldgen parking (persisted): the assembling processor freezes the ship static —
+     *  far from players its shipyard chunks never tick, so no BE tick, no inducer, and
+     *  a dynamic hull free-falls into the void long before anyone arrives. The first
+     *  REAL tick (a player is near) releases it to dynamic bobbing. */
+    private var parkedForWorldgen = false
+
+    fun parkForWorldgen() {
+        parkedForWorldgen = true
+        markChangedAndSync()
     }
 
     fun serverTick(level: Level, pos: BlockPos, state: BlockState) {
@@ -224,6 +288,20 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
                 ship?.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
             }
         }
+        // Worldgen-parked release — MUST use the all-ships lookup, not the loaded-
+        // object one: a reloaded STATIC ship may never materialize a loaded ShipObject
+        // (static skips the physics pipeline), and the loaded-only gate below returns
+        // first, which left parked ships frozen forever after a world reload. This BE
+        // ticking at all means a player is near, which is the release condition.
+        if (parkedForWorldgen) {
+            val anyShip = level.getShipManagingPos(pos) as? org.valkyrienskies.core.api.ships.ServerShip
+            if (anyShip != null) {
+                parkedForWorldgen = false
+                markChangedAndSync()
+                anyShip.isStatic = false
+            }
+        }
+
         if (ship == null) {
             // A block in the shipyard whose ship just isn't resolved this tick is NOT a free
             // world block — its `pos` is shipyard coords (y≈128). Recording that would clobber
@@ -293,7 +371,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             currentAuthority.isRemoved ||
                 level.gameTime - inducer.authorityTickedAt > CrepusculiteLatticeForceInducer.AUTHORITY_STALE_TICKS
         )
-        if (!(currentAuthority == null || currentAuthority === this || authorityStale)) return
+        // Owner rule: the highest lattice of the ship has authority. Equal positions (the VS2
+        // duplicates) do not outrank, so the identity rule above still holds for them.
+        val outranks = currentAuthority != null && currentAuthority !== this &&
+            comparePos(blockPos, currentAuthority.blockPos) > 0
+        if (!(currentAuthority == null || currentAuthority === this || authorityStale || outranks)) return
         inducer.authorityHolder = this
         inducer.authorityTickedAt = level.gameTime
 
@@ -328,7 +410,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // Per-block buoyancy needs the ship's solid blocks, but the Physics thread can't read the
         // world — capture them here (server thread). Throttled: scanning the ship's whole AABB is
         // O(volume) and must not run every tick.
-        if (rescanCooldown-- <= 0) {
+        if (rescanCooldown-- <= 0 && shipChangedSinceScan(ship)) {
             rescanCooldown = RESCAN_INTERVAL_TICKS
             scanShipBlocks(level, ship.shipAABB)?.let { scanned ->
                 inducer.setBlocks(scanned)
@@ -390,39 +472,21 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         ship: org.valkyrienskies.core.api.ships.LoadedServerShip,
         waterLineY: Double, waveTime: Double, waveIntensity: Double,
     ) {
-        // Ship-local AABB → world AABB (transform the 8 corners).
-        val s = ship.shipAABB ?: return
-        val toWorld = ship.transform.shipToWorld
-        var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
-        var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
-        val corner = Vector3d()
-        for (cxI in intArrayOf(s.minX(), s.maxX() + 1)) {
-            for (cyI in intArrayOf(s.minY(), s.maxY() + 1)) {
-                for (czI in intArrayOf(s.minZ(), s.maxZ() + 1)) {
-                    corner.set(cxI.toDouble(), cyI.toDouble(), czI.toDouble())
-                    toWorld.transformPosition(corner)
-                    if (corner.x < minX) minX = corner.x; if (corner.x > maxX) maxX = corner.x
-                    if (corner.y < minY) minY = corner.y; if (corner.y > maxY) maxY = corner.y
-                    if (corner.z < minZ) minZ = corner.z; if (corner.z > maxZ) maxZ = corner.z
-                }
-            }
-        }
-        // Same inflated ellipsoid the visual ocean uses — the float area is its whole *volume*
-        // below the wave plane (matching the deep particle field), not just a slab at the surface.
-        val cx = (minX + maxX) * 0.5; val cy = (minY + maxY) * 0.5; val cz = (minZ + maxZ) * 0.5
-        val ax = (maxX - minX) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val ay = (maxY - minY) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val az = (maxZ - minZ) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) return
+        // The same zone as the drawn ocean and the fluid probe: ship-local extents, with the
+        // ship yaw. A world-axis box gives a float area where no ocean shows on a turned ship.
+        val zone = publishedZone ?: return
+        val cx = zone.cx; val cy = zone.cy; val cz = zone.cz
+        val ax = zone.ax; val ay = zone.ay; val az = zone.az
+        val maxY = cy + ay
         val dyN = (waterLineY - cy) / ay
         if (dyN * dyN >= 1.0) return                          // water line outside the ellipsoid
 
         // Query the full ellipsoid volume (down to its floor), up past the surface so a fast
         // faller is still caught the tick it crosses the plane.
         val box = AABB(
-            cx - ax, cy - ay, cz - az,
-            cx + ax, Math.max(maxY, waterLineY) + GerstnerOcean.maxAmplitude + ENTITY_QUERY_PAD,
-            cz + az,
+            cx - zone.boundX, cy - ay, cz - zone.boundZ,
+            cx + zone.boundX, Math.max(maxY, waterLineY) + GerstnerOcean.maxAmplitude + ENTITY_QUERY_PAD,
+            cz + zone.boundZ,
         )
         val effect = EKEffects.CREPUSCULAR_FLOATATION.get()
         val toShip = ship.transform.worldToShip
@@ -459,9 +523,9 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             // structure both above and below. Below the keel, above the deck, or outside the
             // footprint are all open water → float. (No geometric world hull cutout — that wrongly
             // blocked under-ship/flooded spaces; no VS2 air-pocket/dragging reliance.)
-            val nx = (ex - cx) / ax
+            val nx = zone.localNx(ex, ez)
             val ny = (ey - cy) / ay
-            val nz = (ez - cz) / az
+            val nz = zone.localNz(ex, ez)
             val insideEllipsoid = nx * nx + ny * ny + nz * nz <= 1.0
             val surfaceY = waterLineY + GerstnerOcean.heightAt(ex, ez, waveTime, waveIntensity)
             val feetY = entity.boundingBox.minY
@@ -672,29 +736,28 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     ): Int {
         if (box == null || densityFactor <= 0.0) return 0
 
-        // World-space AABB of the ship (8 transformed corners of the local AABB).
-        var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
-        var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
-        val v = Vector3d()
-        for (i in 0 until 8) {
-            v.set(
-                (if (i and 1 == 0) box.minX() else box.maxX() + 1).toDouble(),
-                (if (i and 2 == 0) box.minY() else box.maxY() + 1).toDouble(),
-                (if (i and 4 == 0) box.minZ() else box.maxZ() + 1).toDouble(),
-            )
-            shipToWorld.transformPosition(v)
-            if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x
-            if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y
-            if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z
-        }
-
-        val cx = (minX + maxX) * 0.5
-        val cy = (minY + maxY) * 0.5
-        val cz = (minZ + maxZ) * 0.5
-        val ax = (maxX - minX) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val ay = (maxY - minY) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val az = (maxZ - minZ) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        // SHIP-LOCAL AABB extents, matching the published zone (see serverTick's zone
+        // build): a world AABB balloons up to √2 on yawed ships and breathes as they
+        // turn. Centre is the local centre transformed to world.
+        val centreL = Vector3d(
+            (box.minX() + box.maxX() + 1) * 0.5,
+            (box.minY() + box.maxY() + 1) * 0.5,
+            (box.minZ() + box.maxZ() + 1) * 0.5,
+        )
+        shipToWorld.transformPosition(centreL)
+        val cx = centreL.x
+        val cy = centreL.y
+        val cz = centreL.z
+        val ax = (box.maxX() + 1 - box.minX()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val ay = (box.maxY() + 1 - box.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val az = (box.maxZ() + 1 - box.minZ()) * 0.5 * AABB_INFLATE + AABB_MARGIN
         if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) return 0
+        // Same yaw the zone publishes — emission points rotate with the hull.
+        val xAxisE = Vector3d(1.0, 0.0, 0.0)
+        shipToWorld.transformDirection(xAxisE)
+        val yawE = Math.atan2(-xAxisE.z, xAxisE.x)
+        val yc = Math.cos(yawE)
+        val ys = Math.sin(yawE)
 
         // Skip emission unless a player is near the ocean ellipsoid (distance to the ellipsoid,
         // not its centre, so a big ship's far edge isn't wrongly culled).
@@ -702,9 +765,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val ray = ay + PARTICLE_PLAYER_RANGE
         val raz = az + PARTICLE_PLAYER_RANGE
         val seen = level.players().any { p ->
-            val dx = (p.x - cx) / rax
+            val wx = p.x - cx
+            val wz = p.z - cz
+            val dx = (yc * wx - ys * wz) / rax
             val dyp = (p.y - cy) / ray
-            val dz = (p.z - cz) / raz
+            val dz = (ys * wx + yc * wz) / raz
             dx * dx + dyp * dyp + dz * dz <= 1.0
         }
         if (!seen) return 0
@@ -740,10 +805,17 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val tangent = Vector3d()
         while (emitted < foamTarget && attempts < attemptCap) {
             attempts++
-            val r = Math.pow(rng.nextDouble(), CENTER_BIAS)
             val th = rng.nextDouble() * (2.0 * Math.PI)
-            val px = cx + exA * r * Math.cos(th)
-            val pz = cz + exZ * r * Math.sin(th)
+            // Confine foam within the same warped shoreline the mesh renders.
+            val shore = org.shipwrights.enderkinesis.physics.LatticeShore.rimWarp(
+                Math.cos(th) * exA, Math.sin(th) * exZ,
+                level.gameTime.toDouble(), exA, exZ,
+            )
+            val r = Math.pow(rng.nextDouble(), CENTER_BIAS) * shore
+            val lx = exA * r * Math.cos(th)
+            val lz = exZ * r * Math.sin(th)
+            val px = cx + yc * lx + ys * lz
+            val pz = cz - ys * lx + yc * lz
             if (insideShipColumn(worldToShip, localProbe, px, waterLineY, pz)) continue
             // Only spawn foam at points that are near a wave crest (top 25% of normalised
             // height). Wave's tangent velocity drives the foam's drift so the crest "spray"
@@ -775,8 +847,10 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
                 if (sy <= 0.0) continue
                 val r = Math.pow(rng.nextDouble(), CENTER_BIAS)
                 val th = rng.nextDouble() * (2.0 * Math.PI)
-                val px = cx + ax * sy * r * Math.cos(th)
-                val pz = cz + az * sy * r * Math.sin(th)
+                val lx = ax * sy * r * Math.cos(th)
+                val lz = az * sy * r * Math.sin(th)
+                val px = cx + yc * lx + ys * lz
+                val pz = cz - ys * lx + yc * lz
                 if (insideShipColumn(worldToShip, localProbe, px, py, pz)) continue
                 level.sendParticles(
                     EKParticles.oceanDeep(),
@@ -795,11 +869,10 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             (box.maxY() - box.minY() + 1).toLong() *
             (box.maxZ() - box.minZ() + 1).toLong()
         if (volume > MAX_SCAN_VOLUME) {
-            LOG.warn("[EK] lattice: ship AABB volume {} exceeds scan cap {}; buoyancy disabled for this ship", volume, MAX_SCAN_VOLUME)
             return IntArray(0)
         }
 
-        val out = ArrayList<Int>()
+        val out = it.unimi.dsi.fastutil.ints.IntArrayList()
         val cursor = BlockPos.MutableBlockPos()
         for (x in box.minX()..box.maxX()) {
             for (y in box.minY()..box.maxY()) {
@@ -811,6 +884,25 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             }
         }
         return out.toIntArray()
+    }
+
+    /** The full box read is necessary only after a block change. Mass and box show almost
+     *  all changes; the forced scan finds a swap of two blocks of equal mass. */
+    private fun shipChangedSinceScan(ship: org.valkyrienskies.core.api.ships.ServerShip): Boolean {
+        val box = ship.shipAABB
+        val mass = ship.inertiaData.mass
+        val signature = if (box == null) 0L else {
+            var h = box.minX().toLong()
+            h = h * 31 + box.minY(); h = h * 31 + box.minZ()
+            h = h * 31 + box.maxX(); h = h * 31 + box.maxY(); h = h * 31 + box.maxZ()
+            h
+        }
+        val forced = --forcedRescanIn <= 0
+        if (!forced && mass == lastScanMass && signature == lastScanBox) return false
+        forcedRescanIn = FORCED_RESCAN_SCANS
+        lastScanMass = mass
+        lastScanBox = signature
+        return true
     }
 
     /** Solid blocks with ≥1 empty 6-neighbour — the only ones that can ever contact the water. */
@@ -854,11 +946,9 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     fun onRemoved(level: Level, pos: BlockPos) {
         if (level !is ServerLevel) return
         val ship = level.getLoadedShipManagingPos(pos) ?: run {
-            LOG.debug("[EK] lattice broken at {} but no ship manages this pos — nothing to tear down", pos)
             return
         }
         val inducer = ship.getAttachment(CrepusculiteLatticeForceInducer::class.java) ?: run {
-            LOG.debug("[EK] lattice broken at {} (ship {}) but inducer was never attached", pos, ship.id)
             return
         }
         // Determine whether any OTHER lattice is still alive on the ship. The straightforward
@@ -880,22 +970,22 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // inducer and claim authority — at most one game tick of dropped buoyancy.
         val previousAuthority = inducer.authorityHolder
         ship.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
-        LOG.debug(
-            "[EK] lattice broken at {} (ship {}); inducer released (prev authority = {})",
-            pos, ship.id, previousAuthority?.blockPos,
-        )
     }
 
     override fun saveAdditional(tag: CompoundTag) {
         super.saveAdditional(tag)
         seaLevel?.let { tag.putDouble(NBT_SEA_LEVEL, it) }
         seaLevelDim?.let { tag.putString(NBT_SEA_LEVEL_DIM, it) }
+        if (parkedForWorldgen) tag.putBoolean(NBT_PARKED, true)
+        tintRgb?.let { tag.putInt(NBT_TINT, it) }
     }
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
         seaLevel = if (tag.contains(NBT_SEA_LEVEL)) tag.getDouble(NBT_SEA_LEVEL) else null
         seaLevelDim = if (tag.contains(NBT_SEA_LEVEL_DIM)) tag.getString(NBT_SEA_LEVEL_DIM) else null
+        parkedForWorldgen = tag.getBoolean(NBT_PARKED)
+        tintRgb = if (tag.contains(NBT_TINT)) tag.getInt(NBT_TINT) else null
     }
 
     /** Sync [seaLevel] (and its capture-dimension tag) to the client so [publishZone]'s
@@ -914,12 +1004,23 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         ClientboundBlockEntityDataPacket.create(this)
 
     companion object {
-        private val LOG = LogUtils.getLogger()
 
         private const val NBT_SEA_LEVEL = "EkSeaLevel"
         private const val NBT_SEA_LEVEL_DIM = "EkSeaLevelDim"
+        private const val NBT_PARKED = "EkParkedForWorldgen"
+        private const val NBT_TINT = "EkTint"
 
         private const val RESCAN_INTERVAL_TICKS = 40
+        /** Each scan opportunity (one for each tick after the interval) counts. About 60 s. */
+        private const val FORCED_RESCAN_SCANS = 1200
+
+        /** Order by Y, then X, then Z. The highest lattice has authority on a ship. */
+        @JvmStatic
+        fun comparePos(a: BlockPos, b: BlockPos): Int = when {
+            a.y != b.y -> a.y.compareTo(b.y)
+            a.x != b.x -> a.x.compareTo(b.x)
+            else -> a.z.compareTo(b.z)
+        }
         private const val MAX_SCAN_VOLUME = 2_000_000L
 
         /** Fixed wave intensity (blocks of crest-to-trough amplitude) in Ygann's Abyss — the
@@ -933,7 +1034,10 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         private const val KEY_BIAS = 1 shl 20
         private const val KEY_MASK = (1L shl 21) - 1L
         private const val AABB_INFLATE = 1.4
-        private const val AABB_MARGIN = 4.0
+        /** Water ring beyond the hull (blocks). Sized so the inward-only coastline
+         *  wobble (LatticeShore.AMP_BLOCKS) plus the fade band never eat into the
+         *  hull's own waterline. */
+        private const val AABB_MARGIN = 18.0
 
         /** Extra height (blocks) above the ocean added to the entity query box. */
         private const val ENTITY_QUERY_PAD = 2.0

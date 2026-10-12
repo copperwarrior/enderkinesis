@@ -1,0 +1,76 @@
+{
+  "textures": {
+    "ink": "enderkinesis:block/ichaeric_ink_still",
+    "particle": "enderkinesis:block/ichaeric_ink_still"
+  },
+  "elements": [
+    {
+      "from": [
+        3.5,
+        0.5,
+        3.5
+      ],
+      "to": [
+        12.5,
+        5.5,
+        12.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            9,
+            5.0
+          ],
+          "texture": "#ink"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            9,
+            5.0
+          ],
+          "texture": "#ink"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            9,
+            5.0
+          ],
+          "texture": "#ink"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            9,
+            5.0
+          ],
+          "texture": "#ink"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            9,
+            9
+          ],
+          "texture": "#ink"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            9,
+            9
+          ],
+          "texture": "#ink"
+        }
+      }
+    }
+  ]
+}

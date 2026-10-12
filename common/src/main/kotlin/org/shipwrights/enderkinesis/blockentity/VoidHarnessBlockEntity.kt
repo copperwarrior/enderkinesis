@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import org.valkyrienskies.mod.common.dimensionId
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.block.entity.BlockEntity
@@ -75,7 +76,9 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
         if (cachedPowerLevel > 0 && ship == null) {
             val r2 = PULL_RADIUS * PULL_RADIUS
             val ids = ArrayList<Long>()
+            val dim = level.dimensionId
             for (s in level.shipObjectWorld.allShips) {
+                if (s.chunkClaimDimension != dim) continue
                 val com = s.transform.positionInWorld
                 val dx = com.x() - cachedHx
                 val dy = com.y() - cachedHy

@@ -4,10 +4,7 @@ in vec3 Position;
 
 uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
-// Inverse of the host-side pose matrix that pre-multiplied Position. Undoing
-// it here gives us the WORLD-aligned sphere position to sample noise in —
-// without this the camera rotation rides into the noise input and the
-// pattern follows the player's view.
+// Position is world-aligned and the camera pose is in ModelViewMat, so the host sends identity here.
 uniform mat4 InverseCamera;
 
 out vec3 vWorldPos;

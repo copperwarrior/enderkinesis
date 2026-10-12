@@ -1,0 +1,16 @@
+{
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "particle": "minecraft:block/purpur_block",
+    "t": "enderkinesis:block/fully_transparent"
+  },
+  "elements": [
+    {
+      "from": [7.99, 7.99, 7.99],
+      "to": [8.01, 8.01, 8.01],
+      "faces": {
+        "up": { "uv": [0, 0, 0.1, 0.1], "texture": "#t" }
+      }
+    }
+  ]
+}

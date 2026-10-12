@@ -102,4 +102,9 @@ object AegisDebugCommands {
         val buf = FriendlyByteBuf(Unpooled.buffer())
         NetworkManager.sendToPlayer(player, CLEAR_PACKET, buf)
     }
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        serverBoxes.clear()
+    }
 }

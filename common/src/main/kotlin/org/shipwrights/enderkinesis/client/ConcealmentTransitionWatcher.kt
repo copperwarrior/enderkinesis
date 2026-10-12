@@ -53,9 +53,11 @@ object ConcealmentTransitionWatcher {
 
         // Newly concealed.
         for (id in nowConcealed) {
-            if (seen.add(id)) {
+            if (id !in seen) {
+                // Retry next frame until the client knows the ship.
                 val ship = level.shipObjectWorld.allShips.getById(id) ?: continue
                 val aabb = ship.shipAABB ?: continue
+                seen.add(id)
                 CloakingMixinSupport.markConcealed(
                     id,
                     aabb.minX(), aabb.minY(), aabb.minZ(),

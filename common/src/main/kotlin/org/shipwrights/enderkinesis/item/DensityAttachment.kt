@@ -1,21 +1,15 @@
 package org.shipwrights.enderkinesis.item
 
-/** Persistent per-ship Staff-of-Density state.
- *
- *  Stored on a VS2 ServerShip via `saveAttachment(DensityAttachment::class.java, ...)`.
- *  Captures the ship's mass at the moment the staff was FIRST used on it, so subsequent
- *  staff uses scale relative to that fixed reference instead of drifting with each apply.
- *
- *  Why the reference matters: the multiplier is a *ratio*, but VS2 stores mass as an
- *  absolute double that we mutate via `addMassAt`. To go from 1.5x → 1.0x correctly we
- *  need to subtract the previously-added amount; that's why we track `currentMultiplier`
- *  too. The delta we apply each commit is `originalMass * (newMultiplier - currentMultiplier)`.
- *
- *  Block additions/removals between staff uses change the ship's mass independently; the
- *  multiplier still acts on the originally-captured base mass, so the ship's effective
- *  mass after blocks change becomes `currentBlockMass + originalMass*(multiplier - 1)`.
- *  That's the simplest model that preserves user-visible "I set it to 1.5x" semantics. */
+/**
+ * Persistent per-ship Staff-of-Density state. VS2 stores mass as an absolute value, so the
+ * multiplier is kept here together with the mass that the staff added for it.
+ * [DensityManager] corrects [appliedExtraMass] when blocks change the mass of the ship.
+ */
 class DensityAttachment {
+    /** Only read for a ship saved before [appliedExtraMass] existed. */
     var originalMass: Double = 0.0
     var currentMultiplier: Double = 1.0
+
+    /** Mass added at the centre of mass for the multiplier (negative below 1.0x). NaN = old save. */
+    var appliedExtraMass: Double = Double.NaN
 }

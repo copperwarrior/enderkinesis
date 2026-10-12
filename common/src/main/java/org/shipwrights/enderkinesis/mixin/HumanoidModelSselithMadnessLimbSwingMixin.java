@@ -4,7 +4,7 @@ import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import org.shipwrights.enderkinesis.registry.EKEffects;
+import org.shipwrights.enderkinesis.client.SselithMadnessAfflicted;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -35,7 +35,7 @@ public abstract class HumanoidModelSselithMadnessLimbSwingMixin {
         CallbackInfo ci
     ) {
         if (!(entity instanceof Player player)) return;
-        if (!player.hasEffect(EKEffects.sselithMadnessEffect())) return;
+        if (!SselithMadnessAfflicted.isAfflicted(player)) return;
 
         HumanoidModel<?> self = (HumanoidModel<?>) (Object) this;
 

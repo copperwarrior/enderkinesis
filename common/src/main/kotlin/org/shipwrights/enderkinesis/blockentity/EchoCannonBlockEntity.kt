@@ -3,10 +3,15 @@ package org.shipwrights.enderkinesis.blockentity
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.nbt.CompoundTag
+import net.minecraft.network.protocol.Packet
+import net.minecraft.network.protocol.game.ClientGamePacketListener
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.entity.ai.attributes.Attributes
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.DirectionalBlock
 import net.minecraft.world.level.block.entity.BlockEntity
@@ -42,7 +47,40 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
  *    before it can fire again.
  */
 class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
-    BlockEntity(EKBlockEntities.ECHO_CANNON.get(), pos, state) {
+    BlockEntity(EKBlockEntities.ECHO_CANNON.get(), pos, state), Commandable {
+
+    /** Staff trigger — start a charge exactly like a redstone rising edge
+     *  (same cooldown / already-charging gates); the committed charge then
+     *  fires through the normal [serverTick] sequence. */
+    override fun executeStaffCommand(
+        player: net.minecraft.world.entity.player.Player,
+        hostShip: org.valkyrienskies.core.api.ships.Ship?,
+        contextStack: net.minecraft.world.item.ItemStack,
+    ) {
+        startCharge()
+    }
+
+    // The cannon fires along its facing — the command is positionless, so Shulkonaut
+    // orders start a charge regardless of the aim's shape (same rising-edge gates).
+    override fun executeAutoCommand(
+        target: net.minecraft.world.entity.Entity,
+        hostShip: org.valkyrienskies.core.api.ships.Ship?,
+    ) {
+        startCharge()
+    }
+
+    override fun executeAutoCommandAt(
+        targetPos: net.minecraft.world.phys.Vec3,
+        targetAnchor: net.minecraft.core.BlockPos?,
+        hostShip: org.valkyrienskies.core.api.ships.Ship?,
+    ) {
+        startCharge()
+    }
+
+    private fun startCharge() {
+        if (cooldownTicks > 0 || chargeTicks >= 0) return
+        chargeTicks = 0
+    }
 
     /** -1 = idle, 0..[chargeTickTarget]-1 = charging, ≥[chargeTickTarget]
      *  = ready-to-fire this tick (consumed in `serverTick`). */
@@ -55,6 +93,21 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
     private var cooldownTicks: Int = 0
     /** Mirror of the redstone signal so the BE knows when an edge fires. */
     private var poweredCached: Boolean = false
+
+    /** Game-tick this cannon last fired on — reads as "when to start the
+     *  barrel-recoil animation" on the client. Synced via [getUpdateTag] /
+     *  [getUpdatePacket] so a client that just entered range sees the tail
+     *  end of an in-progress recoil correctly. [NO_RECOIL] = no recoil
+     *  animation (idle / never fired). */
+    var clientRecoilStartTick: Long = NO_RECOIL
+        private set
+
+    /** Game-tick this cannon started its charge cycle on — reads as "when
+     *  to start the barrel-forward push" on the client. Cleared to
+     *  [NO_CHARGE] on fire so the BER stops interpolating charge-forward
+     *  once the recoil takes over. */
+    var clientChargeStartTick: Long = NO_CHARGE
+        private set
 
     fun onNeighborSignal(powered: Boolean) {
         if (powered == poweredCached) return
@@ -93,6 +146,10 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
                 null, pos, SoundEvents.WARDEN_SONIC_CHARGE, SoundSource.BLOCKS,
                 1.5f, 1.0f,
             )
+            // Stamp the charge-start tick and push it to nearby clients so the
+            // BER starts easing the barrel forward on this same server tick.
+            clientChargeStartTick = level.gameTime
+            markChangedAndSync()
         }
         spawnChargeParticles(level, pos, state)
         chargeTicks++
@@ -101,7 +158,26 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
             fire(level, pos, state)
             chargeTicks = -1
             cooldownTicks = COOLDOWN_TICKS
+            // Stamp the recoil-start tick and push it to nearby clients so the
+            // BER can start the barrel-recoil animation right away. Chunk-mesh
+            // resync from vanilla only happens on chunk load — without this
+            // active sync the animation would only fire for players who
+            // enter range after firing.
+            clientRecoilStartTick = level.gameTime
+            // Charge phase is over — clear its start tick so the BER stops
+            // adding the charge-forward offset while recoil is running.
+            clientChargeStartTick = NO_CHARGE
+            markChangedAndSync()
         }
+    }
+
+    private fun markChangedAndSync() {
+        setChanged()
+        val lvl = level as? ServerLevel ?: return
+        val pkt = ClientboundBlockEntityDataPacket.create(this) ?: return
+        lvl.chunkSource.chunkMap
+            .getPlayers(ChunkPos(blockPos), false)
+            .forEach { it.connection.send(pkt) }
     }
 
     /** Smoke vent at the cannon's muzzle during the cooldown. Uses
@@ -111,7 +187,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
      *  face), so on a ship the smoke vents from the correct spot
      *  even while the host rotates. */
     private fun spawnCooldownSmoke(level: ServerLevel, pos: BlockPos, state: BlockState) {
-        val (muzzle, dir) = computeWorldOriginAndDir(level, pos, state)
+        val (muzzle, dir) = computeWorldOriginAndDir(level, pos, state, MUZZLE_OFFSET)
         val rng = level.random
         for (i in 0 until COOLDOWN_SMOKE_PER_PUFF) {
             // Slight scatter perpendicular to the muzzle direction so
@@ -141,7 +217,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
      *  kept low (see [SUCK_PARTICLES_PEAK]) this reads as a converging
      *  cone rather than a stale trail. */
     private fun spawnChargeParticles(level: ServerLevel, pos: BlockPos, state: BlockState) {
-        val (focal, _) = computeWorldOriginAndDir(level, pos, state)
+        val (focal, _) = computeWorldOriginAndDir(level, pos, state, MUZZLE_OFFSET)
         val rng = level.random
         val progress = chargeTicks.toFloat() / CHARGE_TICKS
         val count = (1 + (SUCK_PARTICLES_PEAK - 1) * progress).toInt().coerceAtLeast(1)
@@ -175,7 +251,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         // transforms both into world coords (no-op when the cannon
         // isn't on a ship), so the beam tracer, damage AABB, and
         // sculk-spread call all operate in world coords.
-        val (origin, dir) = computeWorldOriginAndDir(level, pos, state)
+        val (origin, dir) = computeWorldOriginAndDir(level, pos, state, BEAM_ORIGIN_OFFSET)
         // Collect shields from EVERY wielding player. The Sundering
         // tracer's [collectWieldedShields] skips the firing player, but
         // a fixed emplacement has no firing player — using a stand-in
@@ -183,7 +259,12 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         // player's shield, which was the bug behind "ignores Aegis
         // reflection." We build the list manually here.
         val shields = collectAllAegisShields(level)
-        val tracerPlayer = level.players().firstOrNull() ?: return
+        // The trace needs an entity only as the collision context. A marker serves when the
+        // dimension has no player.
+        val tracerPlayer: net.minecraft.world.entity.Entity = level.players().firstOrNull()
+            ?: net.minecraft.world.entity.EntityType.MARKER.create(level)
+                ?.also { it.setPos(origin.x, origin.y, origin.z) }
+            ?: return
         val trace = SunderingBeamTrace.trace(
             level, tracerPlayer,
             origin, dir, RANGE,
@@ -194,12 +275,18 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         // Damage every living entity whose hit-box intersects any segment.
         damageAlongTrace(level, trace.segments)
 
+        // Firing-ship recoil: if the cannon is mounted on a VS2 ship, apply
+        // an off-COM impulse at the muzzle in the OPPOSITE direction of the
+        // beam. Off-COM = ship translates back and yaws slightly, exactly
+        // the "kicked by its own shot" feel a heavy weapon should have.
+        applyFiringShipRecoil(level, pos, origin, dir)
+
         // Sculk catastrophe at the terminal block hit. The tracer hands
         // us a BlockPos when the beam terminated on a solid block; for
         // open-range shots we just splash where the last segment ends.
         val tail = trace.segments.last().end
         val sculkCenter = trace.finalBlockPos ?: BlockPos.containing(tail)
-        SculkSpread.start(level, sculkCenter, totalCharge = 200)
+        if (!inSpawnProtection(level, sculkCenter)) SculkSpread.start(level, sculkCenter, totalCharge = 200)
 
         // Fire SFX + the S2C visual packet.
         level.playSound(
@@ -231,12 +318,17 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
      *  position, the cannon's shipyard centre is mapped through
      *  `shipToWorld` and its facing vector is rotated through
      *  `shipToWorldRotation`; otherwise we return the raw world coords.
-     *  Same pattern [AetherPadBlockEntity] uses for its forward push. */
+     *  Same pattern [AetherPadBlockEntity] uses for its forward push.
+     *
+     *  [faceOffset] chooses where along the facing axis the origin sits:
+     *  [BEAM_ORIGIN_OFFSET] = block face (0.55) for the beam trace itself,
+     *  [MUZZLE_OFFSET] = barrel-front (0.75) for muzzle-attached effects
+     *  (charge suck-in particles, cooldown smoke). */
     private fun computeWorldOriginAndDir(
         level: ServerLevel, pos: BlockPos, state: BlockState,
+        faceOffset: Double,
     ): Pair<Vec3, Vec3> {
         val facing = state.getValue(DirectionalBlock.FACING)
-        val faceOffset = 0.55
         val originVec = Vector3d(
             pos.x + 0.5 + facing.stepX * faceOffset,
             pos.y + 0.5 + facing.stepY * faceOffset,
@@ -268,6 +360,16 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         return out
     }
 
+    /** The vanilla test needs a player. A cannon has none, so this is the same area test. */
+    private fun inSpawnProtection(level: ServerLevel, pos: BlockPos): Boolean {
+        val server = level.server
+        if (!server.isDedicatedServer || level.dimension() != net.minecraft.world.level.Level.OVERWORLD) return false
+        val radius = server.spawnProtectionRadius
+        if (radius <= 0) return false
+        val spawn = level.sharedSpawnPos
+        return maxOf(Math.abs(pos.x - spawn.x), Math.abs(pos.z - spawn.z)) <= radius
+    }
+
     private fun damageAlongTrace(level: ServerLevel, segments: List<org.shipwrights.enderkinesis.item.BeamSegment>) {
         val touched = HashSet<Int>()  // entity ids — don't double-hit on bounces
         val src = level.damageSources().sonicBoom(null)
@@ -278,15 +380,60 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
                 maxOf(seg.start.x, seg.end.x), maxOf(seg.start.y, seg.end.y), maxOf(seg.start.z, seg.end.z),
             ).inflate(BEAM_HIT_RADIUS)
             val candidates = level.getEntitiesOfClass(LivingEntity::class.java, box)
+            // Beam direction at this segment — used for the knockback push so
+            // targets get thrown along the beam, not just "up". Zero-length
+            // segments (degenerate bounce) fall back to a null direction; the
+            // hit still deals damage but skips knockback.
+            val delta = seg.end.subtract(seg.start)
+            val len2 = delta.lengthSqr()
+            val dir = if (len2 > 1.0e-9) delta.scale(1.0 / kotlin.math.sqrt(len2)) else null
             for (e in candidates) {
                 if (e.id in touched) continue
                 // Narrow-phase: closest-point distance from the segment
                 // ray to the entity's centre.
                 if (distancePointToSegment(e.position(), seg.start, seg.end) > BEAM_HIT_RADIUS) continue
                 e.hurt(src, BEAM_DAMAGE)
+                if (dir != null) applyBeamKnockback(e, dir)
                 touched += e.id
             }
         }
+    }
+
+    /** Firing-ship recoil. If the cannon block is on a VS2 ship, enqueue
+     *  a one-shot impulse at the WORLD-space muzzle in the OPPOSITE
+     *  direction of the beam. The queue lives on the ship as a
+     *  [LauncherRecoilAttachment] (shared with the magic-missile launcher —
+     *  same one-shot off-COM-force pattern) and is drained on the physics
+     *  thread as a single-tick force. Off-COM at the muzzle produces both
+     *  a backwards translation AND a slight rotation, exactly the kick a
+     *  heavy weapon should have. */
+    private fun applyFiringShipRecoil(
+        level: ServerLevel, pos: BlockPos, origin: Vec3, dir: Vec3,
+    ) {
+        val ship = level.getLoadedShipManagingPos(pos)
+            as? org.valkyrienskies.core.api.ships.LoadedServerShip ?: return
+        val impulse = Vector3d(-dir.x, -dir.y, -dir.z).mul(RECOIL_IMPULSE)
+        val queue = ship.getOrPutAttachment(
+            org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment::class.java
+        ) { org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment() }
+        queue.enqueue(Vector3d(origin.x, origin.y, origin.z), impulse)
+    }
+
+    /** Warden-sonic-style knockback: push the target along the beam direction
+     *  (horizontal component from [dir]) plus a fixed upward lift. Scales down
+     *  by the target's KNOCKBACK_RESISTANCE. Sets `hurtMarked = true` so the
+     *  server sends a SetEntityMotionPacket next tick and the client actually
+     *  sees the push instead of the target snapping back to its lerp target. */
+    private fun applyBeamKnockback(e: LivingEntity, dir: Vec3) {
+        val resist = e.getAttributeValue(Attributes.KNOCKBACK_RESISTANCE)
+        val hScale = KNOCKBACK_HORIZONTAL * (1.0 - resist)
+        val vScale = KNOCKBACK_VERTICAL * (1.0 - resist)
+        e.deltaMovement = e.deltaMovement.add(
+            dir.x * hScale,
+            vScale,
+            dir.z * hScale,
+        )
+        e.hurtMarked = true
     }
 
     private fun distancePointToSegment(p: Vec3, a: Vec3, b: Vec3): Double {
@@ -303,6 +450,8 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         tag.putInt("ChargeTarget", chargeTickTarget)
         tag.putInt("Cooldown", cooldownTicks)
         tag.putBoolean("Powered", poweredCached)
+        tag.putLong("RecoilStart", clientRecoilStartTick)
+        tag.putLong("ChargeStart", clientChargeStartTick)
     }
 
     override fun load(tag: CompoundTag) {
@@ -311,7 +460,14 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         chargeTickTarget = if (tag.contains("ChargeTarget")) tag.getInt("ChargeTarget") else CHARGE_TICKS
         cooldownTicks = tag.getInt("Cooldown")
         poweredCached = tag.getBoolean("Powered")
+        clientRecoilStartTick = if (tag.contains("RecoilStart")) tag.getLong("RecoilStart") else NO_RECOIL
+        clientChargeStartTick = if (tag.contains("ChargeStart")) tag.getLong("ChargeStart") else NO_CHARGE
     }
+
+    override fun getUpdateTag(): CompoundTag = saveWithoutMetadata()
+
+    override fun getUpdatePacket(): Packet<ClientGamePacketListener>? =
+        ClientboundBlockEntityDataPacket.create(this)
 
     companion object {
         /** Charge wind-up. Matched to the warden's sonic-boom charge
@@ -339,6 +495,34 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
          *  6 hp / 3 hearts lands between iron-sword and a fully-charged
          *  crossbow shot. */
         const val BEAM_DAMAGE: Float = 6.0f
+        /** Horizontal knockback velocity added along the beam direction —
+         *  strong enough to visibly launch a target back a couple of blocks
+         *  before friction pulls them down. Vanilla warden sonic-boom uses
+         *  0.5; this cannon reads as a slightly harder hit. */
+        private const val KNOCKBACK_HORIZONTAL: Double = 0.9
+        /** Upward lift added to the knockback so targets get sent into a
+         *  brief arc instead of skidding along the floor. */
+        private const val KNOCKBACK_VERTICAL: Double = 0.35
+        /** Sentinel meaning "no recoil animation is running". Matched by
+         *  [EchoCannonRenderer]'s NO_RECOIL constant. */
+        const val NO_RECOIL: Long = Long.MIN_VALUE
+        /** Sentinel meaning "no charge animation is running". */
+        const val NO_CHARGE: Long = Long.MIN_VALUE
+        /** Face-offset for the beam trace itself — block face + ε. Keeps
+         *  the visible beam anchored at the original position even after
+         *  the muzzle geometry moved outboard onto the barrel. */
+        private const val BEAM_ORIGIN_OFFSET: Double = 0.55
+        /** Face-offset for muzzle-attached effects (charge suck-in,
+         *  cooldown smoke): block face + barrel-front protrusion
+         *  (0.5 + 4/16 = 0.75). */
+        private const val MUZZLE_OFFSET: Double = 0.75
+        /** Firing-ship recoil impulse magnitude (N·s). Applied at the world-
+         *  space muzzle opposite the beam direction, off-COM, so the ship both
+         *  translates backwards AND yaws. Scales inversely with ship mass: a
+         *  500 kg skiff gets a ~30 m/s kick, a 10 t galleon gets ~1.5 m/s. At
+         *  this magnitude firing feels like firing artillery — small ships get
+         *  visibly launched, big ships lurch. */
+        private const val RECOIL_IMPULSE: Double = 15000.0
         /** Suck-in vortex outer radius — particles spawn on this sphere
          *  around the cannon's emitter face. */
         private const val SUCK_RADIUS: Double = 1.5

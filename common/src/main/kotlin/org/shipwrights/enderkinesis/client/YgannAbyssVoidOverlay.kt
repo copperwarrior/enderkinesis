@@ -125,7 +125,27 @@ object YgannAbyssVoidOverlay {
         // correctly but only AFTER it touches player + level +
         // effect map every frame, which adds up at high FPS.
         if (!shouldRenderForF1Fallback()) return
+        if (hudLayerDrawn) return
+        hudLayerDrawn = true
         drawOverlay(mc, graphics, partialTick)
+    }
+
+    // Fabric fires RENDER_HUD at the tail of `Gui.render` also when the HUD is hidden, and the Gui
+    // mixin draws in the same call. Forge runs only the event. The first of the two paths draws.
+    private var hudLayerDrawn = false
+
+    /** Called from GuiYgannAbyssOverlayMixin, for a hidden HUD with the pause or death screen. */
+    @JvmStatic
+    fun renderForHiddenHud(graphics: GuiGraphics, partialTick: Float) {
+        if (hudLayerDrawn) return
+        hudLayerDrawn = true
+        drawOverlay(Minecraft.getInstance(), graphics, partialTick)
+    }
+
+    /** Called one time each frame, after all GUI passes. */
+    @JvmStatic
+    fun endFrame() {
+        hudLayerDrawn = false
     }
 
     private fun renderPost(screen: Screen, graphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {

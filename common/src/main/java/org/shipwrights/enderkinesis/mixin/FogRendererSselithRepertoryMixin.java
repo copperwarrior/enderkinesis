@@ -8,8 +8,14 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.FogRenderer;
+import net.minecraft.util.Mth;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.level.material.FogType;
+import org.shipwrights.enderkinesis.client.SselithFog;
+import org.shipwrights.enderkinesis.client.SselithRepertoryLighting;
 import org.shipwrights.enderkinesis.dimension.SselithRepertory;
-import org.shipwrights.enderkinesis.sselith.SselithEclipse;
+import org.shipwrights.enderkinesis.client.IchaericInkVisuals;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -30,38 +36,39 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(FogRenderer.class)
 public abstract class FogRendererSselithRepertoryMixin {
 
-    private static final float SSELITH_FOG_START = 16.0f;
-    private static final float SSELITH_FOG_END = 64.0f;
+    private static final float DARKNESS_FOG_END = 15.0f;
+    private static final float DARKNESS_FOG_START_FRACTION = 0.75f;
 
-    /** Pre-End-dimming biome fog_color (#FFE066). Alpha is set per-frame from
-     *  [SselithRepertory.fogDensityAt]. */
-    private static final float SSELITH_FOG_R = 1.00f;
-    private static final float SSELITH_FOG_G = 0.88f;
-    private static final float SSELITH_FOG_B = 0.40f;
 
     @Shadow private static float fogRed;
     @Shadow private static float fogGreen;
     @Shadow private static float fogBlue;
 
+    // Fluid and Blindness fog are opaque and near. The Sselith colour, range and alpha must not replace them.
+    private static boolean enderkinesis$vanillaFogApplies(Camera camera) {
+        if (camera.getFluidInCamera() != FogType.NONE) return true;
+        return camera.getEntity() instanceof LivingEntity living && living.hasEffect(MobEffects.BLINDNESS);
+    }
+
     @Inject(
         method = "setupColor(Lnet/minecraft/client/Camera;FLnet/minecraft/client/multiplayer/ClientLevel;IF)V",
         at = @At("TAIL")
     )
-    private static void enderkinesis$applySselithFogColor(
+    private static void enderkinesis$applySselithFog(
         Camera camera, float partialTick, ClientLevel level,
         int renderDistance, float darkenWorldAmount,
         CallbackInfo ci
     ) {
+        if (IchaericInkVisuals.cameraInInk()) return;
         if (level.dimension() != SselithRepertory.INSTANCE.getLEVEL_KEY()) return;
+        if (enderkinesis$vanillaFogApplies(camera)) return;
         // Drive fog toward pure black at full eclipse so distant geometry behind a
         // pitch-black lightmap doesn't get re-tinted by the standard yellow fog blend.
-        // Fractional gameTime + partialTick → per-frame smoothness across the ramps.
-        float eclipse = SselithEclipse.intensity((double) level.getGameTime() + partialTick);
-        float darken = 1.0f - eclipse;
+        float darken = SselithFog.dim(level, partialTick, camera.getPosition().y);
         // Uniform push is in `levelFogColor` (hooked below); writing the static fields here is enough.
-        fogRed = SSELITH_FOG_R * darken;
-        fogGreen = SSELITH_FOG_G * darken;
-        fogBlue = SSELITH_FOG_B * darken;
+        fogRed = SselithFog.red() * darken;
+        fogGreen = SselithFog.green() * darken;
+        fogBlue = SselithFog.blue() * darken;
     }
 
     /**
@@ -86,9 +93,12 @@ public abstract class FogRendererSselithRepertoryMixin {
     private static void enderkinesis$applySselithFogAlpha(
             float r, float g, float b, Operation<Void> original) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level != null && mc.level.dimension() == SselithRepertory.INSTANCE.getLEVEL_KEY()) {
-            Camera camera = mc.gameRenderer.getMainCamera();
+        Camera camera = mc.gameRenderer.getMainCamera();
+        if (mc.level != null && mc.level.dimension() == SselithRepertory.INSTANCE.getLEVEL_KEY()
+            && !IchaericInkVisuals.cameraInInk() && !enderkinesis$vanillaFogApplies(camera)) {
             float alpha = SselithRepertory.INSTANCE.fogDensityAt(camera.getPosition().y);
+            // Darkness fog is opaque in vanilla; thin altitude fog would let it fade out.
+            alpha = Mth.lerp(SselithRepertoryLighting.darknessFactor(mc.getFrameTime()), alpha, 1.0f);
             RenderSystem.setShaderFogColor(r, g, b, alpha);
         } else {
             // Chain to the next @WrapOperation (or the original
@@ -109,9 +119,17 @@ public abstract class FogRendererSselithRepertoryMixin {
     ) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
+        if (IchaericInkVisuals.cameraInInk()) return;
         if (mc.level.dimension() != SselithRepertory.INSTANCE.getLEVEL_KEY()) return;
-        RenderSystem.setShaderFogStart(SSELITH_FOG_START);
-        RenderSystem.setShaderFogEnd(SSELITH_FOG_END);
+        if (enderkinesis$vanillaFogApplies(camera)) return;
+        // Vanilla DarknessFogFunction, applied over the Sselith range instead of the far plane.
+        float darkness = SselithRepertoryLighting.darknessFactor(partialTick);
+        float end = Mth.lerp(darkness, SselithFog.end(), DARKNESS_FOG_END);
+        float start = mode == FogRenderer.FogMode.FOG_SKY
+            ? Mth.lerp(darkness, SselithFog.start(), 0.0f)
+            : Mth.lerp(darkness, SselithFog.start(), end * DARKNESS_FOG_START_FRACTION);
+        RenderSystem.setShaderFogStart(start);
+        RenderSystem.setShaderFogEnd(end);
         // SKY=SPHERE (radial horizon-ring falloff), TERRAIN=CYLINDER (horizontal-leaning so
         // diagonal sight-lines fog less than radial would).
         if (mode == FogRenderer.FogMode.FOG_SKY) {
@@ -140,7 +158,8 @@ public abstract class FogRendererSselithRepertoryMixin {
     )
     private static void enderkinesis$forceCylinderInSselith(FogShape shape) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level != null && mc.level.dimension() == SselithRepertory.INSTANCE.getLEVEL_KEY()) {
+        if (mc.level != null && mc.level.dimension() == SselithRepertory.INSTANCE.getLEVEL_KEY()
+            && !enderkinesis$vanillaFogApplies(mc.gameRenderer.getMainCamera())) {
             RenderSystem.setShaderFogShape(FogShape.CYLINDER);
         } else {
             RenderSystem.setShaderFogShape(shape);

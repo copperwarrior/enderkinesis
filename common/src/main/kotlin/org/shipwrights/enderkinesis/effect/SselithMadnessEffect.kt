@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.effect
 
-import net.minecraft.world.effect.MobEffect
 import net.minecraft.world.effect.MobEffectCategory
 
 /**
@@ -20,7 +19,7 @@ import net.minecraft.world.effect.MobEffectCategory
  * [org.shipwrights.enderkinesis.dimension.SselithMadness] for the level mechanics.
  */
 class SselithMadnessEffect :
-    MobEffect(MobEffectCategory.HARMFUL, 0x6E5128) {
+    MadnessEffect(MobEffectCategory.HARMFUL, 0x6E5128) {
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = false
 }

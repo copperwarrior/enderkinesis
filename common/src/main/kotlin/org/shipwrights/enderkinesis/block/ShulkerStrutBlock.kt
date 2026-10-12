@@ -26,6 +26,7 @@ import net.minecraft.world.phys.shapes.VoxelShape
 import net.minecraft.world.level.BlockGetter
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.util.ShipMoves
 
 /**
  * Shulker Strut — redstone-driven extender. POWER (0–15) maps to extension distance
@@ -140,7 +141,9 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {
         if (!state.`is`(newState.block)) {
-            (level.getBlockEntity(pos) as? ShulkerStrutBlockEntity)?.releaseAndDestroyTop()
+            if (!ShipMoves.isMovingBlocks(level)) {
+                (level.getBlockEntity(pos) as? ShulkerStrutBlockEntity)?.releaseAndDestroyTop()
+            }
             super.onRemove(state, level, pos, newState, isMoving)
         }
     }

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import org.valkyrienskies.mod.common.dimensionId
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.ParticleTypes
@@ -270,7 +271,6 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     )
 
     companion object {
-        private val LOG = com.mojang.logging.LogUtils.getLogger()
 
         /** Reflectively-loaded Create `AbstractContraptionEntity` class, or null if
          *  Create isn't installed. Used by [pushEntitiesForward] to skip contraption
@@ -572,7 +572,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
             var bestWorldX = 0.0; var bestWorldY = 0.0; var bestWorldZ = 0.0
             var bestShipRef: org.valkyrienskies.core.api.ships.LoadedServerShip? = null
 
+            val dim = level.dimensionId
             for (s in level.shipObjectWorld.allShips) {
+                if (s.chunkClaimDimension != dim) continue
                 val sa = s.worldAABB
                 // Frame-of-reference guard: skip any ship whose worldAABB *contains*
                 // the pad's own world position. The pad is on that ship; pushing it

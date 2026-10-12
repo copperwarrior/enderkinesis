@@ -5,9 +5,23 @@
       "rolls": 1.0,
       "bonus_rolls": 0.0,
       "entries": [
-        { "type": "minecraft:item", "name": "enderkinesis:statue_steve" }
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:statue_steve"
+        }
       ],
-      "conditions": [ { "condition": "minecraft:survives_explosion" } ]
+      "conditions": [
+        {
+          "condition": "minecraft:block_state_property",
+          "block": "enderkinesis:statue_steve",
+          "properties": {
+            "half": "lower"
+          }
+        },
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
     }
   ]
 }

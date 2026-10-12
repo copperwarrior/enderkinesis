@@ -44,14 +44,19 @@ object SselithAmbience {
 
     // ── Madness-keyed whisper cadence ───────────────────────────────────
     /** Per-madness-level [min..max) gap between whisper plays, in ticks
-     *  (20/s). Index 0 = level 1 ... index 4 = level 5. Bands shrink as
+     *  (20/s). Index 0 = level 1 ... index 9 = level 10. Bands shrink as
      *  level rises so the cadence ramps from rare to near-constant. */
     private val WHISPER_GAP_BANDS = arrayOf(
         1800L to 3600L,   // L1 — 90–180 s
-        900L to 1800L,    // L2 — 45–90 s
-        400L to 800L,     // L3 — 20–40 s
-        160L to 320L,     // L4 — 8–16 s
-        40L to 100L,      // L5 — 2–5 s (near-constant)
+        1300L to 2600L,   // L2 — 65–130 s
+        950L to 1900L,    // L3 — 47–95 s
+        650L to 1300L,    // L4 — 32–65 s
+        450L to 900L,     // L5 — 22–45 s
+        330L to 660L,     // L6 — 16–33 s
+        220L to 440L,     // L7 — 11–22 s
+        150L to 300L,     // L8 — 7–15 s
+        80L to 180L,      // L9 — 4–9 s
+        40L to 100L,      // L10 — 2–5 s (near-constant)
     )
 
     /** Shorter delay for the first whisper after a madness step, so the
@@ -78,6 +83,15 @@ object SselithAmbience {
      *  the level changed since we picked a gap → reroll with the new band
      *  on the next tick so the cadence reacts immediately. */
     private var whisperScheduledForLevel = -1
+
+    // The schedule holds game times of the old world.
+    fun onDisconnect() {
+        loop = null
+        murmurScheduled = false
+        currentMurmur = null
+        currentWhisper = null
+        whisperScheduledForLevel = -1
+    }
 
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel { level -> tick(level) })

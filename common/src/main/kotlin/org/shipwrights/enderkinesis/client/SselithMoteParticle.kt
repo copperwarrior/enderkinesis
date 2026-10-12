@@ -120,7 +120,8 @@ class SselithMoteParticle(
     /** Map a frame index 0..7 into the correct half of the 16-sprite set. */
     private fun setSpriteFromIndex(frame: Int) {
         val base = if (smokeMode) 0 else 8
-        setSprite(sprites.get(base + frame, SPRITE_SET_SIZE))
+        // `SpriteSet.get(age, lifetime)` returns index age * (size - 1) / lifetime.
+        setSprite(sprites.get(base + frame, SPRITE_SET_SIZE - 1))
     }
 
     override fun getRenderType(): ParticleRenderType = ParticleRenderType.PARTICLE_SHEET_TRANSLUCENT

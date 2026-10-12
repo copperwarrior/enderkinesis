@@ -38,6 +38,24 @@ class AncriteEyeBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
+        press()
+    }
+
+    // The eye's command is positionless (a redstone pulse) — Shulkonaut orders fire
+    // it regardless of the aim's shape, entity or point alike.
+    override fun executeAutoCommand(target: net.minecraft.world.entity.Entity, hostShip: Ship?) {
+        press()
+    }
+
+    override fun executeAutoCommandAt(
+        targetPos: net.minecraft.world.phys.Vec3,
+        targetAnchor: net.minecraft.core.BlockPos?,
+        hostShip: Ship?,
+    ) {
+        press()
+    }
+
+    private fun press() {
         val lvl = level ?: return
         if (lvl.isClientSide) return
         AncriteEyeBlock.pressButton(lvl, blockPos, blockState, this)

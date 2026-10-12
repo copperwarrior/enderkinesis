@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.dimension
 
+import dev.architectury.event.events.common.LifecycleEvent
+import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
@@ -9,7 +11,6 @@ import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.MobSpawnType
-import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.registry.EKEntities
@@ -38,16 +39,21 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class SselithPendingSpawns : SavedData() {
 
     sealed class Intent {
-        abstract val chunkPos: ChunkPos
+        abstract val chunkX: Int
+        abstract val chunkZ: Int
         data class Cataloger(val x: Int, val y: Int, val z: Int) : Intent() {
-            override val chunkPos: ChunkPos get() = ChunkPos(x shr 4, z shr 4)
+            override val chunkX: Int get() = x shr 4
+            override val chunkZ: Int get() = z shr 4
+        }
+        data class Archive(val x: Int, val y: Int, val z: Int) : Intent() {
+            override val chunkX: Int get() = x shr 4
+            override val chunkZ: Int get() = z shr 4
         }
         data class Painting(val tag: CompoundTag) : Intent() {
-            override val chunkPos: ChunkPos
-                get() {
-                    val pos = tag.getList("Pos", Tag.TAG_DOUBLE.toInt())
-                    return ChunkPos(pos.getDouble(0).toInt() shr 4, pos.getDouble(2).toInt() shr 4)
-                }
+            override val chunkX: Int get() = posComponent(0) shr 4
+            override val chunkZ: Int get() = posComponent(2) shr 4
+            private fun posComponent(index: Int): Int =
+                tag.getList("Pos", Tag.TAG_DOUBLE.toInt()).getDouble(index).toInt()
         }
     }
 
@@ -64,26 +70,26 @@ class SselithPendingSpawns : SavedData() {
 
     /** Drain up to [budget] intents this tick. Each intent is only
      *  processed if its chunk is currently loaded — otherwise it
-     *  stays in the queue and is reconsidered next tick. */
+     *  goes to the tail and is reconsidered on a later tick. */
     @Synchronized
     fun drain(level: ServerLevel, budget: Int): Int {
-        if (queue.isEmpty()) return 0
+        // Each intent is polled at most one time per tick, so the tail
+        // rotation revisits every intent over successive ticks.
+        val scanLimit = minOf(queue.size, MAX_SCAN_PER_TICK)
+        var scanned = 0
         var processed = 0
-        // Single linear scan that promotes processable intents past
-        // not-yet-loaded ones rather than swapping deques each tick.
-        val skipped = ArrayDeque<Intent>()
-        while (queue.isNotEmpty() && processed < budget) {
-            val intent = queue.poll()
-            val cp = intent.chunkPos
-            // `hasChunk` is non-forcing — if the player isn't near,
-            // we hold the intent until they come back.
-            if (!level.hasChunk(cp.x, cp.z)) {
-                skipped.add(intent)
+        while (scanned < scanLimit && processed < budget) {
+            val intent = queue.poll() ?: break
+            scanned++
+            // If the player isn't near, we hold the intent until they come back.
+            if (!isChunkReady(level, intent.chunkX, intent.chunkZ)) {
+                queue.add(intent)
                 continue
             }
             val handled: Boolean = try {
                 when (intent) {
                     is Intent.Cataloger -> { spawnCataloger(level, intent); true }
+                    is Intent.Archive -> { spawnArchive(level, intent); true }
                     is Intent.Painting -> spawnPainting(level, intent)
                 }
             } catch (_: Throwable) {
@@ -91,18 +97,31 @@ class SselithPendingSpawns : SavedData() {
                 true
             }
             if (!handled) {
-                skipped.add(intent)
+                queue.add(intent)
                 continue
             }
             processed++
         }
-        if (skipped.isNotEmpty()) {
-            // Re-queue at the tail so subsequent ticks revisit them
-            // (FIFO order across cycles).
-            for (s in skipped) queue.add(s)
-        }
         if (processed > 0) setDirty()
         return processed
+    }
+
+    private fun spawnArchive(level: ServerLevel, intent: Intent.Archive) {
+        val type = EKEntities.ARCHIVE.get()
+        val archive = type.create(level) ?: return
+        // Re-verify the chosen spawn tile is still passable (3 tall for the
+        // archive's 1×3×1 bbox) — chunk decoration can land blocks on top of
+        // a tile that was air during fillFromNoise. If not, search nearby.
+        val (sx, sy, sz) = findOpenAirSpawn(level, intent.x, intent.y, intent.z, 3) ?: return
+        archive.moveTo(
+            sx + 0.5, sy.toDouble(), sz + 0.5,
+            level.random.nextFloat() * 360f, 0f,
+        )
+        archive.finalizeSpawn(
+            level, level.getCurrentDifficultyAt(archive.blockPosition()),
+            MobSpawnType.CHUNK_GENERATION, null, null,
+        )
+        level.addFreshEntity(archive)
     }
 
     private fun spawnCataloger(level: ServerLevel, intent: Intent.Cataloger) {
@@ -130,28 +149,54 @@ class SselithPendingSpawns : SavedData() {
         level.addFreshEntity(cataloger)
     }
 
-    /** Walks up then down from `(x, y, z)` looking for a tile where
-     *  the feet block and the head block both have empty collision
-     *  shapes — i.e., the cataloger can stand without suffocating.
-     *  Returns the first such `(x, openY, z)` within `SEARCH_RADIUS`,
-     *  or null if no clear column exists nearby. */
+    /** Finds a [columnTall]-tall passable column near `(x, y, z)` — i.e.,
+     *  the entity can stand without suffocating. 2 = cataloger (feet + head),
+     *  3 = archive (1×3×1 bbox).
+     *
+     *  Search order prioritises HORIZONTAL displacement before vertical: a
+     *  small XZ step away keeps the entity at the planned platform/floor
+     *  height, while a vertical step lifts/drops it onto a different layer
+     *  (which for a cataloger means a different platform, and for an archive
+     *  means a different cell altogether). We sweep increasing Chebyshev
+     *  rings at the seed Y first, only falling back to the vertical ±dy
+     *  scan after the horizontal envelope is exhausted. */
     private fun findOpenAirSpawn(
-        level: ServerLevel, x: Int, y: Int, z: Int,
+        level: ServerLevel, x: Int, y: Int, z: Int, columnTall: Int = 2,
     ): Triple<Int, Int, Int>? {
         val pos = BlockPos.MutableBlockPos()
-        val passable: (Int) -> Boolean = { ty ->
-            pos.set(x, ty, z)
-            val feet = level.getBlockState(pos).getCollisionShape(level, pos).isEmpty
-            pos.set(x, ty + 1, z)
-            val head = level.getBlockState(pos).getCollisionShape(level, pos).isEmpty
-            feet && head
+        if (isPassable(level, pos, x, y, z, columnTall)) return Triple(x, y, z)
+        // Horizontal rings at the seed Y (priority): expand Chebyshev radius.
+        for (r in 1..HORIZONTAL_SEARCH_RADIUS) {
+            for (dx in -r..r) {
+                for (dz in -r..r) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue
+                    if (isPassable(level, pos, x + dx, y, z + dz, columnTall)) return Triple(x + dx, y, z + dz)
+                }
+            }
         }
-        if (passable(y)) return Triple(x, y, z)
+        // Vertical fallback: only if no same-layer tile worked.
         for (dy in 1..SEARCH_RADIUS) {
-            if (passable(y + dy)) return Triple(x, y + dy, z)
-            if (passable(y - dy)) return Triple(x, y - dy, z)
+            if (isPassable(level, pos, x, y + dy, z, columnTall)) return Triple(x, y + dy, z)
+            if (isPassable(level, pos, x, y - dy, z, columnTall)) return Triple(x, y - dy, z)
         }
         return null
+    }
+
+    // `hasChunk` is true for a chunk that has a FULL ticket but is still in generation.
+    // `getBlockState` there blocks the server thread until generation completes.
+    private fun isChunkReady(level: ServerLevel, chunkX: Int, chunkZ: Int): Boolean =
+        level.chunkSource.getChunkNow(chunkX, chunkZ) != null
+
+    private fun isPassable(
+        level: ServerLevel, pos: BlockPos.MutableBlockPos, x: Int, y: Int, z: Int, columnTall: Int,
+    ): Boolean {
+        for (dy in 0 until columnTall) {
+            pos.set(x, y + dy, z)
+            // `getBlockState` on an unloaded chunk loads or generates it on the server thread.
+            if (!isChunkReady(level, x shr 4, z shr 4)) return false
+            if (!level.getBlockState(pos).getCollisionShape(level, pos).isEmpty) return false
+        }
+        return true
     }
 
     /** Returns `true` if the intent was either spawned or definitively
@@ -204,7 +249,7 @@ class SselithPendingSpawns : SavedData() {
         for (k in 0 until w) {
             for (l in 0 until h) {
                 scratch.set(backerBase).move(ccw, k + mk).move(Direction.UP, l + ml)
-                if (!level.hasChunk(scratch.x shr 4, scratch.z shr 4)) return false
+                if (!isChunkReady(level, scratch.x shr 4, scratch.z shr 4)) return false
             }
         }
         val painting = EntityType.create(tag, level).orElse(null) ?: return true
@@ -214,6 +259,7 @@ class SselithPendingSpawns : SavedData() {
 
     override fun save(tag: CompoundTag): CompoundTag {
         val cataloger = ListTag()
+        val archives = ListTag()
         val paintings = ListTag()
         for (intent in queue) when (intent) {
             is Intent.Cataloger -> {
@@ -221,9 +267,15 @@ class SselithPendingSpawns : SavedData() {
                 n.putInt("X", intent.x); n.putInt("Y", intent.y); n.putInt("Z", intent.z)
                 cataloger.add(n)
             }
+            is Intent.Archive -> {
+                val n = CompoundTag()
+                n.putInt("X", intent.x); n.putInt("Y", intent.y); n.putInt("Z", intent.z)
+                archives.add(n)
+            }
             is Intent.Painting -> paintings.add(intent.tag.copy())
         }
         tag.put("Cataloger", cataloger)
+        tag.put("Archive", archives)
         tag.put("Paintings", paintings)
         return tag
     }
@@ -235,11 +287,9 @@ class SselithPendingSpawns : SavedData() {
          *  spawn paths). Larger values drain a backlog faster at the
          *  cost of bigger per-tick spikes. */
         private const val DRAIN_BUDGET_PER_TICK = 8
-        /** Per-tick limit on inbox→SavedData transfers. Decoupled from
-         *  [DRAIN_BUDGET_PER_TICK] (which is per-spawn) so the move
-         *  itself doesn't dominate the tick when a burst of chunks
-         *  arrive — typical batches are well under this. */
-        private const val INBOX_DRAIN_PER_TICK = 64
+        /** Max queued intents examined per tick, so a queue of
+         *  unloaded-chunk intents does not cost a full scan each tick. */
+        private const val MAX_SCAN_PER_TICK = 256
         /** Hard cap on queued intents. A player teleporting into a
          *  fresh region can generate hundreds of chunks in seconds;
          *  the cap prevents unbounded memory growth in the worst
@@ -253,15 +303,22 @@ class SselithPendingSpawns : SavedData() {
          *  spawning the cataloger several blocks away from its
          *  intended platform on a quirky tile. */
         private const val SEARCH_RADIUS = 6
+        /** Horizontal Chebyshev radius for [findOpenAirSpawn]. Smaller
+         *  than [SEARCH_RADIUS] because the chosen tile is usually very
+         *  close to a passable neighbour at the same Y — a 4-block envelope
+         *  catches almost every "blocked by decor" case without wandering
+         *  to unintended platforms. Each radius ring scans an
+         *  `8r`-tile perimeter, so r=4 is 8+16+24+32 = 80 max checks. */
+        private const val HORIZONTAL_SEARCH_RADIUS = 4
 
         /** Thread-safe inbox keyed by dimension. Chunk-gen workers
          *  [enqueue] into this map without touching [SavedData] —
          *  vanilla `DimensionDataStorage` uses a plain HashMap, and
          *  concurrent `computeIfAbsent` from multiple worker threads
          *  corrupts the internal state and wedges every subsequent
-         *  access (including the server thread's). The server-thread
-         *  [tick] drain moves intents from this inbox into the
-         *  per-level [SavedData] before processing spawns. */
+         *  access (including the server thread's). The server thread
+         *  moves intents from this inbox into the per-level [SavedData]
+         *  each tick and before a save. Workers only [enqueue]. */
         private val INBOX: ConcurrentHashMap<ResourceKey<Level>, ConcurrentLinkedQueue<Intent>> =
             ConcurrentHashMap()
 
@@ -286,6 +343,11 @@ class SselithPendingSpawns : SavedData() {
                 val n = cataloger.getCompound(i)
                 out.queue.add(Intent.Cataloger(n.getInt("X"), n.getInt("Y"), n.getInt("Z")))
             }
+            val archives = tag.getList("Archive", Tag.TAG_COMPOUND.toInt())
+            for (i in 0 until archives.size) {
+                val n = archives.getCompound(i)
+                out.queue.add(Intent.Archive(n.getInt("X"), n.getInt("Y"), n.getInt("Z")))
+            }
             val paintings = tag.getList("Paintings", Tag.TAG_COMPOUND.toInt())
             for (i in 0 until paintings.size) {
                 out.queue.add(Intent.Painting(paintings.getCompound(i).copy()))
@@ -293,34 +355,39 @@ class SselithPendingSpawns : SavedData() {
             return out
         }
 
+        fun init() {
+            // Per-level tick so every dim drains its own queue; non-Sselith dims exit at once.
+            TickEvent.SERVER_LEVEL_POST.register(::tick)
+            // Fabric fires SERVER_LEVEL_SAVE after the SavedData write, so this flush
+            // persists on the next save. SERVER_STOPPING runs before the final save.
+            LifecycleEvent.SERVER_LEVEL_SAVE.register(::flushInbox)
+            LifecycleEvent.SERVER_STOPPING.register { server -> server.allLevels.forEach(::flushInbox) }
+            // INBOX is JVM-wide; a second singleplayer world must not get these intents.
+            LifecycleEvent.SERVER_STOPPED.register { INBOX.clear() }
+        }
+
+        /** Server-thread only. Moves inbox intents into the level's
+         *  [SavedData], which enforces [QUEUE_CAP]. */
+        private fun flushInbox(level: ServerLevel) {
+            val inbox = INBOX[level.dimension()] ?: return
+            if (inbox.isEmpty()) return
+            val data = get(level)
+            // Workers can offer during the loop; past QUEUE_CAP each add only evicts an older intent.
+            var moved = 0
+            while (moved < QUEUE_CAP) {
+                val intent = inbox.poll() ?: break
+                data.addInternal(intent)
+                moved++
+            }
+        }
+
         @JvmStatic
         fun tick(level: ServerLevel) {
-            // Fast-path when nothing to do — neither the inbox nor
-            // the SavedData has work. Avoids the `DimensionDataStorage`
-            // touch for non-Sselith / idle ticks.
-            val inbox = INBOX[level.dimension()]
-            val inboxHasWork = inbox != null && !inbox.isEmpty()
-            if (!inboxHasWork) {
-                // Only need to call into SavedData if we know the
-                // persistent queue might have work. The SavedData
-                // load is itself cheap once cached, but avoiding it
-                // entirely for the 99% empty case is worth it.
-                val existing = level.dataStorage.get(::load, SAVE_KEY)
-                if (existing == null || existing.queue.isEmpty()) return
-            }
-            val data = get(level)
-            if (inbox != null) {
-                // Move queued intents from inbox to SavedData. Cap the
-                // per-tick move so a giant inbox doesn't stall the
-                // server-thread on this alone.
-                var moved = 0
-                while (moved < INBOX_DRAIN_PER_TICK) {
-                    val intent = inbox.poll() ?: break
-                    data.addInternal(intent)
-                    moved++
-                }
-            }
-            data.drain(level, DRAIN_BUDGET_PER_TICK)
+            flushInbox(level)
+            // `get`, not `computeIfAbsent`: idle and non-Sselith levels skip SavedData creation.
+            val existing = level.dataStorage.get(::load, SAVE_KEY) ?: return
+            if (existing.queue.isEmpty()) return
+            existing.drain(level, DRAIN_BUDGET_PER_TICK)
         }
     }
 }

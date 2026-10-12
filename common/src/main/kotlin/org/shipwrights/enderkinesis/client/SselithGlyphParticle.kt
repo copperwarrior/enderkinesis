@@ -18,7 +18,7 @@ import net.minecraft.core.particles.SimpleParticleType
  * of falling it drifts **upward** under zero gravity, easing off as the
  * default friction bleeds its velocity, like ink lifting off the page.
  */
-class SselithGlyphParticle(
+open class SselithGlyphParticle(
     level: ClientLevel,
     x: Double, y: Double, z: Double,
 ) : TextureSheetParticle(level, x, y, z) {

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.worldgen
 
+import dev.architectury.event.events.common.LifecycleEvent
 import com.mojang.serialization.Codec
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
@@ -16,7 +17,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKProcessors
-import org.valkyrienskies.core.api.ships.LoadedServerShip
+import org.shipwrights.enderkinesis.util.ServerTicks
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.dimensionId
@@ -69,8 +70,6 @@ object RoamingEndShipShipifyProcessor : StructureProcessor() {
         // skip without scheduling.
         if (!pendingAssemblies.add(startPos.immutable())) return processedBlockInfos
 
-        LOG.info("[EK] roaming end ship: finalize @ start={} processed={} non-air={} (scheduling)",
-            startPos, processedBlockInfos.size, blocks.size)
 
         // Position-seeded yaw. We deliberately *don't* use [StructurePlaceSettings.getRandom]
         // here: for worldgen-placed structures that random is a fixed-seed [SimpleRandomSource]
@@ -82,18 +81,28 @@ object RoamingEndShipShipifyProcessor : StructureProcessor() {
         // same one.
         val rng = RandomSource.create(Mth.getSeed(startPos.x, startPos.y, startPos.z))
         val yawRadians = rng.nextDouble() * (2.0 * Math.PI)
+        // Standing orders, rolled per ship from the same position-stable seed: a
+        // doctrine verb × a target (vessels or players). Issued to the shulkonaut at
+        // crew placement; its signed book is rewritten to match.
+        val target = if (rng.nextBoolean()) "@v" else "@a"
+        val orderLine = ORDER_TEMPLATES[rng.nextInt(ORDER_TEMPLATES.size)].replace("%s", target)
 
         val anchor = centerOf(blocks)
-        scheduleAssembleAndRotate(server, blocks, anchor, yawRadians, startPos.immutable(), ASSEMBLY_ATTEMPTS)
+        scheduleAssembleAndRotate(server, blocks, anchor, yawRadians, orderLine, startPos.immutable(), ASSEMBLY_ATTEMPTS)
 
         return processedBlockInfos
     }
 
     override fun getType(): StructureProcessorType<*> = EKProcessors.SHIPIFY.get()
 
+    fun init() {
+        // The set is static: a stale entry would skip a structure at the same position in the next world.
+        LifecycleEvent.SERVER_STOPPED.register { pendingAssemblies.clear() }
+    }
+
     private fun scheduleAssembleAndRotate(
         server: ServerLevel, blocks: Set<BlockPos>, anchor: BlockPos,
-        yawRadians: Double, dedupeKey: BlockPos, attemptsLeft: Int,
+        yawRadians: Double, orderLine: String, dedupeKey: BlockPos, attemptsLeft: Int,
     ) {
         val ms = server.server
         ms.tell(TickTask(ms.tickCount + ASSEMBLY_DELAY_TICKS) {
@@ -104,39 +113,147 @@ object RoamingEndShipShipifyProcessor : StructureProcessor() {
             for (cp in chunksContainingBlocks) server.getChunk(cp.x, cp.z)
             if (!blocks.all { server.isLoaded(it) }) {
                 if (attemptsLeft > 1) {
-                    scheduleAssembleAndRotate(server, blocks, anchor, yawRadians, dedupeKey, attemptsLeft - 1)
+                    // A TickTask is not a delay, so the retry waits real ticks first.
+                    ServerTicks.runAfter(ms, ASSEMBLY_DELAY_TICKS) {
+                        scheduleAssembleAndRotate(server, blocks, anchor, yawRadians, orderLine, dedupeKey, attemptsLeft - 1)
+                    }
                 } else {
-                    LOG.warn("[EK] roaming end ship at {} never had all {} chunks loaded; gave up.",
-                        anchor, chunksContainingBlocks.size)
                     pendingAssemblies.remove(dedupeKey)
                 }
                 return@TickTask
             }
             try {
-                LOG.info("[EK] roaming end ship: assembling {} blocks across {} chunks @ {}",
-                    blocks.size, chunksContainingBlocks.size, anchor)
+                // Authoritative flotation line BEFORE assembly: every lattice aboard is
+                // stamped with its generation-height world Y in THIS dimension. Kills
+                // both the stale-template-stamp problem (exported-world Y/dim riding in
+                // the BE NBT) and the derive-from-transform race on a falling ship.
+                var lattices = 0
+                var latticeWorldPos: BlockPos? = null
+                val dimId = server.dimension().location().toString()
+                for (bp in blocks) {
+                    val be = server.getBlockEntity(bp)
+                        as? org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
+                        ?: continue
+                    be.stampSeaLevel(bp.y + 0.5, dimId)
+                    be.parkForWorldgen()
+                    if (latticeWorldPos == null) latticeWorldPos = bp.immutable()
+                    lattices++
+                }
                 val ship = ShipAssembler.assembleToShip(server, blocks, /* scale */ 1.0)
-                if (ship !is LoadedServerShip) {
-                    LOG.warn("[EK] roaming end ship assembled but is not a LoadedServerShip ({}); skipping yaw rotation.",
-                        ship?.javaClass)
+                if (ship == null) {
                     return@TickTask
                 }
-                LOG.info("[EK] roaming end ship assembled OK; rotating ship {} to {} rad",
-                    ship.id, yawRadians)
-                // Reposition with the new rotation. Position-in-world is unchanged; just the
-                // shipToWorld rotation gets swapped.
-                val data = vsCore.newShipTeleportData(
-                    newPos = Vector3d(ship.transform.positionInWorld),
-                    newRot = Quaterniond().rotateY(yawRadians),
-                    newDimension = server.dimensionId,
+                // Tag it so the discovery advancement can fire on its live (drifting)
+                // position rather than a stale structure bounding box.
+                org.shipwrights.enderkinesis.dimension.YgannDiscoveries.mark(
+                    ms, ship.id, org.shipwrights.enderkinesis.dimension.YgannDiscoveries.KIND_ROAMING_END_SHIP,
                 )
-                vsCore.teleportShip(server.shipObjectWorld as ServerShipWorld, ship, data)
+                // Parked STATIC until a player first comes near (see the lattice BE's
+                // parkForWorldgen): far shipyard chunks never tick, so no inducer, and
+                // a dynamic hull free-fell into the void before anyone ever arrived.
+                ship.isStatic = true
+                // Assembly moves BLOCKS only — the crew (shulkers, the shulkonaut) is
+                // still standing in world space at the generation site. Snapshot them
+                // + their positions NOW, but relocate through the LOADED ship's
+                // transform: the freshly returned ShipData's transform is mid-flux
+                // (anchor shifts as COM computes), and mapping through it offset every
+                // entity by the same COM drift.
+                val crew = ShipCrew.snapshot(server, blocks)
+                scheduleCrewAndYawWhenLoaded(server, ship.id, crew, latticeWorldPos, yawRadians, orderLine, YAW_ATTEMPTS)
             } catch (t: Throwable) {
                 LOG.error("[EK] roaming end ship assembly threw at {}", anchor, t)
             } finally {
                 pendingAssemblies.remove(dedupeKey)
             }
         })
+    }
+
+    /** Once the ship OBJECT exists (assembly hands back a raw ShipData; the loaded
+     *  object with a SETTLED transform follows a few ticks later): relocate the
+     *  snapshotted crew into the shipyard, then apply the random yaw. */
+    private fun scheduleCrewAndYawWhenLoaded(
+        server: ServerLevel,
+        shipId: Long,
+        crew: List<Pair<net.minecraft.world.entity.Entity, net.minecraft.world.phys.Vec3>>,
+        latticeWorldPos: BlockPos?,
+        yawRadians: Double,
+        orderLine: String,
+        attemptsLeft: Int,
+    ) {
+        val ms = server.server
+        // A TickTask is not a delay: the server runs it as soon as it has spare time.
+        ServerTicks.runAfter(ms, YAW_RETRY_DELAY_TICKS) {
+            val loaded = server.shipObjectWorld.loadedShips.getById(shipId)
+            if (loaded == null) {
+                if (attemptsLeft > 1) {
+                    scheduleCrewAndYawWhenLoaded(server, shipId, crew, latticeWorldPos, yawRadians, orderLine, attemptsLeft - 1)
+                }
+                return@runAfter
+            }
+            // The crew's SHIPYARD cells come from pure BLOCK OFFSET arithmetic, not a
+            // transform: assembly copies world block W to shipyard block W + offset,
+            // and the lattice is a known block on both sides. Transforms are timing
+            // traps — a nearby player lets the lattice unpark the ship, which then
+            // bobs between the assembly-time snapshot and any later transform read,
+            // baking the drift in as a uniform placement error. Placement itself is
+            // deferred until AFTER the rotation has fully applied: VS2's shipyard
+            // entity handling remaps registered shipyard entities (the shulkonaut)
+            // through a ship teleport. Shipyard coords are rotation-invariant.
+            val offset = shipyardOffset(server, loaded, latticeWorldPos)
+            val placements = if (offset != null) {
+                crew.mapNotNull { (e, at) ->
+                    if (!e.isAlive) return@mapNotNull null
+                    e to net.minecraft.world.phys.Vec3(at.x + offset.x, at.y + offset.y, at.z + offset.z)
+                }
+            } else {
+                val worldToShip = loaded.transform.worldToShip
+                crew.mapNotNull { (e, at) ->
+                    if (!e.isAlive) return@mapNotNull null
+                    val p = worldToShip.transformPosition(Vector3d(at.x, at.y, at.z))
+                    e to net.minecraft.world.phys.Vec3(p.x, p.y, p.z)
+                }
+            }
+            val data = vsCore.newShipTeleportData(
+                newPos = Vector3d(loaded.transform.positionInWorld),
+                newRot = Quaterniond().rotateY(yawRadians),
+                newDimension = server.dimensionId,
+            )
+            vsCore.teleportShip(server.shipObjectWorld as ServerShipWorld, loaded, data)
+            ServerTicks.runAfter(ms, CREW_PLACE_DELAY_TICKS) {
+                ShipCrew.relocate(placements, "roaming end ship")
+                for ((e, _) in placements) {
+                    val gunner = e as? org.shipwrights.enderkinesis.entity.ShulkonautEntity ?: continue
+                    gunner.issueOrder(orderLine)
+                }
+            }
+        }
+    }
+
+    /** World→shipyard block offset, derived by finding the (sole) lattice BE in the
+     *  ship's chunks and subtracting its recorded pre-assembly world position. */
+    private fun shipyardOffset(
+        server: ServerLevel,
+        ship: org.valkyrienskies.core.api.ships.LoadedServerShip,
+        latticeWorldPos: BlockPos?,
+    ): BlockPos? {
+        if (latticeWorldPos == null) return null
+        val aabb = ship.shipAABB ?: return null
+        for (cx in (aabb.minX() shr 4)..(aabb.maxX() shr 4)) {
+            for (cz in (aabb.minZ() shr 4)..(aabb.maxZ() shr 4)) {
+                val chunk = server.getChunk(cx, cz, net.minecraft.world.level.chunk.ChunkStatus.FULL, false)
+                    as? net.minecraft.world.level.chunk.LevelChunk ?: continue
+                for ((pos, be) in chunk.blockEntities) {
+                    if (be is org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity) {
+                        return BlockPos(
+                            pos.x - latticeWorldPos.x,
+                            pos.y - latticeWorldPos.y,
+                            pos.z - latticeWorldPos.z,
+                        )
+                    }
+                }
+            }
+        }
+        return null
     }
 
     private fun centerOf(blocks: Set<BlockPos>): BlockPos {
@@ -151,6 +268,22 @@ object RoamingEndShipShipifyProcessor : StructureProcessor() {
     private const val ASSEMBLY_DELAY_TICKS = 10
     /** How many retries before giving up if chunks never finish loading. */
     private const val ASSEMBLY_ATTEMPTS = 20
+    private const val YAW_RETRY_DELAY_TICKS = 5
+    private const val YAW_ATTEMPTS = 40
+    /** Crew placement waits for the yaw teleport to fully apply — placing shipyard
+     *  entities before it lands lets VS2's teleport handling swing them off the hull. */
+    private const val CREW_PLACE_DELAY_TICKS = 10
+
+    /** Doctrine pool for randomized standing orders ("%s" = target selector). */
+    private val ORDER_TEMPLATES = listOf(
+        "TO: %s",
+        "AROUND(30): %s",
+        "NEAR(10): %s",
+        "ABOVE(5): %s",
+        "BEHIND(30): %s",
+        "LEAD(20): %s",
+        "SCATTER(50): %s",
+    )
 
     /** Structures that have already been scheduled for assembly. Keyed on `startPos` since
      *  worldgen calls finalize once per intersecting chunk × worker thread for the same

@@ -3,7 +3,6 @@ package org.shipwrights.enderkinesis.item
 import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
@@ -14,6 +13,7 @@ import net.minecraft.world.item.Items
 import net.minecraft.world.item.TooltipFlag
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.BlockState
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.sselith.SselithBookScore
 
 /**
@@ -111,8 +111,7 @@ class WyllandTomeItem(properties: Properties) : TomeItem(properties) {
             if (!player.abilities.instabuild) fuel.shrink(1)
             level.playSound(
                 null, player.x, player.y, player.z,
-                SoundEvents.ENCHANTMENT_TABLE_USE, SoundSource.PLAYERS,
-                0.8f, 0.9f + level.random.nextFloat() * 0.2f,
+                EKSounds.WYLLAND_REPAIR.get(), SoundSource.PLAYERS, 0.8f, 1f,
             )
         }
         // Intentionally NO `player.swing(hand)` here. The tome is a

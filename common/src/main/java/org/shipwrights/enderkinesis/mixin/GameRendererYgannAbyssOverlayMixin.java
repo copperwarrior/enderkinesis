@@ -47,8 +47,10 @@ public abstract class GameRendererYgannAbyssOverlayMixin {
         // (Gui.render IS called when screen != null). !hideGui is handled by the
         // standard RENDER_HUD path.
         Minecraft mc = Minecraft.getInstance();
-        if (!mc.options.hideGui) return;
-        if (mc.screen != null) return;
-        YgannAbyssVoidOverlay.renderForF1Fallback(graphics, mc.getFrameTime());
+        if (mc.options.hideGui && mc.screen == null) {
+            YgannAbyssVoidOverlay.renderForF1Fallback(graphics, mc.getFrameTime());
+        }
+        // The toast pass is the last GUI pass of each frame.
+        YgannAbyssVoidOverlay.endFrame();
     }
 }

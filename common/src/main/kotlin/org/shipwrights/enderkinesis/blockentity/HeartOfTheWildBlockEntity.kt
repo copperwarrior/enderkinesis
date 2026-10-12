@@ -5,6 +5,8 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.phys.AABB
+import org.shipwrights.enderkinesis.block.HeartOfTheWildBlock
 import org.shipwrights.enderkinesis.block.HeartOfTheWildManager
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 
@@ -57,6 +59,20 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
         registerSelf()
     }
 
+    /** Forge culls a block entity by this box (`IForgeBlockEntity`, which common code cannot
+     *  name; the JVM binds by signature). The default box is the block; the Mother Heart is
+     *  drawn at scale 2 and disappeared when its base block was off screen. Fabric has no such
+     *  test. */
+    @Suppress("unused")
+    fun getRenderBoundingBox(): AABB {
+        val p = blockPos
+        return if (blockState.getValue(HeartOfTheWildBlock.MOTHER)) {
+            AABB(p.x - 0.5, p.y.toDouble(), p.z - 0.5, p.x + 1.5, p.y + 3.5, p.z + 1.5)
+        } else {
+            AABB(p).inflate(0.5)
+        }
+    }
+
     override fun setRemoved() {
         // setRemoved fires for both manual block removal AND chunk
         // unload (vanilla calls it from LevelChunk.unload), so this
@@ -69,8 +85,7 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
     private fun registerSelf() {
         if (registered) return
         val lvl = level as? ServerLevel ?: return
-        HeartOfTheWildManager.registerHeart(lvl, blockPos)
-        registered = true
+        registered = HeartOfTheWildManager.registerHeart(lvl, blockPos)
     }
 
     private fun unregisterSelf() {
@@ -93,13 +108,13 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
      *  honoured. */
     fun serverTick(level: ServerLevel, pos: BlockPos) {
         try {
+            if (!registered) registerSelf()
             if (nextAttemptTick < 0L) {
                 nextAttemptTick = level.gameTime +
                     HeartOfTheWildManager.nextGrowPeriod(level.random)
                 return
             }
             if (level.gameTime < nextAttemptTick) return
-            LOG.debug("WildHeart BE: tick firing at {} t={}", pos, level.gameTime)
             HeartOfTheWildManager.tickHeart(level, pos)
             nextAttemptTick = level.gameTime +
                 HeartOfTheWildManager.nextGrowPeriod(level.random)

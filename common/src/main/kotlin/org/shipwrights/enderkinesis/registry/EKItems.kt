@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.registry
 
 import dev.architectury.core.item.ArchitecturySpawnEggItem
+import dev.architectury.core.item.ArchitecturyBucketItem
 import dev.architectury.registry.registries.DeferredRegister
 import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
@@ -9,6 +10,7 @@ import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.Instrument
 import net.minecraft.world.item.InstrumentItem
 import net.minecraft.world.item.Item
+import net.minecraft.world.item.Items
 import net.minecraft.world.item.RecordItem
 import net.minecraft.world.item.Rarity
 import net.minecraft.resources.ResourceLocation
@@ -25,6 +27,9 @@ import org.shipwrights.enderkinesis.item.MysticJadeItem
 import org.shipwrights.enderkinesis.item.MysticMoonstoneItem
 import org.shipwrights.enderkinesis.item.MysticOnyxItem
 import org.shipwrights.enderkinesis.item.MysticSpinelItem
+import org.shipwrights.enderkinesis.item.EideticBookmarkItem
+import org.shipwrights.enderkinesis.item.OldPaperItem
+import org.shipwrights.enderkinesis.item.SselithBookItem
 import org.shipwrights.enderkinesis.item.RobeArmorMaterial
 import org.shipwrights.enderkinesis.item.ScalingRobeArmorItem
 import net.minecraft.world.item.ArmorItem
@@ -52,6 +57,7 @@ import org.shipwrights.enderkinesis.item.TomeOfScryingItem
 import org.shipwrights.enderkinesis.item.TomeOfTransportationItem
 import org.shipwrights.enderkinesis.item.TomeOfVacuumItem
 import org.shipwrights.enderkinesis.item.TomeOfVentriloquismItem
+import org.shipwrights.enderkinesis.item.WaybreadItem
 import org.shipwrights.enderkinesis.item.WeyyeFruitItem
 import org.shipwrights.enderkinesis.item.WyllandTomeItem
 
@@ -78,12 +84,20 @@ object EKItems {
         org.shipwrights.enderkinesis.item.RodOfLevitationItem(props().stacksTo(1))
     }
 
+    /** Wand of Ga'Mylan — captures a right-clicked entity into a
+     *  [org.shipwrights.enderkinesis.block.GamylanEntityCageBlock] on a
+     *  static VS2 ship, encased in a pink-glass crystal shell. See
+     *  [org.shipwrights.enderkinesis.item.WandOfGamylanItem]. */
+    val WAND_OF_GAMYLAN: RegistrySupplier<Item> = ITEMS.register("wand_of_gamylan") {
+        org.shipwrights.enderkinesis.item.WandOfGamylanItem(props().stacksTo(1))
+    }
+
     /** Magic Missile — homing projectile. Right-click to fire in look direction; the primary
      *  use case is from a dispenser. Stacks normally. See
      *  [org.shipwrights.enderkinesis.item.MagicMissileItem] and
      *  [org.shipwrights.enderkinesis.entity.MagicMissileEntity]. */
     val MAGIC_MISSILE: RegistrySupplier<Item> = ITEMS.register("magic_missile") {
-        org.shipwrights.enderkinesis.item.MagicMissileItem(props())
+        org.shipwrights.enderkinesis.item.MagicMissileItem(props().stacksTo(16))
     }
 
     /** Crepusculite Charm — passive levitation. While in the holder's inventory and the
@@ -113,6 +127,11 @@ object EKItems {
     val LEDGER_OF_HUNTING_PINCERS: RegistrySupplier<Item> =
         ITEMS.register("ledger_of_hunting_pincers") {
             LedgerOfHuntingPincersItem(props().stacksTo(1))
+        }
+
+    val PARALLELOGRAPH: RegistrySupplier<Item> =
+        ITEMS.register("parallelograph") {
+            org.shipwrights.enderkinesis.item.ParallelographItem(props().stacksTo(1))
         }
 
     /** Ancrite scrap — raw item form of the ender-metal "ancrite". */
@@ -148,6 +167,23 @@ object EKItems {
      *  See [GuideToStratusItem] and [org.shipwrights.enderkinesis.item.GuideToStratus]. */
     val GUIDE_TO_STRATUS: RegistrySupplier<Item> =
         ITEMS.register("guide_to_stratus") { GuideToStratusItem(props().stacksTo(1)) }
+
+    /** Irreverant Remnant "spawn egg" — testing tool that drops a single
+     *  blob of the pseudo-entity. Not a real SpawnEggItem (there's no
+     *  EntityType behind the remnant); the egg look comes from the vanilla
+     *  template model plus an item-colour handler. */
+    val IRREVERANT_REMNANT_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("irreverant_remnant_spawn_egg") {
+            org.shipwrights.enderkinesis.item.IrreverantRemnantSpawnEggItem(props())
+        }
+
+    /** Incantation of Winds — hold right-click to blast ships in a wide box
+     *  ahead of the player forward on the wind. 1 XP/s in survival. Renders
+     *  as an empty hand with rising sselith dust. */
+    val INCANTATION_OF_WINDS: RegistrySupplier<Item> =
+        ITEMS.register("incantation_of_winds") {
+            org.shipwrights.enderkinesis.item.IncantationOfWindsItem(props().stacksTo(1))
+        }
 
     /** Tome of Signal — right-click orbs of linking to wire one SEND to many RECEIVErs, mirroring
      *  the SEND's neighbouring redstone signal (0–15) to every RECEIVE peer within 64 blocks of
@@ -305,7 +341,7 @@ object EKItems {
 
     /** Scroll of Unravelling — single-use on a lectern bearing a Sselith book,
      *  reveals 34.5% of its remaining Sselith back to English at the cost of
-     *  one level of Sselith madness. Master-librarian trade only.
+     *  two levels of Sselith madness. Master-librarian trade only.
      *  See [ScrollOfUnravellingItem]. */
     val SCROLL_OF_UNRAVELLING: RegistrySupplier<Item> =
         ITEMS.register("scroll_of_unravelling") {
@@ -321,10 +357,50 @@ object EKItems {
             ScrollOfSculkCatastropheItem(props().stacksTo(1).rarity(Rarity.RARE))
         }
 
+    val OLD_PAPER: RegistrySupplier<Item> =
+        ITEMS.register("old_paper") { OldPaperItem(props().stacksTo(16)) }
+
+    val SSELITH_BOOK: RegistrySupplier<Item> =
+        ITEMS.register("sselith_book") { SselithBookItem(props().stacksTo(16)) }
+
+    val WAYBREAD: RegistrySupplier<Item> =
+        ITEMS.register("waybread") { WaybreadItem(props()) }
+
+    val EIDETIC_BOOKMARK: RegistrySupplier<Item> =
+        ITEMS.register("eidetic_bookmark") { EideticBookmarkItem(props().stacksTo(1)) }
+
+    val PENFEATHER_OF_THE_ACCURSED_OWL: RegistrySupplier<Item> =
+        ITEMS.register("penfeather_of_the_accursed_owl") { Item(props().stacksTo(1)) }
+
+    val ICHAERIC_INK_BOTTLE: RegistrySupplier<Item> =
+        ITEMS.register("ichaeric_ink_bottle") { Item(props().stacksTo(16)) }
+
+    val ICHAERIC_INK_BUCKET: RegistrySupplier<Item> = ITEMS.register("ichaeric_ink_bucket") {
+        ArchitecturyBucketItem({ EKFluids.ICHAERIC_INK.get() }, props().craftRemainder(Items.BUCKET).stacksTo(1))
+    }
+
+    val ICHAERIC_INK_JAR_ITEM = blockItem("ichaeric_ink_jar", EKBlocks.ICHAERIC_INK_JAR)
+
+    val INEGRIC_RETORT_ITEM = blockItem("inegric_retort", EKBlocks.INEGRIC_RETORT)
+
+    val SCRIBES_DESK_ITEM = blockItem("scribes_desk", EKBlocks.SCRIBES_DESK)
+
+    val FORGOTTEN_ITEM_ITEM: RegistrySupplier<Item> = ITEMS.register("forgotten_item") {
+        org.shipwrights.enderkinesis.item.ForgottenItemBlockItem(EKBlocks.FORGOTTEN_ITEM.get(), props())
+    }
+
+    /** Scroll of Animation — consumed on a purpur block to animate it into a
+     *  Constriliar tamed to the user. See [ScrollOfAnimationItem]. */
+    val SCROLL_OF_ANIMATION: RegistrySupplier<Item> =
+        ITEMS.register("scroll_of_animation") {
+            org.shipwrights.enderkinesis.item.ScrollOfAnimationItem(props().rarity(Rarity.RARE))
+        }
+
     val CREPUSCULITE_ORE_ITEM = blockItem("crepusculite_ore", EKBlocks.CREPUSCULITE_ORE)
     val CREPUSCULITE_BLOCK_ITEM = blockItem("crepusculite_block", EKBlocks.CREPUSCULITE_BLOCK)
     val CREPUSCULITE_GLASS_ITEM = blockItem("crepusculite_glass", EKBlocks.CREPUSCULITE_GLASS)
     val CREPUSCULITE_LATTICE_ITEM = blockItem("crepusculite_lattice", EKBlocks.CREPUSCULITE_LATTICE)
+    val CREPUSCULITE_LIGHTSTONE_ITEM = blockItem("crepusculite_lightstone", EKBlocks.CREPUSCULITE_LIGHTSTONE)
     val ENDER_ASTROLABE_ITEM = blockItem("ender_astrolabe", EKBlocks.ENDER_ASTROLABE)
     val MAGIC_MISSILE_LAUNCHER_ITEM = blockItem("magic_missile_launcher", EKBlocks.MAGIC_MISSILE_LAUNCHER)
     val ECHO_CANNON_ITEM = blockItem("echo_cannon", EKBlocks.ECHO_CANNON)
@@ -343,6 +419,8 @@ object EKItems {
     val AETHER_PAD_ITEM = blockItem("aether_pad", EKBlocks.AETHER_PAD)
 
     val ANCRITE_BLOCK_ITEM = blockItem("ancrite_block", EKBlocks.ANCRITE_BLOCK)
+    val CRYSTAL_PEDESTAL_ITEM = blockItem("crystal_pedestal", EKBlocks.CRYSTAL_PEDESTAL)
+    val WOHLON_ROOT_ITEM = blockItem("wohlon_root", EKBlocks.WOHLON_ROOT)
     val RAW_ANCRITE_ITEM = blockItem("raw_ancrite", EKBlocks.RAW_ANCRITE)
     val REFINED_ANCRITE_ITEM = blockItem("refined_ancrite", EKBlocks.REFINED_ANCRITE)
     val ANCRITE_STAIRS_ITEM = blockItem("ancrite_stairs", EKBlocks.ANCRITE_STAIRS)
@@ -358,6 +436,7 @@ object EKItems {
     val SSELITH_BOOKSHELF_ITEM = blockItem("sselith_bookshelf", EKBlocks.SSELITH_BOOKSHELF)
     val SSELITH_LANTERN_ITEM = blockItem("sselith_lantern", EKBlocks.SSELITH_LANTERN)
     val SSELITH_LAMP_ITEM = blockItem("sselith_lamp", EKBlocks.SSELITH_LAMP)
+    val OWL_DEEPSLATE_ITEM = blockItem("owl_deepslate", EKBlocks.OWL_DEEPSLATE)
     val SSELITH_LADDER_ITEM = blockItem("sselith_ladder", EKBlocks.SSELITH_LADDER)
     val SSELITH_TRAPDOOR_ITEM = blockItem("sselith_trapdoor", EKBlocks.SSELITH_TRAPDOOR)
     val SSELITH_LECTERN_ITEM = blockItem("sselith_lectern", EKBlocks.SSELITH_LECTERN)
@@ -388,12 +467,6 @@ object EKItems {
      *  player-placement registers itself with `BindingRootsMerger`'s scanner.
      *  See [org.shipwrights.enderkinesis.block.BindingRootsBlock]. */
     val BINDING_ROOTS_ITEM = blockItem("binding_roots", EKBlocks.BINDING_ROOTS)
-
-    // Sureibjin dream variants — see [EKBlocks.DREAM_OBSIDIAN] etc.
-    val DREAM_OBSIDIAN_ITEM = blockItem("dream_obsidian", EKBlocks.DREAM_OBSIDIAN)
-    val DREAM_CRYING_OBSIDIAN_ITEM = blockItem("dream_crying_obsidian", EKBlocks.DREAM_CRYING_OBSIDIAN)
-    val DREAM_SAND_ITEM = blockItem("dream_sand", EKBlocks.DREAM_SAND)
-
 
     /** Tag of [Instrument] records — the 19 cave-ambience variants
      *  that the prismatic-goat horn picks from. Wired to
@@ -464,23 +537,67 @@ object EKItems {
             )
         }
 
-    /** Statue block-items — six decorative statues rendered by the
+    /** Sselith Moth spawn egg — dusty warm-yellow body with darker brown trim
+     *  matching the moth's wing tones. */
+    val SSELITH_MOTH_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("sselith_moth_spawn_egg") {
+            ArchitecturySpawnEggItem(
+                EKEntities.SSELITH_MOTH,
+                0xCAAD53,
+                0x5C4A29,
+                props(),
+            )
+        }
+
+    /** Constriliar spawn egg — plate purple with pale-straw legs, sampled from the
+     *  entity texture. Custom subclass so the spawner becomes the owner immediately. */
+    val CONSTRILIAR_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("constriliar_spawn_egg") {
+            org.shipwrights.enderkinesis.item.ConstriliarSpawnEggItem(
+                EKEntities.CONSTRILIAR,
+                0x9A5CB5,
+                0xE3DCA8,
+                props(),
+            )
+        }
+
+    /** Shulkonaut spawn egg — shulker-shell mauve over parchment. */
+    val SHULKONAUT_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("shulkonaut_spawn_egg") {
+            dev.architectury.core.item.ArchitecturySpawnEggItem(
+                EKEntities.SHULKONAUT,
+                0x8D6E9E,
+                0xEDE6C8,
+                props(),
+            )
+        }
+
+    /** Statue block-items — decorative statues rendered by the
      *  StatueBlockEntityRenderer. The in-world view is the Blockbench model;
      *  the inventory icon is a plain `item/generated` texture (the same atlas
      *  the model samples) for now. */
-    val STATUE_STEVE_ITEM = blockItem("statue_steve", EKBlocks.STATUE_STEVE)
-    val STATUE_CATALOGER_ITEM = blockItem("statue_cataloger", EKBlocks.STATUE_CATALOGER)
-    val STATUE_TENTACLES_ITEM = blockItem("statue_tentacles", EKBlocks.STATUE_TENTACLES)
-    val STATUE_TENTACLED_BEAST_ITEM = blockItem("statue_tentacled_beast", EKBlocks.STATUE_TENTACLED_BEAST)
-    val STATUE_YELLOW_TOWER_ITEM = blockItem("statue_yellow_tower", EKBlocks.STATUE_YELLOW_TOWER)
-    val STATUE_BLACK_GOAT_ITEM = blockItem("statue_black_goat", EKBlocks.STATUE_BLACK_GOAT)
-    val STATUE_COUNTING_ITEM = blockItem("statue_counting", EKBlocks.STATUE_COUNTING)
+    val STATUE_STEVE_ITEM = ITEMS.register("statue_steve") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_STEVE.get(), props()) }
+    val STATUE_CATALOGER_ITEM = ITEMS.register("statue_cataloger") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_CATALOGER.get(), props()) }
+    val STATUE_TENTACLES_ITEM = ITEMS.register("statue_tentacles") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_TENTACLES.get(), props()) }
+    val STATUE_TENTACLED_BEAST_ITEM = ITEMS.register("statue_tentacled_beast") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_TENTACLED_BEAST.get(), props()) }
+    val STATUE_YELLOW_TOWER_ITEM = ITEMS.register("statue_yellow_tower") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_YELLOW_TOWER.get(), props()) }
+    val STATUE_BLACK_GOAT_ITEM = ITEMS.register("statue_black_goat") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_BLACK_GOAT.get(), props()) }
+    val STATUE_COUNTING_ITEM = ITEMS.register("statue_counting") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_COUNTING.get(), props()) }
+    val STATUE_OWL_ITEM = ITEMS.register("statue_owl") { org.shipwrights.enderkinesis.item.StatueBlockItem(EKBlocks.STATUE_OWL.get(), props()) }
 
     val STATUE_ITEMS: List<RegistrySupplier<out Item>> = listOf(
         STATUE_STEVE_ITEM, STATUE_CATALOGER_ITEM, STATUE_TENTACLES_ITEM,
         STATUE_TENTACLED_BEAST_ITEM, STATUE_YELLOW_TOWER_ITEM, STATUE_BLACK_GOAT_ITEM,
-        STATUE_COUNTING_ITEM,
+        STATUE_COUNTING_ITEM, STATUE_OWL_ITEM,
     )
+
+    /** BlockItem for each Moth Cloth colour. Registered as a Map keyed by
+     *  DyeColor so tab-population, lang lookup, and any downstream consumer
+     *  can iterate cleanly. */
+    val MOTH_CLOTH_ITEMS_BY_COLOR: Map<net.minecraft.world.item.DyeColor, RegistrySupplier<out Item>> =
+        EKBlocks.MOTH_CLOTH_BY_COLOR.mapValues { (color, blockSup) ->
+            blockItem("moth_cloth_${color.name.lowercase()}", blockSup)
+        }
 
     fun register() = ITEMS.register()
 }

@@ -1,0 +1,14 @@
+{
+  "parent": "enderkinesis:sureibjin/root",
+  "display": {
+    "icon": { "item": "minecraft:light_gray_bed" },
+    "title": { "translate": "advancements.enderkinesis.sureibjin.distant_dreams.title" },
+    "description": { "translate": "advancements.enderkinesis.sureibjin.distant_dreams.description" },
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "manual": { "trigger": "minecraft:impossible" }
+  }
+}

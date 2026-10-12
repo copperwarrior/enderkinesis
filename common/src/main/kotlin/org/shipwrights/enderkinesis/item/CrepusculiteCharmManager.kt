@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.item
 
+import org.valkyrienskies.mod.common.dimensionId
 import dev.architectury.event.events.common.TickEvent
 import java.util.UUID
 import net.minecraft.core.BlockPos
@@ -154,9 +155,10 @@ object CrepusculiteCharmManager {
         val startY = Math.floor(startWorldY).toInt()
         val cx = px + 0.5
         val cz = pz + 0.5
+        val dim = level.dimensionId
         val ships = level.shipObjectWorld.allShips.filter { s ->
             val ab = s.worldAABB
-            cx in ab.minX()..ab.maxX() && cz in ab.minZ()..ab.maxZ()
+            s.chunkClaimDimension == dim && cx in ab.minX()..ab.maxX() && cz in ab.minZ()..ab.maxZ()
         }
         for (dy in 0..scanRange) {
             val y = startY - dy
@@ -183,5 +185,10 @@ object CrepusculiteCharmManager {
         if (sState.isAir) return false
         if (!sState.fluidState.isEmpty) return true
         return !sState.getCollisionShape(level, sPos).isEmpty
+    }
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        drainAccumulator.clear()
     }
 }

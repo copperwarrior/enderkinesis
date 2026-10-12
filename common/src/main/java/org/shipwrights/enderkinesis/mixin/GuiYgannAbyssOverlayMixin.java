@@ -39,11 +39,11 @@ public abstract class GuiYgannAbyssOverlayMixin {
         GuiGraphics graphics, float partialTick, CallbackInfo ci
     ) {
         Minecraft mc = Minecraft.getInstance();
-        if (!mc.options.hideGui) return;            // RENDER_HUD already fired
+        if (!mc.options.hideGui) return;            // RENDER_HUD draws this case
         Screen screen = mc.screen;
         if (screen != null && !(screen instanceof PauseScreen) && !(screen instanceof DeathScreen)) {
             return;                                  // RENDER_POST will handle it
         }
-        YgannAbyssVoidOverlay.renderForF1Fallback(graphics, partialTick);
+        YgannAbyssVoidOverlay.renderForHiddenHud(graphics, partialTick);
     }
 }

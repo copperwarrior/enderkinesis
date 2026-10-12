@@ -163,6 +163,50 @@ object ConcealmentShipFB {
         depthCopiedThisFrame = true
     }
 
+    private var mergeEffect: net.minecraft.client.renderer.EffectInstance? = null
+    private var mergeEffectFailed = false
+
+    /** Brings the world depth of the layers drawn since the last call into the side depth,
+     *  and removes ship pixels that this newer terrain hides.
+     *
+     *  The one blit of [copyMainDepth] runs at the first ship layer, when only solid terrain
+     *  is drawn. Without this merge, cutout terrain (grass blocks, leaves) never hides a
+     *  cloaked ship. A second blit is not possible: it deletes the ship's own depth. */
+    fun mergeMainDepth() {
+        if (!depthCopiedThisFrame) {
+            copyMainDepth()
+            return
+        }
+        val mc = Minecraft.getInstance()
+        val effect = mergeEffect ?: run {
+            if (mergeEffectFailed) return
+            try {
+                net.minecraft.client.renderer.EffectInstance(mc.resourceManager, "concealment_depth_merge")
+                    .also { mergeEffect = it }
+            } catch (t: Throwable) {
+                mergeEffectFailed = true
+                LOG.warn("Failed to load concealment depth merge shader program", t)
+                return
+            }
+        }
+        if (fbId == -1) return
+        GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbId)
+        RenderSystem.colorMask(true, true, true, true)
+        RenderSystem.enableDepthTest()
+        RenderSystem.depthFunc(GL11.GL_LESS)
+        RenderSystem.depthMask(true)
+        RenderSystem.disableCull()
+        effect.setSampler("DiffuseSampler", java.util.function.IntSupplier { mc.mainRenderTarget.depthTextureId })
+        RefractionPass.drawQuad(effect, width, height) {}
+        // Vanilla's default depth function; the next render type sets the other state.
+        RenderSystem.depthFunc(GL11.GL_LEQUAL)
+        RenderSystem.enableCull()
+        // A non-opaque blend mode left as the last one makes the next core shader draw with
+        // blend off.
+        com.mojang.blaze3d.shaders.BlendMode().apply()
+        mc.mainRenderTarget.bindWrite(true)
+    }
+
     /** Reset per-frame state. Called from `LevelRenderer.renderLevel` HEAD —
      *  NOT from VS2 events, because `shipsStartRenderingSodium` fires per-pass
      *  rather than once per frame and would re-arm the "needs clear" state in
@@ -174,6 +218,9 @@ object ConcealmentShipFB {
     }
 
     fun destroy() {
+        mergeEffect?.close()
+        mergeEffect = null
+        mergeEffectFailed = false
         if (colorId != -1) {
             GlStateManager._deleteTexture(colorId)
             colorId = -1

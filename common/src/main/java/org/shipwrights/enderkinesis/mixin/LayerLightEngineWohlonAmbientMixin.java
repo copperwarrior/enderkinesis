@@ -3,11 +3,13 @@ package org.shipwrights.enderkinesis.mixin;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.BlockLightEngine;
 import net.minecraft.world.level.lighting.LightEngine;
+import org.shipwrights.enderkinesis.dimension.WohlonBiomePresence;
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -42,30 +44,20 @@ public abstract class LayerLightEngineWohlonAmbientMixin {
      */
     private static final int WOHLON_AMBIENT_BLOCKLIGHT = 5;
 
-    /**
-     * Class name of the client-side chunk source. The mixin sits on the {@link LightEngine}
-     * base class, which is instantiated on both the server (integrated and dedicated) and
-     * the client. We want the ambient boost to lift <em>only rendered brightness</em>, not
-     * server-side spawn checks or plant-growth checks, so we gate every call on this
-     * string-compare. The class is intentionally referenced by name — common-module code
-     * can't directly import {@code net.minecraft.client.multiplayer.ClientChunkCache} or
-     * it would crash on a dedicated server. On a dedicated server this class never loads,
-     * the {@code chunkSource}'s actual class is always {@code ServerChunkCache}, and the
-     * string compare returns false — the mixin no-ops.
-     */
-    private static final String CLIENT_CHUNK_CACHE_CLASS = "net.minecraft.client.multiplayer.ClientChunkCache";
-
     @Inject(method = "getLightValue(Lnet/minecraft/core/BlockPos;)I", at = @At("RETURN"), cancellable = true)
     private void enderkinesis$wohlonAmbientFloor(BlockPos pos, CallbackInfoReturnable<Integer> cir) {
         // Block light layer only — sky light already covered by `has_skylight`.
         if (!(((Object) this) instanceof BlockLightEngine)) return;
 
+        // First: one field read ends the hook in each world with no Wohlon cell in range.
+        if (!WohlonBiomePresence.nearby) return;
+
         int stored = cir.getReturnValueI();
         if (stored >= WOHLON_AMBIENT_BLOCKLIGHT) return;
 
-        // Client-only: skip on the server's LightEngine so mob spawning,
-        // plant growth, redstone, etc. see the unmodified light value.
-        if (!CLIENT_CHUNK_CACHE_CLASS.equals(chunkSource.getClass().getName())) return;
+        // Client-only, so spawn and growth checks on the server see the real light. A class-name
+        // compare fails in Fabric production (intermediary names).
+        if (!(chunkSource.getLevel() instanceof Level level) || !level.isClientSide()) return;
 
         int x = pos.getX();
         int y = pos.getY();

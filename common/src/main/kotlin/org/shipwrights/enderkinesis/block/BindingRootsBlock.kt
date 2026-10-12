@@ -94,15 +94,17 @@ class BindingRootsBlock(properties: Properties) : Block(properties) {
         }
     }
 
-    override fun setPlacedBy(
+    // onPlace, not setPlacedBy: a root that arrives by a ship assembly or a merge must be watched too.
+    @Deprecated("Deprecated in Java")
+    override fun onPlace(
+        state: BlockState,
         level: Level,
         pos: BlockPos,
-        state: BlockState,
-        placer: LivingEntity?,
-        stack: ItemStack,
+        oldState: BlockState,
+        isMoving: Boolean,
     ) {
-        super.setPlacedBy(level, pos, state, placer, stack)
-        if (level is ServerLevel) {
+        super.onPlace(state, level, pos, oldState, isMoving)
+        if (!oldState.`is`(this) && level is ServerLevel) {
             BindingRootsMerger.registerPosition(level, pos)
         }
     }

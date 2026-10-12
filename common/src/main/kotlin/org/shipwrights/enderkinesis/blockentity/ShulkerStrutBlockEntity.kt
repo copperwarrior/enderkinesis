@@ -18,6 +18,8 @@ import org.joml.Vector3d
 import org.joml.Vector3i
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.util.ShipBlockMove
+import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.api.ships.Ship
@@ -58,7 +60,7 @@ import org.valkyrienskies.core.api.world.ServerShipWorld
  * `renderTransform`). See [org.shipwrights.enderkinesis.client.ShulkerStrutRenderer].
  */
 class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
-    BlockEntity(EKBlockEntities.SHULKER_STRUT.get(), pos, state) {
+    BlockEntity(EKBlockEntities.SHULKER_STRUT.get(), pos, state), ShipMoveListener {
 
     var topShipId: Long = NO_SHIP
         private set
@@ -78,6 +80,8 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
 
     private var jointId: Int = NO_JOINT
     private var jointPending: Boolean = false
+    /** Base ship the joint names; a VS2 split or weld can move the base to another ship. */
+    private var boundBaseShipId: Long? = null
     private var lastTargetExtension: Float = -1f
 
     override fun load(tag: CompoundTag) {
@@ -130,6 +134,14 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         //   - Lid ship gone after creation (binding_roots merge edge case, manual delete,
         //     mod conflict): cascade-destroy the base too. The lid+base are a pair — losing
         //     one means the strut is broken and we drop the base item.
+        lidShipyardPos?.let { lid ->
+            // The lid BE does not tick, so the base keeps the lid's back-reference current.
+            val top = level.getBlockEntity(lid) as? ShulkerStrutTopBlockEntity
+            if (top != null && top.basePos != pos) {
+                top.basePos = pos.immutable()
+                top.setChanged()
+            }
+        }
         if (topShipId == NO_SHIP) {
             if (!tryAssembleTopShip(level, pos, state)) return
         } else if (level.shipObjectWorld.allShips.getById(topShipId) == null) {
@@ -155,11 +167,12 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         // Stage 3: bind / rebind joint on signal change. Pending gate covers the gtpa
         // addJoint() → callback round-trip.
         if (jointPending) return
-        if (jointId != NO_JOINT && target == lastTargetExtension) return
-
         val baseShip: Ship? = level.getShipManagingPos(pos)
+        if (jointId != NO_JOINT && target == lastTargetExtension && baseShip?.id == boundBaseShipId) return
+
         val facing = state.getValue(BlockStateProperties.FACING)
         releaseJoint(level)
+        boundBaseShipId = baseShip?.id
         bindJoint(level, pos, baseShip, topShip, facing, target)
     }
 
@@ -167,6 +180,15 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
      *  added more blocks to the lid ship while it was bound, those stay; the ship floats
      *  free once the joint is gone. If the lid block was the ship's only block, removing
      *  it leaves an empty ship that VS2 cleans up on its own. */
+    override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
+        val lid = lidShipyardPos ?: return
+        if (topShipId != move.fromShipId || !move.contains(lid)) return
+        topShipId = move.toShipId
+        lidShipyardPos = move.mapBlock(lid)
+        releaseJoint(level)
+        setChanged()
+    }
+
     fun releaseAndDestroyTop() {
         val level = this.level as? ServerLevel ?: return
         releaseJoint(level)
@@ -328,6 +350,24 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
                 setChanged()
             }
         }
+    }
+
+    /** Template NBT names lid ships from the world that built it; those ids can match live ships. */
+    fun resetForStructureRespawn() {
+        topShipId = NO_SHIP
+        lidShipyardPos = null
+        jointId = NO_JOINT
+        jointPending = false
+        boundBaseShipId = null
+        lastTargetExtension = -1f
+        setChanged()
+    }
+
+    // VS2 does not save the joint, but it keeps it for the session. Without this, each
+    // chunk reload adds one more joint.
+    override fun setRemoved() {
+        super.setRemoved()
+        (level as? ServerLevel)?.let { releaseJoint(it) }
     }
 
     private fun releaseJoint(level: ServerLevel) {

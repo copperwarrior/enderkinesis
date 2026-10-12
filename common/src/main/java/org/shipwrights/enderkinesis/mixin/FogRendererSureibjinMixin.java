@@ -8,8 +8,11 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.FogRenderer;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.material.FogType;
 import org.shipwrights.enderkinesis.dimension.Sureibjin;
+import org.shipwrights.enderkinesis.client.IchaericInkVisuals;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -47,6 +50,12 @@ public abstract class FogRendererSureibjinMixin {
     @Shadow private static float fogGreen;
     @Shadow private static float fogBlue;
 
+    // Blindness and Darkness fog are near and dark. The Sureibjin colour and range must not replace them.
+    private static boolean enderkinesis$mobEffectFogApplies(Camera camera) {
+        return camera.getEntity() instanceof LivingEntity living
+            && (living.hasEffect(MobEffects.BLINDNESS) || living.hasEffect(MobEffects.DARKNESS));
+    }
+
     @Inject(
         method = "setupColor(Lnet/minecraft/client/Camera;FLnet/minecraft/client/multiplayer/ClientLevel;IF)V",
         at = @At("TAIL")
@@ -56,7 +65,9 @@ public abstract class FogRendererSureibjinMixin {
         int renderDistance, float darkenWorldAmount,
         CallbackInfo ci
     ) {
+        if (IchaericInkVisuals.cameraInInk()) return;
         if (level.dimension() != Sureibjin.INSTANCE.getLEVEL_KEY()) return;
+        if (enderkinesis$mobEffectFogApplies(camera)) return;
         FogType fluid = camera.getFluidInCamera();
         if (fluid == FogType.WATER) {
             fogRed = SUREIBJIN_WATER_FOG_R;
@@ -81,8 +92,10 @@ public abstract class FogRendererSureibjinMixin {
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level == null) return;
+        if (IchaericInkVisuals.cameraInInk()) return;
         if (level.dimension() != Sureibjin.INSTANCE.getLEVEL_KEY()) return;
         if (camera.getFluidInCamera() != FogType.NONE) return;
+        if (enderkinesis$mobEffectFogApplies(camera)) return;
         float start = farPlaneDistance * SUREIBJIN_FOG_START_FRAC;
         float end = farPlaneDistance * SUREIBJIN_FOG_END_FRAC;
         RenderSystem.setShaderFogStart(start);
@@ -103,11 +116,13 @@ public abstract class FogRendererSureibjinMixin {
     ) {
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
-        if (level == null || level.dimension() != Sureibjin.INSTANCE.getLEVEL_KEY()) {
+        Camera camera = mc.gameRenderer.getMainCamera();
+        if (level == null || level.dimension() != Sureibjin.INSTANCE.getLEVEL_KEY() || IchaericInkVisuals.cameraInInk()
+            || enderkinesis$mobEffectFogApplies(camera)) {
             original.call(r, g, b);
             return;
         }
-        FogType fluid = mc.gameRenderer.getMainCamera().getFluidInCamera();
+        FogType fluid = camera.getFluidInCamera();
         if (fluid == FogType.WATER) {
             original.call(SUREIBJIN_WATER_FOG_R, SUREIBJIN_WATER_FOG_G, SUREIBJIN_WATER_FOG_B);
         } else if (fluid == FogType.NONE) {

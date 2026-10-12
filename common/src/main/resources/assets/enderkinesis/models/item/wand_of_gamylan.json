@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": { "layer0": "enderkinesis:item/wand_of_gamylan" }
+}

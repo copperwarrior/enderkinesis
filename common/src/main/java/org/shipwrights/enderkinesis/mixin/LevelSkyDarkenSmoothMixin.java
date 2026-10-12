@@ -34,6 +34,8 @@ public abstract class LevelSkyDarkenSmoothMixin {
         if (blend <= 0f) return;
 
         ClientLevel self = (ClientLevel) (Object) this;
+        // getDayTime runs in a fixed_time dimension too; its sky must not follow that clock.
+        if (self.dimensionType().hasFixedTime()) return;
         float actualTime = WohlonBiomeSkyState.unsnappedTimeOfDayFromDayTime(self.getDayTime());
         float wohlonTime = WohlonBiomeSkyState.getWohlonTimeOfDay();
 
@@ -57,6 +59,7 @@ public abstract class LevelSkyDarkenSmoothMixin {
         if (blend <= 0f) return Mth.clamp(value, min, max);
 
         ClientLevel self = (ClientLevel) (Object) this;
+        if (self.dimensionType().hasFixedTime()) return Mth.clamp(value, min, max);
         float actualTime = WohlonBiomeSkyState.unsnappedTimeOfDayFromDayTime(self.getDayTime());
         float wohlonTime = WohlonBiomeSkyState.getWohlonTimeOfDay();
 

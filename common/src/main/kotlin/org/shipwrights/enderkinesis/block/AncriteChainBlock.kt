@@ -93,7 +93,9 @@ class AncriteChainBlock(properties: BlockBehaviour.Properties) : ChainBlock(prop
             val input = if (nState.`is`(this) && nState.getValue(BlockStateProperties.AXIS) == axis) {
                 (nState.getValue(POWER) - 1).coerceAtLeast(0)
             } else {
-                level.getSignal(nPos, dir).coerceAtLeast(0)
+                // One level less, as dust does. With no loss, a chain and the dust that it powers
+                // hold each other on after the source goes off.
+                (level.getSignal(nPos, dir) - 1).coerceAtLeast(0)
             }
             if (input > best) best = input
         }

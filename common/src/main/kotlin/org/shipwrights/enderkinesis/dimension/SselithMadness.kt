@@ -3,19 +3,23 @@ package org.shipwrights.enderkinesis.dimension
 import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
+import io.netty.buffer.Unpooled
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap
 import java.util.UUID
+import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.util.Mth
 import net.minecraft.world.effect.MobEffectInstance
+import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.ai.village.poi.PoiManager
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.Cataloger
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKPoiTypes
@@ -26,9 +30,8 @@ import org.shipwrights.enderkinesis.registry.EKPoiTypes
  * The madness lands at level 1 the moment a player enters Sselith's Repertory,
  * climbs a level every [GROWTH_INTERVAL_TICKS] of continued presence up to
  * [MAX_LEVEL], and — once the player leaves — decays a level every
- * [DECAY_INTERVAL_TICKS]. Decay is deliberately slower than growth, so the
- * dimension "follows you home": from level 5 it takes ~50 minutes outside to
- * fully clear.
+ * [DECAY_INTERVAL_TICKS]. The dimension "follows you home": from [MAX_LEVEL] it
+ * takes ~25 minutes outside to fully clear.
  *
  * ## State
  *
@@ -52,16 +55,17 @@ import org.shipwrights.enderkinesis.registry.EKPoiTypes
  */
 object SselithMadness {
 
-    /** Ticks of presence in Sselith between level-ups (≈6 min). Level 1 is
+    /** Ticks of presence in Sselith between level-ups (160 s). Level 1 is
      *  granted immediately on entry, so reaching [MAX_LEVEL] takes
      *  `(MAX_LEVEL − 1) ×` this ≈ 24 min. */
-    private const val GROWTH_INTERVAL_TICKS = 6 * 60 * 20
+    private const val GROWTH_INTERVAL_TICKS = 160 * 20
 
-    /** Ticks outside Sselith between level-downs (≈10 min) — slower than growth
-     *  so the madness lingers. From [MAX_LEVEL] a full clear is ~50 min. */
-    private const val DECAY_INTERVAL_TICKS = 10 * 60 * 20
+    /** Ticks outside Sselith between level-downs (150 s). From [MAX_LEVEL] a full
+     *  clear is ~25 min. */
+    private const val DECAY_INTERVAL_TICKS = 150 * 20
 
-    private const val MAX_LEVEL = 5
+    const val MAX_LEVEL = 10
+    const val FIRST_ANNOUNCED_LEVEL = 2
 
     /** Duration the hidden effect is (re)applied with. Long, because this handler
      *  manages the level's lifetime; refreshed whenever the remaining duration
@@ -73,10 +77,27 @@ object SselithMadness {
      *  Sselith, decay outside). Transient server-memory. */
     private val progress = Object2IntOpenHashMap<UUID>().apply { defaultReturnValue(0) }
 
+    private const val MENU_WALK_DUST_MIN_INTERVAL_TICKS = 2
+
+    // Server tick of the last accepted dust packet for each player. Server thread only.
+    private val lastMenuWalkDustTick =
+        Object2IntOpenHashMap<UUID>().apply { defaultReturnValue(-MENU_WALK_DUST_MIN_INTERVAL_TICKS) }
+
     /** C2S: the menu-walk client (`SselithMenuWalk`) pings this each dust tick while
      *  the possessed body is walking. The server emits the dust here so every nearby
      *  player sees the trail — a client-side `addParticle` would be local-only. */
     val MENU_WALK_DUST: ResourceLocation = EnderkinesisMod.id("sselith_madness/menu_walk_dust")
+
+    /** S2C: the player's level went up to the given stage (VarInt). Level 1 has no announcement. */
+    val STAGE_UP: ResourceLocation = EnderkinesisMod.id("sselith_madness/stage_up")
+
+    /** S2C: which players have the effect. Vanilla sends an effect change only to its owner. */
+    val AFFLICTED: ResourceLocation = EnderkinesisMod.id("sselith_madness/afflicted")
+
+    private const val MAX_AFFLICTED_ENTRIES = 10_000
+
+    // Players that the clients know as afflicted. Server thread only.
+    private val announced = HashSet<UUID>()
 
     /** Particles per emit, matching the Cataloger's `spawnDustTrail`. */
     private const val DUST_PER_EMIT = 1
@@ -86,15 +107,18 @@ object SselithMadness {
     private const val MENU_WALK_MIN_AMP = 3
 
     /** Cube-radius for the "near a statue" aura. Standing within this many blocks of
-     *  any Ulder Statue doubles the madness growth rate. Backed by a PoiManager
+     *  any Ulder Statue speeds madness growth; see [statueGrowthRate]. Backed by a PoiManager
      *  `getInRange` query against [EKPoiTypes.STATUE_KEY] so cost is constant
      *  regardless of the dim's total statue count. */
     private const val STATUE_AURA_RADIUS = 6
+    private const val STATUE_GROWTH_RATE = 2
+    private const val OWL_STATUE_GROWTH_RATE = 3
 
     fun init() {
         TickEvent.PLAYER_POST.register(::tickPlayer)
         PlayerEvent.CHANGE_DIMENSION.register(::onChangeDimension)
         PlayerEvent.PLAYER_QUIT.register(::onQuit)
+        PlayerEvent.PLAYER_JOIN.register(::sendAfflictedTable)
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, MENU_WALK_DUST) { _, ctx ->
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
             ctx.queue { spawnMenuWalkDust(player) }
@@ -108,6 +132,9 @@ object SselithMadness {
     private fun spawnMenuWalkDust(player: ServerPlayer) {
         val amp = player.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: return
         if (amp < MENU_WALK_MIN_AMP) return
+        val now = player.server.tickCount
+        if (now - lastMenuWalkDustTick.getInt(player.uuid) < MENU_WALK_DUST_MIN_INTERVAL_TICKS) return
+        lastMenuWalkDustTick.put(player.uuid, now)
         val level = player.level() as? ServerLevel ?: return
         val bb = player.boundingBox
         val sx = bb.maxX - bb.minX
@@ -139,10 +166,56 @@ object SselithMadness {
 
     private fun onQuit(player: ServerPlayer) {
         progress.removeInt(player.uuid)
+        lastMenuWalkDustTick.removeInt(player.uuid)
+        if (announced.remove(player.uuid)) broadcastAfflicted(player, afflicted = false)
+    }
+
+    private fun syncAfflicted(player: ServerPlayer) {
+        val afflicted = player.hasEffect(EKEffects.SSELITH_MADNESS.get())
+        val changed = if (afflicted) announced.add(player.uuid) else announced.remove(player.uuid)
+        if (changed) broadcastAfflicted(player, afflicted)
+    }
+
+    private fun broadcastAfflicted(player: ServerPlayer, afflicted: Boolean) {
+        for (recipient in player.server.playerList.players) {
+            NetworkManager.sendToPlayer(
+                recipient, AFFLICTED, afflictedPacket(replaceAll = false, afflicted, listOf(player.uuid)),
+            )
+        }
+    }
+
+    private fun sendAfflictedTable(player: ServerPlayer) {
+        val afflicted = player.server.playerList.players
+            .filter { it.hasEffect(EKEffects.SSELITH_MADNESS.get()) }
+            .map { it.uuid }
+        NetworkManager.sendToPlayer(player, AFFLICTED, afflictedPacket(replaceAll = true, afflicted = true, afflicted))
+    }
+
+    private fun afflictedPacket(replaceAll: Boolean, afflicted: Boolean, players: List<UUID>): FriendlyByteBuf {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeBoolean(replaceAll)
+        buf.writeBoolean(afflicted)
+        buf.writeVarInt(players.size)
+        for (uuid in players) buf.writeUUID(uuid)
+        return buf
+    }
+
+    /** Decoded [AFFLICTED] packet: replace the table or not, the new state, and the players it applies to. */
+    class AfflictedUpdate(val replaceAll: Boolean, val afflicted: Boolean, val players: List<UUID>)
+
+    fun readAfflicted(buf: FriendlyByteBuf): AfflictedUpdate {
+        val replaceAll = buf.readBoolean()
+        val afflicted = buf.readBoolean()
+        val count = buf.readVarInt()
+        require(count in 0..MAX_AFFLICTED_ENTRIES) { "Afflicted table too large: $count" }
+        val players = ArrayList<UUID>(count)
+        repeat(count) { players.add(buf.readUUID()) }
+        return AfflictedUpdate(replaceAll, afflicted, players)
     }
 
     private fun tickPlayer(player: Player) {
         if (player !is ServerPlayer) return
+        syncAfflicted(player)
         if (player.isSpectator) return
 
         val uuid = player.uuid
@@ -158,11 +231,12 @@ object SselithMadness {
                     progress.put(uuid, 0)
                 }
                 level < MAX_LEVEL -> {
-                    val growthRate = if (isNearStatue(player)) 2 else 1
+                    val growthRate = statueGrowthRate(player)
                     val banked = progress.addTo(uuid, growthRate) + growthRate
                     if (banked >= GROWTH_INTERVAL_TICKS) {
                         level++
                         applyLevel(player, level)
+                        announceStage(player, level)
                         progress.put(uuid, 0)
                     }
                 }
@@ -200,17 +274,23 @@ object SselithMadness {
         }
     }
 
-    /** True if any Ulder Statue POI sits within [STATUE_AURA_RADIUS] of the player.
-     *  Short-circuits on the first match via `findAny`. Caller has already verified
-     *  the player is in Sselith. */
-    private fun isNearStatue(player: ServerPlayer): Boolean {
-        val poi: PoiManager = player.serverLevel().poiManager
-        return poi.getInRange(
+    /** Growth multiplier from Ulder Statue POIs within [STATUE_AURA_RADIUS]; an owl outranks
+     *  the rest. Caller has already verified the player is in Sselith. */
+    private fun statueGrowthRate(player: ServerPlayer): Int {
+        val level = player.serverLevel()
+        val owl = EKBlocks.STATUE_OWL.get()
+        val statues = level.poiManager.getInRange(
             { holder -> holder.`is`(EKPoiTypes.STATUE_KEY) },
             player.blockPosition(),
             STATUE_AURA_RADIUS,
             PoiManager.Occupancy.ANY,
-        ).findAny().isPresent
+        )
+        var rate = 1
+        for (record in statues.iterator()) {
+            if (level.getBlockState(record.pos).`is`(owl)) return OWL_STATUE_GROWTH_RATE
+            rate = STATUE_GROWTH_RATE
+        }
+        return rate
     }
 
     /** Mirror of [Cataloger.pushNearbyCatalogers] for high-madness
@@ -243,6 +323,9 @@ object SselithMadness {
      *  player push) is just a constant edit here. */
     private const val GENTLE_PUSH_FORCE = 0.01
 
+    fun level(entity: LivingEntity): Int =
+        ((entity.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: -1) + 1).coerceIn(0, MAX_LEVEL)
+
     /** Public hook: bump the player's madness by [delta] levels (clamped to
      *  `[0, MAX_LEVEL]`) and reset the step timer so the next growth/decay
      *  step is a fresh window. Used by items that grant madness as a cost
@@ -252,7 +335,14 @@ object SselithMadness {
         val next = (current + delta).coerceIn(0, MAX_LEVEL)
         if (next == current) return
         applyLevel(player, next)
+        if (next > current && next >= FIRST_ANNOUNCED_LEVEL) announceStage(player, next)
         progress.put(player.uuid, 0)
+    }
+
+    private fun announceStage(player: ServerPlayer, level: Int) {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeVarInt(level)
+        NetworkManager.sendToPlayer(player, STAGE_UP, buf)
     }
 
     /** Set the player's madness to [level] (1..[MAX_LEVEL]) as a hidden effect, or

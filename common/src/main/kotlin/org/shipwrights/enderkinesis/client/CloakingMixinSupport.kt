@@ -5,7 +5,6 @@ import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.Entity
 import org.valkyrienskies.mod.common.shipObjectWorld
-import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 
 /** Shared lookup surface for every cloaking-concealment mixin.
  *
@@ -106,8 +105,12 @@ object CloakingMixinSupport {
     fun isCameraInsideBubbleOf(shipId: Long): Boolean = insideBubbles.contains(shipId)
 
     /** True when [pos] (shipyard coords) is inside any currently-concealed ship's AABB.
-     *  Used by the chunk + BE render cancel mixins. Returns false while this thread is
-     *  in the ship-only render pass — see [setCancelSuspended]. */
+     *  Used by the block entity render cancel mixin and the orb beam renderer. Returns false
+     *  while this thread is in the ship-only render pass — see [setCancelSuspended].
+     *
+     *  Not for chunk compile: the ship's blocks must stay in its meshes, because each ship
+     *  render path (vanilla, VS2 batched, Sodium / Embeddium) conceals at draw time. A cancel
+     *  at compile left a section with no blocks, also after the cloak ended. */
     @JvmStatic
     fun isPositionConcealed(pos: BlockPos): Boolean {
         if (cancelSuspended.get()) return false
@@ -123,24 +126,20 @@ object CloakingMixinSupport {
         return false
     }
 
-    /** True when the entity's `lastShipStoodOn` (VS2 dragging info) is a currently
-     *  concealed ship. Uses the raw field rather than [EntityDraggingInformation.isEntityBeingDraggedByAShip]
-     *  because that helper layers three gates (ship non-null AND
-     *  `ticksSinceStoodOnShip < 25` AND `!mountedToEntity`) any one of which can
-     *  briefly evaluate false between physics frames — and the entity would render
-     *  un-concealed for those frames. Using the raw field is the simplest reading
-     *  of "this entity is associated with that ship." */
+    /** True when the entity is inside the hidden volume of a concealed ship. */
     @JvmStatic
     fun isEntityConcealed(entity: Entity): Boolean {
         if (concealed.isEmpty()) return false
-        val info = (entity as? IEntityDraggingInformationProvider)?.draggingInformation
-            ?: return false
-        val shipId = info.lastShipStoodOn ?: return false
-        if (!concealed.containsKey(shipId)) return false
-        // Camera inside that ship's bubble — the entity should render normally
-        // (e.g., goats dragged by a ship the player is standing on).
-        if (insideBubbles.contains(shipId)) return false
-        return true
+        // By position only. VS2 keeps `lastShipStoodOn` after the entity leaves the ship, so a
+        // test on it kept a mob hidden until the ship showed again. The bubble contains the
+        // full ship, so each entity on the ship is inside one of these two volumes:
+        //  1. A shipyard-resident entity (spawned on ship chunks, at shipyard coordinates)
+        //     is in the shipyard AABB.
+        //  2. A world-space entity on or near the ship is in the bubble ellipsoid, the
+        //     same boundary as the particle filter. That test skips a ship whose bubble
+        //     has the camera inside, so its riders draw as usual.
+        return isPositionConcealed(entity.blockPosition()) ||
+            isWorldPointConcealed(entity.x, entity.y + entity.bbHeight * 0.5, entity.z)
     }
 
     /** True when the world point projects into any concealed ship's BUBBLE volume —

@@ -13,6 +13,9 @@ import org.spongepowered.asm.mixin.injection.ModifyArg;
  * {@link AmbrosialCravingScaling#SCALE} when the thread-local flag is
  * set (i.e. inside a player.eat call whose wearer is afflicted).
  *
+ * <p>Forge moves the inner call into its own 3-argument {@code eat}, which vanilla does not
+ * have. Each handler names the two methods; the one that a loader lacks matches nothing.
+ *
  * <p>The nutrition path uses {@code Math.max(0, round(n × scale))} so
  * tiny foods (1- or 2-nutrition snacks) round down to 0 — under
  * Ambrosial Craving the small snacks really are useless.
@@ -21,7 +24,10 @@ import org.spongepowered.asm.mixin.injection.ModifyArg;
 public abstract class FoodDataAmbrosialCravingScaleMixin {
 
     @ModifyArg(
-        method = "eat(Lnet/minecraft/world/item/Item;Lnet/minecraft/world/item/ItemStack;)V",
+        method = {
+            "eat(Lnet/minecraft/world/item/Item;Lnet/minecraft/world/item/ItemStack;)V",
+            "eat(Lnet/minecraft/world/item/Item;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/LivingEntity;)V"
+        },
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/world/food/FoodData;eat(IF)V"
@@ -34,7 +40,10 @@ public abstract class FoodDataAmbrosialCravingScaleMixin {
     }
 
     @ModifyArg(
-        method = "eat(Lnet/minecraft/world/item/Item;Lnet/minecraft/world/item/ItemStack;)V",
+        method = {
+            "eat(Lnet/minecraft/world/item/Item;Lnet/minecraft/world/item/ItemStack;)V",
+            "eat(Lnet/minecraft/world/item/Item;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/LivingEntity;)V"
+        },
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/world/food/FoodData;eat(IF)V"

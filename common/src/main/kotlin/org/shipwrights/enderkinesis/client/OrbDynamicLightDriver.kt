@@ -56,7 +56,7 @@ object OrbDynamicLightDriver {
         val cx = cam.x; val cy = cam.y; val cz = cam.z
 
         // Collect candidate orbs within range, sorted by distance.
-        val orbs = ClientOrbRegistry.snapshot()
+        val orbs = ClientOrbRegistry.near(level)
         val candidates = ArrayList<LongArray>(orbs.size)  // bodyId, packedPos, d² bits
         val scratch = Vector3d()
         // Same dim guard as [OrbOfPotentialRenderer] — VS2's allBodies

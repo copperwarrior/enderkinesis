@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.math.Axis
 import net.minecraft.client.model.EntityModel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
@@ -16,6 +17,7 @@ import org.shipwrights.enderkinesis.blockentity.StatueBlockEntity
 import org.shipwrights.enderkinesis.client.model.StatueBlackGoatModel
 import org.shipwrights.enderkinesis.client.model.StatueCatalogerModel
 import org.shipwrights.enderkinesis.client.model.StatueCountingModel
+import org.shipwrights.enderkinesis.client.model.StatueOwlModel
 import org.shipwrights.enderkinesis.client.model.StatueSteveModel
 import org.shipwrights.enderkinesis.client.model.StatueTentacledBeastModel
 import org.shipwrights.enderkinesis.client.model.StatueTentaclesModel
@@ -42,6 +44,7 @@ class StatueBlockEntityRenderer(ctx: BlockEntityRendererProvider.Context) :
         StatueKind.YELLOW_TOWER    to StatueYellowTowerModel(ctx.bakeLayer(StatueYellowTowerModel.LAYER_LOCATION)),
         StatueKind.BLACK_GOAT      to StatueBlackGoatModel(ctx.bakeLayer(StatueBlackGoatModel.LAYER_LOCATION)),
         StatueKind.COUNTING        to StatueCountingModel(ctx.bakeLayer(StatueCountingModel.LAYER_LOCATION)),
+        StatueKind.OWL             to StatueOwlModel(ctx.bakeLayer(StatueOwlModel.LAYER_LOCATION)),
     )
 
     override fun render(
@@ -64,12 +67,21 @@ class StatueBlockEntityRenderer(ctx: BlockEntityRendererProvider.Context) :
         // facing arrow.
         pose.mulPose(Axis.YP.rotationDegrees(-facing.toYRot() + 180f))
         pose.scale(-1.0f, -1.0f, 1.0f)
+        if (model is StatueOwlModel) OwlSightTracker.poseOwl(be.blockPos.asLong(), pose.last().pose(), model)
 
         // entityTranslucentCull: alpha-aware (so the texture's transparency is honoured)
         // *and* back-face-culled (vanilla Blockbench models expect single-sided faces;
         // without culling, near-coplanar parts z-fight).
         val consumer = buffers.getBuffer(RenderType.entityTranslucentCull(block.kind.texture))
         model.renderToBuffer(pose, consumer, packedLight, OverlayTexture.NO_OVERLAY, 1f, 1f, 1f, 1f)
+        renderStatueEmissive(block.kind, model, pose, buffers)
         pose.popPose()
     }
+}
+
+/** Same render type as [SselithMothEmissiveLayer]: full-bright, alpha-masked, not additive. */
+fun renderStatueEmissive(kind: StatueKind, model: EntityModel<Entity>, pose: PoseStack, buffers: MultiBufferSource) {
+    val texture = kind.emissiveTexture ?: return
+    val consumer = buffers.getBuffer(RenderType.entityTranslucentEmissive(texture))
+    model.renderToBuffer(pose, consumer, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 1f, 1f, 1f, 1f)
 }

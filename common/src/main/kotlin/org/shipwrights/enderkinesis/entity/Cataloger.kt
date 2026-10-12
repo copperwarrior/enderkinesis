@@ -96,7 +96,10 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
         goalSelector.addGoal(2, WanderToTaggedBlockGoal(this, SEARCH_RADIUS))
         // Lower priority than the POI goal: only drifts to a random point when no
         // target is found; a POI find at priority 2 interrupts it.
-        goalSelector.addGoal(3, CatalogerWanderGoal(this, SEARCH_RADIUS, MOVE_SPEED))
+        goalSelector.addGoal(
+            3,
+            CatalogerWanderGoal(this, SEARCH_RADIUS, MOVE_SPEED, WANDER_NODE_MULTIPLIER, PATHFIND_NODE_MULTIPLIER),
+        )
         goalSelector.addGoal(6, RandomLookAroundGoal(this))
     }
 
@@ -237,12 +240,39 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
     var intersectionAlpha: Float = 1f
         private set
 
+    // LivingEntity.aiStep skips serverAiStep (goals, navigation, move control) while immobile,
+    // and Mob.serverAiStep is final, so this is the gate for distant, unseen catalogers.
+    override fun isImmobile(): Boolean =
+        super.isImmobile() || (!level().isClientSide && level().getNearestPlayer(this, ACTIVE_RANGE) == null)
+
     override fun aiStep() {
         super.aiStep()
+        val phaseTick = advanceWalkAnimation(this)
+
+        if (walkBlend > WALK_AUDIBLE_THRESHOLD) {
+            if (phaseTick == LEFT_PLANT_PHASE || phaseTick == RIGHT_PLANT_PHASE) {
+                playFootstepNow()
+            }
+            if (this.tickCount % DUST_INTERVAL_TICKS == 0) {
+                spawnDustTrail()
+            }
+        }
+
+        // Vanilla pushEntities (which we don't override — see [pushNearbyCatalogers])
+        // skips other catalogers because their `isPushable = false`. Run our own
+        // gentle pass here so catalogers still shove each other apart.
+        pushNearbyCatalogers()
+    }
+
+    /**
+     * Advance [walkBlend] and the animation clocks by one tick from [mover]'s horizontal motion, and
+     * return the walking-cycle phase tick. A client-only stand-in passes the player it mirrors.
+     */
+    fun advanceWalkAnimation(mover: Entity): Int {
         // Cheap moving check based on the tick's horizontal displacement. Using
         // `deltaMovement` would also work but reads zero for pathfinder mobs in
         // certain navigation transitions; positional delta is more reliable.
-        val dxz = (x - xo) * (x - xo) + (z - zo) * (z - zo)
+        val dxz = (mover.x - mover.xo) * (mover.x - mover.xo) + (mover.z - mover.zo) * (mover.z - mover.zo)
         val moving = dxz > MOVE_EPSILON
 
         walkBlendOld = walkBlend
@@ -261,21 +291,7 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
             walkAnimStartTick = this.tickCount
         }
 
-        val phaseTick = Math.floorMod(this.tickCount - walkAnimStartTick, WALKING_CYCLE_TICKS)
-
-        if (walkBlend > WALK_AUDIBLE_THRESHOLD) {
-            if (phaseTick == LEFT_PLANT_PHASE || phaseTick == RIGHT_PLANT_PHASE) {
-                playFootstepNow()
-            }
-            if (this.tickCount % DUST_INTERVAL_TICKS == 0) {
-                spawnDustTrail()
-            }
-        }
-
-        // Vanilla pushEntities (which we don't override — see [pushNearbyCatalogers])
-        // skips other catalogers because their `isPushable = false`. Run our own
-        // gentle pass here so catalogers still shove each other apart.
-        pushNearbyCatalogers()
+        return Math.floorMod(this.tickCount - walkAnimStartTick, WALKING_CYCLE_TICKS)
     }
 
     /** Cancel the vanilla distance-triggered step sound. Footsteps are emitted
@@ -555,7 +571,15 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
          *  with, enough budget for the
          *  [org.shipwrights.enderkinesis.entity.WanderToTaggedBlockGoal.SAME_FLOOR_Y]
          *  = 48-block vertical reach. */
-        private const val PATHFIND_NODE_MULTIPLIER = 8f
+        internal const val PATHFIND_NODE_MULTIPLIER = 8f
+
+        /** Wander pathfinds only: ~3 800 nodes (FOLLOW_RANGE 192 × 16 × this). A random target in
+         *  [SEARCH_RADIUS] that needs more is a long detour or unreachable; the partial path still
+         *  walks toward it, and the next wander picks a new target. */
+        internal const val WANDER_NODE_MULTIPLIER = 1.25f
+
+        /** Catalogers farther than this from every player run no AI and stand still. */
+        private const val ACTIVE_RANGE = 64.0
 
         /** Length of one walking-animation cycle in server ticks (4 s × 20 tps). */
         private const val WALKING_CYCLE_TICKS = 80

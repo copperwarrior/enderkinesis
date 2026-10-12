@@ -107,6 +107,18 @@ object RefractionPass {
             effect.setSampler(name, supplier)
         }
 
+        drawQuad(effect, w, h, configureUniforms)
+
+        // Do not change this to a restore of the entry state without a cloak test: that
+        // change went together with wrong depth in the cloak view.
+        RenderSystem.depthMask(true)
+        RenderSystem.enableBlend()
+        RenderSystem.enableDepthTest()
+        RenderSystem.enableCull()
+    }
+
+    /** Draws [effect] over a [w]×[h] target with the shared ProjMat / InSize / OutSize uniforms. */
+    fun drawQuad(effect: EffectInstance, w: Int, h: Int, configureUniforms: (EffectInstance) -> Unit) {
         // Y-up ortho (bottom=0, top=h) matches vanilla PostPass.process — the
         // quad's vertex (0,0) maps to the framebuffer's bottom-left, which is
         // also where texture coordinate (0,0) lives, so the vsh's
@@ -134,9 +146,5 @@ object RefractionPass {
         RenderSystem.setProjectionMatrix(savedProj, VertexSorting.DISTANCE_TO_ORIGIN)
 
         effect.clear()
-        RenderSystem.depthMask(true)
-        RenderSystem.enableBlend()
-        RenderSystem.enableDepthTest()
-        RenderSystem.enableCull()
     }
 }

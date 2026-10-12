@@ -27,6 +27,9 @@ import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.util.LoadedRay
+import org.shipwrights.enderkinesis.util.ShipBlockMove
+import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.Ship
@@ -36,6 +39,7 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.BlockEntityPhysicsListener
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 
 /**
@@ -55,7 +59,8 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.EYEROSCOPE.get(), pos, state),
     BlockEntityPhysicsListener,
-    Commandable {
+    Commandable,
+    ShipMoveListener {
 
     @Volatile override lateinit var dimension: DimensionId
 
@@ -211,6 +216,11 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  the same problem by tracking a world position and recomputing yaw every tick;
      *  the staff hits pin shares that machinery. */
     override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
+        // The eyeroscope has no trigger — pointing it somewhere IS the whole
+        // command, which the staff's left-click "Aim To" delivers below.
+    }
+
+    override fun executeAimCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
         if (!contextStack.isEmpty) return  // reserved for future off-hand-driven modes
         val serverLevel = level as? ServerLevel ?: return
 
@@ -218,21 +228,13 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // blocks, but .location is always world coords — that's what we latch.
         val eye = player.getEyePosition(1f)
         val look = player.getViewVector(1f)
-        val end = eye.add(look.scale(256.0))
+        val end = eye.add(look.scale(LoadedRay.range(serverLevel, eye, look, 256.0)))
         val hit = serverLevel.clip(
             ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player),
         )
 
         if (hit.type == HitResult.Type.BLOCK) {
-            staffPinWorld = hit.location
-            // Pin overrides any prior static yaw; cachedTargetYawRad goes NaN so the
-            // physTick branch order picks the pin path. (setStaticTargetYaw would
-            // overwrite this; we intentionally don't call it here.)
-            staticTargetYawRad = Float.NaN
-            cachedTargetYawRad = Float.NaN
-            staticTargetPitchRad = 0f
-            cachedTargetPitchRad = 0f
-            syncAfterChange()
+            pinFromGazeHit(serverLevel, hit)
             return
         }
 
@@ -243,6 +245,95 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         val yawRad = Math.atan2(-look.x, look.z).toFloat()
         val pitchRad = Math.asin(-look.y).toFloat()
         setStaticTargetYaw(yawRad, pitchRad)
+    }
+
+    /** Ship-block pin anchor: when the staff's gaze lands on a SHIP block, the pin
+     *  tracks the block's WORLD position as the ship moves ([serverTick] re-derives
+     *  [staffPinWorld] through the live transform). -1 = plain static world pin. */
+    private var pinShipId: Long = -1L
+    private var pinShipX = 0.0
+    private var pinShipY = 0.0
+    private var pinShipZ = 0.0
+
+    /** Pin the eye on a world point (staff gaze hit or a Shulkonaut order). Pin
+     *  overrides any prior static yaw; cachedTargetYawRad goes NaN so the physTick
+     *  branch order picks the pin path. */
+    private fun pinToWorldPoint(point: net.minecraft.world.phys.Vec3) {
+        pinShipId = -1L
+        staffPinWorld = point
+        staticTargetYawRad = Float.NaN
+        cachedTargetYawRad = Float.NaN
+        staticTargetPitchRad = 0f
+        cachedTargetPitchRad = 0f
+        syncAfterChange()
+    }
+
+    /** Pin onto a SHIP-frame point — the eye keeps tracking the block through the
+     *  ship's motion instead of staring at where it used to be. */
+    private fun pinToShipPoint(shipId: Long, shipFrame: org.joml.Vector3dc, worldNow: net.minecraft.world.phys.Vec3) {
+        pinToWorldPoint(worldNow)
+        pinShipId = shipId
+        pinShipX = shipFrame.x()
+        pinShipY = shipFrame.y()
+        pinShipZ = shipFrame.z()
+    }
+
+    /** Re-derive a tracked pin's world point from the live ship transform. */
+    private fun refreshTrackedPin(level: ServerLevel) {
+        if (pinShipId == -1L) return
+        val ship = level.shipObjectWorld.loadedShips.getById(pinShipId) ?: return
+        val v = ship.shipToWorld.transformPosition(org.joml.Vector3d(pinShipX, pinShipY, pinShipZ))
+        staffPinWorld = Vec3(v.x, v.y, v.z)
+    }
+
+    override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
+        val point = org.joml.Vector3d(pinShipX, pinShipY, pinShipZ)
+        if (move.followPoint(pinShipId, point)) {
+            pinShipId = move.toShipId
+            pinShipX = point.x
+            pinShipY = point.y
+            pinShipZ = point.z
+            setChanged()
+        }
+        compassPinPos?.let { pin ->
+            if (move.contains(pin)) {
+                compassPinPos = move.mapBlock(pin)
+                setChanged()
+            }
+        }
+    }
+
+    /** Classify a mixed-frame gaze hit: pin tracked for ship blocks, static otherwise.
+     *  VS2's clip returns .location in WORLD and .blockPos in SHIPYARD coords. */
+    private fun pinFromGazeHit(serverLevel: ServerLevel, hit: net.minecraft.world.phys.BlockHitResult) {
+        val ship = serverLevel.getShipManagingPos(hit.blockPos)
+        if (ship != null) {
+            val local = ship.transform.worldToShip.transformPosition(
+                org.joml.Vector3d(hit.location.x, hit.location.y, hit.location.z),
+            )
+            pinToShipPoint(ship.id, local, hit.location)
+        } else {
+            pinToWorldPoint(hit.location)
+        }
+    }
+
+    /** Shulkonaut orders: track the target. Re-pinned every command beat, so a moving
+     *  target gets followed in steps. */
+    override fun executeAutoCommand(target: net.minecraft.world.entity.Entity, hostShip: Ship?) {
+        pinToWorldPoint(target.getEyePosition(1f))
+    }
+
+    override fun executeAutoCommandAt(
+        targetPos: net.minecraft.world.phys.Vec3,
+        targetAnchor: net.minecraft.core.BlockPos?,
+        hostShip: Ship?,
+    ) {
+        pinToWorldPoint(targetPos)
+    }
+
+    override fun executeAutoAim(targetPos: net.minecraft.world.phys.Vec3, hostShip: Ship?): Boolean {
+        pinToWorldPoint(targetPos)
+        return true
     }
 
     /** Echo-shard right-click. No-op if already upgraded so a second shard isn't silently
@@ -331,6 +422,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  gets handed back to the player. */
     fun ejectCompass(): ItemStack {
         val out = compassStack
+        releaseMapHolder(out)
         val frozen = cachedTargetYawRad
         if (!frozen.isNaN()) staticTargetYawRad = frozen
         if (upgraded) staticTargetPitchRad = cachedTargetPitchRad
@@ -351,6 +443,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
 
     override fun setRemoved() {
         super.setRemoved()
+        releaseMapHolder(compassStack)
         registeredHostId?.let { eyeroscopesByShip[it]?.remove(blockPos) }
         registeredHostId = null
     }
@@ -367,6 +460,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     fun getCompassPin(): BlockPos? = compassPinPos
 
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
+        refreshTrackedPin(level)
         // Refresh facing each tick — cheap. Survives the block being rotated by some other
         // mod's tooling without needing a custom hook.
         cachedFacing = state.getValueOrElse(BlockStateProperties.HORIZONTAL_FACING, Direction.NORTH)
@@ -475,11 +569,16 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         val seenIds = HashSet<Long>(trackedList.size)
         for (i in 0 until trackedList.size) seenIds.add(trackedList.getCompound(i).getLong("id"))
 
-        var changed = false
-        for (s in level.shipObjectWorld.allShips.getIntersecting(aabb)) {
+        val allShips = level.shipObjectWorld.allShips
+        var changed = trimLedger(trackedList)
+        val dim = level.dimensionId
+        for (s in allShips.getIntersecting(aabb)) {
             if (s.id == hostId) continue
+            if (s.chunkClaimDimension != dim) continue
             if (jointed.any { it == s.id }) continue
-            if (!seenIds.add(s.id)) continue
+            if (seenIds.contains(s.id)) continue
+            if (!makeLedgerRoom(trackedList) { allShips.getById(it.getLong("id")) == null }) break
+            seenIds.add(s.id)
             val entry = CompoundTag()
             entry.putLong("id", s.id)
             entry.putString("slug", s.slug ?: "")
@@ -526,10 +625,12 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         val seenIds = HashSet<java.util.UUID>(trackedList.size)
         for (i in 0 until trackedList.size) seenIds.add(trackedList.getCompound(i).getUUID("id"))
 
-        var changed = false
+        var changed = trimLedger(trackedList)
         for (e in entities) {
             if (placer != null && e.uuid == placer) continue            // placer is exempt
-            if (!seenIds.add(e.uuid)) continue
+            if (seenIds.contains(e.uuid)) continue
+            if (!makeLedgerRoom(trackedList) { level.getEntity(it.getUUID("id"))?.isAlive != true }) break
+            seenIds.add(e.uuid)
             val entry = CompoundTag()
             entry.putUUID("id", e.uuid)
             entry.putString("type", e.type.toShortString())
@@ -547,6 +648,29 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
             setChanged()
             level.sendBlockUpdated(pos, blockState, blockState, 3)
         }
+    }
+
+    /** A ledger from before the cap can hold thousands of entries; the oldest go first. */
+    private fun trimLedger(list: net.minecraft.nbt.ListTag): Boolean {
+        if (list.size <= LEDGER_MAX_ENTRIES) return false
+        while (list.size > LEDGER_MAX_ENTRIES) list.removeAt(0)
+        return true
+    }
+
+    /** True when [list] has room for one more entry. A full list gives up one entry that
+     *  [isGone] (dead, unloaded or deleted). With none, the new sighting is skipped: to drop
+     *  the oldest live entry makes two visible targets replace each other on each scan. */
+    private inline fun makeLedgerRoom(
+        list: net.minecraft.nbt.ListTag, isGone: (CompoundTag) -> Boolean,
+    ): Boolean {
+        if (list.size < LEDGER_MAX_ENTRIES) return true
+        for (i in 0 until list.size) {
+            if (isGone(list.getCompound(i))) {
+                list.removeAt(i)
+                return true
+            }
+        }
+        return false
     }
 
     /** Pick the eyeroscope's current hunting steering target: the loaded tracked entity
@@ -738,6 +862,17 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  the BE rebuilds it, and vanilla's `carriedBy` lists are transient so the old one
      *  is gone. Stable UUID + name derived from `blockPos` so the PLAYER decoration
      *  (keyed by name) doesn't collide between eyeroscopes. */
+    /** Vanilla removes a holder whose inventory does not have the map. Without this call the
+     *  map data keeps the stub player and its decoration for the session. */
+    private fun releaseMapHolder(stack: ItemStack) {
+        val holder = mapHolder ?: return
+        mapHolder = null
+        val server = level as? ServerLevel ?: return
+        if (!stack.`is`(Items.FILLED_MAP)) return
+        holder.inventory.setItem(0, ItemStack.EMPTY)
+        MapItem.getSavedData(stack, server)?.tickCarriedBy(holder, stack)
+    }
+
     private fun ensureMapHolder(level: ServerLevel): EyeroscopeMapHolder {
         val existing = mapHolder
         if (existing != null && existing.level() === level) return existing
@@ -1143,6 +1278,12 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         }
         staffPinWorld?.let {
             tag.putDouble("StaffPinX", it.x); tag.putDouble("StaffPinY", it.y); tag.putDouble("StaffPinZ", it.z)
+            if (pinShipId != -1L) {
+                tag.putLong("StaffPinShip", pinShipId)
+                tag.putDouble("StaffPinSX", pinShipX)
+                tag.putDouble("StaffPinSY", pinShipY)
+                tag.putDouble("StaffPinSZ", pinShipZ)
+            }
         }
         huntingLedgerPlacer?.let { tag.putUUID("HuntingPlacer", it) }
     }
@@ -1158,6 +1299,14 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         } else null
         staffPinWorld = if (tag.contains("StaffPinX")) {
             Vec3(tag.getDouble("StaffPinX"), tag.getDouble("StaffPinY"), tag.getDouble("StaffPinZ"))
+                .also {
+                    if (tag.contains("StaffPinShip")) {
+                        pinShipId = tag.getLong("StaffPinShip")
+                        pinShipX = tag.getDouble("StaffPinSX")
+                        pinShipY = tag.getDouble("StaffPinSY")
+                        pinShipZ = tag.getDouble("StaffPinSZ")
+                    }
+                }
         } else null
         huntingLedgerPlacer = if (tag.hasUUID("HuntingPlacer")) tag.getUUID("HuntingPlacer") else null
         // In static mode, the cache is just the static yaw. In compass mode, leave it NaN
@@ -1178,7 +1327,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         return tag
     }
 
-    private companion object {
+    internal companion object {
         /** Proportional gain (1/s²) — desired α per radian of MC-yaw error. Doubled from
          *  the legacy 1.0 to compensate for the per-physics-tick fresh bearing read: the
          *  old game-tick refresh effectively overshot stale targets each refresh window,
@@ -1247,6 +1396,8 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         /** Ledger of Watching Eyes scan: half-extent (blocks) of the 64-cube around the
          *  eyeroscope's world position used for the ship-overlap query. */
         const val LEDGER_HALF_EXTENT: Int = 32
+        /** Each ledger entry is scanned each tick and sent with each block entity sync. */
+        private const val LEDGER_MAX_ENTRIES = 32
 
         /** Game ticks between ledger scans. 10 t = twice per second — fast enough that a
          *  ship passing through at modest speed lands in the log, slow enough that the
@@ -1260,6 +1411,9 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         /** Per-host-ship registry of active eyeroscopes. Keyed by host ship id; value is
          *  pos→BE so [updatePriorityRegistry] can iterate siblings and decide which one
          *  is closest to its target. Shared across all loaded eyeroscopes. */
+        /** A ship id of an old world can be the id of a different ship in the next world. */
+        fun clearSession() = eyeroscopesByShip.clear()
+
         val eyeroscopesByShip: ConcurrentHashMap<Long, MutableMap<BlockPos, EyeroscopeBlockEntity>> =
             ConcurrentHashMap()
 

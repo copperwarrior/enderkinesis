@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=up": { "model": "enderkinesis:block/ygann_barnacle" },
+    "facing=down": { "model": "enderkinesis:block/ygann_barnacle" },
+    "facing=north": { "model": "enderkinesis:block/ygann_barnacle" },
+    "facing=south": { "model": "enderkinesis:block/ygann_barnacle" },
+    "facing=west": { "model": "enderkinesis:block/ygann_barnacle" },
+    "facing=east": { "model": "enderkinesis:block/ygann_barnacle" }
+  }
+}

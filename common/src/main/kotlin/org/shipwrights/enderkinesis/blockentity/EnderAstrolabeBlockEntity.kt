@@ -41,7 +41,27 @@ import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 import org.valkyrienskies.mod.common.vsCore
 
 class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
-    BlockEntity(EKBlockEntities.ENDER_ASTROLABE.get(), pos, state) {
+    BlockEntity(EKBlockEntities.ENDER_ASTROLABE.get(), pos, state), Commandable {
+
+    /** Staff left-click "Aim To" with an Almanac of Everywhere in the OTHER
+     *  hand: cycle the destination through the almanac's stored entries —
+     *  the same flow as right-clicking the astrolabe with the almanac, made
+     *  remote. No almanac in the off-hand = no-op. */
+    override fun executeAimCommand(
+        player: net.minecraft.world.entity.player.Player,
+        hostShip: org.valkyrienskies.core.api.ships.Ship?,
+        contextStack: net.minecraft.world.item.ItemStack,
+    ) {
+        if (contextStack.item !is org.shipwrights.enderkinesis.item.AlmanacOfEverywhereItem) return
+        cycleDestination(player, contextStack)
+    }
+
+    /** The astrolabe has no staff trigger — charging is redstone-driven. */
+    override fun executeStaffCommand(
+        player: net.minecraft.world.entity.player.Player,
+        hostShip: org.valkyrienskies.core.api.ships.Ship?,
+        contextStack: net.minecraft.world.item.ItemStack,
+    ) {}
 
     private var destination: ResourceLocation? = null
 
@@ -253,13 +273,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             1.0f, 1.0f,
         )
 
-        LOG.info(
-            "[EK astrolabe] trigger pos={} dim={} dest={} ship={} radius={} duration={}t " +
-                "shipPosInWorld={} shipAABB={}",
-            blockPos, level.dimension().location(), destination,
-            ship?.id, "%.2f".format(radius), durationTicks,
-            ship?.transform?.positionInWorld, ship?.shipAABB,
-        )
     }
 
     /** Per-tick check from the block's `BlockEntityTicker`. Drives the charge → teleport
@@ -356,17 +369,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         val sizeY = maxY - minY
         val sizeZ = maxZ - minZ
         val landing = SafeTeleporter.findShipLanding(target, approxX, approxZ, sizeX, sizeY, sizeZ)
-        LOG.info(
-            "[EK astrolabe] check srcDim={} srcAABBcentre=({},{},{}) scale={} " +
-                "destDim={} approx=({},{}) shipSize=({}x{}x{}) → landing={}",
-            level.dimension().location(),
-            "%.2f".format((minX + maxX) * 0.5), "%.2f".format((minY + maxY) * 0.5),
-            "%.2f".format((minZ + maxZ) * 0.5),
-            "%.4f".format(scale),
-            target.dimension().location(), approxX, approxZ,
-            "%.2f".format(sizeX), "%.2f".format(sizeY), "%.2f".format(sizeZ),
-            landing,
-        )
         if (landing != null) acceptedLandingPos = landing
     }
 
@@ -385,8 +387,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
         if (messageKey != null) announce(level, Component.translatable(messageKey))
-        LOG.info("[EK astrolabe] fail-out at pos={} dim={} — {}",
-            blockPos, level.dimension().location(), logReason)
     }
 
     /** Charge window has finished — bake the accumulated spin into the persistent roll
@@ -397,7 +397,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *  one of the distributed checks is what actually gets used for the ship teleport. */
     private fun executeJumpAfterCharge(level: ServerLevel, pos: BlockPos) {
         if (chargeStartTick == -1L) return                  // canceled / never armed
-        LOG.info("[EK astrolabe] charge complete at pos={} acceptedLanding={}", pos, acceptedLandingPos)
         // Freeze the displayed roll where it currently is. Setting `animationStartTick =
         // MIN_VALUE` makes [displayRoll]'s base path return `rollTarget`; we set both
         // start and target to the displayed value so there's no further animation step.
@@ -586,17 +585,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             val originalForLog = recordOriginalAndIncrement(entity)
             entity.isNoGravity = true
             entity.deltaMovement = Vec3.ZERO
-            LOG.info(
-                "[EK astrolabe] freeze rider uuid={} type={} dim={} capturedPos=({},{},{}) " +
-                    "onGround={} originalNoGravity={} vehicle={} bbY=[{},{}]",
-                entity.uuid, entity.type.toShortString(), entity.level().dimension().location(),
-                "%.3f".format(capturedPos.x), "%.3f".format(capturedPos.y), "%.3f".format(capturedPos.z),
-                entity.onGround(), originalForLog, entity.vehicle?.uuid,
-                "%.3f".format(entity.boundingBox.minY), "%.3f".format(entity.boundingBox.maxY),
-            )
         }
-        LOG.info("[EK astrolabe] freeze applied to {} entities (dragged={} obb={})",
-            riders.size, draggedRiders.size, obbRiders.size)
 
         // Scale the ship's current world centre into the target dimension.
         val approxX = Math.floor((minX + maxX) * 0.5 * scale).toInt()
@@ -621,16 +610,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         val curCenter = Vec3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5)
         val delta = landing.subtract(curCenter)
 
-        LOG.info(
-            "[EK astrolabe] pre-teleport ship={} srcDim={} positionInWorld={} curCenter={} " +
-                "destDim={} landing={} delta={} computedNewPos={}",
-            shipId, level.dimension().location(),
-            ship.transform.positionInWorld, curCenter,
-            target.dimension().location(), landing, delta,
-            Vec3(ship.transform.positionInWorld.x() + delta.x,
-                 ship.transform.positionInWorld.y() + delta.y,
-                 ship.transform.positionInWorld.z() + delta.z),
-        )
 
         // Per-tick wait-and-unfreeze loop. We can't use `vsCore.afterShipTeleportEvent` +
         // `TickTask(now+1)` like before, because that fires before the ship's chunks have
@@ -709,10 +688,6 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 // a defensive listener that just unregisters here would *leak* every frozen
                 // rider's noGravity = true). Unfreeze on whichever level is still live before
                 // dropping out — better to over-restore than to leave the player floating.
-                LOG.warn("[EK astrolabe] post-teleport listener saw a null level (src={}, dst={}); " +
-                    "force-unfreezing {} riders before unregistering",
-                    sourceLvl?.dimension()?.location(), targetLvl?.dimension()?.location(),
-                    riders.size)
                 unfreezeAll(sourceLvl, targetLvl)
                 unregisterSelf(srv)
                 return@Server
@@ -741,21 +716,10 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 // Ship hasn't finished loading in destination yet — keep waiting.
                 return@Server
             }
-            if (targetShip == null) {
-                LOG.warn("[EK astrolabe] post-teleport timed out after {} ticks waiting for ship {} " +
-                    "to load in {}, executing rider teleport anyway", elapsed, shipId, targetDimKey.location())
-            }
 
             // Locate the (now-loaded) ship for logging + the particle burst.
             val landedShipForFx = targetShip as? LoadedServerShip
             landedShipForFx?.let { l ->
-                LOG.info(
-                    "[EK astrolabe] post-teleport ship={} dim={} positionInWorld={} " +
-                        "shipAABB={} riders={} (dragged={} obb={}) elapsed={}t",
-                    shipId, targetDimKey.location(),
-                    l.transform.positionInWorld, l.shipAABB,
-                    riders.size, draggedRiders.size, obbRiders.size, elapsed,
-                )
             }
 
             // Step 1: teleport each rider to (oldPos + delta) in the target dim.
@@ -766,25 +730,8 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 val newZ = oldPos.z + delta.z
                 val preDim = entity.level().dimension().location()
                 val prePos = entity.position()
-                LOG.info(
-                    "[EK astrolabe] teleport rider uuid={} preTpDim={} preTpPos=({},{},{}) " +
-                        "oldPos=({},{},{}) delta=({},{},{}) → newPos=({},{},{})",
-                    uuid, preDim,
-                    "%.3f".format(prePos.x), "%.3f".format(prePos.y), "%.3f".format(prePos.z),
-                    "%.3f".format(oldPos.x), "%.3f".format(oldPos.y), "%.3f".format(oldPos.z),
-                    "%.3f".format(delta.x), "%.3f".format(delta.y), "%.3f".format(delta.z),
-                    "%.3f".format(newX), "%.3f".format(newY), "%.3f".format(newZ),
-                )
                 SafeTeleporter.teleportTo(entity, targetLvl, newX, newY, newZ)
                 val landed = targetLvl.getEntity(uuid)
-                LOG.info(
-                    "[EK astrolabe] teleport rider uuid={} postTpDim={} actualPos={} bbY=[{},{}]",
-                    uuid,
-                    landed?.level()?.dimension()?.location(),
-                    landed?.position(),
-                    landed?.let { "%.3f".format(it.boundingBox.minY) } ?: "?",
-                    landed?.let { "%.3f".format(it.boundingBox.maxY) } ?: "?",
-                )
             }
 
             // Step 2: re-establish riding via UUID lookup. UUIDs are preserved across
@@ -804,18 +751,12 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             unfreezeAll(sourceLvl, targetLvl)
             for ((uuid, _) in capturedRiders) {
                 val entity = targetLvl.getEntity(uuid) ?: sourceLvl.getEntity(uuid) ?: continue
-                LOG.info(
-                    "[EK astrolabe] unfreeze rider uuid={} finalPos={} restoredNoGravity={} onGround={}",
-                    uuid, entity.position(), entity.isNoGravity, entity.onGround(),
-                )
             }
 
             // Step 4: destination-side particle burst (now that the ship is in the dest
             // dim's loadedShips and we have a current OBB to sample from).
             if (landedShipForFx != null) emitOBBTeleportParticles(targetLvl, landedShipForFx)
 
-            LOG.info("[EK astrolabe] post-teleport unfreeze: remount={}/{} pairs, elapsed={}t",
-                remountedCount, ridingLinks.size, elapsed)
 
             unregisterSelf(srv)
             } catch (t: Throwable) {
@@ -890,7 +831,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         )
     }
 
-    private companion object {
+    internal companion object {
         private val LOG = LogUtils.getLogger()
 
         /** Ticks to keep the post-teleport listener before giving up on it. */
@@ -990,6 +931,16 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
          *  refcount and keep the previously-captured original. Returns the value that
          *  *will* be used to restore the entity (i.e. the genuine original, regardless of
          *  which jump runs first / last). */
+        /** A server stop inside the jump window saved the riders with no gravity. */
+        fun restoreFrozenRiders(server: net.minecraft.server.MinecraftServer) {
+            for ((uuid, record) in pendingFreezeOriginals) {
+                for (level in server.allLevels) {
+                    level.getEntity(uuid)?.isNoGravity = record.original
+                }
+            }
+            pendingFreezeOriginals.clear()
+        }
+
         private fun recordOriginalAndIncrement(entity: net.minecraft.world.entity.Entity): Boolean {
             var original = false
             pendingFreezeOriginals.compute(entity.uuid) { _, prev ->

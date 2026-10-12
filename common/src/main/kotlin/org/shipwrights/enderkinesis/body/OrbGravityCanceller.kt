@@ -23,10 +23,17 @@ object OrbBodyRegistry {
 
     private val byDimension: MutableMap<String, MutableMap<Long, Vector3d>> = ConcurrentHashMap()
 
+    /** Counts each change of the table. The physics tick reads it to know that its list of
+     *  simulated orbs is old. */
+    @Volatile
+    var version: Int = 0
+        private set
+
     fun add(level: ServerLevel, bodyId: Long, anchor: Vector3dc) {
         if (bodyId == 0L) return
         OrbWorldData.get(level).put(bodyId, anchor)
         memMirror(level.dimensionId)[bodyId] = Vector3d(anchor)
+        version++
         OrbBodyNetwork.broadcastAdded(level, bodyId, anchor)
     }
 
@@ -34,6 +41,7 @@ object OrbBodyRegistry {
         if (bodyId == 0L) return
         OrbWorldData.get(level).remove(bodyId)
         byDimension[level.dimensionId]?.remove(bodyId)
+        version++
         OrbBodyNetwork.broadcastRemoved(level, bodyId)
     }
 
@@ -44,10 +52,30 @@ object OrbBodyRegistry {
         for ((id, anchor) in data.snapshot()) {
             mirror[id] = Vector3d(anchor)
         }
+        version++
     }
 
     fun forEachIn(dimensionId: String, action: (Long, Vector3dc) -> Unit) {
         byDimension[dimensionId]?.forEach { (id, anchor) -> action(id, anchor) }
+    }
+
+    // Server thread only.
+    private val nearCaches: MutableMap<String, OrbNear.Cache> = HashMap()
+
+    /** Ids of the orbs of [level] near a player. Server thread only; the array is shared. */
+    fun near(level: ServerLevel): LongArray {
+        val dimensionId = level.dimensionId
+        val orbs = byDimension[dimensionId] ?: return NO_IDS
+        return nearCaches.getOrPut(dimensionId) { OrbNear.Cache() }.get(level, orbs.keys)
+    }
+
+    private val NO_IDS = LongArray(0)
+
+    /** True when no dimension has an orb. For the per-move fast exit; any thread. */
+    @JvmStatic
+    fun hasNone(): Boolean {
+        for (orbs in byDimension.values) if (orbs.isNotEmpty()) return false
+        return true
     }
 
     fun contains(level: ServerLevel, bodyId: Long): Boolean =
@@ -69,7 +97,7 @@ object OrbBodyRegistry {
  *  range the orb is "free", no pull at all. */
 object OrbGravityCanceller {
 
-    /** VS2 world gravity magnitude (m/s²). Matches [VoidGravityController]. */
+    /** VS2 world gravity magnitude (m/s²). */
     private const val GRAVITY: Double = 10.0
     /** Outside this radius (blocks = m) we don't pull at all. */
     private const val ANCHOR_PULL_RANGE: Double = 32.0
@@ -99,6 +127,21 @@ object OrbGravityCanceller {
 
     @Volatile private var registered: Boolean = false
 
+    /** The orbs that VS2 simulates now. The orb table has no upper limit (orbs are
+     *  permanent), and most of its bodies are not loaded; a full pass at 60 Hz is the cost. */
+    private class ActiveOrbs {
+        val ids = it.unimi.dsi.fastutil.longs.LongArrayList()
+        val anchors = ArrayList<Vector3dc>()
+        var framesToScan = 0
+        var seenVersion = -1
+    }
+
+    private val activeByDimension = ConcurrentHashMap<String, ActiveOrbs>()
+
+    /** Physics frames between full passes. A body that loads in between falls for this
+     *  time at most (10 frames: about 0.14 m), then the anchor spring returns it. */
+    private const val RESCAN_FRAMES = 10
+
     fun register() {
         if (registered) return
         registered = true
@@ -108,10 +151,26 @@ object OrbGravityCanceller {
             val forceScratch = Vector3d()
             val toAnchor = Vector3d()
             val torqueScratch = Vector3d()
-            OrbBodyRegistry.forEachIn(dim) { bodyId, anchor ->
-                val body = physLevel.getBodyById(bodyId) ?: return@forEachIn
+            val active = activeByDimension.computeIfAbsent(dim) { ActiveOrbs() }
+            val version = OrbBodyRegistry.version
+            if (--active.framesToScan <= 0 || active.seenVersion != version) {
+                active.framesToScan = RESCAN_FRAMES
+                active.seenVersion = version
+                active.ids.clear()
+                active.anchors.clear()
+                OrbBodyRegistry.forEachIn(dim) { bodyId, anchor ->
+                    if (physLevel.getBodyById(bodyId) != null) {
+                        active.ids.add(bodyId)
+                        active.anchors.add(anchor)
+                    }
+                }
+            }
+            for (i in 0 until active.ids.size) {
+                val bodyId = active.ids.getLong(i)
+                val anchor = active.anchors[i]
+                val body = physLevel.getBodyById(bodyId) ?: continue
                 val mass = body.inertiaData.mass
-                if (mass <= 0.0) return@forEachIn
+                if (mass <= 0.0) continue
 
                 // Counter-gravity.
                 forceScratch.set(0.0, mass * GRAVITY, 0.0)

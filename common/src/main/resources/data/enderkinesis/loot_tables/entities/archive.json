@@ -19,6 +19,14 @@
         },
         {
           "type": "minecraft:item",
+          "name": "enderkinesis:old_paper",
+          "weight": 4,
+          "functions": [
+            { "function": "enderkinesis:set_scrap", "category": "enderkinesis:sselith_scraps" }
+          ]
+        },
+        {
+          "type": "minecraft:item",
           "name": "enderkinesis:scholar_hood",
           "weight": 1
         },

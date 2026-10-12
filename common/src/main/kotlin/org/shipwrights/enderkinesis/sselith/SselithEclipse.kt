@@ -2,13 +2,13 @@ package org.shipwrights.enderkinesis.sselith
 
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.EntityEvent
+import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.FriendlyByteBuf
-import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
@@ -60,10 +60,13 @@ object SselithEclipse {
      *  [SselithRepertoryLighting] so what looks bright is what hurts. */
     private const val BLOCK_LIGHT_DAMAGE_MIN = 7
 
+    /** At full eclipse, block light 5 reads as 3. */
+    private const val BLOCK_LIGHT_SCALE = 0.60f
+    private const val BLOCK_LIGHT_MAX_DROP = 2
+
     private const val PLAYER_TICK_PERIOD = 40
     private const val MOB_TICK_PERIOD = 40
     private const val ITEM_TICK_PERIOD = 100
-    private const val CHAT_LOG_PERIOD = 40
     private const val DAMAGE_BASE = 2.0f
     private const val DAMAGE_RAMPED = 4.0f
 
@@ -107,8 +110,12 @@ object SselithEclipse {
      *  `SselithEclipseClient` and calls [setClientManualTrigger]. */
     val TRIGGER_PACKET: ResourceLocation = EnderkinesisMod.id("sselith_eclipse/trigger")
 
+    /** S2C: the player with the given entity id (VarInt) died from Light Damage. */
+    val LIGHT_DEATH_PACKET: ResourceLocation = EnderkinesisMod.id("sselith_eclipse/light_death")
+
     fun init() {
         TickEvent.PLAYER_POST.register(::tickPlayer)
+        PlayerEvent.PLAYER_QUIT.register { exposure.remove(it.uuid) }
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
         EntityEvent.LIVING_DEATH.register(::onLivingDeath)
     }
@@ -164,32 +171,33 @@ object SselithEclipse {
         manualTriggerStart = start
     }
 
-    /** Side-aware resolver from [LightChunkGetter] (the field shadowed in the eclipse
-     *  light mixins) back to a [Level]. Server side handles itself via the typed
-     *  [ServerChunkCache] cast below. Client side registers its own resolver from
-     *  `SselithEclipseClient.init()` so the common-side mixins can resolve the
-     *  client-side level without importing `ClientChunkCache` (which would crash on a
-     *  dedicated server). The shared resolution path keeps server-side reads and
-     *  client-side reads using exactly the same level reference + intensity input,
-     *  i.e. byte-for-byte identical scale at any given (gameTime, manualTrigger). */
-    @Volatile private var clientLevelResolver: ((LightChunkGetter) -> Level?)? = null
-
-    fun setClientLevelResolver(resolver: (LightChunkGetter) -> Level?) {
-        clientLevelResolver = resolver
+    fun clearClientManualTrigger() {
+        manualTriggerStart = NO_MANUAL
     }
 
+    /** Server engines only. Chunk meshes bake light reads and Sodium's `WorldSlice` does
+     *  not use `LightEngine`, so the client shows the eclipse in the lightmap
+     *  (`SselithRepertoryLighting.writeLightmap`) and its engines stay unchanged. */
     @JvmStatic
-    fun resolveLevelForLightEngine(chunkSource: LightChunkGetter?): Level? {
-        if (chunkSource == null) return null
-        if (chunkSource is ServerChunkCache) return chunkSource.level
-        return clientLevelResolver?.invoke(chunkSource)
+    fun resolveLevelForLightEngine(chunkSource: LightChunkGetter?): Level? =
+        (chunkSource as? ServerChunkCache)?.level
+
+    /** Block light level at the given eclipse intensity. The drop has a limit of
+     *  [BLOCK_LIGHT_MAX_DROP], so the blocks adjacent to a light source stay lit. */
+    @JvmStatic
+    fun eclipsedBlockLight(level: Float, eclipse: Float): Float {
+        val scaled = level * (1f - eclipse + eclipse * BLOCK_LIGHT_SCALE)
+        return maxOf(scaled, level - eclipse * BLOCK_LIGHT_MAX_DROP, 0f)
     }
 
     private fun tickPlayer(player: Player) {
         if (player !is ServerPlayer) return
         if (player.isSpectator || player.isCreative) return
-        if (player.level().dimension() != SselithRepertory.LEVEL_KEY) return
         if (player.tickCount % PLAYER_TICK_PERIOD != 0) return
+        if (player.level().dimension() != SselithRepertory.LEVEL_KEY) {
+            exposure.remove(player.uuid)
+            return
+        }
 
         val level = player.serverLevel()
         if (intensity(level.gameTime) <= 0f ||
@@ -211,24 +219,6 @@ object SselithEclipse {
         if (intensity(tick) <= 0f) return
         if (tick % MOB_TICK_PERIOD == 0L) tickMobs(level)
         if (tick % ITEM_TICK_PERIOD == 0L) tickItems(level)
-        if (tick % CHAT_LOG_PERIOD == 0L) broadcastProgress(level, tick)
-    }
-
-    private fun broadcastProgress(level: ServerLevel, tick: Long) {
-        val players = level.players()
-        if (players.isEmpty()) return
-        val tickInWindow = currentActiveTick(tick)
-        val phase = when {
-            tickInWindow < RAMP_TICKS -> "ramp-in"
-            tickInWindow < ACTIVE_TICKS - RAMP_TICKS -> "full"
-            else -> "ramp-out"
-        }
-        val pct = (intensity(tick) * 100f).toInt()
-        val remaining = ACTIVE_TICKS - tickInWindow
-        val msg = Component.literal(
-            "Sselith Eclipse — $phase | intensity $pct% | tick $tickInWindow/$ACTIVE_TICKS ($remaining left)",
-        )
-        for (player in players) player.sendSystemMessage(msg)
     }
 
     /** Tick offset into the currently-active eclipse window (manual override wins, then
@@ -299,6 +289,14 @@ object SselithEclipse {
         if (!isLightDamageSource(source)) return EventResult.pass()
         val level = entity.level() as? ServerLevel ?: return EventResult.pass()
         spawnDustBurst(level, entity.x, entity.y + entity.bbHeight * 0.5, entity.z)
+        // The client starts the fall-over animation from the synced health value, so it must hide the body.
+        if (entity is ServerPlayer) {
+            for (viewer in level.players()) {
+                val buf = FriendlyByteBuf(Unpooled.buffer())
+                buf.writeVarInt(entity.id)
+                NetworkManager.sendToPlayer(viewer, LIGHT_DEATH_PACKET, buf)
+            }
+        }
         return EventResult.pass()
     }
 

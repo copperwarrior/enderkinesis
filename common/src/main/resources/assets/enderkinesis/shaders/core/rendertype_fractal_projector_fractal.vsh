@@ -1,13 +1,7 @@
 #version 150
 
-// Fractal-sphere vertex shader. The BER emits this mesh WITHOUT a
-// camera-rotation `mulPose`, but MC's BE dispatcher's pose stack at
-// our entry already has the camera_view rotation composed onto a
-// blockPos-cameraPos translate. `consumer.vertex(matrix, ...)` bakes
-// that whole matrix into the `Position` attribute, so by the time the
-// vertex shader sees it, `Position` is in VIEW SPACE (not world,
-// despite the historical name). `ModelViewMat` is effectively identity
-// during BE rendering for the same reason.
+// Fractal-sphere vertex shader. `Position` is mesh-local (a baked VBO);
+// `ModelViewMat` carries the orb's camera-relative pose.
 //
 //   - `vObjNormal`: mesh-local surface normal. For a world-aligned
 //     unit sphere, the surface normal IS the mesh-local position
@@ -38,7 +32,7 @@ out float vFractalType;
 void main() {
     gl_Position  = ProjMat * ModelViewMat * vec4(Position, 1.0);
     vObjNormal   = normalize(Normal);
-    vViewPos     = Position;
+    vViewPos     = (ModelViewMat * vec4(Position, 1.0)).xyz;
     vBlockSeed   = Color.rgb;
     vFractalType = Color.a;
 }

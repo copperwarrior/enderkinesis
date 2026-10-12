@@ -60,6 +60,8 @@ public final class SselithDictionary {
         this.lexicon = new LinkedHashMap<>();
         int maxTokens = 1;
         for (Map.Entry<String, LexiconEntry> e : raw.lexicon.entrySet()) {
+            // An empty form (the possessive note under "s") is not a translation.
+            if (e.getValue().sselith() == null || e.getValue().sselith().isEmpty()) continue;
             String key = e.getKey().toLowerCase(Locale.ROOT);
             this.lexicon.put(key, e.getValue());
             int tokens = 1;

@@ -185,6 +185,7 @@ object SunderingClient {
                 if (!isWielding(player)) continue
                 tickSpawnsFor(level, player)
             }
+            SunderingSounds.endStaleSessions(level)
 
             // SUNDER glyph ring — spawn EXACTLY ONCE per wielding session for
             // the local player, on the idle → wielding transition. The
@@ -294,6 +295,7 @@ object SunderingClient {
         val viewVec = player.getViewVector(1f).normalize()
         val origin = beamOrigin(player, viewVec, 1f)
         val trace = computeBeamTrace(level, player, origin, viewVec)
+        SunderingSounds.tickWielder(level, player, elapsed.toInt(), trace)
         if (trace.segments.isEmpty()) return
         val firstSeg = trace.segments[0]
         val totalLen = trace.segments.sumOf { it.length }

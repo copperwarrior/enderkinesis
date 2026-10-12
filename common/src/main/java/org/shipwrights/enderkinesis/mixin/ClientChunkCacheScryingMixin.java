@@ -12,8 +12,6 @@ import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.Nullable;
 import org.shipwrights.enderkinesis.scrying.ScryingChunkCacheBridge;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -71,14 +69,6 @@ public abstract class ClientChunkCacheScryingMixin implements ScryingChunkCacheB
     @Unique
     private volatile boolean enderkinesis$cameraActive = false;
 
-    @Unique
-    private static final Logger ENDERKINESIS$LOGGER = LoggerFactory.getLogger("EnderkinesisScryingChunkCache");
-
-    @Unique
-    private int enderkinesis$routedThisSession = 0;
-
-    @Unique
-    private int enderkinesis$fallbackHitsThisSession = 0;
 
     @Override
     public boolean enderkinesis_isInCameraRange(int chunkX, int chunkZ) {
@@ -99,8 +89,6 @@ public abstract class ClientChunkCacheScryingMixin implements ScryingChunkCacheB
         this.enderkinesis$cameraCenterZ = chunkZ;
         this.enderkinesis$cameraRadius = radius;
         this.enderkinesis$cameraActive = true;
-        this.enderkinesis$routedThisSession = 0;
-        this.enderkinesis$fallbackHitsThisSession = 0;
 
         // Prune chunks that just fell out of range — typically a no-op on first
         // arm; matters when the target moves between chunks during a session.
@@ -112,6 +100,7 @@ public abstract class ClientChunkCacheScryingMixin implements ScryingChunkCacheB
             int cz = ChunkPos.getZ(key);
             if (Math.abs(cx - chunkX) > radius || Math.abs(cz - chunkZ) > radius) {
                 iter.remove();
+                this.enderkinesis$unloadCameraChunk(entry.getValue());
             }
         }
     }
@@ -123,15 +112,30 @@ public abstract class ClientChunkCacheScryingMixin implements ScryingChunkCacheB
 
     @Override
     public void enderkinesis_clearCameraStorage() {
-        if (this.enderkinesis$cameraActive) {
-            ENDERKINESIS$LOGGER.info(
-                "Camera storage clearing — routed {} chunks, getChunk fallback hit {} times this session",
-                this.enderkinesis$routedThisSession,
-                this.enderkinesis$fallbackHitsThisSession
-            );
-        }
         this.enderkinesis$cameraActive = false;
+        java.util.List<LevelChunk> removed = new java.util.ArrayList<>(this.enderkinesis$cameraChunks.values());
         this.enderkinesis$cameraChunks.clear();
+        for (LevelChunk chunk : removed) {
+            this.enderkinesis$unloadCameraChunk(chunk);
+        }
+    }
+
+    // Same steps as vanilla `drop` plus `ClientPacketListener.queueLightRemoval`. Without them the
+    // level keeps the light data, the entity sections and the block entities of each camera chunk.
+    @Unique
+    private void enderkinesis$unloadCameraChunk(LevelChunk chunk) {
+        ChunkPos pos = chunk.getPos();
+        ClientChunkCache self = (ClientChunkCache) (Object) this;
+        // The camera map is empty for this position now, so this reads the main storage.
+        if (self.getChunk(pos.x, pos.z, ChunkStatus.FULL, false) != null) return;
+        this.level.unload(chunk);
+        net.minecraft.world.level.lighting.LevelLightEngine light = self.getLightEngine();
+        this.level.queueLightUpdate(() -> {
+            light.setLightEnabled(pos, false);
+            for (int y = light.getMinLightSection(); y < light.getMaxLightSection(); ++y) {
+                light.updateSectionStatus(SectionPos.of(pos, y), true);
+            }
+        });
     }
 
     /**
@@ -176,10 +180,6 @@ public abstract class ClientChunkCacheScryingMixin implements ScryingChunkCacheB
         LevelChunk chunk = new LevelChunk(this.level, pos);
         chunk.replaceWithPacketData(buf, tag, consumer);
         this.enderkinesis$cameraChunks.put(pos.toLong(), chunk);
-        if (this.enderkinesis$routedThisSession == 0) {
-            ENDERKINESIS$LOGGER.info("First camera-storage route: chunk ({}, {})", x, z);
-        }
-        this.enderkinesis$routedThisSession++;
         // Vanilla's replaceWithPacketData calls level.onChunkLoaded(pos) before returning.
         // Our HEAD-cancel skips that, so the tint-cache invalidation and entity-storage
         // ticking start never happen for camera-storage chunks — terrain renders with
@@ -217,10 +217,6 @@ public abstract class ClientChunkCacheScryingMixin implements ScryingChunkCacheB
         if (!this.enderkinesis_isInCameraRange(x, z)) return;
         LevelChunk chunk = this.enderkinesis$cameraChunks.get(ChunkPos.asLong(x, z));
         if (chunk != null) {
-            if (this.enderkinesis$fallbackHitsThisSession == 0) {
-                ENDERKINESIS$LOGGER.info("First camera-storage fallback hit: chunk ({}, {})", x, z);
-            }
-            this.enderkinesis$fallbackHitsThisSession++;
             cir.setReturnValue(chunk);
         }
     }

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import org.valkyrienskies.mod.common.dimensionId
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.ParticleTypes
@@ -7,8 +8,12 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.player.Player
 import net.minecraft.world.entity.item.FallingBlockEntity
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.level.Level
 import net.minecraft.world.level.ClipContext
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
@@ -17,10 +22,11 @@ import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.VoidHookBlock
-import org.shipwrights.enderkinesis.physics.VoidGravityController
+import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
+import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.world.properties.DimensionId
@@ -38,7 +44,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 @OptIn(PhysTickOnly::class, VsBeta::class)
 class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.VOID_HOOK.get(), pos, state),
-    BlockEntityPhysicsListener {
+    BlockEntityPhysicsListener, Commandable {
 
     @Volatile override lateinit var dimension: DimensionId
 
@@ -51,18 +57,68 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     @Volatile private var cachedFacingZ: Double = 0.0
     @Volatile private var cachedNearbyShipIds: LongArray = EMPTY_IDS
 
-    /** Game-thread only; not saved — survivors of chunk unload become regular 1×1×1 ships. */
+    /** Game-thread only. Saved, so a ripped block still becomes a falling block after a reload. */
     private val trackedAssemblies: HashMap<Long, TrackedAssembly> = HashMap()
+
+    private var coneEntities: List<Entity> = emptyList()
 
     /** `remassed` because `assembleToShip` doesn't always populate mass on single-block chunks;
      *  `BlockStateInfo.remassShip` is VS2's recovery path, called once after promotion. */
     private data class TrackedAssembly(val state: BlockState, var remassed: Boolean = false)
 
+    /** Game-thread only. A hold lasts [COMMAND_HOLD_TICKS]. */
+    private var commandedPower: Int = 0
+    private var commandedUntil: Long = 0L
+
+    /** POWER is max(redstone, commanded) — the renderer reads the blockstate. */
+    fun effectivePower(level: Level, pos: BlockPos): Int =
+        maxOf(level.getBestNeighborSignal(pos), commandedPower)
+
+    override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
+        hold(VoidHookBlock.MAX_POWER)
+    }
+
+    override fun executeAutoCommand(target: Entity, hostShip: Ship?) {
+        holdForTarget(target.position(), hostShip)
+    }
+
+    override fun executeAutoCommandAt(targetPos: Vec3, targetAnchor: BlockPos?, hostShip: Ship?) {
+        holdForTarget(targetPos, hostShip)
+    }
+
+    /** 1 at the hook, 15 at [PULL_RADIUS]; no hold beyond it. */
+    private fun holdForTarget(targetPos: Vec3, hostShip: Ship?) {
+        val center = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
+        hostShip?.transform?.shipToWorld?.transformPosition(center)
+        val d = Math.sqrt(center.distanceSquared(targetPos.x, targetPos.y, targetPos.z))
+        if (d > PULL_RADIUS) return
+        hold(1 + Math.round((VoidHookBlock.MAX_POWER - 1) * d / PULL_RADIUS).toInt())
+    }
+
+    private fun hold(power: Int) {
+        val lvl = level ?: return
+        if (lvl.isClientSide) return
+        commandedPower = power.coerceIn(0, VoidHookBlock.MAX_POWER)
+        commandedUntil = lvl.gameTime + COMMAND_HOLD_TICKS
+        syncPowerState(lvl)
+    }
+
+    private fun syncPowerState(lvl: Level) {
+        val power = effectivePower(lvl, blockPos)
+        if (blockState.getValue(VoidHookBlock.POWER) != power) {
+            lvl.setBlock(blockPos, blockState.setValue(VoidHookBlock.POWER, power), Block.UPDATE_CLIENTS)
+        }
+    }
+
     var clientRotationPhase: Double = 0.0
     var clientLastRenderTime: Double = -1.0
 
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
-        cachedPowerLevel = state.getValue(VoidHookBlock.POWER)
+        if (commandedPower > 0 && level.gameTime >= commandedUntil) {
+            commandedPower = 0
+            syncPowerState(level)
+        }
+        cachedPowerLevel = blockState.getValue(VoidHookBlock.POWER)
         val facing = state.getValue(VoidHookBlock.FACING)
 
         // Hook world position — body-frame block centre transformed through the ship's
@@ -88,11 +144,8 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         cachedFacingZ = facingLocal.z
 
         // Snapshot the ships actually inside the cone (precise gate: forward, depth ≤
-        // [PULL_RADIUS], radial offset ≤ depth × cone-half-angle-tan). Each in-cone ship
-        // also gets its [VoidGravityController] touched so its gravity stays cancelled for
-        // the next ~two game ticks — the controller is the *only* place gravity gets
-        // cancelled, so a ship that leaves the cone simply stops getting touched and
-        // gravity restores on its own after the staleness window expires.
+        // [PULL_RADIUS], radial offset ≤ depth × cone-half-angle-tan). A ship that leaves
+        // the cone gets no more holds, so [ShipGravityHold] restores its gravity.
         if (cachedPowerLevel > 0) {
             val hostId = hostShip?.id
             val ids = ArrayList<Long>()
@@ -101,17 +154,16 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
             // no in-game reason for the floating. A downward cone needs the cancellation
             // because gravity is fighting the pull at the same time.
             val cancelsGravity = cachedFacingY <= -DOWNWARD_FACING_THRESHOLD
+            val dim = level.dimensionId
             for (s in level.shipObjectWorld.allShips) {
                 if (s.id == hostId) continue                   // never pull our own carrier
+                if (s.chunkClaimDimension != dim) continue
                 if (!worldAabbInCone(s.worldAABB)) continue
                 ids.add(s.id)
 
                 if (!cancelsGravity) continue
                 val loaded = level.shipObjectWorld.loadedShips.getById(s.id)
-                if (loaded != null) {
-                    loaded.getOrPutAttachment(VoidGravityController::class.java) { VoidGravityController() }
-                        .touch()
-                }
+                if (loaded != null) ShipGravityHold.hold(level, loaded)
             }
             cachedNearbyShipIds = ids.toLongArray()
             emitConeParticles(level)
@@ -121,6 +173,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
             applyConeForcesToEntities(level, (cachedPowerLevel / 15.0) * hostS3)
             if (level.random.nextInt(TRACE_INTERVAL_TICKS) == 0) attemptAssemblyTrace(level)
         } else {
+            coneEntities = emptyList()
             cachedNearbyShipIds = EMPTY_IDS
         }
         checkAssembliesLeftCone(level)
@@ -254,6 +307,39 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         // a vanilla falling block when it drifts out of the cone, and so we can run a
         // one-time remass the first tick the ship is loaded.
         trackedAssemblies[ship.id] = TrackedAssembly(state)
+        setChanged()
+    }
+
+    override fun saveAdditional(tag: net.minecraft.nbt.CompoundTag) {
+        super.saveAdditional(tag)
+        if (commandedPower > 0) {
+            tag.putInt(NBT_COMMANDED_POWER, commandedPower)
+            tag.putLong(NBT_COMMANDED_UNTIL, commandedUntil)
+        }
+        if (trackedAssemblies.isEmpty()) return
+        val list = net.minecraft.nbt.ListTag()
+        for ((shipId, entry) in trackedAssemblies) {
+            val e = net.minecraft.nbt.CompoundTag()
+            e.putLong("Ship", shipId)
+            e.put("State", net.minecraft.nbt.NbtUtils.writeBlockState(entry.state))
+            list.add(e)
+        }
+        tag.put(NBT_TRACKED, list)
+    }
+
+    override fun load(tag: net.minecraft.nbt.CompoundTag) {
+        super.load(tag)
+        commandedPower = tag.getInt(NBT_COMMANDED_POWER)
+        commandedUntil = tag.getLong(NBT_COMMANDED_UNTIL)
+        trackedAssemblies.clear()
+        val list = tag.getList(NBT_TRACKED, net.minecraft.nbt.Tag.TAG_COMPOUND.toInt())
+        // The server loads a block entity before it sets the level.
+        val blocks = net.minecraft.core.registries.BuiltInRegistries.BLOCK.asLookup()
+        for (i in 0 until list.size) {
+            val e = list.getCompound(i)
+            val state = net.minecraft.nbt.NbtUtils.readBlockState(blocks, e.getCompound("State"))
+            if (!state.isAir) trackedAssemblies[e.getLong("Ship")] = TrackedAssembly(state)
+        }
     }
 
     /** For every ship we've assembled and are still tracking: if it has drifted outside
@@ -280,6 +366,12 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
      *  real ship now. */
     private fun checkAssembliesLeftCone(level: ServerLevel) {
         if (trackedAssemblies.isEmpty()) return
+        val before = trackedAssemblies.size
+        checkTrackedAssemblies(level)
+        if (trackedAssemblies.size != before) setChanged()
+    }
+
+    private fun checkTrackedAssemblies(level: ServerLevel) {
         val iter = trackedAssemblies.entries.iterator()
         while (iter.hasNext()) {
             val (shipId, entry) = iter.next()
@@ -413,13 +505,21 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     ) {
         val worldCenter = ship.transform.positionInWorld
         val fallPos = BlockPos.containing(worldCenter.x(), worldCenter.y(), worldCenter.z())
-        // `fall(...)` also writes the block's fluid state to `fallPos` in the world — for
-        // a non-waterlogged block that's air, which is a no-op against the empty cell the
-        // floating ship was visually inhabiting.
-        FallingBlockEntity.fall(level, fallPos, state)
+        val shipyardPos = BlockPos(shipyardBox.minX(), shipyardBox.minY(), shipyardBox.minZ())
+        val be = level.getBlockEntity(shipyardPos)
+        // `fall(...)` writes the fluid state of the block to `fallPos`, so it deletes a world
+        // block there. An occupied cell gets the drops of the block.
+        if (level.getBlockState(fallPos).isAir) {
+            val falling = FallingBlockEntity.fall(level, fallPos, state)
+            // Without the data, a shulker box or a sign lands empty.
+            if (be != null) falling.blockData = be.saveWithoutMetadata()
+        } else {
+            Block.dropResources(state, level, fallPos, be)
+        }
+        // The contents are in the falling block or in the drops now.
+        net.minecraft.world.Clearable.tryClear(be)
         // Strip the single block out of the ship's shipyard chunk; VS2 will GC the
         // now-empty ship on its next pass.
-        val shipyardPos = BlockPos(shipyardBox.minX(), shipyardBox.minY(), shipyardBox.minZ())
         level.setBlock(shipyardPos, Blocks.AIR.defaultBlockState(), 3)
     }
 
@@ -450,11 +550,14 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
             cachedHx - r, cachedHy - r, cachedHz - r,
             cachedHx + r, cachedHy + r, cachedHz + r,
         )
-        val entities = level.getEntitiesOfClass(Entity::class.java, aabb)
+        if (level.gameTime % ENTITY_QUERY_INTERVAL == 0L) {
+            coneEntities = level.getEntitiesOfClass(Entity::class.java, aabb)
+        }
+        val entities = coneEntities
         if (entities.isEmpty()) return
         val dt = 1.0 / 20.0                              // game-tick seconds
         for (entity in entities) {
-            if (!entity.isAlive) continue
+            if (!entity.isAlive || entity.level() !== level) continue
             if (entity is ServerPlayer && entity.isCreative) continue
             val ex = entity.x; val ey = entity.y; val ez = entity.z
             val dx = ex - cachedHx
@@ -509,7 +612,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
 
     /** Per-tick cone forces for one ship: axial pull toward the hook apex (the "grab") plus
      *  tangential-velocity damping so a target doesn't sidescroll past us. Gravity is
-     *  cancelled separately by [VoidGravityController].
+     *  cancelled separately by [ShipGravityHold].
      *
      *  No AABB re-check on the physics thread — `PhysShipImpl.getWorldAABB` throws
      *  `NotImplementedError`, so the AABB-vs-cone gate is game-thread only (it populated
@@ -563,8 +666,15 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     companion object {
+        private const val NBT_TRACKED = "TrackedAssemblies"
+        private const val NBT_COMMANDED_POWER = "CommandedPower"
+        private const val NBT_COMMANDED_UNTIL = "CommandedUntil"
+        private const val ENTITY_QUERY_INTERVAL = 5L
         /** Cone-axis pull range (blocks) — the cone's axial length. */
         const val PULL_RADIUS: Double = 32.0
+
+        /** One Shulkonaut beat (`FIRE_INTERVAL`). */
+        const val COMMAND_HOLD_TICKS: Long = 40L
 
         /** Tangent of the cone's half-angle. `tan(30°) ≈ 0.577` gives a 60°-total cone — at
          *  max depth (32 b) the cone base reaches ~18.5 b of radial offset. Tight enough to

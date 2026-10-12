@@ -5,8 +5,6 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.valkyrienskies.core.api.ships.LoadedServerShip
-import org.valkyrienskies.mod.common.shipObjectWorld
 
 /** Network packets for the Staff of Density.
  *
@@ -26,8 +24,7 @@ object DensityNetwork {
             val shipId = buf.readLong()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
             ctx.queue {
-                val ship = player.level().shipObjectWorld.allShips.getById(shipId)
-                    as? LoadedServerShip ?: return@queue
+                val ship = DensityManager.targetFor(player, shipId) ?: return@queue
                 val current = DensityManager.getCurrentMultiplier(ship)
                 val reply = FriendlyByteBuf(io.netty.buffer.Unpooled.buffer())
                 reply.writeLong(shipId)

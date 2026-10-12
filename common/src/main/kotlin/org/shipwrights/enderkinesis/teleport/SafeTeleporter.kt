@@ -47,9 +47,23 @@ object SafeTeleporter {
             // Force the chunk to load before sampling; reading blocks/heightmap from an unloaded
             // cross-dimension chunk is what was blowing up.
             target.getChunk(x shr 4, z shr 4)
+            if (target.dimensionType().hasCeiling()) {
+                openSpotBelowCeiling(target, x, z)?.let { return it }
+                return@repeat
+            }
             val surface = target.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)
             val feet = BlockPos(x, surface, z)
             if (isOpen(target, feet)) return feet
+        }
+        return null
+    }
+
+    /** In a dimension with a ceiling (Nether) the heightmap gives the bedrock roof. */
+    private fun openSpotBelowCeiling(target: ServerLevel, x: Int, z: Int): BlockPos? {
+        val top = target.minBuildHeight + target.dimensionType().logicalHeight() - SHIP_CEILING_MARGIN
+        val cursor = BlockPos.MutableBlockPos()
+        for (y in top downTo target.minBuildHeight + 2) {
+            if (isOpen(target, cursor.set(x, y, z))) return cursor.immutable()
         }
         return null
     }
@@ -107,10 +121,6 @@ object SafeTeleporter {
             SHIP_CEILING_MARGIN
         val floorBottom = target.minBuildHeight + SHIP_FLOOR_MARGIN
 
-        LOG.info("[EK SafeTeleporter] findShipLanding START target={} approx=({},{}) size=({}x{}x{}) ceiling={} ceilTop={} floorBottom={}",
-            target.dimension().location(), approxX, approxZ,
-            "%.2f".format(sizeX), "%.2f".format(sizeY), "%.2f".format(sizeZ),
-            hasCeiling, ceilTop, floorBottom)
 
         repeat(MAX_TRIES) { attempt ->
             // First attempt is exactly the scaled ship centre; later ones search around it.
@@ -125,7 +135,6 @@ object SafeTeleporter {
             if (hasCeiling) {
                 // Scan downward from just under the roof for the highest clear pocket that fits.
                 var baseY = ceilTop - Math.ceil(sizeY).toInt()
-                var rejectedAt: Int = Int.MIN_VALUE
                 while (baseY >= floorBottom) {
                     val box = AABB(
                         cx - hx, baseY.toDouble(), cz - hz,
@@ -133,26 +142,17 @@ object SafeTeleporter {
                     )
                     if (boxClear(target, box)) {
                         val result = Vec3(cx, baseY + sizeY * 0.5, cz)
-                        LOG.info("[EK SafeTeleporter] try#{} ceiling x={} z={} → CLEAR at baseY={} → landing={}",
-                            attempt, x, z, baseY, result)
                         return result
                     }
-                    rejectedAt = baseY
                     baseY -= CEILING_SCAN_STRIDE
                 }
-                LOG.info("[EK SafeTeleporter] try#{} ceiling x={} z={} → no clear pocket (last rejected baseY={})",
-                    attempt, x, z, rejectedAt)
             } else {
                 val surfaceY = target.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)
                 val baseY = surfaceY + SHIP_GROUND_CLEARANCE
                 if (baseY <= target.minBuildHeight + 1) {
-                    LOG.info("[EK SafeTeleporter] try#{} surface x={} z={} surfaceY={} baseY={} → below minBuildHeight, skip",
-                        attempt, x, z, surfaceY, baseY)
                     return@repeat
                 }
                 if (baseY + sizeY + 1 >= target.maxBuildHeight) {
-                    LOG.info("[EK SafeTeleporter] try#{} surface x={} z={} surfaceY={} baseY={} → above maxBuildHeight, skip",
-                        attempt, x, z, surfaceY, baseY)
                     return@repeat
                 }
                 val box = AABB(
@@ -161,28 +161,27 @@ object SafeTeleporter {
                 )
                 if (boxClear(target, box)) {
                     val result = Vec3(cx, baseY + sizeY * 0.5, cz)
-                    LOG.info("[EK SafeTeleporter] try#{} surface x={} z={} surfaceY={} → CLEAR at baseY={} → landing={}",
-                        attempt, x, z, surfaceY, baseY, result)
                     return result
                 }
-                LOG.info("[EK SafeTeleporter] try#{} surface x={} z={} surfaceY={} baseY={} → box NOT clear",
-                    attempt, x, z, surfaceY, baseY)
             }
         }
-        LOG.info("[EK SafeTeleporter] findShipLanding gave up after {} attempts → null", MAX_TRIES)
         return null
     }
 
-    private val LOG = com.mojang.logging.LogUtils.getLogger()
 
     /** No fluid and no solid collision anywhere in [box]. */
     private fun boxClear(level: ServerLevel, box: AABB): Boolean {
+        // One fetch for each chunk column, not for each block.
+        for (cx in (Math.floor(box.minX).toInt() shr 4)..((Math.ceil(box.maxX).toInt() - 1) shr 4)) {
+            for (cz in (Math.floor(box.minZ).toInt() shr 4)..((Math.ceil(box.maxZ).toInt() - 1) shr 4)) {
+                level.getChunk(cx, cz)
+            }
+        }
         for (pos in BlockPos.betweenClosed(
             Math.floor(box.minX).toInt(), Math.floor(box.minY).toInt(), Math.floor(box.minZ).toInt(),
             Math.ceil(box.maxX).toInt() - 1, Math.ceil(box.maxY).toInt() - 1,
             Math.ceil(box.maxZ).toInt() - 1,
         )) {
-            level.getChunk(pos.x shr 4, pos.z shr 4)
             val state = level.getBlockState(pos)
             if (!state.fluidState.isEmpty) return false
             if (!state.getCollisionShape(level, pos).isEmpty) return false

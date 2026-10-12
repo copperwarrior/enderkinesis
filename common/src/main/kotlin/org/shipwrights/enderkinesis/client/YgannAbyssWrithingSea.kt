@@ -894,6 +894,9 @@ object YgannAbyssWrithingSea {
      * with size growing toward the rim so the distant tentacles tower to the horizon while the near
      * ones stay modest.
      */
+    // Scratch for the per-tentacle yaw. Render thread only.
+    private val tentYawQuat = Quaternionf()
+
     fun renderTentacles(pose: Matrix4f, camX: Double, camY: Double, camZ: Double, domeR: Double, t: Double) {
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
@@ -1007,7 +1010,10 @@ object YgannAbyssWrithingSea {
                     (TENT_RATE_NEAR + (TENT_RATE_FAR - TENT_RATE_NEAR) * rateT) *
                         (0.85 + hash01(cx, cz, 25) * 0.3)
                 }
-                val animMs = (now * rate).toLong() + (hash01(cx, cz, 26) * TentacleAnimation.LENGTH_MS).toLong()
+                // Wrapped to the loop length: vanilla converts this value to a Float before its own
+                // modulo, and `now` is time since boot, which grows with no limit.
+                val animMs = ((now * rate).toLong() + (hash01(cx, cz, 26) * TentacleAnimation.LENGTH_MS).toLong()) %
+                    TentacleAnimation.LENGTH_MS
 
                 // OFF-SCREEN CULL: skip the expensive pose + emit if the whole column (base to tip) is
                 // outside the view cone. Off-screen = invisible, so the look is unchanged. The rate
@@ -1018,7 +1024,7 @@ object YgannAbyssWrithingSea {
                 val dotTip = (cullLkX * ddx + cullLkY * tyd + cullLkZ * ddz) / Math.sqrt(ddx * ddx + tyd * tyd + ddz * ddz)
                 if (Math.max(dotBase, dotTip) < cullCos) continue
 
-                model.root().allParts.forEach { it.resetPose() }
+                model.resetPose()
                 KeyframeAnimations.animate(model, TentacleAnimation.IDLE_WAVE, animMs, 1f, tentVecCache)
 
                 // A FRESH placement pose (no view rotation — that's applied by the dome consumer's
@@ -1031,7 +1037,7 @@ object YgannAbyssWrithingSea {
                 emissiveConsumer.tint = darkTint
                 tentPoseStack.pushPose()
                 tentPoseStack.translate(ddx, (baseWorldY - sinkOffset) - camY, ddz)
-                tentPoseStack.mulPose(Quaternionf().rotationY(yaw))
+                tentPoseStack.mulPose(tentYawQuat.rotationY(yaw))
                 tentPoseStack.scale(scaleF, scaleF, scaleF)
                 // Standard Mojang entity model framing: flip (Y-down→up) then drop the 24-px
                 // Blockbench ground (1.5 blocks) so the base sits at this world point.

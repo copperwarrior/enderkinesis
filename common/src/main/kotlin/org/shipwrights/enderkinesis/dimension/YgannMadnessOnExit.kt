@@ -35,6 +35,8 @@ object YgannMadnessOnExit {
     ) {
         if (oldLevel != YgannAbyss.LEVEL_KEY) return
         if (newLevel == YgannAbyss.LEVEL_KEY) return
+        // A dream is not an exit: the player wakes at the same bed in the Abyss.
+        if (newLevel == Sureibjin.LEVEL_KEY) return
 
         val effect = EKEffects.YGANN_MADNESS.get()
         val existing = player.getEffect(effect)

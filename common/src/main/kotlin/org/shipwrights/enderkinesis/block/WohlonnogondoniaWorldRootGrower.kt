@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.block
 
-import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
@@ -53,7 +52,6 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object WohlonnogondoniaWorldRootGrower {
 
-    private val LOG = LogUtils.getLogger()
 
     private const val REGION_SIZE_CHUNKS = WohlonnogondoniaSurfaceRoots.TUNNEL_REGION_SIZE_CHUNKS
     private const val REGION_SIZE = WohlonnogondoniaSurfaceRoots.TUNNEL_REGION_SIZE
@@ -68,6 +66,12 @@ object WohlonnogondoniaWorldRootGrower {
      *  anything thicker than [MAX_SIDESTEP] blocks the root entirely
      *  (the voxel gives up and the path visibly stops at the obstruction). */
     private const val MAX_SIDESTEP = 2
+
+    /** Sidestep plus the support probe of one more block. */
+    private const val PLACE_REACH = MAX_SIDESTEP + 1
+
+    /** A full scan with no placement costs a read for each open voxel, so it does not run each tick. */
+    private const val STALLED_SCAN_INTERVAL_TICKS = 10L
 
     /** Cardinal directions probed by [tryPlaceWithSidestep], in the
      *  order they're tried. Stable order so adjacent voxels hitting the
@@ -133,10 +137,9 @@ object WohlonnogondoniaWorldRootGrower {
             return
         }
 
-        val startWX = regionX * REGION_SIZE +
-            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 1) and (REGION_SIZE - 1))
-        val startWZ = regionZ * REGION_SIZE +
-            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 2) and (REGION_SIZE - 1))
+        val startWX = regionX * REGION_SIZE + WohlonnogondoniaSurfaceRoots.regionStartOffset(regionX, regionZ, 1)
+
+        val startWZ = regionZ * REGION_SIZE + WohlonnogondoniaSurfaceRoots.regionStartOffset(regionX, regionZ, 2)
         val startQx = startWX shr 2
         val startQz = startWZ shr 2
 
@@ -284,10 +287,8 @@ object WohlonnogondoniaWorldRootGrower {
         // all directions". Recomputed via the same public hash so we
         // don't need to thread the value through `buildPaths`.
         val raw = voxelSet.toLongArray()
-        val hubWX = regionX * REGION_SIZE +
-            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 1) and (REGION_SIZE - 1))
-        val hubWZ = regionZ * REGION_SIZE +
-            (WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 2) and (REGION_SIZE - 1))
+        val hubWX = regionX * REGION_SIZE + WohlonnogondoniaSurfaceRoots.regionStartOffset(regionX, regionZ, 1)
+        val hubWZ = regionZ * REGION_SIZE + WohlonnogondoniaSurfaceRoots.regionStartOffset(regionX, regionZ, 2)
         val hubY = heightAt(hubWX, hubWZ)
 
         val keyed = LongArray(raw.size)
@@ -315,10 +316,6 @@ object WohlonnogondoniaWorldRootGrower {
         marches.heads.add(root)
         marches.setDirty()
 
-        LOG.info(
-            "WorldRoot: spawned region ({}, {}) hub BlockPos{{x={}, y={}, z={}}} voxels={}",
-            regionX, regionZ, hubWX, hubY, hubWZ, voxels.size,
-        )
     }
 
     private fun tickMarches(level: ServerLevel) {
@@ -335,10 +332,6 @@ object WohlonnogondoniaWorldRootGrower {
             if (result.completed) {
                 iter.remove()
                 getGrownData(level).markGrown(root.regionPacked)
-                LOG.info(
-                    "WorldRoot: completed region ({}, {})",
-                    unpackRegionX(root.regionPacked), unpackRegionZ(root.regionPacked),
-                )
                 changed = true
             }
         }
@@ -356,15 +349,23 @@ object WohlonnogondoniaWorldRootGrower {
      *  occupied by a structure get a horizontal-deflect attempt via
      *  [tryPlaceWithSidestep] before being given up on. */
     private fun tickRoot(level: ServerLevel, root: MarchingRoot): TickResult {
+        if (level.gameTime < root.nextScanGameTime) return TickResult(false, false)
         while (root.scanCursor < root.voxels.size && root.placed.get(root.scanCursor)) {
             root.scanCursor++
         }
 
         val mutPos = BlockPos.MutableBlockPos()
+        var open = false
         var i = root.scanCursor
         while (i < root.voxels.size) {
             if (root.placed.get(i)) { i++; continue }
             val pos = BlockPos.of(root.voxels[i])
+            if (!isReachLoaded(level, pos)) { open = true; i++; continue }
+            if (WohlonnogondoniaPortalManager.isInsideAnyTreeBounds(level, pos)) {
+                root.placed.set(i)
+                i++
+                continue
+            }
             mutPos.set(pos)
             val existing = level.getBlockState(mutPos)
             if (existing.`is`(EKBlocks.WOGOR_WOOD.get()) ||
@@ -390,11 +391,33 @@ object WohlonnogondoniaWorldRootGrower {
                 // Structure too tall for our warp budget — abandon this voxel
                 // so we don't rescan it every tick forever.
                 root.placed.set(i)
+            } else {
+                open = true
             }
             i++
         }
 
+        // A voxel that waits for support, for the biome or for its chunk keeps the march alive.
+        if (open) {
+            root.nextScanGameTime = level.gameTime + STALLED_SCAN_INTERVAL_TICKS
+            return TickResult(false, false)
+        }
         return TickResult(false, true)
+    }
+
+    /** `getChunkNow`, not `hasChunk`: `hasChunk` is true for a chunk that still generates. */
+    private fun isReachLoaded(level: ServerLevel, pos: BlockPos): Boolean {
+        val chunks = level.chunkSource
+        val minCx = (pos.x - PLACE_REACH) shr 4
+        val maxCx = (pos.x + PLACE_REACH) shr 4
+        val minCz = (pos.z - PLACE_REACH) shr 4
+        val maxCz = (pos.z + PLACE_REACH) shr 4
+        for (cx in minCx..maxCx) {
+            for (cz in minCz..maxCz) {
+                if (chunks.getChunkNow(cx, cz) == null) return false
+            }
+        }
+        return true
     }
 
     private data class WarpAttempt(val placedAt: BlockPos?, val gaveUp: Boolean)
@@ -620,6 +643,7 @@ object WohlonnogondoniaWorldRootGrower {
         val placed: BitSet,
         var scanCursor: Int,
         var hasSeed: Boolean = false,
+        var nextScanGameTime: Long = 0L,
     )
 
     private fun getMarchesData(level: ServerLevel): MarchesData {

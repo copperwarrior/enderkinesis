@@ -72,7 +72,8 @@ object YgannMadnessBehavior {
         if (amp >= 2 && player.isInWater) {
             player.hurt(EKDamageSources.brink(player), WATER_DAMAGE)
         }
-        if (amp >= 3) {
+        // An enderman cannot hurt a Creative player; it would only crowd the player.
+        if (amp >= 3 && !player.isCreative) {
             aggroEndermen(player, level)
         }
         if (amp >= 4) {
@@ -94,6 +95,12 @@ object YgannMadnessBehavior {
         val startX = player.x
         val startY = player.y
         val startZ = player.z
+        // Vanilla chorus fruit dismounts first: a rider is moved back to the vehicle on the next
+        // tick. If no landing is found, the player goes back on the vehicle, so a failed roll
+        // does not push a player off a ship seat.
+        val vehicle = player.vehicle
+        if (vehicle != null) player.stopRiding()
+        var teleported = false
         for (i in 0 until TELEPORT_ATTEMPTS) {
             val x = startX + (player.random.nextDouble() - 0.5) * (TELEPORT_RANGE * 2.0)
             val y = Mth.clamp(
@@ -111,9 +118,11 @@ object YgannMadnessBehavior {
                 )
                 player.playSound(SoundEvents.CHORUS_FRUIT_TELEPORT, 1.0f, 1.0f)
                 player.resetFallDistance()
+                teleported = true
                 break
             }
         }
+        if (!teleported && vehicle != null && vehicle.isAlive) player.startRiding(vehicle, true)
     }
 
     /** Forces nearby endermen onto the player as their target, bypassing the look-at-me

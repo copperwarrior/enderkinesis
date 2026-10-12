@@ -21,7 +21,14 @@ public final class NumeralConverter {
     private static final String RADIX = "skarn";
     private static final String NON_TERMINATING = "vrecht";
 
+    // 2^63. At or above this, the long cast saturates and the fraction loop indexes past DIGITS.
+    private static final double CONVERTIBLE_LIMIT = 9.223372036854775807E18;
+
     private NumeralConverter() {}
+
+    public static boolean isConvertible(double d) {
+        return Double.isFinite(d) && Math.abs(d) < CONVERTIBLE_LIMIT;
+    }
 
     public static String integerToCardinal(long n) {
         if (n < 0) {
@@ -68,6 +75,12 @@ public final class NumeralConverter {
     }
 
     public static String decimalToSselith(double d) {
+        if (!isConvertible(d)) {
+            throw new IllegalArgumentException("Number " + d + " is out of the Sselith numeral range");
+        }
+        if (d < 0) {
+            return "ont-" + decimalToSselith(-d);  // REV prefix for negatives
+        }
         // Split into integer and fractional parts.
         long integerPart = (long) d;
         double fraction = d - integerPart;

@@ -53,12 +53,6 @@ object SselithRepertorySky {
     private const val SKY_G = 0.02f
     private const val SKY_B = 0.005f
 
-    // Horizon-fog tint — matches FogRendererSselithRepertoryMixin's override values, so
-    // terrain fading into fog reads as the same warm yellow as the lower portion of the
-    // sky. Tweak together with that mixin if changing the dimension's palette.
-    private const val FOG_R = 1.00f
-    private const val FOG_G = 0.88f
-    private const val FOG_B = 0.40f
 
     /** Radius at which the horizon-fade dome sits — same sphere the stars/sun use, so the
      *  dome's horizon ring is in plane with the visible terrain horizon. */
@@ -265,7 +259,8 @@ object SselithRepertorySky {
         isFoggy: Boolean,
         setupFog: Runnable,
     ) {
-        val gameTime = camera.entity.level().gameTime + partialTick
+        // A Float loses the partial tick above 2^24 ticks of world time.
+        val gameTime = camera.entity.level().gameTime + partialTick.toDouble()
 
         // 1. Background — clear colour blends between fog yellow (y=0, fog at full) and
         // dark sky (|y|>=128, no fog) so the lower hemisphere tracks the dome at altitude;
@@ -278,10 +273,13 @@ object SselithRepertorySky {
         // bleed into "areas with no light" via the fog blend, defeating the lightmap's
         // pitch-black cells. Matches the fog-color darkening in
         // FogRendererSselithRepertoryMixin.
-        val eclipseDarken = 1f - SselithEclipse.intensity(camera.entity.level().gameTime.toDouble() + partialTick)
-        val clearR = (SKY_R + (FOG_R - SKY_R) * fogDensity) * eclipseDarken
-        val clearG = (SKY_G + (FOG_G - SKY_G) * fogDensity) * eclipseDarken
-        val clearB = (SKY_B + (FOG_B - SKY_B) * fogDensity) * eclipseDarken
+        val eclipseDarken = (1f - SselithEclipse.intensity(camera.entity.level().gameTime.toDouble() + partialTick)) *
+            SselithRepertoryLighting.darknessDim(partialTick)
+        // Same black-at-y=0 tint the terrain fog gets, so the horizon matches it.
+        val fogTint = SselithRepertory.fogHeightFraction(camera.position.y)
+        val clearR = (SKY_R + (SselithFog.red() * fogTint - SKY_R) * fogDensity) * eclipseDarken
+        val clearG = (SKY_G + (SselithFog.green() * fogTint - SKY_G) * fogDensity) * eclipseDarken
+        val clearB = (SKY_B + (SselithFog.blue() * fogTint - SKY_B) * fogDensity) * eclipseDarken
         RenderSystem.clearColor(clearR, clearG, clearB, 1.0f)
         RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT, Minecraft.ON_OSX)
 
@@ -323,7 +321,7 @@ object SselithRepertorySky {
      * shows through.
      *
      * The height-driven *amount* of visible yellow at horizon is handled by lerping the
-     * clear colour itself between [SKY_R/G/B] and [FOG_R/G/B] in [renderSky] above. We
+     * clear colour itself between [SKY_R/G/B] and [SselithFog] in [renderSky] above. We
      * don't also modulate ring alpha here — that would double-attenuate and break the
      * smooth blend at intermediate altitudes.
      *
@@ -392,7 +390,7 @@ object SselithRepertorySky {
     }
 
 
-    private fun renderStars(poseStack: PoseStack, gameTime: Float) {
+    private fun renderStars(poseStack: PoseStack, gameTime: Double) {
         // Ensure all 32 slot buffers are built. Building happens lazily on
         // first entry into Sselith; subsequent frames just draw.
         val buffers = starBuffers ?: buildStarBuffers().also { starBuffers = it }
@@ -405,7 +403,7 @@ object SselithRepertorySky {
         val buf = buffers[slot] ?: return
 
         poseStack.pushPose()
-        val driftDeg = (gameTime * STAR_DRIFT_DEG_PER_TICK) % 360f
+        val driftDeg = ((gameTime * STAR_DRIFT_DEG_PER_TICK) % 360.0).toFloat()
         poseStack.mulPose(Axis.YP.rotationDegrees(driftDeg))
 
         RenderSystem.setShader { GameRenderer.getPositionTexColorShader() }
@@ -525,26 +523,36 @@ object SselithRepertorySky {
     private class Shooter(
         val sx: Float, val sy: Float, val sz: Float,        // start direction (unit vector)
         val tx: Float, val ty: Float, val tz: Float,        // tangent direction (unit vector)
-        val spawnTick: Float,
+        val spawnTick: Double,
     )
 
     private val shooters = ArrayList<Shooter>()
     private val shooterRng = Random()
-    private var nextShooterSpawn = Float.NaN
-    private var lastUpdateTick = Float.NaN
+    private var nextShooterSpawn = Double.NaN
+    private var lastUpdateTick = Double.NaN
+
+    fun onDisconnect() {
+        shooters.clear()
+        nextShooterSpawn = Double.NaN
+        lastUpdateTick = Double.NaN
+    }
 
     /**
      * Advance the shooter list: spawn any new shooters whose scheduled tick has passed and
      * drop ones that have lived past [SHOOTER_LIFETIME_FRAMES]. Resets cleanly if game-time
      * jumps backwards (world reload, /time set) by detecting a non-monotonic gameTime.
      */
-    private fun updateShooters(gameTime: Float) {
+    private fun updateShooters(gameTime: Double) {
         if (nextShooterSpawn.isNaN() || gameTime < lastUpdateTick) {
             shooters.clear()
             nextShooterSpawn = gameTime + nextSpawnDelay()
         }
         lastUpdateTick = gameTime
 
+        // A shooter older than the lifetime is dropped at once, so a time jump needs no earlier catch-up.
+        if (gameTime - nextShooterSpawn > SHOOTER_LIFETIME_FRAMES) {
+            nextShooterSpawn = gameTime - SHOOTER_LIFETIME_FRAMES
+        }
         while (gameTime >= nextShooterSpawn) {
             spawnShooter(nextShooterSpawn)
             nextShooterSpawn += nextSpawnDelay()
@@ -570,7 +578,7 @@ object SselithRepertorySky {
      * shooter. The `nextSpawnDelay` cadence in [updateShooters] is unchanged, so a cloud
      * spawn doesn't push back the next event — clouds are just a burst on a regular schedule.
      */
-    private fun spawnShooter(atTick: Float) {
+    private fun spawnShooter(atTick: Double) {
         if (shooterRng.nextFloat() < CLOUD_PROBABILITY) {
             spawnCloud(atTick)
         } else {
@@ -586,7 +594,7 @@ object SselithRepertorySky {
      * Returns true if the shooter was successfully added, false if the random helper happened
      * to align with the start direction (degenerate tangent).
      */
-    private fun spawnSingle(atTick: Float, spawnTick: Float): Boolean {
+    private fun spawnSingle(atTick: Double, spawnTick: Double): Boolean {
         // Uniform random unit vector for the start direction. Inverse-CDF on cos(phi) keeps
         // density uniform over the sphere rather than clustered at the poles.
         val u = shooterRng.nextFloat() * 2.0f - 1.0f
@@ -630,7 +638,7 @@ object SselithRepertorySky {
      * and heading angle, plus a stagger on its spawn tick. The visual result is a tight
      * "flock" of streaks crossing the same patch of sky on roughly parallel paths.
      */
-    private fun spawnCloud(atTick: Float) {
+    private fun spawnCloud(atTick: Double) {
         // Centre start direction (uniform on the sphere).
         val u = shooterRng.nextFloat() * 2.0f - 1.0f
         val theta = shooterRng.nextFloat() * (Math.PI.toFloat() * 2.0f)
@@ -707,13 +715,13 @@ object SselithRepertorySky {
         }
     }
 
-    private fun renderShooters(poseStack: PoseStack, gameTime: Float) {
+    private fun renderShooters(poseStack: PoseStack, gameTime: Double) {
         if (shooters.isEmpty()) return
 
         poseStack.pushPose()
         // Same slow drift as the star field — shooters drift with the rest of the sky over
         // their short lifetime (~1.6 s), keeping the cosmos visually unified.
-        val driftDeg = (gameTime * STAR_DRIFT_DEG_PER_TICK) % 360f
+        val driftDeg = ((gameTime * STAR_DRIFT_DEG_PER_TICK) % 360.0).toFloat()
         poseStack.mulPose(Axis.YP.rotationDegrees(driftDeg))
 
         val matrix = poseStack.last().pose()
@@ -731,7 +739,7 @@ object SselithRepertorySky {
         builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR)
 
         for (s in shooters) {
-            val age = gameTime - s.spawnTick
+            val age = (gameTime - s.spawnTick).toFloat()
             // Cloud spawns stagger member shooters into the future, so a shooter may exist
             // in the list before its spawn tick. Skip it until then.
             if (age < 0f) continue

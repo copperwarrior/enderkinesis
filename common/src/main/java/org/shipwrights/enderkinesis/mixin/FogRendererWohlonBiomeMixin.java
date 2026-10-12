@@ -2,13 +2,20 @@ package org.shipwrights.enderkinesis.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.llamalad7.mixinextras.sugar.Local;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.DimensionSpecialEffects;
 import net.minecraft.client.renderer.FogRenderer;
+import net.minecraft.util.Mth;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.level.material.FogType;
 import org.shipwrights.enderkinesis.client.WohlonBiomeFog;
+import org.shipwrights.enderkinesis.client.WohlonBiomeSkyState;
+import org.shipwrights.enderkinesis.client.IchaericInkVisuals;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -43,20 +50,21 @@ public abstract class FogRendererWohlonBiomeMixin {
         method = "levelFogColor()V",
         at = @At(
             value = "INVOKE",
-            target = "Lcom/mojang/blaze3d/systems/RenderSystem;setShaderFogColor(FFF)V"
+            target = "Lcom/mojang/blaze3d/systems/RenderSystem;setShaderFogColor(FFF)V",
+            remap = false
         )
     )
     private static void enderkinesis$applyWohlonFogAlpha(
             float r, float g, float b, Operation<Void> original) {
         float blend = WohlonBiomeFog.getCurrentBlend();
-        if (blend <= 0f) {
+        Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
+        if (blend <= 0f || IchaericInkVisuals.cameraInInk() || enderkinesis$vanillaFogApplies(camera)) {
             // Pass through so other @WrapOperations (Sselith dim) can chain.
             original.call(r, g, b);
             return;
         }
         // Lerp FROM vanilla's implicit 1.0 toward the Wohlon target. Naive `blend * density`
         // would crash alpha to near-zero at blend just above 0 (vanilla pre-blend was 1.0).
-        Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
         float density = WohlonBiomeFog.fogDensityAt(camera.getPosition().y);
         float alpha = 1f - blend * (1f - density);
         RenderSystem.setShaderFogColor(r, g, b, alpha);
@@ -83,6 +91,34 @@ public abstract class FogRendererWohlonBiomeMixin {
             orig[0], orig[1], orig[2],
             orig[3] * (1f - 2f * blend),
         };
+    }
+
+    // Fluid, Blindness and Darkness fog are opaque and near; a thin Wohlon alpha shows terrain through them.
+    private static boolean enderkinesis$vanillaFogApplies(Camera camera) {
+        if (camera.getFluidInCamera() != FogType.NONE) return true;
+        return camera.getEntity() instanceof LivingEntity living
+            && (living.hasEffect(MobEffects.BLINDNESS) || living.hasEffect(MobEffects.DARKNESS));
+    }
+
+    /**
+     * Fog brightness comes from {@code clamp(cos(timeOfDay · 2π) · 2 + 0.5)}. The time of day
+     * snaps at blend 0.5, so the brightness had a hard step there. Same output-lerp as
+     * {@link LevelSkyDarkenSmoothMixin}: the returned cosine gives the lerped brightness
+     * after the vanilla clamp.
+     */
+    @WrapOperation(
+        method = "setupColor(Lnet/minecraft/client/Camera;FLnet/minecraft/client/multiplayer/ClientLevel;IF)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;cos(F)F")
+    )
+    private static float enderkinesis$smoothWohlonFogBrightness(
+            float angle, Operation<Float> original, @Local(argsOnly = true) ClientLevel level) {
+        float blend = WohlonBiomeFog.getCurrentBlend();
+        if (blend <= 0f || level.dimensionType().hasFixedTime()) return original.call(angle);
+        float actual = WohlonBiomeSkyState.unsnappedTimeOfDayFromDayTime(level.getDayTime());
+        float vanilla = Mth.clamp(Mth.cos(actual * Mth.TWO_PI) * 2.0F + 0.5F, 0.0F, 1.0F);
+        float wohlon = Mth.clamp(
+            Mth.cos(WohlonBiomeSkyState.getWohlonTimeOfDay() * Mth.TWO_PI) * 2.0F + 0.5F, 0.0F, 1.0F);
+        return (Mth.lerp(blend, vanilla, wohlon) - 0.5F) / 2.0F;
     }
 
     // No setupFog override: Wohlon character is colour+alpha only. Vanilla terrain shape is

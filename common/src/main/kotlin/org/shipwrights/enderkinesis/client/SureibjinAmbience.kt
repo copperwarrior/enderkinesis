@@ -38,6 +38,11 @@ object SureibjinAmbience {
 
     private var loop: CoastAmbienceSound? = null
 
+    // With the volume at 0 or no free channel, the engine drops the sound. A count of ticks, not a
+    // game time, so it has no meaning to carry into a different world.
+    private const val RETRY_TICKS = 20
+    private var retryCooldown = 0
+
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(
             ClientTickEvent.ClientLevel { level -> tick(level) }
@@ -50,15 +55,20 @@ object SureibjinAmbience {
         if (level.dimension() != Sureibjin.LEVEL_KEY) {
             loop?.let { if (mc.soundManager.isActive(it)) mc.soundManager.stop(it) }
             loop = null
+            retryCooldown = 0
             return
         }
 
         val current = loop
-        if (current == null || !mc.soundManager.isActive(current)) {
-            val l = CoastAmbienceSound(level.random)
-            mc.soundManager.play(l)
-            loop = l
+        if (current != null && mc.soundManager.isActive(current)) return
+        if (retryCooldown > 0) {
+            retryCooldown--
+            return
         }
+        val l = CoastAmbienceSound(level.random)
+        mc.soundManager.play(l)
+        loop = l
+        retryCooldown = RETRY_TICKS
     }
 
     /** Tickable loop whose source position locks to the coast meridian

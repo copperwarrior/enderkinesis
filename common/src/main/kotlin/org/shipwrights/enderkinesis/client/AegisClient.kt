@@ -14,6 +14,7 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.command.AegisDebugCommands
 import org.shipwrights.enderkinesis.item.AegisBox
+import org.shipwrights.enderkinesis.item.AegisNetwork
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
 import java.util.UUID
@@ -85,6 +86,8 @@ object AegisClient {
     /** Per-shard tumble rate (radians/tick) — random sign per shard so
      *  fragments spin both ways. Zeroed once a shard settles. */
     private const val SHATTER_ROT_RATE: Double = 0.3
+
+    private const val MAX_BOUNCE_SOUNDS_PER_TICK: Int = 3
 
     /** Six faces of the OBB, each as four corner indices into
      *  [AegisBox.Frame.corner]. Order around each face's perimeter — winding
@@ -230,6 +233,7 @@ object AegisClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel { level ->
             detectWieldTransitions()
             tickShatters(level)
+            AegisRipples.tick(level)
             tickSparkles()
         })
         // Debug-command S2C receivers — add / clear persistent
@@ -247,6 +251,12 @@ object AegisClient {
                     axisZ = Vec3(zx, zy, zz),
                 ))
             }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, AegisNetwork.S2C_RIPPLE) { buf, _ ->
+            val wielderId = buf.readVarInt()
+            val hit = Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
+            val halfSize = buf.readFloat()
+            Minecraft.getInstance().execute { AegisRipples.add(wielderId, hit, halfSize) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, AegisDebugCommands.CLEAR_PACKET) { _, _ ->
             Minecraft.getInstance().execute { debugBoxes.clear() }
@@ -277,6 +287,7 @@ object AegisClient {
         // Shatter pieces persist after wielding ends — render them
         // independently of the active set.
         renderShatters(pose, consumers, camX, camY, camZ, tickDelta)
+        AegisRipples.render(pose, consumers, camX, camY, camZ, tickDelta)
         // Interior sparkles inside the active local-player box.
         renderSparkles(pose, consumers, camX, camY, camZ, tickDelta)
     }
@@ -289,12 +300,15 @@ object AegisClient {
         val level = mc.level ?: return
         val now = mutableSetOf<UUID>()
         for (player in level.players()) {
-            if (isWielding(player)) now.add(player.uuid)
+            if (!isWielding(player)) continue
+            now.add(player.uuid)
+            if (player.uuid !in wieldingLastTick) AegisSounds.onRaise(level, player)
         }
         for (uuid in wieldingLastTick) {
             if (uuid !in now) {
                 val player = level.getPlayerByUUID(uuid) ?: continue
                 seedShatter(player)
+                AegisSounds.onShatter(level, player)
             }
         }
         wieldingLastTick.clear()
@@ -375,6 +389,7 @@ object AegisClient {
     private fun tickShatters(level: ClientLevel) {
         if (shatters.isEmpty()) return
         val now = level.gameTime
+        var bounceSounds = 0
         val iter = shatters.entries.iterator()
         while (iter.hasNext()) {
             val (_, state) = iter.next()
@@ -394,8 +409,14 @@ object AegisClient {
                 // Step position; handle vertical collision against the next
                 // solid block in the cube's path.
                 val nextPos = shard.pos.add(shard.vel)
+                val impactSpeed = -shard.vel.y
                 val bounced = tryBounce(level, shard.pos, nextPos, shard)
                 if (!bounced) shard.pos = nextPos
+                if (bounced && bounceSounds < MAX_BOUNCE_SOUNDS_PER_TICK &&
+                    AegisSounds.playShardBounce(level, shard.pos, impactSpeed)
+                ) {
+                    bounceSounds++
+                }
                 // Rotate ALL THREE body-frame basis vectors by the same
                 // Rodrigues rotation — preserves orthonormality (rigid
                 // body transform) so the cube tumbles as a whole.
@@ -445,7 +466,7 @@ object AegisClient {
         return false
     }
 
-    private fun isWielding(player: Player): Boolean {
+    internal fun isWielding(player: Player): Boolean {
         if (!player.isUsingItem) return false
         return player.useItem.item == EKItems.STAFF_OF_AEGIS.get()
     }
@@ -619,6 +640,8 @@ object AegisClient {
             )
         }
 
+        Minecraft.getInstance().level?.let { AegisIntersectionGlow.collect(it, frame, expand) }
+
         pose.pushPose()
         pose.translate(-camX, -camY, -camZ)
         val matrix = pose.last().pose()
@@ -626,7 +649,9 @@ object AegisClient {
         // 1. Face glow strips first — additive, no depth write — so the
         //    wireframe lines drawn on top read as the bright "core" of the
         //    glow and the strips fade inward from there.
-        renderFaceGlow(consumers.getBuffer(AegisRenderType.FACE_GLOW), matrix, corners)
+        val glowConsumer = consumers.getBuffer(AegisRenderType.FACE_GLOW)
+        renderFaceGlow(glowConsumer, matrix, corners)
+        AegisIntersectionGlow.emitGlow(glowConsumer, matrix)
 
         // 2. Wireframe edges.
         val lineConsumer = consumers.getBuffer(RenderType.lines())
@@ -648,6 +673,7 @@ object AegisClient {
                 .normal(normal, nx, ny, nz)
                 .endVertex()
         }
+        AegisIntersectionGlow.emitLines(lineConsumer, matrix, normal)
         pose.popPose()
     }
 
@@ -872,5 +898,13 @@ object AegisClient {
             v.y * cosT + kxv.y * sinT + k.y * kDotV * (1 - cosT),
             v.z * cosT + kxv.z * sinT + k.z * kDotV * (1 - cosT),
         )
+    }
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        shatters.clear()
+        wieldingLastTick.clear()
+        sparkles.clear()
+        debugBoxes.clear()
     }
 }

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import dev.architectury.event.events.client.ClientPlayerEvent
 import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.registry.client.level.entity.EntityRendererRegistry
 import dev.architectury.registry.client.particle.ParticleProviderRegistry
@@ -11,6 +12,7 @@ import net.minecraft.client.color.item.ItemColor
 import net.minecraft.client.renderer.BiomeColors
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.world.level.FoliageColor
+import org.shipwrights.enderkinesis.sselith.SselithEclipse
 import org.shipwrights.enderkinesis.block.AncriteChainBlock
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
@@ -23,11 +25,112 @@ import org.shipwrights.enderkinesis.registry.EKParticles
  * The common static client object that represents the mod.
  */
 object EnderkinesisModClient {
+    private var earlyDone = false
+
+    /**
+     * Registrations that Forge reads before `FMLClientSetupEvent`: entity renderers
+     * (`EntityRenderersEvent.RegisterRenderers`) and key mappings (before the options load).
+     * Forge calls this from the mod constructor; on Fabric [initClient] calls it. Nothing here
+     * may call `RegistrySupplier.get()`.
+     */
+    @JvmStatic
+    fun initClientEarly() {
+        if (earlyDone) return
+        earlyDone = true
+        WyllandTomeKeys.init()
+
+        // The Cataloger uses a custom HumanoidModel-based geometry (robed humanoid;
+        // see CatalogerModel). The model layer is registered platform-side (Forge
+        // RegisterLayerDefinitions / Fabric EntityModelLayerRegistry). Decoupled-rate
+        // walking animation is driven server-side in the entity's aiStep (forces a
+        // constant virtual rate into walkAnimation, which HumanoidModel.setupAnim
+        // reads to swing the limbs).
+        EntityRendererRegistry.register(EKEntities.CATALOGER) { ctx ->
+            CatalogerRenderer(ctx)
+        }
+
+        // Wohlem — keyframe-animated Wohlon brute.
+        EntityRendererRegistry.register(EKEntities.WOHLEM) { ctx ->
+            WohlemRenderer(ctx)
+        }
+
+        // Archive — paper / book whirlwind. Renderer draws orbiting item models
+        // sampled from a fixed generic mix (paper + book); the actual loot list
+        // is server-side only and only matters at collapse.
+        EntityRendererRegistry.register(EKEntities.ARCHIVE) { ctx ->
+            ArchiveRenderer(ctx)
+        }
+
+        // Sselith Moth — boid-flocking mob for the ceiling / floor voids of
+        // the Repertory. Simple MobRenderer + time-driven wing animation.
+        EntityRendererRegistry.register(EKEntities.SSELITH_MOTH) { ctx ->
+            SselithMothRenderer(ctx)
+        }
+
+        // Prismatic Goat — plain quadruped renderer; the model owns
+        // its walk + idle animation, the renderer just supplies the
+        // texture and a small shadow.
+        EntityRendererRegistry.register(EKEntities.PRISMATIC_GOAT) { ctx ->
+            PrismaticGoatRenderer(ctx)
+        }
+
+        // Constriliar — IK-legged walking platform; the renderer drives the
+        // gait solve and body tilt, the model just applies the solved angles.
+        EntityRendererRegistry.register(EKEntities.CONSTRILIAR) { ctx ->
+            ConstriliarRenderer(ctx)
+        }
+
+        // Shulkonaut — stationary gunnery officer; sticky (book) group toggles
+        // with its selector state.
+        EntityRendererRegistry.register(EKEntities.SHULKONAUT) { ctx ->
+            ShulkonautRenderer(ctx)
+        }
+
+        // Wik-Lak Host — player-skinned construct; vanilla PlayerModel via
+        // ModelLayers.PLAYER (already registered by the vanilla player renderer)
+        // means no per-loader EntityModelLayer wiring is needed.
+        EntityRendererRegistry.register(EKEntities.WIK_LAK_HOST) { ctx ->
+            WikLakHostRenderer(ctx)
+        }
+
+        // Player Corpse — visual stand-in for the player's body after a
+        // Wik-Lak death-redirect. Resolves skin via tab-list PlayerInfo
+        // so the corpse renders with the actual player's appearance.
+        EntityRendererRegistry.register(EKEntities.PLAYER_CORPSE) { ctx ->
+            PlayerCorpseRenderer(ctx)
+        }
+
+        // Magic Missile — spinning shulker-spark billboard + [BeamPath] trail behind it that
+        // shares the orb-network particle plumbing.
+        EntityRendererRegistry.register(EKEntities.MAGIC_MISSILE) { ctx ->
+            MagicMissileRenderer(ctx)
+        }
+    }
+
     @JvmStatic
     fun initClient() {
+        initClientEarly()
         // Orb of Potential client-side packet receivers — keep the
         // server-bound classes out of the client environment.
         org.shipwrights.enderkinesis.body.OrbBodyNetworkClient.initClient()
+        org.shipwrights.enderkinesis.client.YgannBarnacleDeathRenderer.initClient()
+        // Irreverant Remnant — receives blob syncs and draws them as cubes.
+        org.shipwrights.enderkinesis.client.remnant.IrreverantRemnantClient.init()
+
+        // Spawn-egg tinting: the vanilla template model has two tinted
+        // layers (0 = shell, 1 = spots), which vanilla eggs fill from
+        // SpawnEggItem. Ours isn't one, so supply the colours directly —
+        // remnant violet with a sselith-yellow fleck.
+        ColorHandlerRegistry.registerItemColors(
+            ItemColor { _, tintIndex -> if (tintIndex == 0) 0x3D2648 else 0xE8D48A },
+            EKItems.IRREVERANT_REMNANT_SPAWN_EGG.get(),
+        )
+
+        // Wand of Ga'Mylan cage S2C receivers (added / removed / hp).
+        org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
+        // Shatter cloud spawned on cage break — owns its own per-tick
+        // physics, so init separately from the network init.
+        org.shipwrights.enderkinesis.client.GamylanCageShatter.init()
 
         // Wik-Lak redirect flash — receive S2C trigger and stamp the
         // player UUID into [WikLakRedirectFlashTracker] for the player
@@ -46,12 +149,23 @@ object EnderkinesisModClient {
         // Cooperates with [BlockLightEngineOrbDynamicLightMixin].
         ClientTickEvent.CLIENT_POST.register { mc ->
             org.shipwrights.enderkinesis.client.OrbDynamicLightDriver.tick(mc)
+            OwlsMarkClient.tick(mc)
+            // Incantation of Winds — rising dust from any hand holding it.
+            org.shipwrights.enderkinesis.client.IncantationOfWindsClient.tick(mc)
+            // Remnant prediction — runs the shared integrator locally so the
+            // mass keeps moving between server syncs instead of stuttering.
+            org.shipwrights.enderkinesis.client.remnant.IrreverantRemnantClient.tick()
         }
 
         // 1-bit-alpha lattice texture (opaque crystal pixels, fully-transparent gaps). Cutout
         // layer is correct: alpha-test discards transparent pixels and renders the rest opaque
         // — no smooth blending, no sort order issues, faster than `translucent()`.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.CREPUSCULITE_LATTICE.get())
+        RenderTypeRegistry.register(
+            RenderType.translucent(),
+            org.shipwrights.enderkinesis.registry.EKFluids.ICHAERIC_INK.get(),
+            org.shipwrights.enderkinesis.registry.EKFluids.ICHAERIC_INK_FLOWING.get(),
+        )
 
         // The Ancrite Chain block uses the same alpha-cutout layer as vanilla chain — without
         // this the transparent texture columns render opaque.
@@ -115,6 +229,10 @@ object EnderkinesisModClient {
         // Crystal Explosive: same crepusculite-glass shell as Void Harness, same need.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CRYSTAL_EXPLOSIVE.get())
 
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ICHAERIC_INK_JAR.get())
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.INEGRIC_RETORT.get())
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
+
         // Crepusculite Glass — partial-alpha glass block, same render layer as Void Harness.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CREPUSCULITE_GLASS.get())
 
@@ -139,6 +257,18 @@ object EnderkinesisModClient {
         // here or the wogor-binding-roots texture's transparent pixels read as black.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.BINDING_ROOTS.get())
 
+        // Moth Cloth — base wool renders via vanilla SOLID, so both the
+        // world chunk builder AND VS2's ship-batch pipeline (which draws
+        // rendertype_ship_solid) show the block. The glint effect is a
+        // separate per-frame overlay pass (see MothClothOverlayRenderer),
+        // which iterates loaded moth cloth positions and draws glint
+        // quads through our custom RenderType's shader — applied
+        // uniformly for world blocks and ship blocks (via VS2's client
+        // ship transform).
+        for (clothBlock in EKBlocks.MOTH_CLOTH_BY_COLOR.values) {
+            RenderTypeRegistry.register(RenderType.solid(), clothBlock.get())
+        }
+
         // The astrolabe is drawn by a BlockEntityRenderer (translucent + no backface culling).
         BlockEntityRendererRegistry.register(EKBlockEntities.ENDER_ASTROLABE.get()) { _ ->
             EnderAstrolabeRenderer()
@@ -153,6 +283,9 @@ object EnderkinesisModClient {
 
         // The eyeroscope's frame comes from the static chunk mesh (end-portal-frame look-alike);
         // the BER only adds the floating, bobbing ender-eye on top.
+        BlockEntityRendererRegistry.register(EKBlockEntities.YGANN_BARNACLE.get()) { _ ->
+            YgannBarnacleRenderer()
+        }
         BlockEntityRendererRegistry.register(EKBlockEntities.EYEROSCOPE.get()) { _ ->
             EyeroscopeRenderer()
         }
@@ -171,6 +304,12 @@ object EnderkinesisModClient {
         // the crystal animates and brightens when powered.
         BlockEntityRendererRegistry.register(EKBlockEntities.VOID_HARNESS.get()) { ctx ->
             VoidHarnessRenderer(ctx)
+        }
+
+        // Echo Cannon: chunk mesh handles the static base; the BER draws the
+        // barrel with a per-tick recoil animation on top of it.
+        BlockEntityRendererRegistry.register(EKBlockEntities.ECHO_CANNON.get()) { ctx ->
+            EchoCannonRenderer(ctx)
         }
 
         // Void Hook reuses the harness crystal-pair visual as a placeholder; same per-tick
@@ -216,8 +355,22 @@ object EnderkinesisModClient {
         // so leaving no renderer registered is correct.
 
         // Shulker Strut base — vanilla shulker base shell at the BE's block, FACING-rotated.
+        // Constriliar back plate — draws the walker's body + legs in ship space so the
+        // body and cargo share one interpolation stream.
+        BlockEntityRendererRegistry.register(EKBlockEntities.CONSTRILIAR_PLATFORM.get()) { ctx ->
+            ConstriliarPlatformRenderer(ctx)
+        }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.SCRIBES_DESK.get()) { ctx ->
+            ScribesDeskRenderer(ctx)
+        }
+
         BlockEntityRendererRegistry.register(EKBlockEntities.SHULKER_STRUT.get()) { ctx ->
             ShulkerStrutRenderer(ctx)
+        }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.FORGOTTEN_ITEM.get()) { ctx ->
+            ForgottenItemRenderer(ctx)
         }
 
         // Shulker Strut lid — vanilla shulker lid shell, drawn at the lid block's ship-local
@@ -228,133 +381,21 @@ object EnderkinesisModClient {
             ShulkerStrutTopRenderer(ctx)
         }
 
-        // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
-        ParticleProviderRegistry.register(EKParticles.ocean()) { sprites ->
-            OceanParticle.Provider(sprites, OceanParticle.Mode.SURFACE)
-        }
-        ParticleProviderRegistry.register(EKParticles.oceanDeep()) { sprites ->
-            OceanParticle.Provider(sprites, OceanParticle.Mode.DEEP)
-        }
-        ParticleProviderRegistry.register(EKParticles.splash()) { sprites ->
-            OceanParticle.Provider(sprites, OceanParticle.Mode.SPLASH)
-        }
-        ParticleProviderRegistry.register(EKParticles.foamCrest()) { sprites ->
-            OceanParticle.Provider(sprites, OceanParticle.Mode.FOAM_CREST)
-        }
-
-        // Planar Anchor portal disc: ender-green recolour of vanilla `PORTAL`, same motion math.
-        ParticleProviderRegistry.register(EKParticles.planarSpiral()) { sprites ->
-            PlanarSpiralParticle.Provider(sprites)
-        }
-
-        // Shulker Puffer thruster exhaust — distance-keyed grow/fade size curve, short
-        // lifetime, dragon-breath sprite. See [ShulkerPufferParticle] for the curve.
-        ParticleProviderRegistry.register(EKParticles.shulkerPuffer()) { sprites ->
-            ShulkerPufferParticle.Provider(sprites)
-        }
-
-        // Sselith ambient motes — tiny warm-yellow particles that drift downward to give the
-        // Repertory a "dust in afternoon sunlight" atmosphere. Spawned by the biome's
-        // ambient `particle` setting in `sselith_repertory.json`.
-        ParticleProviderRegistry.register(EKParticles.sselithMote()) { sprites ->
-            SselithMoteParticle.Provider(sprites)
-        }
-
-        // Cataloger dust trail — visually a SselithMote, but with block collision and a
-        // shorter lifetime. Kept as a separate registration so the biome-wide ambient
-        // mote doesn't pay the per-particle terrain-collision cost. Spawned server-side
-        // from Cataloger.aiStep.
-        ParticleProviderRegistry.register(EKParticles.sselithDust()) { sprites ->
-            SselithDustParticle.Provider(sprites)
-        }
-
-        ParticleProviderRegistry.register(EKParticles.archiveSpiralDust()) { sprites ->
-            ArchiveSpiralDustParticle.Provider(sprites)
-        }
-
-        // Reusable enchanted-book bezier beam — used by the Wylland Tome (player → grab point)
-        // and the Tome of Signal's orb network (send orb → receivers). One particle type, many
-        // simultaneous beams: each particle carries a `pathId` referencing a `BeamPath` in the
-        // global `BeamRegistry`, re-evaluating the current curve every tick so the beam follows
-        // a moving target (turning view, drifting ship) without trailing.
-        ParticleProviderRegistry.register(EKParticles.enchantedBookBeam()) { sprites ->
-            EnchantedBookBeamParticle.Provider(sprites)
-        }
-
-        // Wylland Tome ship rain — emissive enchanted-book glyphs that
-        // fall inside a targeted ship's local AABB. Low count, full-bright.
-        ParticleProviderRegistry.register(EKParticles.wyllandTomeShipGlyph()) { sprites ->
-            WyllandTomeShipParticle.Provider(sprites)
-        }
-
-        // Sselith glyph column — emissive sga runes rising from a lectern
-        // when a Cataloger translates its book.
-        ParticleProviderRegistry.register(EKParticles.sselithGlyph()) { sprites ->
-            SselithGlyphParticle.Provider(sprites)
-        }
-
-        // Wohlonnogondonia ambient fireflies — light-teal flickering glitter
-        // that orbits a spawn-anchor block. Client-side spawning is driven
-        // by [WohlonnogondoniaFireflies] at low density while the player is
-        // in Wohlon; behaviour and per-particle flicker math live in
-        // [WohlonnogondoniaFireflyParticle].
-        ParticleProviderRegistry.register(EKParticles.wohlonFirefly()) { sprites ->
-            WohlonnogondoniaFireflyParticle.Provider(sprites)
-        }
-
-        // Wik-Lak bind thread — same glitter sprite + flicker as the ambient
-        // firefly, but with a ~1-second lifetime so the bind line at
-        // construction time vanishes instead of lingering as glitter.
-        ParticleProviderRegistry.register(EKParticles.wikLakBind()) { sprites ->
-            WikLakBindFireflyParticle.Provider(sprites)
-        }
-
-        // Sselith Bookmoths — a single warm-yellow pixel that flickers and
-        // flutters near a Sselith Lantern. Spawned by the lantern block's
-        // animateTick directly, so no separate client-side scanner is needed.
-        ParticleProviderRegistry.register(EKParticles.sselithBookmoth()) { sprites ->
-            SselithBookmothParticle.Provider(sprites)
-        }
-
-        // Staff-of-Aegis interior sparkle — tiny zero-gravity white glow that
-        // stays exactly where AegisClient seeds it inside the shield box.
-        ParticleProviderRegistry.register(EKParticles.aegisSparkle()) { sprites ->
-            AegisSparkleParticle.Provider(sprites)
-        }
-
-        // Staff-of-Sundering stage-1 "ender wisp" — vanilla portal sprite,
-        // warm pale-orange tint (no lavender purple), straight forward drift
-        // along the beam axis.
-        ParticleProviderRegistry.register(EKParticles.sunderingBeamParticle()) { sprites ->
-            SunderingBeamParticle.Provider(sprites)
-        }
-
-        // Staff-of-Sundering fire — vanilla flame sprite, no motion, short
-        // lifetime. Used by SunderingClient as the per-tick respawn source
-        // for the rotating tip rings and the helical spiral.
-        ParticleProviderRegistry.register(EKParticles.sunderingFireParticle()) { sprites ->
-            SunderingFireParticle.Provider(sprites)
-        }
-
-        // Staff-of-Sundering SUNDER glyph ring — SGA sprite atlas, one
-        // particle per angular slot orbiting the beam tip. Spawned only
-        // for the local player; see SunderingClient.spawnGlyphRing.
-        ParticleProviderRegistry.register(EKParticles.sunderingGlyphParticle()) { sprites ->
-            SunderingGlyphParticle.Provider(sprites)
-        }
-
-        // Magic-missile detonation spark — same lifecycle as vanilla
-        // FireworkParticles.SparkParticle (firework sprite, gravity, second-half
-        // alpha + colour fade) with the OUTLINE → GLOW pink fade baked in.
-        ParticleProviderRegistry.register(EKParticles.missileBurstSpark()) { sprites ->
-            MissileBurstSparkParticle.Provider(sprites)
-        }
-
-        // Magic-missile detonation flash — vanilla
-        // FireworkParticles.OverlayParticle's 4-tick sin-grow / linear-alpha-ramp
-        // pop, tinted with OUTLINE pink instead of vanilla's per-spawn colour.
-        ParticleProviderRegistry.register(EKParticles.missileBurstFlash()) { sprites ->
-            MissileBurstFlashParticle.Provider(sprites)
+        // A resource pack can replace the post-effect shaders. The effects load again at
+        // their next draw.
+        dev.architectury.registry.ReloadListenerRegistry.register(
+            net.minecraft.server.packs.PackType.CLIENT_RESOURCES,
+            net.minecraft.server.packs.resources.ResourceManagerReloadListener {
+                ConcealmentPostEffect.reset()
+                TomeSummonOverlay.closeRefractionEffect()
+                ScryingClient.closeRefractionEffect()
+            },
+            org.shipwrights.enderkinesis.EnderkinesisMod.id("post_effects"),
+        )
+        if (!particlesDone) {
+            registerParticleProviders { type, factory ->
+                ParticleProviderRegistry.register(type) { sprites -> factory(sprites) }
+            }
         }
 
 
@@ -377,6 +418,7 @@ object EnderkinesisModClient {
 
         // Sselith's Repertory: uncommon whispering murmurs, same cave-sound cadence.
         SselithAmbience.init()
+        SselithInvocationGlyphs.init()
 
         // Crepusculite Charm: hold jump while carrying the charm to levitate up to 5
         // blocks above the local ground. Lift is client-side (vanilla doesn't sync
@@ -399,6 +441,7 @@ object EnderkinesisModClient {
         // deep-blob pass. Must register before the overlay so the shader is loaded by
         // the time the overlay first draws.
         YgannAbyssRenderTypes.init()
+        org.shipwrights.enderkinesis.client.remnant.RemnantRenderTypes.init()
 
         // Sureibjin: dream-sky noise shader sampled per-fragment from spherical
         // direction. Replaces the CPU per-vertex noise so the sky doesn't show
@@ -408,6 +451,7 @@ object EnderkinesisModClient {
         // Scrying-orb vignette shader: radial gradient with fBm-noise-perturbed edge,
         // POSITION-only full-screen quad. Same registration pattern as Ygann's.
         ScryingRenderTypes.init()
+        StaffGemGlow.init()
 
         // Tome-summon vignette shader: copy of the scrying vignette with an extra
         // Intensity uniform so the overlay can fade in / out around the local
@@ -423,60 +467,21 @@ object EnderkinesisModClient {
         // counts the death timer; this overlay draws the black screen in lockstep.
         YgannAbyssVoidOverlay.init()
 
-        // The Cataloger uses a custom HumanoidModel-based geometry (robed humanoid;
-        // see CatalogerModel). The model layer is registered platform-side (Forge
-        // RegisterLayerDefinitions / Fabric EntityModelLayerRegistry). Decoupled-rate
-        // walking animation is driven server-side in the entity's aiStep (forces a
-        // constant virtual rate into walkAnimation, which HumanoidModel.setupAnim
-        // reads to swing the limbs).
-        EntityRendererRegistry.register(EKEntities.CATALOGER) { ctx ->
-            CatalogerRenderer(ctx)
-        }
-
-        // Archive — paper / book whirlwind. Renderer draws orbiting item models
-        // sampled from a fixed generic mix (paper + book); the actual loot list
-        // is server-side only and only matters at collapse.
-        EntityRendererRegistry.register(EKEntities.ARCHIVE) { ctx ->
-            ArchiveRenderer(ctx)
-        }
-
-        // Prismatic Goat — plain quadruped renderer; the model owns
-        // its walk + idle animation, the renderer just supplies the
-        // texture and a small shadow.
-        EntityRendererRegistry.register(EKEntities.PRISMATIC_GOAT) { ctx ->
-            PrismaticGoatRenderer(ctx)
-        }
-
-        // Wik-Lak Host — player-skinned construct; vanilla PlayerModel via
-        // ModelLayers.PLAYER (already registered by the vanilla player renderer)
-        // means no per-loader EntityModelLayer wiring is needed.
-        EntityRendererRegistry.register(EKEntities.WIK_LAK_HOST) { ctx ->
-            WikLakHostRenderer(ctx)
-        }
-
-        // Player Corpse — visual stand-in for the player's body after a
-        // Wik-Lak death-redirect. Resolves skin via tab-list PlayerInfo
-        // so the corpse renders with the actual player's appearance.
-        EntityRendererRegistry.register(EKEntities.PLAYER_CORPSE) { ctx ->
-            PlayerCorpseRenderer(ctx)
-        }
-
-        // Magic Missile — spinning shulker-spark billboard + [BeamPath] trail behind it that
-        // shares the orb-network particle plumbing.
-        EntityRendererRegistry.register(EKEntities.MAGIC_MISSILE) { ctx ->
-            MagicMissileRenderer(ctx)
-        }
-
         // Wylland Tome — client-side input + enchant-particle beam render.
-        WyllandTomeKeys.init()
         WyllandTomeClient.init()
+        TightRobeArmorRenderer.init()
 
         // Staff of Density — drag-to-set ship mass multiplier.
         DensityClient.init()
+        // Sselith parallels — table sync, and other-parallel players drawn as Catalogers.
+        SselithParallelClient.init()
+        ScribesDeskClient.init()
         // Staff of Scales — drag-to-set ship transform scale.
         ScalesClient.init()
         // Staff of Recital — bundle-of-tomes + shift-scroll cycle HUD.
         RecitalClient.init()
+        // Staff of Command — type-selector wheel + shift-scroll cycle.
+        CommandWheelClient.init()
         // Staff of Aegis — per-tick particle spawn inside the shield box.
         // The wireframe render itself is hooked per-platform (Fabric:
         // WorldRenderEvents.AFTER_TRANSLUCENT; see fabric client init).
@@ -492,7 +497,39 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> EchoCannonClient.clientTick() }
 
         SselithEclipseClient.init()
-        ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> SselithEclipseClient.clientTick() }
+        OwlSightTracker.init()
+        SselithMadnessAfflicted.init()
+        // Static client state holds game times and entities of the session that ends here.
+        ClientPlayerEvent.CLIENT_PLAYER_QUIT.register {
+            SselithAmbience.onDisconnect()
+            SselithRepertorySky.onDisconnect()
+            SselithMenuWalk.onDisconnect()
+            SselithVoidFog.onDisconnect()
+            SselithFog.onDisconnect()
+            SselithControlLoss.onDisconnect()
+            SselithMadnessAfflicted.onDisconnect()
+            YgannBarnacleDeathRenderer.onDisconnect()
+            YgannAbyssAmbience.onDisconnect()
+            YgannAbyssWatchingEyes.onDisconnect()
+            SselithEclipse.clearClientManualTrigger()
+            WohlonBiomeFog.onDisconnect()
+            WohlonBiomePresenceScanner.onDisconnect()
+            ClientShipCloakingState.reset()
+            ConcealmentTransitionWatcher.reset()
+            MothClothClientPositions.clear()
+            clearClientSession()
+        }
+        // The server sends no uncloak to a player who left the dimension. It sends the
+        // cloaks of the new dimension after this event.
+        ClientPlayerEvent.CLIENT_PLAYER_RESPAWN.register { _, _ ->
+            ClientShipCloakingState.reset()
+            ConcealmentTransitionWatcher.reset()
+            // A respawn makes a new client level, and the server sends its chunks again.
+            MothClothClientPositions.clear()
+            clearClientSession()
+        }
+        ClientTickEvent.CLIENT_POST.register { mc -> WohlonBiomePresenceScanner.tick(mc) }
+        ClientTickEvent.CLIENT_LEVEL_POST.register { level -> TomeSummonBeam.clientTick(level) }
 
         // Wylland Tome custom rendering (closed in inventory /
         // hotbar / ground / GUI, open with smooth page-flop in
@@ -511,6 +548,8 @@ object EnderkinesisModClient {
         // possessed player and the local input gate knows when to
         // suppress walking.
         PlayerTomeSummonClient.init()
+        SselithMadnessStageFx.init()
+        SselithFog.init()
 
         // Tome of Transportation — client-only ghost-item rendering for in-flight stacks.
         // Spawns a non-interacting [ItemEntity] for the duration of each dispatch and lets
@@ -525,6 +564,198 @@ object EnderkinesisModClient {
             if (level.dimension() != SselithRepertory.LEVEL_KEY) {
                 SselithRepertorySky.freeStarBuffers()
             }
+        }
+    }
+
+    /** Client tables of the level that ends. The server sends the cage list again after a respawn. */
+    private fun clearClientSession() {
+        GamylanCageClientRegistry.clearSession()
+        GamylanCageShatter.clearSession()
+        AegisClient.clearSession()
+        WikLakRedirectFlashTracker.clearSession()
+        MagicMissileTrailRenderer.clearSession()
+        TightRobeArmorRenderer.INSTANCE.clearSession()
+        org.shipwrights.enderkinesis.physics.LatticeRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.OrbOfLinkingClientRegistry.dropLevels(clientSide = true)
+    }
+
+    private var particlesDone = false
+
+    fun interface ParticleRegistrar {
+        fun register(
+            type: net.minecraft.core.particles.ParticleType<net.minecraft.core.particles.SimpleParticleType>,
+            factory: (net.minecraft.client.particle.SpriteSet) ->
+            net.minecraft.client.particle.ParticleProvider<net.minecraft.core.particles.SimpleParticleType>,
+        )
+    }
+
+    /** Forge takes providers only in `RegisterParticleProvidersEvent`, which is before
+     *  `initClient`. Architectury's own listener for that event runs first, so a later
+     *  call through Architectury registers late, with a warning for each provider. */
+    fun registerParticleProviders(registrar: ParticleRegistrar) {
+        particlesDone = true
+        // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
+        registrar.register(EKParticles.ocean()) { sprites ->
+            OceanParticle.Provider(sprites, OceanParticle.Mode.SURFACE)
+        }
+        registrar.register(EKParticles.oceanDeep()) { sprites ->
+            OceanParticle.Provider(sprites, OceanParticle.Mode.DEEP)
+        }
+        registrar.register(EKParticles.splash()) { sprites ->
+            OceanParticle.Provider(sprites, OceanParticle.Mode.SPLASH)
+        }
+        registrar.register(EKParticles.foamCrest()) { sprites ->
+            OceanParticle.Provider(sprites, OceanParticle.Mode.FOAM_CREST)
+        }
+
+        // Planar Anchor portal disc: ender-green recolour of vanilla `PORTAL`, same motion math.
+        registrar.register(EKParticles.planarSpiral()) { sprites ->
+            PlanarSpiralParticle.Provider(sprites)
+        }
+
+        // Shulker Puffer thruster exhaust — distance-keyed grow/fade size curve, short
+        // lifetime, dragon-breath sprite. See [ShulkerPufferParticle] for the curve.
+        registrar.register(EKParticles.shulkerPuffer()) { sprites ->
+            ShulkerPufferParticle.Provider(sprites)
+        }
+
+        // Sselith ambient motes — tiny warm-yellow particles that drift downward to give the
+        // Repertory a "dust in afternoon sunlight" atmosphere. Spawned by the biome's
+        // ambient `particle` setting in `sselith_repertory.json`.
+        registrar.register(EKParticles.sselithMote()) { sprites ->
+            SselithMoteParticle.Provider(sprites)
+        }
+
+        // Cataloger dust trail — visually a SselithMote, but with block collision and a
+        // shorter lifetime. Kept as a separate registration so the biome-wide ambient
+        // mote doesn't pay the per-particle terrain-collision cost. Spawned server-side
+        // from Cataloger.aiStep.
+        registrar.register(EKParticles.sselithDust()) { sprites ->
+            SselithDustParticle.Provider(sprites)
+        }
+        registrar.register(EKParticles.sselithClingingDust()) { sprites ->
+            SselithDustParticle.Provider(sprites, SselithDustParticle.Motion.CLINGING)
+        }
+        registrar.register(EKParticles.sselithBeamDust()) { sprites ->
+            SselithDustParticle.Provider(sprites, SselithDustParticle.Motion.DRIFTING)
+        }
+
+        // Incantation of Winds — hand-idle motes + downrange gale. Same
+        // atlas as sselith dust; separate type because these spawn at full
+        // alpha (no fade-in) and respect their spawn velocity.
+        registrar.register(EKParticles.windHandDust()) { sprites ->
+            WindDustParticle.Provider(sprites, WindDustParticle.Mode.HAND)
+        }
+        registrar.register(EKParticles.windGust()) { sprites ->
+            WindDustParticle.Provider(sprites, WindDustParticle.Mode.GUST)
+        }
+        registrar.register(EKParticles.eideticMote()) { sprites ->
+            WindDustParticle.Provider(sprites, WindDustParticle.Mode.EIDETIC)
+        }
+
+        registrar.register(EKParticles.ichaericInkDrip()) { sprites ->
+            IchaericInkDripParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.archiveSpiralDust()) { sprites ->
+            ArchiveSpiralDustParticle.Provider(sprites)
+        }
+
+        // Reusable enchanted-book bezier beam — used by the Wylland Tome (player → grab point)
+        // and the Tome of Signal's orb network (send orb → receivers). One particle type, many
+        // simultaneous beams: each particle carries a `pathId` referencing a `BeamPath` in the
+        // global `BeamRegistry`, re-evaluating the current curve every tick so the beam follows
+        // a moving target (turning view, drifting ship) without trailing.
+        registrar.register(EKParticles.enchantedBookBeam()) { sprites ->
+            EnchantedBookBeamParticle.Provider(sprites)
+        }
+
+        // Wylland Tome ship rain — emissive enchanted-book glyphs that
+        // fall inside a targeted ship's local AABB. Low count, full-bright.
+        registrar.register(EKParticles.wyllandTomeShipGlyph()) { sprites ->
+            WyllandTomeShipParticle.Provider(sprites)
+        }
+
+        // Sselith glyph column — emissive sga runes rising from a lectern
+        // when a Cataloger translates its book.
+        registrar.register(EKParticles.sselithGlyph()) { sprites ->
+            SselithGlyphParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.sselithInvocationGlyph()) { sprites ->
+            SselithInvocationGlyphParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.sselithArrivalStorm()) { sprites ->
+            SselithStormGlyphParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.sselithDepartureAura()) { sprites ->
+            SselithAuraGlyphParticle.Provider(sprites)
+        }
+
+        // Wohlonnogondonia ambient fireflies — light-teal flickering glitter
+        // that orbits a spawn-anchor block. Client-side spawning is driven
+        // by [WohlonnogondoniaFireflies] at low density while the player is
+        // in Wohlon; behaviour and per-particle flicker math live in
+        // [WohlonnogondoniaFireflyParticle].
+        registrar.register(EKParticles.wohlonFirefly()) { sprites ->
+            WohlonnogondoniaFireflyParticle.Provider(sprites)
+        }
+
+        // Wik-Lak bind thread — same glitter sprite + flicker as the ambient
+        // firefly, but with a ~1-second lifetime so the bind line at
+        // construction time vanishes instead of lingering as glitter.
+        registrar.register(EKParticles.wikLakBind()) { sprites ->
+            WikLakBindFireflyParticle.Provider(sprites)
+        }
+
+        // Sselith Bookmoths — a single warm-yellow pixel that flickers and
+        // flutters near a Sselith Lantern. Spawned by the lantern block's
+        // animateTick directly, so no separate client-side scanner is needed.
+        registrar.register(EKParticles.sselithBookmoth()) { sprites ->
+            SselithBookmothParticle.Provider(sprites)
+        }
+
+        // Staff-of-Aegis interior sparkle — tiny zero-gravity white glow that
+        // stays exactly where AegisClient seeds it inside the shield box.
+        registrar.register(EKParticles.aegisSparkle()) { sprites ->
+            AegisSparkleParticle.Provider(sprites)
+        }
+
+        // Staff-of-Sundering stage-1 "ender wisp" — vanilla portal sprite,
+        // warm pale-orange tint (no lavender purple), straight forward drift
+        // along the beam axis.
+        registrar.register(EKParticles.sunderingBeamParticle()) { sprites ->
+            SunderingBeamParticle.Provider(sprites)
+        }
+
+        // Staff-of-Sundering fire — vanilla flame sprite, no motion, short
+        // lifetime. Used by SunderingClient as the per-tick respawn source
+        // for the rotating tip rings and the helical spiral.
+        registrar.register(EKParticles.sunderingFireParticle()) { sprites ->
+            SunderingFireParticle.Provider(sprites)
+        }
+
+        // Staff-of-Sundering SUNDER glyph ring — SGA sprite atlas, one
+        // particle per angular slot orbiting the beam tip. Spawned only
+        // for the local player; see SunderingClient.spawnGlyphRing.
+        registrar.register(EKParticles.sunderingGlyphParticle()) { sprites ->
+            SunderingGlyphParticle.Provider(sprites)
+        }
+
+        // Magic-missile detonation spark — same lifecycle as vanilla
+        // FireworkParticles.SparkParticle (firework sprite, gravity, second-half
+        // alpha + colour fade) with the OUTLINE → GLOW pink fade baked in.
+        registrar.register(EKParticles.missileBurstSpark()) { sprites ->
+            MissileBurstSparkParticle.Provider(sprites)
+        }
+
+        // Magic-missile detonation flash — vanilla
+        // FireworkParticles.OverlayParticle's 4-tick sin-grow / linear-alpha-ramp
+        // pop, tinted with OUTLINE pink instead of vanilla's per-spawn colour.
+        registrar.register(EKParticles.missileBurstFlash()) { sprites ->
+            MissileBurstFlashParticle.Provider(sprites)
         }
     }
 }

@@ -1,11 +1,15 @@
 package org.shipwrights.enderkinesis.client
 
+import com.mojang.blaze3d.systems.RenderSystem
+import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
-import com.mojang.blaze3d.vertex.VertexConsumer
+import com.mojang.blaze3d.vertex.Tesselator
+import com.mojang.blaze3d.vertex.VertexBuffer
+import com.mojang.blaze3d.vertex.VertexFormat
 import net.minecraft.Util
 import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
-import net.minecraft.client.renderer.MultiBufferSource
+import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.culling.Frustum
 import net.minecraft.world.phys.AABB
 import org.joml.Matrix3f
@@ -29,10 +33,10 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *  additive halo at the body's [BodyTransform.toWorld] position with
  *  the body's rotation.
  *
- *  Uniforms (`MeshToWorld`, `WordLetters`) vary per orb, so each orb
- *  is drawn in its own `endBatch` to flush GL state with the right
- *  values. The fractal shader's other uniforms (`ViewToWorld`,
- *  `GlobalTime`) are frame-constant and set once per call.
+ *  Both meshes are baked once per fractal type into static VBOs and drawn
+ *  directly, so the per-orb `MeshToWorld` uniform applies to its own draw.
+ *  The fractal shader's other uniforms (`ViewToWorld`, `GlobalTime`) are
+ *  frame-constant and set once per call.
  *
  *  Replaces the legacy BER (`FractalProjectorRenderer`) which is now
  *  unregistered; the block has no visible component of its own.
@@ -48,6 +52,11 @@ object OrbOfPotentialRenderer {
 
     private val SPHERE_VERTICES: FloatArray = buildUvSphere(SPHERE_RADIUS)
     private val HALO_VERTICES: FloatArray = buildUvSphere(HALO_RADIUS)
+
+    // Fractal type rides in each vertex's colour alpha, so each (mesh, type) pair gets its own VBO.
+    private val sphereBuffers = HashMap<Int, VertexBuffer>()
+    private val haloBuffers = HashMap<Int, VertexBuffer>()
+    private val scratchModelView = Matrix4f()
 
     // Scratch reused across orbs per frame so we're not re-allocating
     // a 48-element float[] every call. `fillWordLetters` output depends
@@ -66,12 +75,12 @@ object OrbOfPotentialRenderer {
         val fractalShader = FractalProjectorRenderTypes.getFractalShader() ?: return
         val haloShader = FractalProjectorRenderTypes.getHaloShader() ?: return
 
-        val orbs = ClientOrbRegistry.snapshot()
-        if (orbs.isEmpty()) return
+        if (ClientOrbRegistry.isEmpty()) return
 
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
-        val bufferSource = mc.renderBuffers().bufferSource()
+        val orbs = ClientOrbRegistry.near(level)
+        if (orbs.isEmpty()) return
         val cameraPos = camera.position
         // Dim guard. The orbs leak across dims after the player visits
         // Sselith (the per-dim S2C clear / replace doesn't always reach
@@ -165,29 +174,36 @@ object OrbOfPotentialRenderer {
             )
             poseStack.mulPose(rotQuatF)
 
-            val matrix = poseStack.last().pose()
-            emitSphere(
-                SPHERE_VERTICES,
-                bufferSource.getBuffer(FractalProjectorRenderTypes.FRACTAL_SPHERE),
-                matrix, fractalType,
+            scratchModelView.set(RenderSystem.getModelViewMatrix()).mul(poseStack.last().pose())
+            drawMesh(
+                FractalProjectorRenderTypes.FRACTAL_SPHERE,
+                sphereBuffers.getOrPut(fractalType) { bake(SPHERE_VERTICES, fractalType) },
+                projectionMatrix,
             )
-            // Flush so the next orb's MeshToWorld uniform applies cleanly.
-            bufferSource.endBatch(FractalProjectorRenderTypes.FRACTAL_SPHERE)
-
-            emitSphere(
-                HALO_VERTICES,
-                bufferSource.getBuffer(FractalProjectorRenderTypes.HALO_SPHERE),
-                matrix, fractalType,
+            drawMesh(
+                FractalProjectorRenderTypes.HALO_SPHERE,
+                haloBuffers.getOrPut(fractalType) { bake(HALO_VERTICES, fractalType) },
+                projectionMatrix,
             )
-            bufferSource.endBatch(FractalProjectorRenderTypes.HALO_SPHERE)
 
             poseStack.popPose()
         }
     }
 
-    private fun emitSphere(
-        vertices: FloatArray, consumer: VertexConsumer, matrix: Matrix4f, fractalType: Int,
-    ) {
+    private fun drawMesh(type: RenderType, buffer: VertexBuffer, projection: Matrix4f) {
+        type.setupRenderState()
+        val shader = RenderSystem.getShader()
+        if (shader != null) {
+            buffer.bind()
+            buffer.drawWithShader(scratchModelView, projection, shader)
+            VertexBuffer.unbind()
+        }
+        type.clearRenderState()
+    }
+
+    private fun bake(vertices: FloatArray, fractalType: Int): VertexBuffer {
+        val builder = Tesselator.getInstance().builder
+        builder.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR_NORMAL)
         var i = 0
         while (i < vertices.size) {
             val px = vertices[i]
@@ -196,8 +212,8 @@ object OrbOfPotentialRenderer {
             val nx = vertices[i + 3]
             val ny = vertices[i + 4]
             val nz = vertices[i + 5]
-            consumer
-                .vertex(matrix, px, py, pz)
+            builder
+                .vertex(px.toDouble(), py.toDouble(), pz.toDouble())
                 // Color.a carries fractal type for the shader's dispatcher
                 // (same encoding the legacy BER used). RGB unused.
                 .color(0, 0, 0, fractalType)
@@ -205,6 +221,11 @@ object OrbOfPotentialRenderer {
                 .endVertex()
             i += VERTEX_STRIDE
         }
+        val buffer = VertexBuffer(VertexBuffer.Usage.STATIC)
+        buffer.bind()
+        buffer.upload(builder.end())
+        VertexBuffer.unbind()
+        return buffer
     }
 
     private fun buildUvSphere(radius: Float): FloatArray {

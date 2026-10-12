@@ -11,6 +11,7 @@ import net.minecraft.world.level.block.SandBlock
 import net.minecraft.world.level.block.ButtonBlock
 import net.minecraft.world.level.block.FenceBlock
 import net.minecraft.world.level.block.FenceGateBlock
+import net.minecraft.world.level.block.LiquidBlock
 import net.minecraft.world.level.block.PressurePlateBlock
 import net.minecraft.world.level.block.SlabBlock
 import net.minecraft.world.level.block.SoundType
@@ -27,7 +28,9 @@ import org.shipwrights.enderkinesis.block.AncriteBarsBlock
 import org.shipwrights.enderkinesis.block.AncriteBeamBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteGlassBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
+import org.shipwrights.enderkinesis.block.CrepusculiteLightstoneBlock
 import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
+import org.shipwrights.enderkinesis.block.CrystalPedestalBlock
 import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
 import org.shipwrights.enderkinesis.block.MagicMissileLauncherBlock
 import org.shipwrights.enderkinesis.block.EyeroscopeBlock
@@ -37,7 +40,13 @@ import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
 import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutBlock
+import org.shipwrights.enderkinesis.block.IchaericInkBlock
+import org.shipwrights.enderkinesis.block.IchaericInkJarBlock
+import org.shipwrights.enderkinesis.block.InegricRetortBlock
+import org.shipwrights.enderkinesis.block.ForgottenItemBlock
+import org.shipwrights.enderkinesis.block.ScribesDeskBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutTopBlock
+import org.shipwrights.enderkinesis.block.SselithBookshelfBlock
 import org.shipwrights.enderkinesis.block.StatueBlock
 import org.shipwrights.enderkinesis.block.StatueKind
 import org.shipwrights.enderkinesis.block.WogorBudBlock
@@ -97,6 +106,18 @@ object EKBlocks {
             crepusculiteProps().strength(3.0f, 6.0f).noOcclusion().lightLevel { state ->
                 CrepusculiteLatticeBlock.lightFor(state.getValue(BlockStateProperties.POWER))
             }
+        )
+    }
+
+    val CREPUSCULITE_LIGHTSTONE: RegistrySupplier<Block> = BLOCKS.register("crepusculite_lightstone") {
+        CrepusculiteLightstoneBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PINK)
+                .noCollission()
+                .instabreak()
+                .lightLevel { 10 }
+                .sound(SoundType.AMETHYST)
+                .pushReaction(net.minecraft.world.level.material.PushReaction.DESTROY)
         )
     }
 
@@ -213,6 +234,20 @@ object EKBlocks {
     /** Ancrite Eye — 16-state analog redstone source. Right-click to step the power
      *  up (shift to step down), left-click empty-handed to jump to max, Staff of
      *  Command dispatch matches the left-click. */
+    /** Ygann Barnacle — hull pest picked up in the Ygann Abyss; the pip is the only
+     *  real block, its tentacles are BER projections. */
+    val YGANN_BARNACLE: RegistrySupplier<Block> = BLOCKS.register("ygann_barnacle") {
+        org.shipwrights.enderkinesis.block.YgannBarnacleBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PURPLE)
+                .strength(0.6f)
+                .sound(SoundType.SLIME_BLOCK)
+                .noOcclusion()
+                .noCollission()
+                .noLootTable()
+        )
+    }
+
     val ANCRITE_EYE: RegistrySupplier<Block> = BLOCKS.register("analog_eye") {
         org.shipwrights.enderkinesis.block.AncriteEyeBlock(
             BlockBehaviour.Properties.copy(Blocks.LEVER).noOcclusion()
@@ -321,6 +356,26 @@ object EKBlocks {
         )
     }
 
+    /** The Constriliar's shipyard back plate. Never hand-placed (no `BlockItem`);
+     *  [org.shipwrights.enderkinesis.entity.ConstriliarEntity] assembles it into the
+     *  cargo ship it drives. Invisible + collisionless — the entity renders the plate. */
+    val CONSTRILIAR_PLATFORM: RegistrySupplier<Block> = BLOCKS.register("constriliar_platform") {
+        org.shipwrights.enderkinesis.block.ConstriliarPlatformBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PURPLE)
+                .strength(2.0f, 6.0f)
+                .sound(SoundType.STONE)
+                .noLootTable()
+                // The plate's top-slab collision bounds sit right at vanilla's isSolid
+                // volume threshold; a non-solid classification means VS2 builds NO
+                // physics voxel for it — a bare (platform-only) ship then has no body
+                // at all and is completely force-inert.
+                .forceSolidOn()
+                .noOcclusion()
+                .lightLevel { it.getValue(org.shipwrights.enderkinesis.block.ConstriliarPlatformBlock.LIGHT) }
+        )
+    }
+
     /** Lid half of [SHULKER_STRUT]. Hand-placement isn't allowed (no `BlockItem`); the
      *  strut's BE creates it inline + immediately assembles it into a 1-block VS2 ship. */
     val SHULKER_STRUT_TOP: RegistrySupplier<Block> = BLOCKS.register("shulker_strut_top") {
@@ -416,6 +471,7 @@ object EKBlocks {
                 .noOcclusion()
                 .noCollission()
                 .pushReaction(net.minecraft.world.level.material.PushReaction.DESTROY)
+                .noLootTable()
         )
     }
 
@@ -481,8 +537,41 @@ object EKBlocks {
      *  bookshelf texture, with deepslate-tile top + bottom. This is the block
      *  the chunk generator places for every library wall in Sselith's
      *  Repertory (replacing the previous use of [Blocks.BOOKSHELF]). */
+    val ICHAERIC_INK: RegistrySupplier<LiquidBlock> = BLOCKS.register("ichaeric_ink") {
+        IchaericInkBlock({ EKFluids.ICHAERIC_INK.get() }, BlockBehaviour.Properties.copy(Blocks.WATER))
+    }
+
+    val ICHAERIC_INK_JAR: RegistrySupplier<Block> = BLOCKS.register("ichaeric_ink_jar") {
+        IchaericInkJarBlock(BlockBehaviour.Properties.copy(Blocks.GLASS))
+    }
+
+    val INEGRIC_RETORT: RegistrySupplier<Block> = BLOCKS.register("inegric_retort") {
+        InegricRetortBlock(BlockBehaviour.Properties.copy(Blocks.GLASS).randomTicks())
+    }
+
+    val SCRIBES_DESK: RegistrySupplier<Block> = BLOCKS.register("scribes_desk") {
+        ScribesDeskBlock(
+            BlockBehaviour.Properties.copy(Blocks.CRAFTING_TABLE)
+                .mapColor(MapColor.COLOR_YELLOW)
+                .sound(SoundType.BAMBOO_WOOD)
+                .noOcclusion()
+        )
+    }
+
+    val FORGOTTEN_ITEM: RegistrySupplier<Block> = BLOCKS.register("forgotten_item") {
+        ForgottenItemBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.NONE)
+                .instabreak()
+                .noCollission()
+                .noOcclusion()
+                .noLootTable()
+                .noParticlesOnBreak()
+        )
+    }
+
     val SSELITH_BOOKSHELF: RegistrySupplier<Block> = BLOCKS.register("sselith_bookshelf") {
-        Block(
+        SselithBookshelfBlock(
             BlockBehaviour.Properties.copy(Blocks.BOOKSHELF)
                 .mapColor(MapColor.DEEPSLATE)
                 .sound(SoundType.DEEPSLATE_TILES)
@@ -538,6 +627,10 @@ object EKBlocks {
                 .sound(SoundType.DEEPSLATE_TILES),
             net.minecraft.world.level.block.state.properties.BlockSetType.STONE,
         )
+    }
+
+    val OWL_DEEPSLATE: RegistrySupplier<Block> = BLOCKS.register("owl_deepslate") {
+        Block(BlockBehaviour.Properties.copy(Blocks.CHISELED_DEEPSLATE))
     }
 
     /** Sselith Lamp — full opaque cube with distinct side / top-bottom
@@ -710,25 +803,27 @@ object EKBlocks {
     // colour all match. Only the texture (and the falling-sand dust
     // colour, sampled from the dream-sand palette) differs.
 
+    // The dream blocks exist only in Sureibjin: they have no item and no loot table.
+
     /** Dream-coast obsidian — tendrils, rocks, debris. */
     val DREAM_OBSIDIAN: RegistrySupplier<Block> = BLOCKS.register("dream_obsidian") {
-        Block(BlockBehaviour.Properties.copy(Blocks.OBSIDIAN))
+        Block(BlockBehaviour.Properties.copy(Blocks.OBSIDIAN).noLootTable())
     }
 
     /** Dream-coast crying obsidian — interspersed with [DREAM_OBSIDIAN] in
      *  Sureibjin tendrils / rocks for the same patina the vanilla pair has. */
     val DREAM_CRYING_OBSIDIAN: RegistrySupplier<Block> = BLOCKS.register("dream_crying_obsidian") {
-        Block(BlockBehaviour.Properties.copy(Blocks.CRYING_OBSIDIAN))
+        Block(BlockBehaviour.Properties.copy(Blocks.CRYING_OBSIDIAN).noLootTable())
     }
 
     /** Dream-coast sand — falling-block behaviour identical to vanilla
      *  sand. Dust colour 0xC4B695 sampled from the dream-sand palette so
      *  the puff matches the block. */
     val DREAM_SAND: RegistrySupplier<Block> = BLOCKS.register("dream_sand") {
-        SandBlock(0xC4B695, BlockBehaviour.Properties.copy(Blocks.SAND))
+        SandBlock(0xC4B695, BlockBehaviour.Properties.copy(Blocks.SAND).noLootTable())
     }
 
-    /** Decorative statues — six Blockbench-style entity-model blocks rendered by
+    /** Decorative statues — Blockbench-style entity-model blocks rendered by
      *  [org.shipwrights.enderkinesis.client.StatueBlockEntityRenderer]. The block's
      *  voxel shape is the pedestal cube only; the model's head/decoration extends
      *  above (handled by `noOcclusion()` so neighbours don't cull against it). */
@@ -760,14 +855,71 @@ object EKBlocks {
     val STATUE_COUNTING: RegistrySupplier<Block> = BLOCKS.register("statue_counting") {
         StatueBlock(StatueKind.COUNTING, statueProps())
     }
+    val STATUE_OWL: RegistrySupplier<Block> = BLOCKS.register("statue_owl") {
+        StatueBlock(StatueKind.OWL, statueProps())
+    }
 
     /** All statue block suppliers in registration order, for the shared
      *  BlockEntityType + creative tab + per-platform layer registrations. */
     val STATUES: List<RegistrySupplier<Block>> = listOf(
         STATUE_STEVE, STATUE_CATALOGER, STATUE_TENTACLES,
         STATUE_TENTACLED_BEAST, STATUE_YELLOW_TOWER, STATUE_BLACK_GOAT,
+        STATUE_COUNTING, STATUE_OWL,
+    )
+
+    /** Statues the Sselith chunk generator may place. Its hash indexes this list, so
+     *  append-only: a reorder changes which statue existing seeds generate. */
+    val WORLDGEN_STATUES: List<RegistrySupplier<Block>> = listOf(
+        STATUE_STEVE, STATUE_CATALOGER, STATUE_TENTACLES,
+        STATUE_TENTACLED_BEAST, STATUE_YELLOW_TOWER, STATUE_BLACK_GOAT,
         STATUE_COUNTING,
     )
+
+    /** Placeholder pedestal for Ga'Mylan cage crystals. Uses the vanilla
+     *  chiseled_stone_bricks model at the asset level; behaviour is a
+     *  simple redstone-powered full cube whose transitions notify
+     *  [org.shipwrights.enderkinesis.body.GamylanCagePedestals]. */
+    val CRYSTAL_PEDESTAL: RegistrySupplier<Block> = BLOCKS.register("crystal_pedestal") {
+        CrystalPedestalBlock(
+            BlockBehaviour.Properties.copy(Blocks.CHISELED_STONE_BRICKS)
+                .strength(1.5f, 6.0f)
+                .sound(SoundType.STONE)
+                .noOcclusion()
+                .lightLevel { state -> if (state.getValue(BlockStateProperties.LIT)) 5 else 0 },
+        )
+    }
+
+    /** All 16 Moth Cloth colour variants, indexed by DyeColor. Each block
+     *  inherits WHITE_WOOL's properties (same hardness, mining behaviour,
+     *  wool sound); the fresnel yellow sheen is applied client-side via a
+     *  custom RenderType, so the block-level definition stays vanilla-lite. */
+    val MOTH_CLOTH_BY_COLOR: Map<net.minecraft.world.item.DyeColor, RegistrySupplier<Block>> =
+        net.minecraft.world.item.DyeColor.values().associateWith { color ->
+            BLOCKS.register("moth_cloth_${color.name.lowercase()}") {
+                org.shipwrights.enderkinesis.block.MothClothBlock(
+                    color,
+                    BlockBehaviour.Properties.copy(Blocks.WHITE_WOOL),
+                )
+            }
+        }
+
+    /** **Wohlon Root** — the material lining every tunnel of the root
+     *  cave network under Wohlon's land biomes. Deliberately
+     *  NON-DIRECTIONAL: all of the "this is a root" read lives in the
+     *  carve geometry (axially-stretched surface displacement in
+     *  [org.shipwrights.enderkinesis.dimension.WohlonRootField]) rather
+     *  than in a log's axis property.
+     *
+     *  Art placeholder: currently wears the `wogor_log` bark on all six
+     *  faces. Wants its own texture. */
+    val WOHLON_ROOT: RegistrySupplier<Block> = BLOCKS.register("wohlon_root") {
+        Block(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PODZOL)
+                .strength(2.2f, 3.0f)
+                .sound(SoundType.WET_GRASS),
+        )
+    }
 
     fun register() = BLOCKS.register()
 }

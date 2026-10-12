@@ -24,12 +24,23 @@ import net.minecraft.core.particles.SimpleParticleType
  * Keeping these separate is a perf split — block-collision is non-trivial at the
  * particle count the biome-wide ambient mote runs at, but cheap at the small,
  * tightly-bounded dust-trail count.
+ *
+ * [Motion.CLINGING] is the surface variant the Remnant leaves where it crawls: it
+ * stays where it is spawned, with no gravity, drift or collision, and lasts
+ * longer, so it reads as residue on the surface rather than falling dust.
+ *
+ * [Motion.DRIFTING] keeps the velocity it is spawned with, with no gravity or
+ * collision: the tome-summon beam's motes.
  */
 class SselithDustParticle(
     level: ClientLevel,
     x: Double, y: Double, z: Double,
     private val sprites: SpriteSet,
+    private val motion: Motion = Motion.FALLING,
+    driftX: Double = 0.0, driftY: Double = 0.0, driftZ: Double = 0.0,
 ) : TextureSheetParticle(level, x, y, z, 0.0, 0.0, 0.0) {
+
+    enum class Motion { FALLING, CLINGING, DRIFTING }
 
     /** Which half of the sprite set this dust uses. Picked once at spawn. */
     private val smokeMode: Boolean = random.nextFloat() < 0.5f
@@ -70,13 +81,26 @@ class SselithDustParticle(
             90 + random.nextInt(50)
         }
 
+        if (motion != Motion.FALLING) {
+            gravity = 0.0f
+            hasPhysics = false
+            xd = driftX
+            yd = driftY
+            zd = driftZ
+        }
+        if (motion == Motion.CLINGING) lifetime *= CLING_LIFETIME_FACTOR
+        // Vanilla friction (0.98) would stop a slow drift well before the mote fades.
+        if (motion == Motion.DRIFTING) friction = 1.0f
+
         setSpriteFromIndex(0)
     }
 
     override fun tick() {
         super.tick()
-        xd = (xd * 0.96) + (random.nextDouble() - 0.5) * 0.0008
-        zd = (zd * 0.96) + (random.nextDouble() - 0.5) * 0.0008
+        if (motion == Motion.FALLING) {
+            xd = (xd * 0.96) + (random.nextDouble() - 0.5) * 0.0008
+            zd = (zd * 0.96) + (random.nextDouble() - 0.5) * 0.0008
+        }
 
         val frame = ((age.toFloat() / lifetime.toFloat()) * 8f).toInt().coerceIn(0, 7)
         setSpriteFromIndex(frame)
@@ -91,7 +115,8 @@ class SselithDustParticle(
 
     private fun setSpriteFromIndex(frame: Int) {
         val base = if (smokeMode) 0 else 8
-        setSprite(sprites.get(base + frame, SPRITE_SET_SIZE))
+        // `SpriteSet.get(age, lifetime)` returns index age * (size - 1) / lifetime.
+        setSprite(sprites.get(base + frame, SPRITE_SET_SIZE - 1))
     }
 
     override fun getRenderType(): ParticleRenderType = ParticleRenderType.PARTICLE_SHEET_TRANSLUCENT
@@ -99,13 +124,19 @@ class SselithDustParticle(
     companion object {
         /** Total sprite count in `sselith_dust.json` — 8 generic + 8 glitter. */
         private const val SPRITE_SET_SIZE = 16
+
+        /** How much longer clinging dust lasts than falling dust. */
+        private const val CLING_LIFETIME_FACTOR = 2
     }
 
-    class Provider(private val sprites: SpriteSet) : ParticleProvider<SimpleParticleType> {
+    class Provider(
+        private val sprites: SpriteSet,
+        private val motion: Motion = Motion.FALLING,
+    ) : ParticleProvider<SimpleParticleType> {
         override fun createParticle(
             type: SimpleParticleType, level: ClientLevel,
             x: Double, y: Double, z: Double,
             xd: Double, yd: Double, zd: Double,
-        ): Particle = SselithDustParticle(level, x, y, z, sprites)
+        ): Particle = SselithDustParticle(level, x, y, z, sprites, motion, xd, yd, zd)
     }
 }

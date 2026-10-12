@@ -1,8 +1,8 @@
 package org.shipwrights.enderkinesis.block
 
-import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
@@ -13,10 +13,17 @@ import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.TicketType
 import net.minecraft.util.RandomSource
+import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.Mob
+import net.minecraft.world.entity.item.ItemEntity
+import net.minecraft.world.entity.player.Player
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.saveddata.SavedData
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import java.util.UUID
@@ -50,8 +57,6 @@ import net.minecraft.tags.BlockTags
  * called from the ritual hook (also on the server thread).
  */
 object WohlonnogondoniaPortalManager {
-
-    private val LOG = LogUtils.getLogger()
 
     /** SavedData key. Becomes the filename in the dimension's
      *  `data/` folder. */
@@ -163,6 +168,8 @@ object WohlonnogondoniaPortalManager {
         // next world loaded into the same JVM doesn't inherit them.
         dev.architectury.event.events.common.LifecycleEvent.SERVER_STOPPED.register { _ ->
             pendingSearches.clear()
+            exhaustedSearches.clear()
+            landingTicketRefreshAt = 0L
             returnCooldowns.clear()
         }
     }
@@ -192,6 +199,24 @@ object WohlonnogondoniaPortalManager {
      *  there for portals without stored landings). */
     private val pendingSearches: MutableList<PendingPortalSearch> = mutableListOf()
 
+    /** Portals whose search used its full budget. Without it, [tickLevel] queues the same
+     *  search again on the next tick, with no end. Cleared on server stop and on a wipe. */
+    private val exhaustedSearches: MutableSet<Pair<ResourceKey<Level>, Long>> = HashSet()
+
+    /** Covers the 35–65 block search ring around the origin. */
+    private const val LANDING_TICKET_RADIUS: Int = 5
+    private const val LANDING_TICKET_TIMEOUT_TICKS: Int = 100
+    private const val LANDING_TICKET_REFRESH_TICKS: Long = 40L
+
+    /** Loads the ring off the server thread; a block read in the search generated chunks on it. */
+    private val LANDING_TICKET: TicketType<ChunkPos> = TicketType.create(
+        "enderkinesis_wohlon_landing", Comparator.comparingLong(ChunkPos::toLong), LANDING_TICKET_TIMEOUT_TICKS,
+    )
+    private var landingTicketRefreshAt: Long = 0L
+
+    private const val RETURN_SPOT_RADIUS: Int = 2
+    private const val RETURN_SPOT_BELOW: Int = 3
+
     // ----- Return-portal cooldown (anti-bounce) ---------------------
 
     /** Ticks the heart-return teleport blocks the source-side portal
@@ -214,18 +239,21 @@ object WohlonnogondoniaPortalManager {
         returnCooldowns[entityId] = gameTime
     }
 
-    /** Hook for [WohlonnogondoniaCatastrophe] — called at the end of
-     *  the live dim wipe so the next portal entry doesn't pick up a
-     *  pre-wipe landing or a stuck cooldown. Per-dim
-     *  [PortalSavedData] for the Wohlon dim itself is deleted with
-     *  the dimension directory; the pending-search queue and the
-     *  cooldown map are in-memory and need explicit clearing here. */
+    /** Hook for [WohlonnogondoniaCatastrophe], after a wipe: each stored landing points into
+     *  terrain that is gone, so each portal searches again. */
     @JvmStatic
-    fun resetSessionStateForWipe() {
+    fun resetSessionStateForWipe(server: MinecraftServer) {
         synchronized(pendingSearches) {
             pendingSearches.clear()
         }
+        exhaustedSearches.clear()
         returnCooldowns.clear()
+        for (level in server.allLevels) {
+            val data = level.dataStorage.get({ tag -> PortalSavedData.load(tag) }, DATA_NAME) ?: continue
+            if (data.landings.isEmpty()) continue
+            data.landings.clear()
+            data.setDirty()
+        }
     }
 
     /** Persist a portal anchor at [pos] in [level]. Idempotent —
@@ -246,21 +274,59 @@ object WohlonnogondoniaPortalManager {
         val data = getData(level)
         if (!data.positions.add(pos.asLong())) return false
         data.setDirty()
-        LOG.debug("WohlonPortal: registered anchor at {} in {}", pos, level.dimension().location())
         enqueueLandingSearch(level.dimension(), pos)
         return true
     }
 
-    /** Look up the pre-computed landing for [portalPos] in [sourceLevel].
-     *  Returns null if the search hasn't finished, the portal is
-     *  unregistered, or the data isn't loaded. */
+    /** The stored landing for [portalPos], if its ground and its 3×3×3 space are still good.
+     *  A landing that fails is dropped, and [tickLevel] queues a new search. */
     @JvmStatic
-    fun getStoredLanding(sourceLevel: ServerLevel, portalPos: BlockPos): BlockPos? {
+    fun validatedLanding(sourceLevel: ServerLevel, portalPos: BlockPos, wohlonLevel: ServerLevel): BlockPos? {
         val data = sourceLevel.dataStorage.get(
             { tag -> PortalSavedData.load(tag) }, DATA_NAME,
         ) ?: return null
-        val packed = data.landings[portalPos.asLong()] ?: return null
-        return BlockPos.of(packed)
+        val key = portalPos.asLong()
+        val landing = BlockPos.of(data.landings[key] ?: return null)
+        if (wohlonLevel.getBlockState(landing).canOcclude() && isLandingValidFor3x3x3(wohlonLevel, landing)) {
+            return landing
+        }
+        data.landings.remove(key)
+        data.setDirty()
+        exhaustedSearches.remove(sourceLevel.dimension() to key)
+        return null
+    }
+
+    /** True while a landing search for the portal can still give a result. */
+    @JvmStatic
+    fun isSearchPending(sourceDim: ResourceKey<Level>, portalPos: BlockPos): Boolean =
+        (sourceDim to portalPos.asLong()) !in exhaustedSearches
+
+    /** An arrival position near [portalPos]. The Heart block fills the portal cell itself, so
+     *  an arrival there is inside a block. Nearest cell with a floor and two free cells. */
+    @JvmStatic
+    fun findReturnSpot(level: ServerLevel, portalPos: BlockPos): Vec3 {
+        val feet = BlockPos.MutableBlockPos()
+        val probe = BlockPos.MutableBlockPos()
+        var bestX = 0; var bestY = 0; var bestZ = 0
+        var bestDist = Int.MAX_VALUE
+        for (dy in -RETURN_SPOT_BELOW..1) {
+            for (dx in -RETURN_SPOT_RADIUS..RETURN_SPOT_RADIUS) {
+                for (dz in -RETURN_SPOT_RADIUS..RETURN_SPOT_RADIUS) {
+                    val dist = dx * dx + dy * dy + dz * dz
+                    if (dist >= bestDist) continue
+                    feet.set(portalPos.x + dx, portalPos.y + dy, portalPos.z + dz)
+                    if (!level.getBlockState(feet).getCollisionShape(level, feet).isEmpty) continue
+                    probe.setWithOffset(feet, Direction.UP)
+                    if (!level.getBlockState(probe).getCollisionShape(level, probe).isEmpty) continue
+                    probe.setWithOffset(feet, Direction.DOWN)
+                    if (!level.getBlockState(probe).isFaceSturdy(level, probe, Direction.UP)) continue
+                    bestX = feet.x; bestY = feet.y; bestZ = feet.z
+                    bestDist = dist
+                }
+            }
+        }
+        if (bestDist == Int.MAX_VALUE) return Vec3(portalPos.x + 0.5, portalPos.y.toDouble(), portalPos.z + 0.5)
+        return Vec3(bestX + 0.5, bestY.toDouble(), bestZ + 0.5)
     }
 
     private fun enqueueLandingSearch(sourceDim: ResourceKey<Level>, portalPos: BlockPos) {
@@ -388,6 +454,8 @@ object WohlonnogondoniaPortalManager {
     }
 
     private fun tickLevel(level: ServerLevel) {
+        // A landing search loads Wohlon chunks, which stops the drain before the wipe.
+        if (WohlonnogondoniaCatastrophe.isWipeInProgress()) return
         val gameTime = level.gameTime
         val doTeleport = gameTime % TELEPORT_INTERVAL == 0L
 
@@ -400,7 +468,7 @@ object WohlonnogondoniaPortalManager {
         // non-Wohlon dims.
         if (level.dimension() != Wohlonnogondonia.LEVEL_KEY) {
             for (packed in data.positions) {
-                if (!data.landings.containsKey(packed)) {
+                if (!data.landings.containsKey(packed) && (level.dimension() to packed) !in exhaustedSearches) {
                     enqueueLandingSearch(level.dimension(), BlockPos.of(packed))
                 }
             }
@@ -446,6 +514,10 @@ object WohlonnogondoniaPortalManager {
         if (pendingSearches.isEmpty()) return
         val server = wohlonLevel.server
         val random = wohlonLevel.random
+        if (wohlonLevel.gameTime >= landingTicketRefreshAt) {
+            wohlonLevel.chunkSource.addRegionTicket(LANDING_TICKET, ChunkPos.ZERO, LANDING_TICKET_RADIUS, ChunkPos.ZERO)
+            landingTicketRefreshAt = wohlonLevel.gameTime + LANDING_TICKET_REFRESH_TICKS
+        }
         synchronized(pendingSearches) {
             val iter = pendingSearches.iterator()
             while (iter.hasNext()) {
@@ -454,8 +526,14 @@ object WohlonnogondoniaPortalManager {
                 var landing: BlockPos? = null
                 while (triedThisTick < SEARCH_ATTEMPTS_PER_TICK && search.attemptsLeft > 0) {
                     triedThisTick++
+                    val theta = random.nextDouble() * 2.0 * Math.PI
+                    val r = 35.0 + random.nextDouble() * 30.0  // 35–65 blocks from origin
+                    val x = (Math.cos(theta) * r).toInt()
+                    val z = (Math.sin(theta) * r).toInt()
+                    // Not loaded yet: the ticket brings the chunk, and no attempt is used.
+                    if (!isAreaLoaded(wohlonLevel, x - 1, z - 1, x + 1, z + 1)) continue
                     search.attemptsLeft--
-                    val candidate = sampleLandingCandidate(wohlonLevel, random) ?: continue
+                    val candidate = sampleLandingCandidate(wohlonLevel, x, z) ?: continue
                     if (isLandingValidFor3x3x3(wohlonLevel, candidate)) {
                         landing = candidate
                         break
@@ -471,33 +549,31 @@ object WohlonnogondoniaPortalManager {
                         )
                         sourceData.landings[search.portalPos.asLong()] = landing.asLong()
                         sourceData.setDirty()
-                        LOG.info(
-                            "WohlonPortal: landing for portal {} {} = {} (attempts used {})",
-                            search.sourceDim.location(), search.portalPos, landing,
-                            SEARCH_MAX_ATTEMPTS - search.attemptsLeft,
-                        )
                     }
                     iter.remove()
                 } else if (search.attemptsLeft <= 0) {
-                    LOG.warn(
-                        "WohlonPortal: search exhausted for {} {} — leaving live fallback",
-                        search.sourceDim.location(), search.portalPos,
-                    )
+                    exhaustedSearches.add(search.sourceDim to search.portalPos.asLong())
                     iter.remove()
                 }
             }
         }
     }
 
-    /** Pick a random column in the open swamp around origin and walk
-     *  down for the first solid, non-log, non-leaf, non-fluid block.
+    /** `getChunkNow`, not `hasChunk`: `hasChunk` is true for a chunk that still generates. */
+    private fun isAreaLoaded(level: ServerLevel, minX: Int, minZ: Int, maxX: Int, maxZ: Int): Boolean {
+        val chunks = level.chunkSource
+        for (cx in (minX shr 4)..(maxX shr 4)) {
+            for (cz in (minZ shr 4)..(maxZ shr 4)) {
+                if (chunks.getChunkNow(cx, cz) == null) return false
+            }
+        }
+        return true
+    }
+
+    /** Walk down column ([x], [z]) for the first solid, non-log, non-leaf, non-fluid block.
      *  Returns the *ground* block (player stands on top); caller is
      *  expected to verify the 3×3×3 clearance above. */
-    private fun sampleLandingCandidate(wohlonLevel: ServerLevel, random: RandomSource): BlockPos? {
-        val theta = random.nextDouble() * 2.0 * Math.PI
-        val r = 35.0 + random.nextDouble() * 30.0  // 35–65 blocks from origin
-        val x = (Math.cos(theta) * r).toInt()
-        val z = (Math.sin(theta) * r).toInt()
+    private fun sampleLandingCandidate(wohlonLevel: ServerLevel, x: Int, z: Int): BlockPos? {
         val mut = BlockPos.MutableBlockPos()
         for (y in 150 downTo 0) {
             mut.set(x, y, z)
@@ -580,12 +656,11 @@ object WohlonnogondoniaPortalManager {
 
     private fun scanAndTeleport(level: ServerLevel, pos: BlockPos) {
         val aabb = portalAabb(pos)
-        val entities = level.getEntities(null, aabb)
+        val entities = level.getEntities(null as Entity?, aabb, ::isPortalTraveller)
         if (entities.isEmpty()) return
         val now = level.gameTime
         val cooldownCutoff = now - RETURN_COOLDOWN_TICKS
         for (entity in entities) {
-            if (!entity.isAlive) continue
             // Skip entities that just returned from the heart portal —
             // they always land at the source portal's pos (entry-tracker
             // semantics), so without this they'd bounce right back to
@@ -598,17 +673,14 @@ object WohlonnogondoniaPortalManager {
 
     private fun scanAndTeleportHeart(level: ServerLevel, pos: BlockPos) {
         val aabb = portalAabb(pos, MOTHER_TELEPORT_RADIUS)
-        val entities = level.getEntities(null, aabb)
-        if (entities.isEmpty()) return
-        LOG.info(
-            "WohlonPortal: heart-return scan at {} found {} entity(s) — dispatching",
-            pos, entities.size,
-        )
+        val entities = level.getEntities(null as Entity?, aabb, ::isPortalTraveller)
         for (entity in entities) {
-            if (!entity.isAlive) continue
             WohlonnogondoniaPortalRitual.teleportFromHeart(entity, level)
         }
     }
+
+    private fun isPortalTraveller(entity: Entity): Boolean =
+        entity.isAlive && !entity.isSpectator && (entity is Player || entity is Mob || entity is ItemEntity)
 
     private fun portalAabb(pos: BlockPos, radius: Double = TELEPORT_RADIUS): AABB = AABB(
         pos.x - radius, pos.y - radius, pos.z - radius,

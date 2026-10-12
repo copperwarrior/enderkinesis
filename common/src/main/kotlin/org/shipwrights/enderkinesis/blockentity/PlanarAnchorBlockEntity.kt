@@ -21,6 +21,8 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.util.ShipBlockMove
+import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.internal.joints.VSDistanceJoint
 import org.valkyrienskies.core.internal.joints.VSJoint
 import org.valkyrienskies.core.internal.joints.VSJointPose
@@ -52,7 +54,7 @@ import org.valkyrienskies.mod.common.world.clipIncludeShips
  * by [serverTick]) matches VS2's own `TestHingeBlock` and vstuff's `RopePosData`.
  */
 class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
-    BlockEntity(EKBlockEntities.PLANAR_ANCHOR.get(), pos, state) {
+    BlockEntity(EKBlockEntities.PLANAR_ANCHOR.get(), pos, state), ShipMoveListener {
 
     /** VS2 joint id (>= 0) when this anchor is currently holding the ship. */
     private var jointId: Int = -1
@@ -87,6 +89,8 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
     var tetheredBodyPose: Vec3? = null; private set
 
     val tetheredToShip: Boolean get() = tetheredShipId >= 0L
+
+    val hasJoint: Boolean get() = jointId >= 0
 
     /** When this anchor's chain has been redirected to another anchor (the 5-block-Manhattan
      *  scan around the raycast hit found a [PlanarAnchorBlock]): the target's block position.
@@ -156,6 +160,46 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
             retractStartTick >= 0L &&
                 level.gameTime - retractStartTick >= RETRACT_TICKS -> finishRetract()
         }
+    }
+
+    /** A VS2 split or weld can move the tethered point or a linked anchor to another ship. The
+     *  joint names the old ship, so it is removed and the rebind path recreates it. */
+    override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
+        var moved = false
+        persistedPose0?.let { pose ->
+            val point = Vector3d(pose.x, pose.y, pose.z)
+            if (move.followPoint(persistedTargetShipId, point)) {
+                persistedTargetShipId = move.toShipId
+                persistedPose0 = Vec3(point.x, point.y, point.z)
+                moved = true
+            }
+        }
+        tetheredBodyPose?.let { pose ->
+            val point = Vector3d(pose.x, pose.y, pose.z)
+            if (move.followPoint(tetheredShipId, point)) {
+                tetheredShipId = move.toShipId
+                tetheredBodyPose = Vec3(point.x, point.y, point.z)
+                moved = true
+            }
+        }
+        chainTargetAnchorPos?.let { target ->
+            if (move.contains(target)) {
+                chainTargetAnchorPos = move.mapBlock(target)
+                moved = true
+            }
+        }
+        val movedSources = targetingSources.filter(move::contains)
+        for (source in movedSources) {
+            targetingSources.remove(source)
+            targetingSources.add(move.mapBlock(source))
+            moved = true
+        }
+        if (!moved) return
+        if (jointId >= 0) ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).removeJoint(jointId)
+        jointId = -1
+        jointPending = false
+        setChanged()
+        sync()
     }
 
     /** Manhattan-shell scan around [nearHit] for the closest planar anchor (iterates ascending
@@ -266,8 +310,12 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
 
         // Ship pass — iterate ships intersecting the world scan box (skipping source's ship per
         // the same-ship rule).
-        for (ship in level.shipObjectWorld.allShips) {
+        // `loadedShips` with the dimension test: `allShips` has unloaded ships and the ships
+        // of each dimension, and a block read at their shipyard coordinates loads chunks.
+        val dimId = level.dimensionId
+        for (ship in level.shipObjectWorld.loadedShips) {
             if (ship.id == sourceShipId) continue
+            if (ship.chunkClaimDimension != dimId) continue
             val sa = ship.worldAABB
             if (sa.maxX() < scanMinX || sa.minX() > scanMaxX) continue
             if (sa.maxY() < scanMinY || sa.minY() > scanMaxY) continue
@@ -526,6 +574,9 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         targetAnchorPos?.let { tap ->
             (level.getBlockEntity(tap) as? PlanarAnchorBlockEntity)?.addSource(pos)
         }
+        // Recorded now, not in the joint callback: if power goes off before the callback,
+        // `releaseChainTarget` must still find the target, or it stays TARGETED.
+        chainTargetAnchorPos = targetAnchorPos
 
         // Pull-only paths use a damped spring at the `max` limit so multiple coexisting
         // joints don't feed runaway correction impulses to each other. Rigid-target paths
@@ -548,13 +599,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
             stiffness = if (isPullOnly) epStiffness else null,
             damping = if (isPullOnly) epDamping else null,
         )
-        if (isPullOnly) {
-            LOG.info(
-                "[EK anchor] empty-space joint at {} ship={} mass={} kg → k={} N/m, c={} N·s/m, " +
-                    "tetherDistance={}",
-                pos, srcShipId, ship?.inertiaData?.mass, epStiffness, epDamping, tetherDistance,
-            )
-        }
 
         val anchorVec = cloudVec
         val tetherShipForCallback: Long = targetShipId ?: -1L
@@ -584,11 +628,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         gtpa.addJoint(joint, 0) { id: Int ->
             level.executeOrSchedule {
                 if (!jointPending) {
-                    LOG.warn(
-                        "[EK anchor] addJoint callback dropped at {} (jointPending=false — " +
-                            "redstone cleared, startRetract called, or BE removed between activate " +
-                            "and callback); released id={}", pos, id,
-                    )
                     gtpa.removeJoint(id)
                 } else {
                     jointId = id
@@ -605,12 +644,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
                     persistedJointCompliance = persistedComplianceForCallback
                     persistedPullOnly = persistedPullOnlyForCallback
                     jointPending = false
-                    LOG.info(
-                        "[EK anchor] activate callback set joint={} at {} anchorWorld={} " +
-                            "cloudWorld={} tetheredShipId={} chainTarget={} pullOnly={}",
-                        id, pos, anchorWorld, cloudWorld, tetheredShipId,
-                        chainTargetAnchorPos, persistedPullOnly,
-                    )
                     sync()
                 }
             }
@@ -630,12 +663,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         if (retractStartTick >= 0L) retractStartTick = -1L
         val pose0Stored = persistedPose0 ?: return                  // shouldn't happen — guarded
         val ship = level.getLoadedShipManagingPos(pos)
-        LOG.info(
-            "[EK anchor] rebindJoint at {} ship={} mass={} kg pose0={} tetherDistance={} " +
-                "pullOnly={} targetShipId={}",
-            pos, ship?.id, ship?.inertiaData?.mass, pose0Stored,
-            persistedTetherDistance, persistedPullOnly, persistedTargetShipId,
-        )
         val centerLocal = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
         val poseSrcPos = Vector3d(centerLocal)
         val srcShipId: Long? = ship?.id
@@ -809,11 +836,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         persistedPullOnly = false
         setChanged()
         sync()
-        LOG.info(
-            "[EK anchor] resetForStructureRespawn at {} (hadJoint={}, hadPersistedConfig={}) — " +
-                "all joint + visual state cleared; next serverTick will run fresh activate()",
-            blockPos, hadJoint, hadPersisted,
-        )
     }
 
     override fun setRemoved() {
@@ -1000,7 +1022,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         ClientboundBlockEntityDataPacket.create(this)
 
     companion object {
-        private val LOG = com.mojang.logging.LogUtils.getLogger()
 
         /** Hard cap on how far past the block the cloud is allowed to sit, regardless of ship
          *  size. The actual distance is `min(shipAABBHalfDiagonal, CLOUD_MAX_DISTANCE)`. */

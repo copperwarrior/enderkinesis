@@ -41,9 +41,16 @@ object EKSounds {
      *  five `whispers_N` samples; the sound manager picks one per play, so
      *  every play is a random whisper. Scheduling lives in
      *  [org.shipwrights.enderkinesis.client.SselithAmbience]: gap shrinks
-     *  with the player's madness level (rare at L1, near-constant at L5),
+     *  with the player's madness level (rare at L1, near-constant at L10),
      *  any dimension. */
     val SSELITH_WHISPERS: RegistrySupplier<SoundEvent> = ambient("ambient.sselith_repertory.whispers")
+
+    /** The non-mono crossing sounds are stereo, so the client applies no distance or direction.
+     *  Send them to the traveller only. */
+    val SSELITH_HISS: RegistrySupplier<SoundEvent> = ambient("event.sselith_repertory.hiss")
+    val SSELITH_HISS_MONO: RegistrySupplier<SoundEvent> = ambient("event.sselith_repertory.hiss_mono")
+    val SSELITH_RETURN: RegistrySupplier<SoundEvent> = ambient("event.sselith_repertory.return")
+    val SSELITH_RETURN_MONO: RegistrySupplier<SoundEvent> = ambient("event.sselith_repertory.return_mono")
 
     /** Silent "music" for the Ygann Abyss biome. A biome with no music falls back to the default game
      *  music (Musics.GAME); pointing the biome's music at this silent track replaces that with nothing,
@@ -86,6 +93,33 @@ object EKSounds {
     val MISSILE_BURST_BLAST: RegistrySupplier<SoundEvent> = SOUNDS.register("missile_burst_blast") {
         SoundEvent.createVariableRangeEvent(EnderkinesisMod.id("missile_burst_blast"))
     }
+
+    val SUNDERING_START: RegistrySupplier<SoundEvent> = ambient("item.staff_of_sundering.start")
+    val SUNDERING_BEAM_LOOPS: List<RegistrySupplier<SoundEvent>> =
+        (1..4).map { ambient("item.staff_of_sundering.beam_loop_$it") }
+    val SUNDERING_STAGE_UP: RegistrySupplier<SoundEvent> = ambient("item.staff_of_sundering.stage_up")
+    val SUNDERING_IMPACT_LOOP: RegistrySupplier<SoundEvent> = ambient("item.staff_of_sundering.impact_loop")
+    val SUNDERING_BURN: RegistrySupplier<SoundEvent> = ambient("item.staff_of_sundering.burn")
+    val SUNDERING_STOP: RegistrySupplier<SoundEvent> = ambient("item.staff_of_sundering.stop")
+
+    val CONCEALMENT_CLOAK: RegistrySupplier<SoundEvent> = ambient("item.staff_of_concealment.cloak")
+    val CONCEALMENT_HUM_LOOP: RegistrySupplier<SoundEvent> = ambient("item.staff_of_concealment.hum_loop")
+    val CONCEALMENT_DECLOAK: RegistrySupplier<SoundEvent> = ambient("item.staff_of_concealment.decloak")
+
+    val AEGIS_RAISE: RegistrySupplier<SoundEvent> = ambient("item.staff_of_aegis.raise")
+    val AEGIS_HUM_LOOP: RegistrySupplier<SoundEvent> = ambient("item.staff_of_aegis.hum_loop")
+    val AEGIS_DEFLECT: RegistrySupplier<SoundEvent> = ambient("item.staff_of_aegis.deflect")
+    val AEGIS_PUSH: RegistrySupplier<SoundEvent> = ambient("item.staff_of_aegis.push")
+    val AEGIS_SHATTER: RegistrySupplier<SoundEvent> = ambient("item.staff_of_aegis.shatter")
+    val AEGIS_SHARD_BOUNCE: RegistrySupplier<SoundEvent> = ambient("item.staff_of_aegis.shard_bounce")
+
+    val WYLLAND_GRAB: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.grab")
+    val WYLLAND_RIP: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.rip")
+    val WYLLAND_HOLD_LOOP: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.hold_loop")
+    val WYLLAND_RELEASE: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.release")
+    val WYLLAND_SEVER: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.sever")
+    val WYLLAND_SPENT: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.spent")
+    val WYLLAND_REPAIR: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.repair")
 
     private fun ambient(name: String): RegistrySupplier<SoundEvent> =
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }

@@ -15,6 +15,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BooleanProperty
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
+import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 
 class HeartOfTheWildBlock(properties: BlockBehaviour.Properties) : Block(properties), EntityBlock {
@@ -51,6 +52,7 @@ class HeartOfTheWildBlock(properties: BlockBehaviour.Properties) : Block(propert
     ) {
         val wasMother = state.getValue(MOTHER)
         val sameBlock = state.`is`(newState.block)
+        if (!sameBlock && level is ServerLevel) HeartOfTheWildManager.onHeartBroken(level, pos)
         super.onRemove(state, level, pos, newState, isMoving)
         if (wasMother && !sameBlock && level is ServerLevel) {
             WohlonnogondoniaCatastrophe.trigger(level.server)
@@ -59,5 +61,17 @@ class HeartOfTheWildBlock(properties: BlockBehaviour.Properties) : Block(propert
 
     companion object {
         val MOTHER: BooleanProperty = BooleanProperty.create("mother")
+
+        /** [blocks] without the Mother Heart. A ship assembly moves its blocks, and the removal
+         *  of the Mother Heart from the world starts the catastrophe. */
+        @JvmStatic
+        fun withoutMotherHeart(level: ServerLevel, blocks: Set<BlockPos>): Set<BlockPos> {
+            if (level.dimension() != Wohlonnogondonia.LEVEL_KEY) return blocks
+            val mother = blocks.filter { pos ->
+                val state = level.getBlockState(pos)
+                state.block is HeartOfTheWildBlock && state.getValue(MOTHER)
+            }
+            return if (mother.isEmpty()) blocks else blocks - mother.toSet()
+        }
     }
 }

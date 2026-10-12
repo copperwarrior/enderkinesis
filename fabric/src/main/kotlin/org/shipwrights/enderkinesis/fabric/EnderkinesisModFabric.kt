@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.fabric.compat.trinkets.TrinketsCompat
 class EnderkinesisModFabric : ModInitializer {
     override fun onInitialize() {
         EnderkinesisMod.init()
+        IchaericInkStorageFabric.init()
 
         // Wire accessory-mod compat (no-op if the mod isn't loaded).
         TrinketsCompat.init()

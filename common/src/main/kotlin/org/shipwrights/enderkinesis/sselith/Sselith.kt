@@ -49,8 +49,7 @@ object Sselith {
         val (afterInvocation, invocationSlots) = stripInvocationPhrase(english)
         val (clean, slots) = stripFormatTokens(afterInvocation)
         val translated = clean.split("\n").joinToString("\n") { translateLine(it) }
-        val withFormats = reinsertFormatTokens(translated, slots)
-        return reinsertFormatTokens(withFormats, invocationSlots)
+        return reinsertFormatTokens(translated, slots + invocationSlots)
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -76,16 +75,43 @@ object Sselith {
         return sb.toString() to slots
     }
 
+    private const val MARKER_PREFIX = "qzfmt"
+    private const val MIN_MARKER_LENGTH = MARKER_PREFIX.length + 1 + 2
+
+    // One pass with a bounded look-ahead: this text can come from a player's book. Adjacent markers
+    // have no separator, so at each marker prefix the longest known marker wins.
     private fun reinsertFormatTokens(text: String, slots: List<FormatSlot>): String {
         if (slots.isEmpty()) return text
-        var result = text
+        val originals = HashMap<String, String>(slots.size * 2)
+        var maxMarkerLength = 0
         for (slot in slots) {
-            // Case-insensitive because applySentenceCase may have uppercased a
-            // sentence-initial marker (e.g. `Qzfmtaqz`).
-            result = Regex(Regex.escape(slot.marker), RegexOption.IGNORE_CASE)
-                .replace(result, Regex.escapeReplacement(slot.original))
+            originals[slot.marker] = slot.original
+            maxMarkerLength = maxOf(maxMarkerLength, slot.marker.length)
         }
-        return result
+        val sb = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            // applySentenceCase can change the case of a marker.
+            val start = text.indexOf(MARKER_PREFIX, i, ignoreCase = true)
+            if (start < 0) break
+            sb.append(text, i, start)
+            var original: String? = null
+            var end = minOf(text.length, start + maxMarkerLength)
+            while (end >= start + MIN_MARKER_LENGTH) {
+                original = originals[text.substring(start, end).lowercase(Locale.ROOT)]
+                if (original != null) break
+                end--
+            }
+            if (original == null) {
+                sb.append(text[start])
+                i = start + 1
+            } else {
+                sb.append(original)
+                i = end
+            }
+        }
+        sb.append(text, i, text.length)
+        return sb.toString()
     }
 
     /** Encode a non-negative integer as base-26 lowercase letters
@@ -140,7 +166,7 @@ object Sselith {
     // must survive translation completely intact and in order. translate() strips spans
     // matching this pattern out of the input before tokenisation and reinserts them at the
     // end; sentence-case here also masks these spans for the rare case the strip leaks one.
-    private val FORMAT = Regex("""%(?:\d+\$)?[-#+ 0,(]*\d*(?:\.\d+)?[bBhHsScCdoxXeEfgGaAtT%n]""")
+    private val FORMAT = Regex("""%(?:\d+\$)?[-#+0,(]*\d*(?:\.\d+)?[bBhHsScCdoxXeEfgGaAtT%n]""")
 
     private enum class CasePattern { LOWER, TITLE, UPPER, MIXED }
 
@@ -148,6 +174,8 @@ object Sselith {
         val original: String,
         val isPossessive: Boolean,
         val casePattern: CasePattern,
+        /** The source whitespace before this token. The output keeps it as written. */
+        val gap: String,
     )
 
     private fun translateText(text: String): String {
@@ -155,53 +183,70 @@ object Sselith {
         val tokens = tokenize(text)
 
         val outputs = mutableListOf<String>()
+        // The source whitespace before each output, parallel to `outputs`.
+        val gaps = mutableListOf<String>()
         val maxMulti = dictionary.maxMultiWordTokens
         var i = 0
         while (i < tokens.size) {
             val matchedN = tryMultiWordLookup(tokens, i, maxMulti, outputs)
             if (matchedN > 0) {
+                gaps.add(tokens[i].gap)
                 i += matchedN
                 continue
             }
             val tok = tokens[i]
             val prev = if (i > 0) tokens[i - 1].original else null
             val rendered = renderToken(tok, prev, outputs)
-            if (rendered != null) outputs.add(rendered)
+            if (rendered != null) {
+                outputs.add(rendered)
+                gaps.add(numeralGap(tok, tokens.getOrNull(i - 1)))
+            }
             i++
         }
-        return joinTokens(outputs)
+        return joinTokens(outputs, gaps) + text.substring(text.trimEnd().length)
     }
 
     private fun tokenize(text: String): List<Token> {
         if (text.isEmpty()) return emptyList()
-        val raw = TOKEN.findAll(text).map { it.value }.toMutableList()
+        val raw = ArrayList<String>()
+        val rawGaps = ArrayList<String>()
+        var prevEnd = 0
+        for (m in TOKEN.findAll(text)) {
+            raw.add(m.value)
+            rawGaps.add(text.substring(prevEnd, m.range.first))
+            prevEnd = m.range.last + 1
+        }
         val result = mutableListOf<Token>()
         var i = 0
         while (i < raw.size) {
             val v = raw[i]
+            val gap = rawGaps[i]
+            val attachedToWord = gap.isEmpty() && result.isNotEmpty() &&
+                result.last().original.lastOrNull()?.isLetter() == true
             // Possessive `'s` cleaved off a word — emit possessive marker.
             if (v.length > 2 && v.endsWith("'s") && v[v.length - 3].isLetter()) {
-                result.add(Token(v.dropLast(2), false, casePatternOf(v.dropLast(2))))
-                result.add(Token("'s", true, CasePattern.LOWER))
+                result.add(Token(v.dropLast(2), false, casePatternOf(v.dropLast(2)), gap))
+                result.add(Token("'s", true, CasePattern.LOWER, ""))
                 i++
                 continue
             }
             // Standalone `'s` after a letter token — same possessive treatment.
-            if (v == "'s" && result.isNotEmpty() && result.last().original.lastOrNull()?.isLetter() == true) {
-                result.add(Token("'s", true, CasePattern.LOWER))
+            if (v == "'s" && attachedToWord) {
+                result.add(Token("'s", true, CasePattern.LOWER, ""))
                 i++
                 continue
             }
             // Standalone `'` followed by a contraction suffix — glue onto previous token.
-            if (v == "'" && i + 1 < raw.size && isContractionSuffix(raw[i + 1])
-                && result.isNotEmpty() && result.last().original.lastOrNull()?.isLetter() == true) {
+            if (v == "'" && attachedToWord && i + 1 < raw.size && rawGaps[i + 1].isEmpty() &&
+                isContractionSuffix(raw[i + 1])
+            ) {
                 val prev = result.removeAt(result.size - 1)
                 val merged = prev.original + "'" + raw[i + 1]
-                result.add(Token(merged, false, prev.casePattern))
+                result.add(Token(merged, false, prev.casePattern, prev.gap))
                 i += 2
                 continue
             }
-            result.add(Token(v, false, casePatternOf(v)))
+            result.add(Token(v, false, casePatternOf(v), gap))
             i++
         }
         return result
@@ -353,6 +398,11 @@ object Sselith {
         // converter, AFTER a dictionary miss. The holy number
         // (decimalToSselith(34.5)) is still assembled algorithmically and must
         // not be shortcut by these loan-roots.
+        // A section word before a Roman numeral ("Page I", "Chapter V") makes it a number. This runs
+        // before the dictionary, which has the pronoun "i" and letter labels for the same tokens.
+        if (isSectionNumeral(tok.original, prev)) {
+            return capitalizeFirstLetter(NumeralConverter.integerToCardinal(parseRoman(tok.original).toLong()))
+        }
         val lower = tok.original.lowercase(Locale.ROOT)
         val hit = lookupWithStemming(lower)
         if (hit != null) {
@@ -360,7 +410,7 @@ object Sselith {
         }
 
         // Pure digit string → algorithmic base-6 (dict has no digit-string keys).
-        tok.original.toDoubleOrNull()?.let { v ->
+        tok.original.toDoubleOrNull()?.takeIf(NumeralConverter::isConvertible)?.let { v ->
             return NumeralConverter.decimalToSselith(v)
         }
         if (isRomanNumeral(tok.original, prev)) {
@@ -480,8 +530,7 @@ object Sselith {
                 Feature.PROGRESSIVE -> stem = attachSuffix(stem, dictionary.suffixes["PROG"] ?: "")
                 Feature.PLURAL_OR_VBZ, null -> { /* VBZ or bare — no suffix */ }
             }
-            "ADJ" -> stem = attachSuffix(stem, dictionary.suffixes["ADJ"] ?: "")
-            "ADV" -> stem = attachSuffix(stem, dictionary.suffixes["ADV"] ?: "")
+            // Lexicon ADJ/ADV forms are final: a derived form carries -egh/-orl, and a root takes none.
         }
         return stem
     }
@@ -501,6 +550,68 @@ object Sselith {
         return if (p.last().lowercaseChar() == stem.first().lowercaseChar()) p + stem.substring(1)
         else p + stem
     }
+
+    /** Every lexicon form plus its regular inflections, for text that is generated rather than translated. */
+    internal val inflectedForms: Set<String> by lazy {
+        val forms = HashSet<String>()
+        for (entry in translatedEntries.values) {
+            val stem = entry.sselith
+            forms.add(stem)
+            for (tag in SUFFIXES_BY_POS[entry.pos].orEmpty()) {
+                dictionary.suffixes[tag]?.let { forms.add(attachSuffix(stem, it)) }
+            }
+            for (tag in PREFIXES_BY_POS[entry.pos].orEmpty()) {
+                dictionary.prefixes[tag]?.let { forms.add(attachPrefix(stem, it)) }
+            }
+        }
+        forms
+    }
+
+    /**
+     * English lexicon keys plus their regular inflections, for text that is generated rather than translated.
+     * The translator stems what it reads, so the lexicon stores mostly base forms.
+     */
+    internal val englishWords: Set<String> by lazy {
+        val words = HashSet<String>()
+        for ((english, entry) in translatedEntries) {
+            words.add(english)
+            if (!english.all { it in 'a'..'z' }) continue
+            // A key that is already an inflection ("blocks", "crafting") takes no second one.
+            if (isInflectionOfAnotherKey(english, entry.pos)) continue
+            when (entry.pos) {
+                "NOUN" -> words.add(EnglishInflection.plural(english))
+                "VERB" -> words.addAll(EnglishInflection.verbForms(english))
+            }
+        }
+        words
+    }
+
+    private fun isInflectionOfAnotherKey(english: String, pos: String): Boolean =
+        EnglishInflection.isIrregularForm(english) || candidateStems(english).any { (stem, _) ->
+            translatedEntries[stem]?.pos == pos && when (pos) {
+                "NOUN" -> EnglishInflection.plural(stem) == english
+                "VERB" -> english in EnglishInflection.verbForms(stem)
+                else -> false
+            }
+        }
+
+    // A form equal to its key is a passthrough (letter labels, Roman numerals), unless it names something:
+    // proper nouns and coined nouns such as Sselith or Constriliar read the same in both languages.
+    private val translatedEntries: Map<String, LexEntry> by lazy {
+        dictionary.lexicon.filter { (english, entry) ->
+            !entry.sselith.equals(english, ignoreCase = true) || entry.pos == "PROPN" || entry.pos == "NOUN"
+        }
+    }
+
+    // Lexicon ADJ/ADV forms already carry -egh/-orl, so they take no further suffix.
+    private val SUFFIXES_BY_POS = mapOf(
+        "NOUN" to listOf("PL", "POSS"),
+        "VERB" to listOf("PAST", "PROG", "PERF", "INF"),
+    )
+    private val PREFIXES_BY_POS = mapOf(
+        "VERB" to listOf("NEG", "RE"),
+        "ADJ" to listOf("NEG"),
+    )
 
     // ──────────────────────────────────────────────────────────────────────────
     // Pronouns / Roman numerals / spacing / sentence case
@@ -530,11 +641,13 @@ object Sselith {
         "page", "chapter", "volume", "part", "section", "book", "act", "scene", "verse", "canto"
     )
 
-    private fun isRomanNumeral(token: String, prev: String?): Boolean {
-        if (!ROMAN.matches(token)) return false
-        if (token.length > 1) return true
-        return prev != null && prev.lowercase(Locale.ROOT) in ROMAN_CONTEXT
-    }
+    private fun isRomanNumeral(token: String, prev: String?): Boolean =
+        ROMAN.matches(token) && (token.length > 1 || isSectionNumeral(token, prev))
+
+    // The section word must have a capital: "Page I" is a number, "the book I read" is the pronoun.
+    private fun isSectionNumeral(token: String, prev: String?): Boolean =
+        !prev.isNullOrEmpty() && ROMAN.matches(token) && prev[0].isUpperCase() &&
+            prev.lowercase(Locale.ROOT) in ROMAN_CONTEXT
 
     private fun parseRoman(s: String): Int {
         var total = 0
@@ -554,37 +667,23 @@ object Sselith {
     private fun isPunctuation(token: String): Boolean =
         token.isNotEmpty() && token.none { it.isLetterOrDigit() }
 
-    private val NO_SPACE_BEFORE = setOf('.', ',', ';', ':', '!', '?', ')', ']', '}')
-    private val NO_SPACE_AFTER = setOf('(', '[', '{')
-    // Apostrophe is paired-emphasis here too — the tokenizer pre-collapses
-    // contractions and possessive 's so a standalone `'` always means a quote.
-    private val PAIRED_PUNCT = setOf('*', '_', '"', '\'')
+    private const val NO_SPACE_BEFORE = ".,;:!?)]}"
+    private const val NO_SPACE_AFTER = "([{"
 
-    private fun joinTokens(tokens: List<String>): String {
+    /** A number becomes hyphen-joined words, so a number that touches a word or symbol in the source
+     *  ("C418", "5×5×3") gets a space. Sentence punctuation and brackets stay attached. */
+    private fun numeralGap(tok: Token, prev: Token?): String {
+        if (prev == null || tok.gap.isNotEmpty()) return tok.gap
+        if (!tok.original[0].isDigit() && !prev.original[0].isDigit()) return tok.gap
+        if (tok.original[0] in NO_SPACE_BEFORE || prev.original.last() in NO_SPACE_AFTER) return tok.gap
+        return " "
+    }
+
+    private fun joinTokens(tokens: List<String>, gaps: List<String>): String {
         val sb = StringBuilder()
-        var suppressLeading = true
-        val openState = HashMap<Char, Boolean>().also { PAIRED_PUNCT.forEach { c -> it[c] = false } }
-        for (t in tokens) {
-            if (t.isEmpty()) continue
-            if (t.length == 1 && t[0] in PAIRED_PUNCT) {
-                val c = t[0]
-                val wasOpen = openState[c] == true
-                if (!wasOpen) {
-                    if (!suppressLeading) sb.append(' ')
-                    sb.append(t)
-                    suppressLeading = true
-                } else {
-                    sb.append(t)
-                    suppressLeading = false
-                }
-                openState[c] = !wasOpen
-                continue
-            }
-            val first = t[0]
-            val noSpace = suppressLeading || first in NO_SPACE_BEFORE
-            if (!noSpace) sb.append(' ')
-            sb.append(t)
-            suppressLeading = t.last() in NO_SPACE_AFTER
+        for (i in tokens.indices) {
+            if (tokens[i].isEmpty()) continue
+            sb.append(gaps[i]).append(tokens[i])
         }
         return sb.toString()
     }
@@ -600,15 +699,22 @@ object Sselith {
         for (m in MARKER.findAll(text)) for (k in m.range) masked[k] = true
         val sb = StringBuilder(text)
         var capitalizeNext = true
+        // Letters attached to a placeholder (`%s` + POSS suffix, `%sx`) are part of its word.
+        var attachedToMask = false
         for (i in sb.indices) {
-            if (masked[i]) continue
+            if (masked[i]) {
+                attachedToMask = true
+                continue
+            }
             val c = sb[i]
-            when {
-                c.isLetter() -> if (capitalizeNext) {
+            if (c.isLetter()) {
+                if (capitalizeNext && !attachedToMask) {
                     sb.setCharAt(i, c.uppercaseChar())
                     capitalizeNext = false
                 }
-                c == '.' || c == '!' || c == '?' -> capitalizeNext = true
+            } else {
+                attachedToMask = false
+                if (c == '.' || c == '!' || c == '?') capitalizeNext = true
             }
         }
         return sb.toString()
@@ -750,18 +856,29 @@ object Sselith {
 
     private data class ReverseEntry(val english: String, val pos: String)
 
-    /** Sselith surface form (lowercased) → English lemma + POS. First-wins
-     *  on collisions; the lexicon does have a handful of synonyms mapped
-     *  to the same Sselith stem, but for player-facing reveal any of them
-     *  reads fine. */
+    /** Sselith surface form (lowercased) → English lemma + POS. Many English words share a form.
+     *  The winner is a [REVERSE_PREFERRED] word, then a root entry, then the shortest word, then
+     *  alphabetical order, so the result does not depend on HashMap order. */
     private val reverseLexicon: Map<String, ReverseEntry> by lazy {
         val map = HashMap<String, ReverseEntry>()
-        for ((english, entry) in dictionary.lexicon) {
+        for (english in REVERSE_PREFERRED) {
+            val entry = checkNotNull(dictionary.lexicon[english]) { "No lexicon entry for '$english'" }
+            map[entry.sselith.lowercase(Locale.ROOT)] = ReverseEntry(english, entry.pos)
+        }
+        val ranked = dictionary.lexicon.entries.sortedWith(
+            compareByDescending<Map.Entry<String, LexEntry>> { it.value.isRoot }
+                .thenBy { it.key.length }
+                .thenBy { it.key },
+        )
+        for ((english, entry) in ranked) {
             val key = entry.sselith.lowercase(Locale.ROOT)
             if (key !in map) map[key] = ReverseEntry(english, entry.pos)
         }
         map
     }
+
+    /** English words that win their reverse collision against the ranking above. */
+    private val REVERSE_PREFERRED = listOf("speak")
 
     /**
      * Reverse-translate a Sselith snippet to English, gated by [fraction]
@@ -784,11 +901,10 @@ object Sselith {
      */
     fun translateToEnglish(sselith: String, fraction: Double, rng: java.util.Random): String {
         if (sselith.isEmpty()) return sselith
-        val (afterInvocation, invocationSlots) = stripInvocationPhrase(sselith)
+        val (afterInvocation, invocationSlots) = stripInvocationPhrase(sselith, SPLIT_INVOCATION_PATTERN)
         val (clean, slots) = stripFormatTokens(afterInvocation)
         val translated = clean.split("\n").joinToString("\n") { reverseLine(it, fraction, rng) }
-        val withFormats = reinsertFormatTokens(translated, slots)
-        return reinsertFormatTokens(withFormats, invocationSlots)
+        return reinsertFormatTokens(translated, slots + invocationSlots)
     }
 
     /** The five canonical holy-number words, in order. Kept here as the
@@ -809,8 +925,15 @@ object Sselith {
      *  (or any combination) between the words. Matches the natural
      *  written forms — `a-b-c-d-e`, `a b c d e`, `a, b, c, d, e` — without
      *  bleeding across sentence boundaries the way `\W+` would. */
-    private val INVOCATION_PATTERN: Regex by lazy {
+    internal val INVOCATION_PATTERN: Regex by lazy {
         Regex(INVOCATION_WORDS.joinToString("[\\s,\\-]+"), RegexOption.IGNORE_CASE)
+    }
+
+    /** [INVOCATION_PATTERN] that also permits a line break in a word. Books from before
+     *  [BookPaginator] broke lines at hyphens have the phrase split on character boundaries. */
+    private val SPLIT_INVOCATION_PATTERN: Regex by lazy {
+        val words = INVOCATION_WORDS.map { word -> word.toList().joinToString("\\n?") }
+        Regex(words.joinToString("[\\s,\\-]+"), RegexOption.IGNORE_CASE)
     }
 
     /** Mask invocation occurrences with format-token-style markers so the
@@ -818,8 +941,11 @@ object Sselith {
      *  (`qzfmt[a-z]+qz`) reuses [reinsertFormatTokens]; the slot's
      *  `original` is the *canonical* form, not the matched text, so the
      *  reinsert step is also the normalisation step. */
-    private fun stripInvocationPhrase(text: String): Pair<String, List<FormatSlot>> {
-        val matches = INVOCATION_PATTERN.findAll(text).toList()
+    private fun stripInvocationPhrase(
+        text: String,
+        pattern: Regex = INVOCATION_PATTERN,
+    ): Pair<String, List<FormatSlot>> {
+        val matches = pattern.findAll(text).toList()
         if (matches.isEmpty()) return text to emptyList()
         val slots = mutableListOf<FormatSlot>()
         val sb = StringBuilder()
@@ -828,7 +954,9 @@ object Sselith {
             sb.append(text, last, m.range.first)
             val marker = "qzfmtinv${encodeMarkerIndex(i)}qz"
             sb.append(marker)
-            slots.add(FormatSlot(marker, INVOCATION_CANONICAL))
+            // A split phrase stays as written, so the page keeps its line breaks.
+            val original = if ('\n' in m.value) m.value else INVOCATION_CANONICAL
+            slots.add(FormatSlot(marker, original))
             last = m.range.last + 1
         }
         sb.append(text, last, text.length)
@@ -1035,9 +1163,13 @@ object Sselith {
         val lexicon = HashMap<String, LexEntry>()
         for ((key, value) in root.getAsJsonObject("lexicon").entrySet()) {
             val obj = value.asJsonObject
+            val form = obj.get("sselith").asString
+            // An empty form (the possessive note under "s") is not a translation.
+            if (form.isEmpty()) continue
             lexicon[key.lowercase(Locale.ROOT)] = LexEntry(
                 pos = obj.get("pos").asString,
-                sselith = obj.get("sselith").asString
+                sselith = form,
+                isRoot = obj.get("tag")?.asString?.startsWith("[root") == true,
             )
         }
 
@@ -1054,7 +1186,7 @@ object Sselith {
     // Data classes
     // ──────────────────────────────────────────────────────────────────────────
 
-    internal data class LexEntry(val pos: String, val sselith: String)
+    internal data class LexEntry(val pos: String, val sselith: String, val isRoot: Boolean = false)
 
     internal data class Pronouns(
         val subject: String,
@@ -1102,6 +1234,11 @@ object Sselith {
         private const val RADIX = "skarn"
         private const val NON_TERMINATING = "vrecht"
 
+        // 2^63. At or above this, toLong() saturates and the fraction loop indexes past DIGITS.
+        private const val CONVERTIBLE_LIMIT = 9.223372036854775807E18
+
+        fun isConvertible(d: Double): Boolean = d.isFinite() && kotlin.math.abs(d) < CONVERTIBLE_LIMIT
+
         fun integerToCardinal(n: Long): String {
             if (n < 0) return "ont-" + integerToCardinal(-n)   // REV prefix for negatives
             if (n == 0L) return "ul"
@@ -1139,6 +1276,8 @@ object Sselith {
         }
 
         fun decimalToSselith(d: Double): String {
+            require(isConvertible(d)) { "Number $d is out of the Sselith numeral range" }
+            if (d < 0) return "ont-" + decimalToSselith(-d)   // REV prefix for negatives
             val integerPart = d.toLong()
             var fraction = d - integerPart
             val intStr = integerToCardinal(integerPart)

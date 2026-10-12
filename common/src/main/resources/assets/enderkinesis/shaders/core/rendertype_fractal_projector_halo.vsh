@@ -16,6 +16,6 @@ out vec3 vObjNormal;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
-    vViewPos    = Position;
+    vViewPos    = (ModelViewMat * vec4(Position, 1.0)).xyz;
     vObjNormal  = normalize(Normal);
 }

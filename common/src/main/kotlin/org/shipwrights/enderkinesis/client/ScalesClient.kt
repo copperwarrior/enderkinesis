@@ -1,7 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.systems.RenderSystem
-import com.mojang.logging.LogUtils
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.client.ClientGuiEvent
 import dev.architectury.event.events.client.ClientRawInputEvent
@@ -37,7 +36,6 @@ import org.shipwrights.enderkinesis.registry.EKItems
  *  for now as a visual readout of the live scale. */
 object ScalesClient {
 
-    private val LOG = LogUtils.getLogger()
 
     /** Pixels of mouse-Y travel to span half the range (centre to either extreme).
      *  This is BOTH the slider range AND the camera-rotation budget — the
@@ -84,7 +82,6 @@ object ScalesClient {
         val buf = FriendlyByteBuf(Unpooled.buffer())
         NetworkManager.sendToServer(ScalesNetwork.RESET, buf)
         player.swing(InteractionHand.MAIN_HAND)
-        LOG.info("[Scales] left-click → RESET sent")
         return EventResult.interruptFalse()
     }
 
@@ -98,13 +95,11 @@ object ScalesClient {
         // anchor lands a few ms later.
         anchorScale = Double.NaN
         lastStreamedScale = Double.NaN
-        LOG.info("[Scales] beginSession shipId={}", shipId)
     }
 
     @JvmStatic
     fun endSession() {
         val shipId = activeShipId
-        LOG.info("[Scales] endSession shipId={} dragPixels={} anchorScale={}", shipId, dragPixels, anchorScale)
         if (shipId == null) return
         // Skip the final flush if STATE never arrived — currentScale() would
         // be NaN and the server can't apply that. Stream-tick will have done
@@ -124,7 +119,6 @@ object ScalesClient {
         val buf = FriendlyByteBuf(Unpooled.buffer())
         buf.writeDouble(scale)
         NetworkManager.sendToServer(ScalesNetwork.COMMIT, buf)
-        LOG.info("[Scales] sendCommit (cached server-side) shipId={} scale={}", shipId, scale)
     }
 
     @JvmStatic
@@ -153,13 +147,7 @@ object ScalesClient {
         val oldDrag = dragPixels
         val newDrag = (oldDrag - pitchDelta).coerceIn(-DRAG_HALF_RANGE_PX, DRAG_HALF_RANGE_PX)
         dragPixels = newDrag
-        val applied = oldDrag - newDrag
-        // 20% sample rate so the log is informative but not overwhelming during drag.
-        if ((System.nanoTime() shr 24) and 0x3L == 0L) {
-            LOG.info("[Scales] consumePitchDelta raw={} applied={} dragPixels={} scale={}",
-                pitchDelta, applied, dragPixels, currentScale())
-        }
-        return applied
+        return oldDrag - newDrag
     }
 
     /** Per-tick streaming hook called from [StaffOfScalesItem.onUseTick] on
@@ -181,11 +169,9 @@ object ScalesClient {
 
     private fun onStateFromServer(shipId: Long, scale: Double) {
         if (activeShipId != shipId) {
-            LOG.info("[Scales] onStateFromServer: shipId={} but activeShipId={} (skip)", shipId, activeShipId)
             return
         }
         anchorScale = scale.coerceIn(ScalesManager.MIN_SCALE, ScalesManager.MAX_SCALE)
-        LOG.info("[Scales] onStateFromServer shipId={} anchorScale={}", shipId, anchorScale)
     }
 
     /** Asymmetric linear interpolation. Centre (ratio=0) sits at the anchor scale.

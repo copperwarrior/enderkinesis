@@ -17,6 +17,7 @@ import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity;
+import org.shipwrights.enderkinesis.util.LoadedRay;
 import org.shipwrights.enderkinesis.item.VentriloquismNetwork;
 import org.shipwrights.enderkinesis.item.VentriloquismTomeOrbBehavior;
 import org.spongepowered.asm.mixin.Mixin;
@@ -110,6 +111,8 @@ public abstract class ServerLevelVentriloquismSoundMixin {
         boolean captured = false;
         List<BlockPos> stale = null;
         for (BlockPos orbPos : orbs) {
+            // A block entity read in an unloaded chunk loads the chunk, for each sound.
+            if (!LoadedRay.blockLoaded(self, orbPos)) continue;
             BlockEntity be = self.getBlockEntity(orbPos);
             if (!(be instanceof OrbOfLinkingBlockEntity sendBe)) {
                 if (stale == null) stale = new ArrayList<>();
@@ -167,6 +170,8 @@ public abstract class ServerLevelVentriloquismSoundMixin {
         boolean captured = false;
         List<BlockPos> stale = null;
         for (BlockPos orbPos : orbs) {
+            // A block entity read in an unloaded chunk loads the chunk, for each sound.
+            if (!LoadedRay.blockLoaded(self, orbPos)) continue;
             BlockEntity be = self.getBlockEntity(orbPos);
             if (!(be instanceof OrbOfLinkingBlockEntity sendBe)) {
                 if (stale == null) stale = new ArrayList<>();
@@ -220,6 +225,8 @@ public abstract class ServerLevelVentriloquismSoundMixin {
         boolean captured = false;
         List<BlockPos> stale = null;
         for (BlockPos orbPos : orbs) {
+            // A block entity read in an unloaded chunk loads the chunk, for each sound.
+            if (!LoadedRay.blockLoaded(self, orbPos)) continue;
             BlockEntity be = self.getBlockEntity(orbPos);
             if (!(be instanceof OrbOfLinkingBlockEntity sendBe)) {
                 if (stale == null) stale = new ArrayList<>();

@@ -117,11 +117,8 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
         entityData.define(DATA_CONTENTS, CompoundTag())
     }
 
-    /** Override checkDespawn so the Archive cleans up when no players are near
-     *  (same condition as the in-tick despawn for old chunks). */
+    /** Archives never despawn; vanilla would remove this non-persistent mob when far away. */
     override fun checkDespawn() {
-        if (level().isClientSide) return
-        if (level().getNearestPlayer(this, DESPAWN_RANGE) == null) discard()
     }
 
     override fun tick() {
@@ -132,31 +129,8 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
                 contentsRolled = true
                 syncContents()
             }
-            val nearest = level().getNearestPlayer(this, DESPAWN_RANGE)
-            if (nearest == null) {
-                discard()
-                return
-            }
-            if (spawnGrace > 0) {
-                spawnGrace--
-            } else {
-                val touching = level().getEntitiesOfClass(
-                    Player::class.java, boundingBox.inflate(COLLAPSE_INFLATE)
-                )
-                if (touching.isNotEmpty()) {
-                    collapse()
-                    return
-                }
-            }
-            // Pick a new target only when the navigator is idle AND we're past
-            // the path-search cooldown. No forced periodic repick — letting the
-            // current path finish naturally is much cheaper than restarting
-            // the (expensive) FlyingPathNavigation search every N ticks.
-            if (pathCooldown > 0) pathCooldown--
-            if (pathCooldown == 0 && (!hasTarget || navigation.isDone)) {
-                pickAndSubmitTarget()
-                pathCooldown = PATH_COOLDOWN_TICKS
-            }
+            // Idle with no player near, so far-off archives cost no pathfinding.
+            if (level().getNearestPlayer(this, ACTIVE_RANGE) != null && !tickNearPlayer()) return
         }
 
         super.tick()
@@ -164,7 +138,33 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
         if (level().isClientSide) {
             spawnDustSpiral()
             spawnAmbientDust()
+            spawnAmbientGlyphs()
         }
+    }
+
+    /** Returns false when the archive collapsed and was discarded. */
+    private fun tickNearPlayer(): Boolean {
+        if (spawnGrace > 0) {
+            spawnGrace--
+        } else {
+            val touching = level().getEntitiesOfClass(
+                Player::class.java, boundingBox.inflate(COLLAPSE_INFLATE)
+            )
+            if (touching.isNotEmpty()) {
+                collapse()
+                return false
+            }
+        }
+        // Pick a new target only when the navigator is idle AND we're past
+        // the path-search cooldown. No forced periodic repick — letting the
+        // current path finish naturally is much cheaper than restarting
+        // the (expensive) FlyingPathNavigation search every N ticks.
+        if (pathCooldown > 0) pathCooldown--
+        if (pathCooldown == 0 && (!hasTarget || navigation.isDone)) {
+            pickAndSubmitTarget()
+            pathCooldown = PATH_COOLDOWN_TICKS
+        }
+        return true
     }
 
     /** Pick a new cell-centre target and submit it to the path navigator. If
@@ -226,13 +226,24 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
         entityData.set(DATA_CONTENTS, tag)
     }
 
+    // Each sync and each server-side set installs a new tag, so tag identity marks a change.
+    private var decodedContentsTag: CompoundTag? = null
+    private var decodedContents: List<ItemStack> = emptyList()
+
     /** Client-callable: decode the synced contents into a list of ItemStacks
      *  for rendering. Returns empty if synced data isn't yet populated. */
     fun clientContents(): List<ItemStack> {
         val tag = entityData.get(DATA_CONTENTS)
-        if (!tag.contains("Items", Tag.TAG_LIST.toInt())) return emptyList()
-        val list = tag.getList("Items", Tag.TAG_COMPOUND.toInt())
-        return List(list.size) { ItemStack.of(list.getCompound(it)) }
+        if (tag !== decodedContentsTag) {
+            decodedContentsTag = tag
+            decodedContents = if (tag.contains("Items", Tag.TAG_LIST.toInt())) {
+                val list = tag.getList("Items", Tag.TAG_COMPOUND.toInt())
+                List(list.size) { ItemStack.of(list.getCompound(it)) }
+            } else {
+                emptyList()
+            }
+        }
+        return decodedContents
     }
 
     /** Collapse: spawn each stack as an ItemEntity at a random position inside
@@ -266,6 +277,23 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
             1.0f, 0.6f + random.nextFloat() * 0.2f,
         )
         discard()
+    }
+
+    /** Occasional rising SGA glyph runes — same particle the cataloger's
+     *  scribe column uses. Emphasises the archive's "library / writing"
+     *  identity without stepping on the dust silhouette. Spawn rate is
+     *  intentionally very low (~1 glyph every ~2 s), since a single glyph
+     *  is already visually loud with its emissive letterform. */
+    private fun spawnAmbientGlyphs() {
+        if (random.nextFloat() > AMBIENT_GLYPH_CHANCE) return
+        val dx = (random.nextDouble() - 0.5) * AMBIENT_GLYPH_SPREAD
+        val dz = (random.nextDouble() - 0.5) * AMBIENT_GLYPH_SPREAD
+        val dy = random.nextDouble() * (DUST_HEIGHT * 0.75)
+        level().addParticle(
+            EKParticles.sselithGlyph(),
+            x + dx, y + dy, z + dz,
+            0.0, 0.0, 0.0,
+        )
     }
 
     /** Light ambient cataloger-style dust scattered around the entity — gives
@@ -329,11 +357,15 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
 
     override fun addAdditionalSaveData(tag: CompoundTag) {
         super.addAdditionalSaveData(tag)
-        val list = ListTag()
-        for (stack in contents) {
-            list.add(stack.save(CompoundTag()))
+        // "Items" marks the contents as rolled on load; an archive saved before its first tick
+        // (worldgen spawns in non-ticking chunks) must roll after loading.
+        if (contentsRolled) {
+            val list = ListTag()
+            for (stack in contents) {
+                list.add(stack.save(CompoundTag()))
+            }
+            tag.put("Items", list)
         }
-        tag.put("Items", list)
         if (hasTarget) {
             tag.putDouble("TargetX", targetX)
             tag.putDouble("TargetY", targetY)
@@ -382,7 +414,7 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
          *  search per ~5 s is plenty for a slow tornado and keeps total path
          *  CPU cost negligible. */
         private const val PATH_COOLDOWN_TICKS = 100
-        private const val DESPAWN_RANGE = 64.0
+        private const val ACTIVE_RANGE = 64.0
 
         /** Collapse bbox inflation. The tornado bounding box is 1×3×1 and the
          *  player bbox is 0.6×1.8×0.6 — a 0.75 inflate makes the trigger generous
@@ -430,5 +462,11 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
         private const val AMBIENT_DUST_PER_TICK = 1
         private const val AMBIENT_DUST_CHANCE = 0.1f
         private const val AMBIENT_DUST_SPREAD = 1.8          // bbox-spreading diameter for ambient placement
+
+        // SGA-glyph accent — sparse per-tick chance keeps the archive's
+        // library-writing character on-screen without saturating the visual
+        // budget the dust already spends.
+        private const val AMBIENT_GLYPH_CHANCE = 0.025f      // ~1 glyph every ~2 s at 20 tps
+        private const val AMBIENT_GLYPH_SPREAD = 1.4         // slightly tighter than dust; glyphs read best near the column
     }
 }

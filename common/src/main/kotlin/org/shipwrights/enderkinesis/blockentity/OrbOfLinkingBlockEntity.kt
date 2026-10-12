@@ -17,11 +17,16 @@ import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.item.ItemMoverTomeOrbBehavior
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.block.OrbRole
 import org.shipwrights.enderkinesis.item.TomeOrbBehavior
 import org.shipwrights.enderkinesis.item.TomeOrbBehaviors
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.util.ShipBlockMove
+import org.shipwrights.enderkinesis.util.ShipMoveListener
+import org.valkyrienskies.mod.common.ValkyrienSkiesMod
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
@@ -46,7 +51,7 @@ import org.valkyrienskies.mod.common.getShipManagingPos
  * Signal behavior populates (kept on the BE since the block's `neighborChanged` reads it).
  */
 class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
-    BlockEntity(EKBlockEntities.ORB_OF_LINKING.get(), pos, state) {
+    BlockEntity(EKBlockEntities.ORB_OF_LINKING.get(), pos, state), ShipMoveListener {
 
     /** All links where this orb sends to a peer. Iteration order is insertion order so the
      *  client beam renderer is stable across ticks. */
@@ -133,17 +138,34 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
      *  out of view distance. */
     fun allIncoming(): Map<LinkKey, LinkData> = incoming
 
-    /** Receiver positions for [tomeKind]. */
-    fun outgoingPeers(tomeKind: ResourceLocation): List<BlockPos> =
-        outgoing.keys.asSequence().filter { it.tomeKind == tomeKind }.map { it.peerPos }.toList()
+    // The tome behaviours read these lists on each tick. They are built again only after a
+    // change of the link maps; each change site calls [linksChanged].
+    private var outgoingPeersByTome: Map<ResourceLocation, List<BlockPos>>? = null
+    private var incomingPeersByTome: Map<ResourceLocation, List<BlockPos>>? = null
 
-    /** Sender positions for [tomeKind]. */
+    private fun linksChanged() {
+        outgoingPeersByTome = null
+        incomingPeersByTome = null
+    }
+
+    private fun peersByTome(links: Map<LinkKey, LinkData>): Map<ResourceLocation, List<BlockPos>> {
+        val out = LinkedHashMap<ResourceLocation, MutableList<BlockPos>>()
+        for (key in links.keys) out.getOrPut(key.tomeKind) { ArrayList() }.add(key.peerPos)
+        return out
+    }
+
+    /** Receiver positions for [tomeKind]. Do not change the list. */
+    fun outgoingPeers(tomeKind: ResourceLocation): List<BlockPos> =
+        (outgoingPeersByTome ?: peersByTome(outgoing).also { outgoingPeersByTome = it })[tomeKind] ?: emptyList()
+
+    /** Sender positions for [tomeKind]. Do not change the list. */
     fun incomingPeers(tomeKind: ResourceLocation): List<BlockPos> =
-        incoming.keys.asSequence().filter { it.tomeKind == tomeKind }.map { it.peerPos }.toList()
+        (incomingPeersByTome ?: peersByTome(incoming).also { incomingPeersByTome = it })[tomeKind] ?: emptyList()
 
     /** Distinct tome kinds that have this orb as a SEND. Used by the block's `neighborChanged`
      *  to fire `onNeighborChanged` once per affected tome. */
-    fun outgoingTomes(): Set<ResourceLocation> = outgoing.keys.mapTo(LinkedHashSet()) { it.tomeKind }
+    fun outgoingTomes(): Set<ResourceLocation> =
+        (outgoingPeersByTome ?: peersByTome(outgoing).also { outgoingPeersByTome = it }).keys
 
     /** Whether a specific outgoing link exists (used by tomes' toggle-off gesture). */
     fun hasOutgoingLink(tomeKind: ResourceLocation, receiverPos: BlockPos): Boolean =
@@ -180,6 +202,8 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         if (peer.isPureSend()) return false
         outgoing[key] = LinkData()
         peer.incoming[LinkKey(tomeKind, blockPos)] = LinkData()
+        linksChanged()
+        peer.linksChanged()
         sync()
         peer.sync()
         TomeOrbBehaviors.behaviorFor(tomeKind)?.onLinked(level, this, receiverPos)
@@ -194,9 +218,11 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         if (!outgoing.containsKey(key)) return false
         TomeOrbBehaviors.behaviorFor(tomeKind)?.onUnlinking(level, this, receiverPos)
         outgoing.remove(key)
+        linksChanged()
         val peer = level.getBlockEntity(receiverPos) as? OrbOfLinkingBlockEntity
         if (peer != null) {
             peer.incoming.remove(LinkKey(tomeKind, blockPos))
+            peer.linksChanged()
             peer.sync()
             // Symmetric: notify peer's tome behavior that its incoming changed (Signal uses
             // this to recompute its aggregate POWER after losing one sender).
@@ -224,6 +250,12 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
      *  packets to whatever delivery quirk eats it, and a second broadcast guarantees the
      *  client sees the post-cleanup state. */
     fun onBlockDestroyed(level: ServerLevel) {
+        // The player gave this book to the orb; the orb's loot table drops only the orb.
+        // A ship move copies the block entity with its book, so nothing drops then.
+        if (!book.isEmpty && !org.shipwrights.enderkinesis.util.ShipMoves.isMovingBlocks(level)) {
+            net.minecraft.world.level.block.Block.popResource(level, blockPos, book)
+            book = ItemStack.EMPTY
+        }
         val touchedPeers = HashSet<BlockPos>()
 
         for (key in outgoing.keys.toList()) {
@@ -245,6 +277,27 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             val peerBe = level.getBlockEntity(peerPos) as? OrbOfLinkingBlockEntity ?: continue
             peerBe.sync()
         }
+    }
+
+    /** A VS2 split or weld moved a peer; its links follow it. Joints were already released
+     *  by [releaseJointsBeforeMove], so the tome behaviors rebind them on the new ships. */
+    override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
+        val outgoingMoved = followMovedPeers(outgoing, move)
+        val incomingMoved = followMovedPeers(incoming, move)
+        if (outgoingMoved || incomingMoved) sync()
+    }
+
+    private fun followMovedPeers(links: MutableMap<LinkKey, LinkData>, move: ShipBlockMove): Boolean {
+        if (links.keys.none { move.contains(it.peerPos) }) return false
+        // Rebuilt, not re-put: the insertion order drives the beam renderer.
+        val rebuilt = LinkedHashMap<LinkKey, LinkData>()
+        for ((key, data) in links) {
+            val peerPos = if (move.contains(key.peerPos)) move.mapBlock(key.peerPos) else key.peerPos
+            rebuilt[key.copy(peerPos = peerPos)] = data
+        }
+        links.clear()
+        links.putAll(rebuilt)
+        return true
     }
 
     /** Server-tick entry called by the block's ticker. On the first tick after load, fires
@@ -408,12 +461,21 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         if (inputSignal != 0) tag.putInt("Input", inputSignal)
         if (!filter.isEmpty) tag.put("Filter", filter.save(CompoundTag()))
         if (!book.isEmpty) tag.put("Book", book.save(CompoundTag()))
+        // Not in getUpdateTag: clients get each flight as its own packet.
+        val pendingTag = CompoundTag()
+        for ((kind, state) in tomeStates) {
+            if (state is ItemMoverTomeOrbBehavior.MoverState && state.pending.isNotEmpty()) {
+                pendingTag.put(kind.toString(), state.savePending())
+            }
+        }
+        if (!pendingTag.isEmpty) tag.put("PendingDeliveries", pendingTag)
     }
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
         outgoing.clear()
         incoming.clear()
+        linksChanged()
         // Old (pre-multi-tome) saves used "TomeKind"/"Receivers"/"SendX..." — those are dropped
         // silently. This mod is pre-release; no migration shim.
         if (tag.contains("Outgoing")) readLinkMap(tag.getList("Outgoing", Tag.TAG_COMPOUND.toInt()), outgoing)
@@ -426,6 +488,12 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         book = if (tag.contains("Book"))
             ItemStack.of(tag.getCompound("Book"))
         else ItemStack.EMPTY
+        val pendingTag = tag.getCompound("PendingDeliveries")
+        for (key in pendingTag.allKeys) {
+            val behavior = TomeOrbBehaviors.behaviorFor(ResourceLocation.tryParse(key)) ?: continue
+            (tomeState(behavior) as? ItemMoverTomeOrbBehavior.MoverState)
+                ?.loadPending(pendingTag.getList(key, Tag.TAG_COMPOUND.toInt()))
+        }
     }
 
     private fun writeLinkMap(map: Map<LinkKey, LinkData>): ListTag {
@@ -498,7 +566,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         // Flag 3 = BLOCK_UPDATE | NOTIFY_NEIGHBORS, the standard "state
         // changed" set. Skip neighbour update propagation (16) — link
         // bookkeeping shouldn't trigger redstone/observer chains.
-        level.setBlock(blockPos, current.setValue(OrbOfLinkingBlock.ORB_ROLE, role), 3)
+        level.setBlock(blockPos, current.setValue(OrbOfLinkingBlock.ORB_ROLE, role), Block.UPDATE_CLIENTS)
     }
 
     override fun getUpdateTag(): CompoundTag {
@@ -526,8 +594,18 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     override fun setRemoved() {
         super.setRemoved()
         val l = level ?: return
+        if (l is ServerLevel) {
+            // The joint ids are not saved. Without the release, the orb that loads again makes a
+            // second joint, and the first one can no longer be unlinked. The pending flag goes
+            // too, so a joint callback that comes later drops its joint.
+            for (data in outgoing.values) releaseJoint(l, data)
+        }
         if (l.isClientSide) {
             OrbOfLinkingClientRegistry.unregister(l, this)
+            // A chunk unload removes this block entity too, and the link is still valid then:
+            // the RECEIVE orb must keep it to draw the beam. The client swaps the chunk out
+            // before it removes the block entities, so `hasChunk` is false in that case.
+            if (!l.chunkSource.hasChunk(blockPos.x shr 4, blockPos.z shr 4)) return
             // Defensive client-side scrub. The server's BE-update packet for each peer
             // (clearing this orb's link from their incoming/outgoing maps) is sent eagerly
             // via player.connection.send and *should* arrive before the block-update that
@@ -557,6 +635,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         if (outDead.isNotEmpty()) outgoing.keys.removeAll(outDead.toSet())
         val inDead = incoming.keys.filter { it.peerPos == otherPos }
         if (inDead.isNotEmpty()) incoming.keys.removeAll(inDead.toSet())
+        linksChanged()
     }
 
     // --- Types ---
@@ -573,6 +652,32 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     )
 
     companion object {
+        /** Joints name ship IDs, so every joint through an orb that VS2 is about to move is
+         *  released while the block entities still exist. The sender holds each joint. */
+        @JvmStatic
+        /** The orb at [pos], or null when its chunk is not loaded. `Level.getBlockEntity` on the
+         *  server loads the chunk, so a per-tick peer read kept each peer chunk loaded. */
+        fun loadedAt(level: ServerLevel, pos: BlockPos): OrbOfLinkingBlockEntity? =
+            level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4)?.getBlockEntity(pos) as? OrbOfLinkingBlockEntity
+
+        @JvmStatic
+        fun releaseJointsBeforeMove(level: ServerLevel, positions: Collection<BlockPos>) {
+            for (pos in positions) {
+                val orb = level.getBlockEntity(pos) as? OrbOfLinkingBlockEntity ?: continue
+                for (data in orb.outgoing.values) releaseJoint(level, data)
+                for (key in orb.incoming.keys) {
+                    val sender = level.getBlockEntity(key.peerPos) as? OrbOfLinkingBlockEntity ?: continue
+                    sender.outgoing[LinkKey(key.tomeKind, pos)]?.let { releaseJoint(level, it) }
+                }
+            }
+        }
+
+        private fun releaseJoint(level: ServerLevel, data: LinkData) {
+            if (data.jointId >= 0) ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).removeJoint(data.jointId)
+            data.jointId = -1
+            data.jointPending = false
+        }
+
         /** Hard cap on world-space link distance (blocks). Measured between orb centres in
          *  world coordinates after the VS2 ship-frame transform. Out-of-range pairs are
          *  refused at link time; runtime drift past this drops the link (joint tomes only). */

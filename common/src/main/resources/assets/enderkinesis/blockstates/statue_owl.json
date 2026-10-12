@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "enderkinesis:block/statue_base" },
+    "facing=south": { "model": "enderkinesis:block/statue_base", "y": 180 },
+    "facing=east":  { "model": "enderkinesis:block/statue_base", "y": 90  },
+    "facing=west":  { "model": "enderkinesis:block/statue_base", "y": 270 }
+  }
+}

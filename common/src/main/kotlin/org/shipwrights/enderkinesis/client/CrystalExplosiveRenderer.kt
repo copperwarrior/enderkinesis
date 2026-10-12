@@ -29,7 +29,7 @@ class CrystalExplosiveRenderer(ctx: BlockEntityRendererProvider.Context) :
         packedOverlay: Int,
     ) {
         val time = (be.level?.gameTime ?: 0L).toDouble() + partialTick.toDouble()
-        val rotation = (time * VANILLA_ROT_DEG_PER_TICK).toFloat()
+        val rotation = ((time * VANILLA_ROT_DEG_PER_TICK) % 360.0).toFloat()
 
         val vc = buffers.getBuffer(END_CRYSTAL_TYPE)
 

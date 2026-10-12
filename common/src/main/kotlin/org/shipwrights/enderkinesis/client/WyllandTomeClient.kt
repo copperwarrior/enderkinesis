@@ -70,6 +70,7 @@ object WyllandTomeClient {
     fun init() {
         ClientTickEvent.CLIENT_POST.register(ClientTickEvent.Client { mc ->
             tickInput(mc)
+            WyllandTomeSounds.tick()
         })
         // Scroll behaviour while holding the tome:
         //  - mod key DOWN + grabbing → roll the ship around the player's
@@ -103,7 +104,7 @@ object WyllandTomeClient {
         NetworkManager.registerReceiver(
             NetworkManager.Side.S2C,
             WyllandTomeNetwork.GRAB_POINT_SYNC,
-        ) { buf, _ ->
+        ) { buf, ctx ->
             val hasShip = buf.readBoolean()
             val shipId = buf.readLong()
             val ax = buf.readDouble()
@@ -112,21 +113,26 @@ object WyllandTomeClient {
             val cx = buf.readDouble()
             val cy = buf.readDouble()
             val cz = buf.readDouble()
-            syncedAnchor = Vec3(ax, ay, az)
-            syncedCursor = Vec3(cx, cy, cz)
-            syncedShipId = if (hasShip) shipId else null
+            // The receiver runs on the network thread; the state belongs to the client thread.
+            ctx.queue {
+                syncedAnchor = Vec3(ax, ay, az)
+                syncedCursor = Vec3(cx, cy, cz)
+                syncedShipId = if (hasShip) shipId else null
+            }
         }
         // S2C grab-end — server cut the connection (max distance, dragged
         // by ship, target despawned…). Stop drawing the beam immediately.
         NetworkManager.registerReceiver(
             NetworkManager.Side.S2C,
             WyllandTomeNetwork.GRAB_END,
-        ) { _, _ ->
-            grabbing = false
-            syncedAnchor = null
-            syncedCursor = null
-            syncedShipId = null
-            BeamRegistry.remove(BeamRegistry.PLAYER_BEAM_ID)
+        ) { _, ctx ->
+            ctx.queue {
+                grabbing = false
+                syncedAnchor = null
+                syncedCursor = null
+                syncedShipId = null
+                BeamRegistry.remove(BeamRegistry.PLAYER_BEAM_ID)
+            }
         }
     }
 
@@ -231,6 +237,18 @@ object WyllandTomeClient {
             return
         }
 
+        // Ga'Mylan cage VS Body — same generic body-id path on the
+        // server (BEGIN_GRAB_ORB routes to GrabTarget.Orb which looks
+        // up bodies by id). Done before the block clip for the same
+        // reason as orbs.
+        val cageHit = org.shipwrights.enderkinesis.client.GamylanCageRaytrace
+            .findCageOnRay(eye, look, reach)
+        if (cageHit != null) {
+            WyllandTomeNetwork.sendBeginGrabOrb(cageHit.bodyId)
+            grabbing = true
+            return
+        }
+
         // Block hit — if the block belongs to a VS2 ship, grab the ship.
         // VS2's `MixinLevel.clip` routes through `clipIncludeShips`,
         // which returns a BlockHitResult with `.blockPos` in shipyard
@@ -294,7 +312,7 @@ object WyllandTomeClient {
      *  knows about (synced from server via [OrbBodyNetwork]). Returns
      *  the closest hit body's id, or null if no orb is within reach. */
     private fun pickOrb(level: net.minecraft.world.level.Level, eye: Vec3, end: Vec3): Long? {
-        val orbs = org.shipwrights.enderkinesis.body.ClientOrbRegistry.snapshot()
+        val orbs = org.shipwrights.enderkinesis.body.ClientOrbRegistry.near(level)
         if (orbs.isEmpty()) return null
         val dirRaw = end.subtract(eye)
         val rayLen = dirRaw.length()

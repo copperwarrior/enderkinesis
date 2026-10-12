@@ -93,6 +93,43 @@ object GerstnerOcean {
 
     val waveCount: Int get() = WAVES.size
 
+    /** Swell + chop, excluding the 8 capillary components (λ 0.27–1.4) — the coarse
+     *  LOD tier samples at a 3-block step, where capillaries are far below Nyquist and
+     *  contribute only aliasing noise. */
+    const val NON_CAPILLARY_COUNT: Int = 8
+
+    /** Height AND normal in a single wave loop — [heightAt] + [normalAt] as separate
+     *  calls redo every phase/sin; fusing shares them (the mesh renderer needs both
+     *  per vertex, ~10⁵ times a frame). [count] bands the spectrum for coarse LOD. */
+    fun sampleHeightNormal(
+        x: Double, z: Double, t: Double, intensity: Double, count: Int, out: Vector3d,
+        swellOut: DoubleArray,
+    ): Double {
+        var dy = 0.0
+        var dhx = 0.0
+        var dhz = 0.0
+        for (i in 0 until count) {
+            if (i == SWELL_COUNT) swellOut[0] = dy   // swell partial — free colour sample
+            val w = WAVES[i]
+            val k = TWO_PI / w[3]
+            val a = w[2] * intensity
+            val p = phase(w, x, z, t)
+            val sp = sin(p)
+            val cp = cos(p)
+            dy += a * sp
+            dy -= 0.5 * a * a * k * (1.0 - 2.0 * sp * sp)
+            val c1 = cp * a * k
+            dhx += c1 * w[0]
+            dhz += c1 * w[1]
+            val s2 = (2.0 * sp * cp) * a * a * k * k
+            dhx += s2 * w[0]
+            dhz += s2 * w[1]
+        }
+        if (count <= SWELL_COUNT) swellOut[0] = dy
+        out.set(-dhx, 1.0, -dhz).normalize()
+        return dy
+    }
+
     /** Number of dominant swell components at the head of [WAVES] — the ones [swellHeightAt]
      *  sums. The remaining waves (mid chop + capillaries) drive geometric detail but are
      *  excluded from the smoothed colour-sampling pass. */

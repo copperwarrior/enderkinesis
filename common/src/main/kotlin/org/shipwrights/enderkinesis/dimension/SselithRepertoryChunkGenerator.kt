@@ -9,8 +9,7 @@ import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicLongArray
+import dev.architectury.event.events.common.ChunkEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
@@ -23,6 +22,7 @@ import net.minecraft.nbt.NbtUtils
 import net.minecraft.nbt.StringTag
 import net.minecraft.nbt.Tag
 import net.minecraft.network.chat.Component
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.WorldGenRegion
 import net.minecraft.resources.ResourceKey
 import net.minecraft.world.entity.ai.village.poi.PoiTypes
@@ -33,6 +33,7 @@ import org.shipwrights.enderkinesis.registry.EKPoiTypes
 import net.minecraft.world.level.LevelHeightAccessor
 import net.minecraft.world.level.NoiseColumn
 import net.minecraft.world.level.StructureManager
+import net.minecraft.world.level.WorldGenLevel
 import net.minecraft.world.level.biome.BiomeManager
 import net.minecraft.world.level.biome.BiomeSource
 import net.minecraft.tags.BlockTags
@@ -40,10 +41,13 @@ import net.minecraft.world.level.EmptyBlockGetter
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.CandleBlock
+import net.minecraft.world.level.block.CarpetBlock
 import net.minecraft.world.level.block.FenceGateBlock
 import net.minecraft.world.level.block.HorizontalDirectionalBlock
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf
 import net.minecraft.world.level.block.IronBarsBlock
 import net.minecraft.world.level.block.LadderBlock
+import net.minecraft.world.level.block.LanternBlock
 import net.minecraft.world.level.block.LecternBlock
 import net.minecraft.world.level.block.SlabBlock
 import net.minecraft.world.level.block.StairBlock
@@ -52,6 +56,7 @@ import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.WallBlock
 import net.minecraft.world.level.block.WallSignBlock
 import net.minecraft.world.item.ItemStack
+import org.shipwrights.enderkinesis.item.TomeLore
 import net.minecraft.world.level.block.entity.LecternBlockEntity
 import net.minecraft.world.level.block.entity.SignBlockEntity
 import org.shipwrights.enderkinesis.registry.EKItems
@@ -60,6 +65,9 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.Half
 import net.minecraft.world.level.block.state.properties.SlabType
 import net.minecraft.world.level.block.state.properties.WallSide
+import net.minecraft.world.phys.shapes.VoxelShape
+import net.minecraft.world.phys.shapes.BooleanOp
+import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.level.chunk.ChunkAccess
 import net.minecraft.world.level.chunk.ChunkGenerator
 import net.minecraft.world.level.levelgen.GenerationStep
@@ -137,11 +145,6 @@ class SselithRepertoryChunkGenerator(
         structureManager: StructureManager,
         chunk: ChunkAccess,
     ): CompletableFuture<ChunkAccess> {
-        // Per-chunk wall-time instrumentation — opt-in via JVM arg
-        // `-Denderkinesis.chunkProfile=true`. Inlined here (not a
-        // separate method) so it doesn't add a call frame to profiles
-        // or defeat JIT inlining of the hot path below.
-        val profileStart = if (CHUNK_PROFILE) System.nanoTime() else 0L
         val chunkX0 = chunk.pos.minBlockX
         val chunkZ0 = chunk.pos.minBlockZ
         val minY = chunk.minBuildHeight
@@ -206,7 +209,7 @@ class SselithRepertoryChunkGenerator(
             caches.connectionBBoxCache = Long2ObjectOpenHashMap()
 
             // Build the MazeNode? cache next — everything below
-            // (skipMask, paintChunkInto, decor, lectern map…) calls
+            // (skipMask, paintChunkInto, decor…) calls
             // `mazeNodeAt` and benefits from a ready-built cache.
             run {
                 val nodes = arrayOfNulls<MazeNode>(nWx * nWy * nWz)
@@ -312,7 +315,7 @@ class SselithRepertoryChunkGenerator(
                 // arch's footprint into [structInsideBits] in the same
                 // pass — that way [isPathFloor] returns false at NBT
                 // material positions and the maze decor pass doesn't
-                // paint procedural wall outlines / slab outlines / lecterns
+                // paint procedural wall outlines / slab outlines
                 // on top of the NBT's own walls + slabs + lamps. Mirrors
                 // the [gapArchwayBlock] parity gate so we never list a
                 // column the procedural pass wouldn't fire on; sweeps the
@@ -420,7 +423,7 @@ class SselithRepertoryChunkGenerator(
                     // without this, the maze decor pass sees NBT material
                     // (deepslate_tiles / slabs / stairs / walls / lamps)
                     // as path floor and paints procedural wall outlines +
-                    // slab outlines + lectern decor on top of the NBT's
+                    // slab outlines on top of the NBT's
                     // own walls / lamps / chain. Footprint dims mirror
                     // [paintAxialArchInto]: 1 along the arch's
                     // perpendicular axis, AXIAL_ARCH_DIM_Z along the long
@@ -521,12 +524,14 @@ class SselithRepertoryChunkGenerator(
                                     // each side) covered same as before.
                                     val expandX = if (v.dx == 0 && v.dz != 0) 1 else 0
                                     val expandZ = if (v.dx != 0 && v.dz == 0) 1 else 0
-                                    val sx = maxOf(bbox[0] - expandX, bitsBaseX)
+                                    // Scan corridor blocks up to `expand` past the window: one just
+                                    // outside still marks its outline on the window's edge column.
+                                    val sx = maxOf(bbox[0], bitsBaseX - expandX)
                                     val sy = maxOf(bbox[2], bitsBaseY)
-                                    val sz = maxOf(bbox[4] - expandZ, bitsBaseZ)
-                                    val ex = minOf(bbox[1] + 1 + expandX, bitsBaseX + bitsWidthX)
+                                    val sz = maxOf(bbox[4], bitsBaseZ - expandZ)
+                                    val ex = minOf(bbox[1] + 1, bitsBaseX + bitsWidthX + expandX)
                                     val ey = minOf(bbox[3] + 1, bitsBaseY + bitsWidthY)
-                                    val ez = minOf(bbox[5] + 1 + expandZ, bitsBaseZ + bitsWidthZ)
+                                    val ez = minOf(bbox[5] + 1, bitsBaseZ + bitsWidthZ + expandZ)
                                     if (sx >= ex || sy >= ey || sz >= ez) continue
                                     // Walk the bbox, but only mark
                                     // positions where the connection
@@ -709,12 +714,6 @@ class SselithRepertoryChunkGenerator(
             caches.pathBaseY = minY
             caches.pathSpan = span
 
-            // Per-platform wall lecterns — precomputed once into a Long-
-            // keyed map so decorBlockAt's lectern queries (one self-check
-            // per wall position via [lecternWallAt]) are O(1) hash
-            // lookups instead of cell-window scans each.
-            caches.lecterns = buildLecternMap(chunkX0, chunkZ0, minY, span)
-
             // NBT path SALTING — runs BEFORE the decor pass so [decorBlockAt]'s
             // [isPathFloor] check sees salt floors and fires wall decor
             // above them (the user's pipeline: rings → platforms → paths
@@ -768,25 +767,7 @@ class SselithRepertoryChunkGenerator(
                 cache, chunkX0 - 2, chunkZ0 - 2, minY, cacheSize, span,
             )
 
-            // Decorative library features (floating shelves, towers, walls,
-            // furniture islands, reading nooks, chandeliers, tome shrines,
-            // wall-corners, spiral pillars, lectern gardens, totems). Stored
-            // in a separate cache; anchor-in-column ownership means each
-            // feature is painted by exactly one chunk and fits inside its
-            // column — no slicing.
-            val featureCache: Array<Array<Array<BlockState?>>>? =
-                if (ENABLE_FEATURES) {
-                    val exclBaseX = chunkX0 - CUBE_EXCL_MARGIN
-                    val exclBaseZ = chunkZ0 - CUBE_EXCL_MARGIN
-                    val excl = buildCubeExclude(exclBaseX, exclBaseZ, minY, CUBE_EXCL_SIZE, span)
-                    val fc = Array(cacheSize) { Array(cacheSize) { arrayOfNulls<BlockState>(span) } }
-                    paintFeaturesInto(
-                        fc, excl, exclBaseX, exclBaseZ, CUBE_EXCL_SIZE,
-                        chunkX0 - 2, chunkZ0 - 2, minY, cacheSize, span, chunkX0, chunkZ0,
-                    )
-                    fc
-                } else null
-
+            val bottomCapLy = (BOTTOM_CAP_Y - 2 - minY)..(BOTTOM_CAP_Y - minY)
             for (localX in 0..15) {
                 for (localZ in 0..15) {
                     val worldX = chunkX0 + localX
@@ -795,10 +776,9 @@ class SselithRepertoryChunkGenerator(
 
                     val pathColumn = cache[localX + 2][localZ + 2]
                     val decorColumn = decorCache[localX + 2][localZ + 2]
-                    val featureColumn = featureCache?.get(localX + 2)?.get(localZ + 2)
                     val frameColumn = frameCache[localX + 2][localZ + 2]
                     // Default fill: every position not claimed by a
-                    // path/decor/feature reads from LIBRARY_CELL — the
+                    // path/decor reads from LIBRARY_CELL — the
                     // 49×24×49 procedural pattern that matches our maze cell
                     // grid (a cell hosts exactly one of our platforms at its
                     // floor). Tiles infinitely via Math.floorMod. Axial
@@ -836,36 +816,55 @@ class SselithRepertoryChunkGenerator(
                     val libCellZ = Math.floorDiv(effZ, MAZE_CELL_Z)
                     var tileYMod = startTileY
                     var cellY = startCellY
+                    val gapColumn = inLibraryGap && isGapColumn(worldX, worldZ)
                     for (i in 0 until span) {
                         // Read from caches inline — no temp column array.
                         var block: BlockState? = pathColumn[i]
                         if (block == null) block = frameColumn[i]
                         if (block == null) block = decorColumn[i]
-                        if (block == null && featureColumn != null) block = featureColumn[i]
-                        val skipTopCell = cellY >= TOP_CELL_Y
+                        val skipCell = cellY >= TOP_CELL_Y || cellY < LOWEST_CELL_Y
                         if (block == null) {
-                            // Headroom above a path block: 2 blocks for any
-                            // walkable path, plus 1 extra block above stair
-                            // blocks so an ascending stairwell has enough
-                            // clearance for the player's jump arc + head
-                            // (and so library/wall blocks don't crowd the
-                            // stair from above).
-                            val headroom = (i >= 1 && pathColumn[i - 1] != null) ||
-                                (i >= 2 && pathColumn[i - 2] != null) ||
-                                (i >= 3 && pathColumn[i - 3]?.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS) == true)
+                            val headroom = isPathHeadroom(pathColumn, i, bottomCapLy)
                             block = when {
-                                headroom || skipTopCell -> AIR
+                                headroom -> AIR
+                                // The crown row of the highest arch stack is row 0 of the first skipped cell.
+                                skipCell ->
+                                    if (cellY == TOP_CELL_Y && tileYMod == 0 && (onStrip || inLibraryGap)) {
+                                        gapArchwayBlock(worldX, tileYMod, worldZ, cellY) ?: AIR
+                                    } else {
+                                        AIR
+                                    }
                                 onStrip ->
                                     archChainFroglightAt(worldX, minY + i, worldZ, cellY)
                                         ?: gapArchwayBlock(worldX, tileYMod, worldZ, cellY)
                                         ?: AIR
                                 inLibraryGap ->
-                                    if (isGapColumn(worldX, worldZ)) DEEPSLATE_TILES
+                                    if (gapColumn &&
+                                        !doorwayBesideColumn(cache, frameCache, localX + 2, localZ + 2, i, bottomCapLy)
+                                    ) DEEPSLATE_TILES
                                     else archChainFroglightAt(worldX, minY + i, worldZ, cellY)
                                         ?: gapArchwayBlock(worldX, tileYMod, worldZ, cellY)
                                         ?: AIR
-                                else -> LIBRARY_CELL[tileYMod][tileZMod][tileXMod]
-                                    ?: archwayLadderAt(libCellX, cellY, libCellZ, tileXMod, tileYMod, tileZMod)
+                                else -> {
+                                    val lib = archwayLadderBackingAt(libCellX, cellY, libCellZ, tileXMod, tileYMod, tileZMod)
+                                        ?: LIBRARY_CELL[tileYMod][tileZMod][tileXMod]
+                                        ?: archwayLadderAt(libCellX, cellY, libCellZ, tileXMod, tileYMod, tileZMod)
+                                    // Headroom carved the book this lantern or candle stands on.
+                                    val unsupported = lib != null && i >= 1 &&
+                                        (lib === LANTERN || lib.block is CandleBlock) &&
+                                        pathColumn[i - 1] == null && frameColumn[i - 1] == null &&
+                                        decorColumn[i - 1] == null && isPathHeadroom(pathColumn, i - 1, bottomCapLy)
+                                    // A doorway frame or corridor headroom replaced the shelf behind this ladder.
+                                    val ladderBackingGone = lib != null && lib.block is LadderBlock && run {
+                                        val facing = lib.getValue(LadderBlock.FACING)
+                                        val bx = localX + 2 - facing.stepX
+                                        val bz = localZ + 2 - facing.stepZ
+                                        cache[bx][bz][i] != null || frameCache[bx][bz][i] != null ||
+                                            decorCache[bx][bz][i] != null ||
+                                            isPathHeadroom(cache[bx][bz], i, bottomCapLy)
+                                    }
+                                    if (unsupported || ladderBackingGone) AIR else lib
+                                }
                             }
                         }
                         // Carpet runner on corridor centerlines (yellow/white
@@ -911,6 +910,7 @@ class SselithRepertoryChunkGenerator(
                         // the chunk (incl. OCEAN_FLOOR_WG and WORLD_SURFACE_WG
                         // primed above), so we don't manually update them.
                         chunk.setBlockState(mutable, block, false)
+                        if (needsNeighbourShapeFix(block)) chunk.markPosForPostprocessing(mutable)
                         if (block.block in EKPoiTypes.POI_TARGET_BLOCK_SET) {
                             // Resolve the POI holder on the worker thread — `PoiTypes
                             // .forState` is a static `Map.get`, safe to call concurrently.
@@ -943,46 +943,9 @@ class SselithRepertoryChunkGenerator(
             // Always clear so the worker thread doesn't carry a stale
             // reference to this chunk's caches into the next job.
             activeCaches.remove()
-            if (CHUNK_PROFILE) recordChunkProfile(System.nanoTime() - profileStart)
         }
 
         return CompletableFuture.completedFuture(chunk)
-    }
-
-    /** Accumulate one chunk's wall-time into the global profiler and
-     *  log a rolling histogram every [CHUNK_PROFILE_LOG_INTERVAL]
-     *  chunks. Lock-free (atomics) since C2ME calls fillFromNoise from
-     *  many worker threads at once. Only invoked when [CHUNK_PROFILE]
-     *  is enabled. */
-    private fun recordChunkProfile(nanos: Long) {
-        PROF_NANOS.addAndGet(nanos)
-        // max via CAS loop
-        var curMax = PROF_MAX_NANOS.get()
-        while (nanos > curMax && !PROF_MAX_NANOS.compareAndSet(curMax, nanos)) {
-            curMax = PROF_MAX_NANOS.get()
-        }
-        // log-ish bucket by milliseconds: <0.5, <1, <2, <4, <8, <16, <32, ≥32
-        val ms = nanos / 1_000_000.0
-        val bucket = when {
-            ms < 0.5 -> 0; ms < 1.0 -> 1; ms < 2.0 -> 2; ms < 4.0 -> 3
-            ms < 8.0 -> 4; ms < 16.0 -> 5; ms < 32.0 -> 6; else -> 7
-        }
-        PROF_BUCKETS.incrementAndGet(bucket)
-        val n = PROF_CHUNKS.incrementAndGet()
-        if (n % CHUNK_PROFILE_LOG_INTERVAL == 0L) {
-            val totalNanos = PROF_NANOS.get()
-            val maxMs = PROF_MAX_NANOS.get() / 1_000_000.0
-            val meanMs = (totalNanos.toDouble() / n) / 1_000_000.0
-            val hist = (0 until 8).joinToString(" ") { PROF_BUCKETS.get(it).toString() }
-            PROFILE_LOG.info(
-                "[chunkProfile] chunks={} mean={}ms max={}ms " +
-                    "buckets[<.5 <1 <2 <4 <8 <16 <32 >=32]={}",
-                n,
-                String.format("%.3f", meanMs),
-                String.format("%.2f", maxMs),
-                hist,
-            )
-        }
     }
 
     // C2ME runs `fillFromNoise` on many chunks concurrently against the same
@@ -1019,14 +982,6 @@ class SselithRepertoryChunkGenerator(
         var skipMaskWidthY: Int = 0
         var skipMaskWidthZ: Int = 0
 
-        /** Map of `packLecternKey(wx, wy, wz)` → lectern BlockState for
-         *  every per-platform wall lectern in the chunk's decor window
-         *  (chunk + a 1-block border so [lecternWallAt] hits lecterns
-         *  in the next chunk over for decor-candidate self-checks).
-         *  Populated before [buildDecorCache] so each candidate's
-         *  lectern lookup is an O(1) hash read. */
-        var lecterns: Long2ObjectOpenHashMap<BlockState>? = null
-
 
         /** Flat boolean array, indexed by `(lx*size + lz)*span + ly`,
          *  set to true wherever [isWallOutline] returned true for a
@@ -1042,8 +997,8 @@ class SselithRepertoryChunkGenerator(
         var wallBitsSpan: Int = 0
 
         /** Per-chunk [MazeNode]? cache. `mazeNodeAt(cx, cy, cz)` is called
-         *  from `paintChunkInto`, `buildWallFrameCache`, `buildCubeExclude`,
-         *  `paintConnectionPick`, `buildLecternMap`, plus indirectly via
+         *  from `paintChunkInto`, `buildWallFrameCache`,
+         *  `paintConnectionPick`, plus indirectly via
          *  `mazeBlockAt` / `preferredStairwell` / `pathwaySkipMask`.
          *  Precomputing the cell-window once collapses every subsequent
          *  call to an array read. Out-of-window calls fall back to a
@@ -1061,7 +1016,7 @@ class SselithRepertoryChunkGenerator(
          *  the same widened cell window as [nodeCache]. The functions
          *  themselves are pure of cellX / cellZ — second profile run
          *  showed them at 1772 + 548 self-time inside fillFromNoise
-         *  because every connectionBBox / mazeNodeAt / lecternWallAt
+         *  because every connectionBBox / mazeNodeAt
          *  call recomputed them. */
         var originXCache: IntArray? = null
         var originXBase: Int = 0
@@ -1195,7 +1150,7 @@ class SselithRepertoryChunkGenerator(
     private fun axialPathFloorAt(wx: Int, wz: Int): BlockState {
         val xAxisCentre = wz == 0 && positiveMod(wx, AXIAL_PATH_CHISEL_INTERVAL) == 0
         val zAxisCentre = wx == 0 && positiveMod(wz, AXIAL_PATH_CHISEL_INTERVAL) == 0
-        return if (xAxisCentre || zAxisCentre) CHISELED_DEEPSLATE else POLISHED_DEEPSLATE
+        return if (xAxisCentre || zAxisCentre) OWL_DEEPSLATE else POLISHED_DEEPSLATE
     }
 
     /** Platform layer — just the 5×5 floor at the cell's `ny`. Perimeter walls
@@ -1225,7 +1180,7 @@ class SselithRepertoryChunkGenerator(
                             // Centre block — chiseled by default. Trapdoors
                             // from vertical connections override this via
                             // pathBlockAt's trapdoor-first priority.
-                            dx == 2 && dz == 2 -> CHISELED_DEEPSLATE
+                            dx == 2 && dz == 2 -> OWL_DEEPSLATE
                             // 3×3 ring around the centre.
                             dx in 1..3 && dz in 1..3 -> DEEPSLATE_TILES
                             // Outer ring.
@@ -1367,14 +1322,58 @@ class SselithRepertoryChunkGenerator(
         //    outer-corner stair ring one block above the cell ceiling
         //    (in the otherwise-air cellY=TOP_CELL_Y row). Painted into
         //    pathCache so the column-fill picks them up even at
-        //    cellY=TOP_CELL_Y where `skipTopCell` would normally
+        //    cellY=TOP_CELL_Y where `skipCell` would normally
         //    force AIR.
-        paintCellTopBattlementInto(cache, baseX, baseZ, baseY, cacheSize, span)
+        //    The lowest whole cell gets the same caps upside down beneath it.
+        paintCellBattlementInto(cache, baseX, baseZ, baseY, cacheSize, span, TOP_CAP_Y, 1)
+        paintCellBattlementInto(cache, baseX, baseZ, baseY, cacheSize, span, BOTTOM_CAP_Y, -1)
         // Wall-block update pass now runs OUTSIDE [paintChunkInto] —
         // [fillFromNoise] calls [paintPathSaltInto] after the decor
         // pass, and the wall recompute fires AFTER the salt so any
         // NBT-salt wall blocks get their east/west/north/south/up
         // re-derived from the actual cache neighbours.
+    }
+
+    /** Vanilla runs updateShape on marked positions once the chunk and its neighbours are
+     *  loaded: walls connect to the real blocks around them, and a ladder, lantern, candle,
+     *  carpet or wall sign with no support drops. Stairs are left out to keep their set shapes. */
+    private fun needsNeighbourShapeFix(state: BlockState): Boolean {
+        val block = state.block
+        return block is WallBlock || block is LadderBlock || block is CandleBlock ||
+            block is CarpetBlock || block is LanternBlock || block is WallSignBlock ||
+            block is org.shipwrights.enderkinesis.block.SselithLanternBlock
+    }
+
+    /** A gap pillar beside a corridor or doorway frame stands in the opening. Only the rows of
+     *  the opening are cut: the pillar still stands below and still carries the arches above. */
+    private fun doorwayBesideColumn(
+        cache: Array<Array<Array<BlockState?>>>, frameCache: Array<Array<Array<BlockState?>>>,
+        cx: Int, cz: Int, i: Int, bottomCapLy: IntRange,
+    ): Boolean {
+        for (dx in -1..1) {
+            for (dz in -1..1) {
+                val pathCol = cache[cx + dx][cz + dz]
+                if (pathCol[i] != null || frameCache[cx + dx][cz + dz][i] != null) return true
+                if (isPathHeadroom(pathCol, i, bottomCapLy)) return true
+            }
+        }
+        return false
+    }
+
+    /** Headroom above a path block: 2 blocks for any walkway, plus a 3rd above stair blocks for
+     *  the jump arc. The bottom battlement shares pathCache but is not a walkway. */
+    private fun isPathHeadroom(pathColumn: Array<BlockState?>, i: Int, bottomCapLy: IntRange): Boolean =
+        (i >= 1 && pathColumn[i - 1] != null && !isBottomCapBlock(pathColumn, i - 1, bottomCapLy)) ||
+            (i >= 2 && pathColumn[i - 2] != null && !isBottomCapBlock(pathColumn, i - 2, bottomCapLy)) ||
+            (i >= 3 && pathColumn[i - 3]?.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS) == true &&
+                !isBottomCapBlock(pathColumn, i - 3, bottomCapLy))
+
+    /** The cap only fills empty cells, so in its rows a tile or top-half stair is cap, not walkway. */
+    private fun isBottomCapBlock(pathColumn: Array<BlockState?>, k: Int, bottomCapLy: IntRange): Boolean {
+        if (k !in bottomCapLy) return false
+        val block = pathColumn[k] ?: return false
+        return block === DEEPSLATE_TILES ||
+            (block.hasProperty(StairBlock.HALF) && block.getValue(StairBlock.HALF) == Half.TOP)
     }
 
     /** Walk every cache cell; for each [WallBlock], rebuild its
@@ -1423,13 +1422,7 @@ class SselithRepertoryChunkGenerator(
                         cache, lx, lz, ly + 1, cacheSize, span,
                         wx, wy + 1, wz,
                     )
-                    val up = shouldRaisePostVanilla(above, east, west, north, south)
-                    col[ly] = state
-                        .setValue(WallBlock.EAST_WALL,  if (east)  WallSide.LOW else WallSide.NONE)
-                        .setValue(WallBlock.WEST_WALL,  if (west)  WallSide.LOW else WallSide.NONE)
-                        .setValue(WallBlock.NORTH_WALL, if (north) WallSide.LOW else WallSide.NONE)
-                        .setValue(WallBlock.SOUTH_WALL, if (south) WallSide.LOW else WallSide.NONE)
-                        .setValue(WallBlock.UP, up)
+                    col[ly] = vanillaWallState(state, above, east, west, north, south)
                 }
             }
         }
@@ -1524,35 +1517,63 @@ class SselithRepertoryChunkGenerator(
         return null
     }
 
-    /** Vanilla [WallBlock.shouldRaisePost] adapted to our four-bool
-     *  connection inputs. The vanilla method also folds TALL/LOW into
-     *  its decision; we always emit LOW connections from the chunkgen
-     *  paint passes, so the "both TALL" early-exit never fires here. */
-    private fun shouldRaisePostVanilla(
-        above: BlockState?, east: Boolean, west: Boolean, north: Boolean, south: Boolean,
-    ): Boolean {
-        if (above != null && above.block is WallBlock &&
-            above.getValue(WallBlock.UP) == true
-        ) return true
-        val nNone = !north
-        val sNone = !south
-        val eNone = !east
-        val wNone = !west
-        if (nNone && sNone && eNone && wNone) return true
-        if (nNone != sNone) return true
-        if (wNone != eNone) return true
-        // We never emit TALL, so the "both TALL → no post" branch is
-        // unreachable. Fall through to vanilla's coverage check.
-        if (above == null || above.isAir) return false
-        if (above.`is`(BlockTags.WALL_POST_OVERRIDE)) return true
-        // POST_TEST coverage: vanilla checks whether the above block's
-        // collision-shape DOWN-face covers the centre post test shape.
-        // For any full-cube above (deepslate_tiles, polished_deepslate,
-        // etc.) the DOWN face is full and the test passes; for slabs,
-        // stairs, chains, lanterns, etc. it fails. A face-sturdy DOWN
-        // is a close-enough proxy without re-implementing the test.
-        return above.isFaceSturdy(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, Direction.DOWN)
+    /** Vanilla [WallBlock.updateShape]: a connected side is TALL when the block above covers it,
+     *  so stacked walls join into one face; the post follows vanilla's rules on those sides. */
+    private fun vanillaWallState(
+        state: BlockState, above: BlockState?,
+        east: Boolean, west: Boolean, north: Boolean, south: Boolean,
+    ): BlockState {
+        val covered = wallCoverMask(above)
+        val n = wallSide(north, covered and COVER_NORTH != 0)
+        val s = wallSide(south, covered and COVER_SOUTH != 0)
+        val e = wallSide(east, covered and COVER_EAST != 0)
+        val w = wallSide(west, covered and COVER_WEST != 0)
+        return state
+            .setValue(WallBlock.NORTH_WALL, n)
+            .setValue(WallBlock.SOUTH_WALL, s)
+            .setValue(WallBlock.EAST_WALL, e)
+            .setValue(WallBlock.WEST_WALL, w)
+            .setValue(WallBlock.UP, raisesWallPost(above, covered and COVER_POST != 0, n, s, e, w))
     }
+
+    /** Which wall test shapes the bottom face of [above] covers. The answer depends only on
+     *  the state, and a shape join for each side of each wall block was the largest cost of
+     *  the wall pass, so it is calculated one time for each state. */
+    private fun wallCoverMask(above: BlockState?): Int {
+        if (above == null) return 0
+        WALL_COVER_MASKS[above]?.let { return it }
+        val face = above.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).getFaceShape(Direction.DOWN)
+        var mask = 0
+        if (isWallTestCovered(face, WALL_NORTH_TEST)) mask = mask or COVER_NORTH
+        if (isWallTestCovered(face, WALL_SOUTH_TEST)) mask = mask or COVER_SOUTH
+        if (isWallTestCovered(face, WALL_EAST_TEST)) mask = mask or COVER_EAST
+        if (isWallTestCovered(face, WALL_WEST_TEST)) mask = mask or COVER_WEST
+        if (isWallTestCovered(face, WALL_POST_TEST)) mask = mask or COVER_POST
+        WALL_COVER_MASKS[above] = mask
+        return mask
+    }
+
+    private fun wallSide(connects: Boolean, covered: Boolean): WallSide = when {
+        !connects -> WallSide.NONE
+        covered -> WallSide.TALL
+        else -> WallSide.LOW
+    }
+
+    private fun raisesWallPost(
+        above: BlockState?, postCovered: Boolean, n: WallSide, s: WallSide, e: WallSide, w: WallSide,
+    ): Boolean {
+        if (above != null && above.block is WallBlock && above.getValue(WallBlock.UP)) return true
+        val nNone = n == WallSide.NONE
+        val sNone = s == WallSide.NONE
+        val eNone = e == WallSide.NONE
+        val wNone = w == WallSide.NONE
+        if ((nNone && sNone && eNone && wNone) || nNone != sNone || eNone != wNone) return true
+        if ((n == WallSide.TALL && s == WallSide.TALL) || (e == WallSide.TALL && w == WallSide.TALL)) return false
+        return above?.`is`(BlockTags.WALL_POST_OVERRIDE) == true || postCovered
+    }
+
+    private fun isWallTestCovered(face: VoxelShape, test: VoxelShape): Boolean =
+        !Shapes.joinIsNotEmpty(test, face, BooleanOp.ONLY_FIRST)
 
     private fun paintAxialPathInto(
         cache: Array<Array<Array<BlockState?>>>,
@@ -1582,7 +1603,7 @@ class SselithRepertoryChunkGenerator(
     /** Cell-wall battlement caps sitting ABOVE the world's topmost
      *  cellY — never replaces a tile of the cell wall itself. Three
      *  Y rows, all in the otherwise-AIR `cellY = TOP_CELL_Y` zone
-     *  that `skipTopCell` would normally force AIR:
+     *  that `skipCell` would normally force AIR:
      *
      *   - `capY = TOP_CELL_Y * MAZE_CELL_Y` — one block above the
      *     topmost cell's ceiling (i.e. one above the wall's top row
@@ -1599,15 +1620,20 @@ class SselithRepertoryChunkGenerator(
      *
      *  Skipped on the axial strip and inside the library gap, where
      *  the library-cell pattern doesn't fire either. Painted into
-     *  pathCache so the cellY = TOP_CELL_Y rows survive the
-     *  `skipTopCell` AIR forcing in the column-fill loop. */
-    private fun paintCellTopBattlementInto(
+     *  pathCache so the cap rows survive the `skipCell` AIR forcing in
+     *  the column-fill loop.
+     *
+     *  `step = -1` builds the same caps downward from [BOTTOM_CAP_Y] with
+     *  every stair flipped to Half.TOP; it fills only empty cells so a
+     *  path stair that dips that low wins. */
+    private fun paintCellBattlementInto(
         cache: Array<Array<Array<BlockState?>>>,
         baseX: Int, baseZ: Int, baseY: Int, cacheSize: Int, span: Int,
+        capY: Int, step: Int,
     ) {
-        val capY = TOP_CELL_Y * MAZE_CELL_Y
-        val crownY = capY + 1
-        val finialY = capY + 2
+        val upsideDown = step < 0
+        val crownY = capY + step
+        val finialY = capY + 2 * step
         val capLy = capY - baseY
         val crownLy = crownY - baseY
         val finialLy = finialY - baseY
@@ -1655,10 +1681,10 @@ class SselithRepertoryChunkGenerator(
                         tileZ == maxZ -> DEEPSLATE_BRICK_STAIRS_BOTTOM_SOUTH
                         else -> null
                     }
-                    if (capBlock != null) col[capLy] = capBlock
+                    if (capBlock != null) putBattlement(col, capLy, capBlock, upsideDown)
                 }
                 if (crownLy in 0 until span && isCorner) {
-                    col[crownLy] = DEEPSLATE_TILES
+                    putBattlement(col, crownLy, DEEPSLATE_TILES, upsideDown)
                 }
                 // Four corner stairs per cell, one atop each two-tile corner post. BOTH
                 // N/S facing and OUTER_LEFT/RIGHT shape must flip in pairs — swapping only
@@ -1674,21 +1700,28 @@ class SselithRepertoryChunkGenerator(
                         else ->
                             POLISHED_DEEPSLATE_STAIRS_BOTTOM_SOUTH_OUTER_LEFT
                     }
-                    col[finialLy] = finialBlock
+                    putBattlement(col, finialLy, finialBlock, upsideDown)
                 }
             }
         }
     }
 
+    private fun putBattlement(col: Array<BlockState?>, ly: Int, block: BlockState, upsideDown: Boolean) {
+        if (!upsideDown) {
+            col[ly] = block
+        } else if (col[ly] == null) {
+            col[ly] = if (block.hasProperty(StairBlock.HALF)) block.setValue(StairBlock.HALF, Half.TOP) else block
+        }
+    }
+
     /** True when `(wx, wy, wz)` sits inside the battlement paint pass's
-     *  footprint — the three Y rows above the topmost cellY's ceiling,
+     *  footprint — the three Y rows above the topmost cellY's ceiling or below the lowest cell's floor,
      *  excluding axial-strip and library-gap positions and limited to
      *  library-cell perimeter (wall-edge) tiles. Used by [isPathFloor]
      *  to suppress the procedural wall / slab decor pass on top of the
      *  battlement caps. */
-    private fun isInsideCellTopBattlement(wx: Int, wy: Int, wz: Int): Boolean {
-        val capY = TOP_CELL_Y * MAZE_CELL_Y
-        if (wy < capY || wy > capY + 2) return false
+    private fun isInsideCellBattlement(wx: Int, wy: Int, wz: Int): Boolean {
+        if (wy !in TOP_CAP_Y..TOP_CAP_Y + 2 && wy !in BOTTOM_CAP_Y - 2..BOTTOM_CAP_Y) return false
         if (isPathStrip(wx, wz)) return false
         if (wx in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT ||
             wz in -LIBRARY_QUADRANT_SHIFT..(LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT)
@@ -1829,7 +1862,7 @@ class SselithRepertoryChunkGenerator(
                 val existing = xPlane[lz][ly]
                 if (existing != null && existing.block is TrapDoorBlock) continue
                 val block = when {
-                    dx == 2 && dz == 2 -> CHISELED_DEEPSLATE
+                    dx == 2 && dz == 2 -> OWL_DEEPSLATE
                     dx in 1..3 && dz in 1..3 -> DEEPSLATE_TILES
                     else -> POLISHED_DEEPSLATE
                 }
@@ -1884,8 +1917,7 @@ class SselithRepertoryChunkGenerator(
             )
             return SHORT_PLATFORMS[typeRoll]
         }
-        val roll = positiveMod(mazeHash(cellX, cellY, cellZ, SSELITH_GLOBE_HASH_SALT), 100)
-        val pool = if (roll < SSELITH_GLOBE_PERCENT) RARE_REPLACEMENTS else NORMAL_REPLACEMENTS
+        val pool = if (rollsRareReplacement(cellX, cellY, cellZ)) RARE_REPLACEMENTS else NORMAL_REPLACEMENTS
         val typeRoll = positiveMod(mazeHash(cellX, cellY, cellZ, REPLACEMENT_TYPE_HASH_SALT), pool.size)
         return pool[typeRoll]
     }
@@ -1907,11 +1939,11 @@ class SselithRepertoryChunkGenerator(
      *  the lowest cellY with a maze node — not at world Y=0 (which
      *  is mid-stack, not the world's bottom). */
     private fun hasObservatoryColumnAt(cellX: Int, cellZ: Int): Boolean {
-        if (observatoryBottomCellY(cellX, cellZ) == null) return false
+        // The hash roll first: it rejects most columns with no scan of the column's cells.
         val roll = positiveMod(
             mazeHash(cellX, 0, cellZ, OBSERVATORY_HASH_SALT), 100,
         )
-        return roll < OBSERVATORY_PERCENT
+        return roll < OBSERVATORY_PERCENT && observatoryBottomCellY(cellX, cellZ) != null
     }
 
     /** Anchor cellY for the observatory in column (cellX, cellZ), or
@@ -2004,6 +2036,16 @@ class SselithRepertoryChunkGenerator(
             val tileStart = corridorLengthStart + tileIdx * PATH_SEGMENT_TILE_LENGTH
             val perpOrigin = corridorPerpCentre - (segment.dimX - 1) / 2
 
+            // A tile outside this chunk's cache window paints nothing here, so skip its validation;
+            // each chunk the tile does touch still validates it in full and reaches the same verdict.
+            val tileMinX = if (xAxisCorridor) tileStart else perpOrigin
+            val tileMinZ = if (xAxisCorridor) perpOrigin else tileStart
+            val tileMaxX = tileMinX + (if (xAxisCorridor) segment.dimZ else segment.dimX) - 1
+            val tileMaxZ = tileMinZ + (if (xAxisCorridor) segment.dimX else segment.dimZ) - 1
+            if (tileMaxX < baseX || tileMinX >= baseX + cacheSize) continue
+            if (tileMaxZ < baseZ || tileMinZ >= baseZ + cacheSize) continue
+            if (yLo + segment.dimY - 1 < baseY || yLo >= baseY + span) continue
+
             // Validate the WHOLE tile footprint up-front — if any cell
             // would intersect a platform, cell wall, structure
             // replacement, or the axial strip, skip the entire tile
@@ -2023,7 +2065,8 @@ class SselithRepertoryChunkGenerator(
                         val wx: Int; val wz: Int
                         if (xAxisCorridor) {
                             wx = tileStart + dz
-                            wz = perpOrigin + dx
+                            // COUNTERCLOCKWISE_90 maps (x, z) to (z, -x), so the perpendicular axis is mirrored.
+                            wz = perpOrigin + (segment.dimX - 1 - dx)
                         } else {
                             wx = perpOrigin + dx
                             wz = tileStart + dz
@@ -2086,28 +2129,23 @@ class SselithRepertoryChunkGenerator(
                     }
                     if (isPathStrip(wx, wz)) return false
                     if (isOnLibraryCellWall(wx, wz)) return false
-                    if (isInsideStructureReplacement(wx, wy, wz)) return false
+                    // Every chunk the tile touches must reach the same verdict, so positions past
+                    // the window use the coordinate-only checks instead of the per-chunk caches.
+                    val inWindow = pathCache != null &&
+                        wx - ctx.pathBaseX in 0 until pathCache.size &&
+                        wz - ctx.pathBaseZ in 0 until pathCache[0].size &&
+                        wy - ctx.pathBaseY in 0 until ctx.pathSpan
+                    val inStructure = if (inWindow) isInsideStructureReplacement(wx, wy, wz)
+                    else isInsideStructureFootprint(wx, wy, wz)
+                    if (inStructure) return false
                     if (isOnStandardPlatform(wx, wy, wz)) return false
-                    // pathCache holds anything earlier paint passes wrote:
-                    // corridor floor (OK to overlay) plus stairs / ladders /
-                    // trapdoors (NOT OK — those carry essential navigation
-                    // geometry the player needs to climb between cells).
-                    if (pathCache != null) {
-                        val lx = wx - ctx.pathBaseX
-                        val ly = wy - ctx.pathBaseY
-                        val lz = wz - ctx.pathBaseZ
-                        if (lx in 0 until pathCache.size &&
-                            lz in 0 until pathCache[0].size &&
-                            ly in 0 until ctx.pathSpan
-                        ) {
-                            val existing = pathCache[lx][lz][ly]
-                            if (existing != null && (
-                                existing.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS) ||
-                                existing.block is LadderBlock ||
-                                existing.block is TrapDoorBlock
-                            )) return false
-                        }
-                    }
+                    // Corridor floor may be overlaid; stairs, ladders and trapdoors are navigation.
+                    val existing = pathBlockAt(wx, wy, wz)
+                    if (existing != null && (
+                        existing.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS) ||
+                        existing.block is LadderBlock ||
+                        existing.block is TrapDoorBlock
+                    )) return false
                 }
             }
         }
@@ -2119,13 +2157,84 @@ class SselithRepertoryChunkGenerator(
      *  replacement. Salt tiles must avoid these so they don't clobber
      *  the procedural platform's centre/ring pattern. */
     private fun isOnStandardPlatform(wx: Int, wy: Int, wz: Int): Boolean {
-        val cellX = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X)
-        val cellZ = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z)
+        // ±1 cell: on the negative side the quadrant shift moves a platform into the next cell index.
+        val cx = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X)
+        val cz = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z)
         val cellY = Math.floorDiv(wy, MAZE_CELL_Y)
-        val node = mazeNodeAt(cellX, cellY, cellZ) ?: return false
-        if (wy != node.ny) return false
-        return wx in node.nx until (node.nx + FLOOR_SIZE) &&
-               wz in node.nz until (node.nz + FLOOR_SIZE)
+        for (cellX in cx - 1..cx + 1) {
+            for (cellZ in cz - 1..cz + 1) {
+                val node = mazeNodeAt(cellX, cellY, cellZ) ?: continue
+                if (wy == node.ny &&
+                    wx in node.nx until (node.nx + FLOOR_SIZE) &&
+                    wz in node.nz until (node.nz + FLOOR_SIZE)
+                ) return true
+            }
+        }
+        return false
+    }
+
+    /** Coordinate-only twin of [isInsideStructureReplacement], for positions past the
+     *  per-chunk bitmap window. Mirrors the placement scan in fillFromNoise. */
+    private fun isInsideStructureFootprint(wx: Int, wy: Int, wz: Int): Boolean {
+        val cx = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X)
+        val cy = Math.floorDiv(wy, MAZE_CELL_Y)
+        val cz = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z)
+        for (cellX in cx - 1..cx + 1) {
+            for (cellZ in cz - 1..cz + 1) {
+                for (cellY in cy - 1..cy + 1) {
+                    val type = replacementTypeAt(cellX, cellY, cellZ) ?: continue
+                    val node = mazeNodeAt(cellX, cellY, cellZ) ?: continue
+                    if (footprintContains(node.nx, node.ny, node.nz, type, wx, wy, wz)) return true
+                }
+                if (observatoryFootprintContains(cellX, cellZ, wx, wy, wz)) return true
+            }
+        }
+        return isInsideAxialArchFootprint(wx, wy, wz)
+    }
+
+    private fun footprintContains(
+        nx: Int, ny: Int, nz: Int, type: StructureReplacement, wx: Int, wy: Int, wz: Int,
+    ): Boolean {
+        val cornerX = nx + type.cornerOffsetX
+        val cornerY = ny + type.cornerOffsetY
+        val cornerZ = nz + type.cornerOffsetZ
+        return wx in cornerX until cornerX + type.dimX &&
+            wy in cornerY until cornerY + type.dimY &&
+            wz in cornerZ until cornerZ + type.dimZ
+    }
+
+    private fun observatoryFootprintContains(cellX: Int, cellZ: Int, wx: Int, wy: Int, wz: Int): Boolean {
+        if (!hasObservatoryColumnAt(cellX, cellZ)) return false
+        val bottomY = observatoryBottomCellY(cellX, cellZ) ?: return false
+        for (cy in bottomY until TOP_CELL_Y) {
+            val n = mazeNodeAt(cellX, cy, cellZ) ?: continue
+            return footprintContains(
+                n.nx, bottomY * MAZE_CELL_Y, n.nz, StructureReplacement.OBSERVATORY, wx, wy, wz,
+            )
+        }
+        return false
+    }
+
+    private fun isInsideAxialArchFootprint(wx: Int, wy: Int, wz: Int): Boolean {
+        if (wz in GAP_COLUMN_NEG_Z until GAP_COLUMN_NEG_Z + AXIAL_ARCH_DIM_Z) {
+            for (archX in wx - AXIAL_ARCH_DIM_X + 1..wx) {
+                if (axialArchContainsY(archX, wy)) return true
+            }
+        }
+        if (wx in GAP_COLUMN_NEG_X until GAP_COLUMN_NEG_X + AXIAL_ARCH_DIM_Z) {
+            for (archZ in wz - AXIAL_ARCH_DIM_X + 1..wz) {
+                if (axialArchContainsY(archZ, wy)) return true
+            }
+        }
+        return false
+    }
+
+    private fun axialArchContainsY(archCoord: Int, wy: Int): Boolean {
+        if (archCoord in PATH_RANGE || archCoord == 0) return false
+        if (positiveMod(archCoord, GAP_COLUMN_INTERVAL) != 0) return false
+        val cellY = topAxialArchCellY(archCoord) ?: return false
+        val cornerY = cellY * MAZE_CELL_Y + AXIAL_ARCH_CELL_Y_OFFSET
+        return wy in cornerY until cornerY + AXIAL_ARCH_DIM_Y
     }
 
     /** True iff (wx, wz) sits on the perimeter of a library-cell tile —
@@ -2134,21 +2243,37 @@ class SselithRepertoryChunkGenerator(
      *  BOOKSHELF (edges). NBT path overlay skips these so the user's
      *  "regular painter should do that" rule holds. */
     private fun isOnLibraryCellWall(wx: Int, wz: Int): Boolean {
+        val tileXMod = libraryTileX(wx)
+        val tileZMod = libraryTileZ(wz)
+        return tileXMod == 0 || tileXMod == MAZE_CELL_X - 1 ||
+               tileZMod == 0 || tileZMod == MAZE_CELL_Z - 1
+    }
+
+    /** The column one block inside the cell wall, where [archwayBlock] puts the book stacks. */
+    private fun isOnLibraryShelfColumn(wx: Int, wz: Int): Boolean {
+        val tileXMod = libraryTileX(wx)
+        val tileZMod = libraryTileZ(wz)
+        return tileXMod == 1 || tileXMod == MAZE_CELL_X - 2 ||
+               tileZMod == 1 || tileZMod == MAZE_CELL_Z - 2
+    }
+
+    private fun libraryTileX(wx: Int): Int {
         val effX = when {
             wx > LIBRARY_QUADRANT_SHIFT -> wx - LIBRARY_QUADRANT_SHIFT - 1
             wx < -LIBRARY_QUADRANT_SHIFT -> wx + LIBRARY_QUADRANT_SHIFT
             else -> 0
         }
+        return Math.floorMod(effX, MAZE_CELL_X)
+    }
+
+    private fun libraryTileZ(wz: Int): Int {
         val effZ = when {
             wz > LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT ->
                 wz - LIBRARY_QUADRANT_SHIFT - POSITIVE_Z_EXTRA_SHIFT - 1
             wz < -LIBRARY_QUADRANT_SHIFT -> wz + LIBRARY_QUADRANT_SHIFT
             else -> 0
         }
-        val tileXMod = Math.floorMod(effX, MAZE_CELL_X)
-        val tileZMod = Math.floorMod(effZ, MAZE_CELL_Z)
-        return tileXMod == 0 || tileXMod == MAZE_CELL_X - 1 ||
-               tileZMod == 0 || tileZMod == MAZE_CELL_Z - 1
+        return Math.floorMod(effZ, MAZE_CELL_Z)
     }
 
     private fun pickPathSegment(
@@ -2301,6 +2426,38 @@ class SselithRepertoryChunkGenerator(
                 }
             }
         }
+        if (!type.isRare) paintPlatformWallCandles(cache, baseX, baseZ, baseY, cacheSize, span, blocks, type, cornerX, cornerY, cornerZ)
+    }
+
+    /** Lit candle clusters on about 1 in [PLATFORM_CANDLE_DENOM] perimeter wall posts of a normal
+     *  platform. A separate pass, because the main pass writes the NBT's air above each post. */
+    private fun paintPlatformWallCandles(
+        cache: Array<Array<Array<BlockState?>>>,
+        baseX: Int, baseZ: Int, baseY: Int, cacheSize: Int, span: Int,
+        blocks: Array<Array<Array<BlockState?>>>, type: StructureReplacement,
+        cornerX: Int, cornerY: Int, cornerZ: Int,
+    ) {
+        for (dx in 0 until type.dimX) {
+            val lx = cornerX + dx - baseX
+            if (lx !in 0 until cacheSize) continue
+            for (dz in 0 until type.dimZ) {
+                if (dx != 0 && dx != type.dimX - 1 && dz != 0 && dz != type.dimZ - 1) continue
+                val lz = cornerZ + dz - baseZ
+                if (lz !in 0 until cacheSize) continue
+                for (dy in 0 until type.dimY) {
+                    if (blocks[dx][dy][dz]?.block !is WallBlock) continue
+                    if (dy + 1 < type.dimY && blocks[dx][dy + 1][dz]?.isAir == false) continue
+                    val wx = cornerX + dx
+                    val wy = cornerY + dy + 1
+                    val wz = cornerZ + dz
+                    val ly = wy - baseY
+                    if (ly !in 0 until span) continue
+                    if (positiveMod(mazeHash(wx, wy, wz, PLATFORM_CANDLE_SALT), PLATFORM_CANDLE_DENOM) != 0) continue
+                    val count = 1 + positiveMod(mazeHash(wx, wy, wz, PLATFORM_CANDLE_SALT + 1), 4)
+                    cache[lx][lz][ly] = YELLOW_CANDLES_LIT[count - 1]
+                }
+            }
+        }
     }
 
     /** Apply each structure-replacement's saved block-entity NBT to the
@@ -2325,18 +2482,6 @@ class SselithRepertoryChunkGenerator(
         val chunkZMax = chunkPos.minBlockZ + 15
         val mutable = BlockPos.MutableBlockPos()
         for (placement in placements) {
-            // Scroll seeding: SPECIMEN_SCULK ships a lectern whose stack is
-            // populated at gen time (the structure NBT itself can't carry
-            // mod items without the resourcepack/save round-trip mangling
-            // them). The lectern position is found by scanning the
-            // structure's prebuilt block array for a LecternBlock; we set
-            // HAS_BOOK on the chunk's state and hydrate the BE with a single
-            // Scroll of Sculk Catastrophe. Runs first so the BE NBT loop
-            // below sees the populated state if the NBT also carried a
-            // lectern entry (it doesn't today — just being defensive).
-            if (placement.type == StructureReplacement.SPECIMEN_SCULK) {
-                seedSpecimenSculkScroll(chunk, placement, chunkXMin, chunkXMax, chunkZMin, chunkZMax, mutable)
-            }
             val type = placement.type
             val bes = REPLACEMENT_BES[type] ?: continue
             if (bes.isEmpty()) continue
@@ -2387,18 +2532,35 @@ class SselithRepertoryChunkGenerator(
                 be.setChanged()
             }
         }
+        // After the BE NBT pass: `LecternBlockEntity.load` clears the book when the tag has no `Book`,
+        // and the structure lecterns ship a bare `{id}` tag.
+        for (placement in placements) {
+            val book = lecternBookFor(placement) ?: continue
+            seedLecternBook(chunk, placement, book, chunkXMin, chunkXMax, chunkZMin, chunkZMax, mutable)
+        }
     }
 
-    /** Walk the SPECIMEN_SCULK NBT blockset for lecterns and inject a
-     *  [EKItems.SCROLL_OF_SCULK_CATASTROPHE] into each one inside this
-     *  chunk. The structure ships with `has_book=false` lecterns so we
-     *  set `HAS_BOOK=true` on the chunk's block state too — vanilla's
-     *  `LecternBlockEntity.load` reads `Book` happily either way, but
-     *  the block state's flag drives the menu's `stillValid` and the
-     *  comparator output. */
-    private fun seedSpecimenSculkScroll(
+    /** Mod items and lore books are seeded at gen time; the structure NBT does not carry them. */
+    private fun lecternBookFor(placement: StructurePlacement): ItemStack? = when (placement.type) {
+        StructureReplacement.SPECIMEN_SCULK -> {
+            val node = placement.node
+            if (mazeHash(node.nx, node.ny, node.nz, SPECIMEN_BOOK_HASH_SALT) and 1 == 0) {
+                ItemStack(EKItems.SCROLL_OF_SCULK_CATASTROPHE.get())
+            } else {
+                TomeLore.fromSselithLoreBook("Echoing Silence", "The Untologist", "echoing_silence")
+            }
+        }
+        StructureReplacement.STUDY -> TomeLore.fromLootBook("Dream Journal", "Crennick Seldarn", "dream_journal")
+        else -> null
+    }
+
+    /** Puts a copy of [book] on each lectern of the placement inside this chunk. The structures
+     *  ship `has_book=false` lecterns, so this sets `HAS_BOOK` too — the flag drives the menu's
+     *  `stillValid` and the comparator output. */
+    private fun seedLecternBook(
         chunk: ChunkAccess,
         placement: StructurePlacement,
+        book: ItemStack,
         chunkXMin: Int, chunkXMax: Int, chunkZMin: Int, chunkZMax: Int,
         mutable: BlockPos.MutableBlockPos,
     ) {
@@ -2425,7 +2587,6 @@ class SselithRepertoryChunkGenerator(
                     if (!live.getValue(LecternBlock.HAS_BOOK)) {
                         chunk.setBlockState(pos, live.setValue(LecternBlock.HAS_BOOK, true), false)
                     }
-                    val scroll = ItemStack(EKItems.SCROLL_OF_SCULK_CATASTROPHE.get())
                     var be = chunk.getBlockEntity(pos)
                     if (be == null) {
                         val block = live.block
@@ -2436,7 +2597,7 @@ class SselithRepertoryChunkGenerator(
                     }
                     if (be !is LecternBlockEntity) continue
                     val tag = CompoundTag()
-                    tag.put("Book", scroll.save(CompoundTag()))
+                    tag.put("Book", book.save(CompoundTag()))
                     tag.putInt("Page", 0)
                     tag.putInt("x", pos.x)
                     tag.putInt("y", pos.y)
@@ -2445,7 +2606,7 @@ class SselithRepertoryChunkGenerator(
                         be.load(tag)
                         be.setChanged()
                     } catch (t: Throwable) {
-                        PROFILE_LOG.error("Failed to seed scroll on lectern at $pos", t)
+                        PROFILE_LOG.error("Failed to seed book on lectern at $pos", t)
                     }
                 }
             }
@@ -2539,6 +2700,20 @@ class SselithRepertoryChunkGenerator(
                         if (headLy1 in 0 until span) col[headLy1] = null
                         val headLy2 = wy + 2 - baseY
                         if (headLy2 in 0 until span) col[headLy2] = null
+                        // Over a gap wider than one block, open the doorway up to the piece's cap:
+                        // clear walls and pass air, and stop at the first other solid block so the
+                        // cap and anything standing on it stay.
+                        if (v.dy == 0 && corridorWidth(a, b) > 1) {
+                            var aboveY = wy + 3
+                            while (aboveY - baseY in 0 until span && isInsideStructureReplacement(wx, aboveY, wz)) {
+                                val aboveLy = aboveY - baseY
+                                val above = col[aboveLy]
+                                val clearable = above?.block is WallBlock || above?.block is CandleBlock
+                                if (above != null && !above.isAir && !clearable) break
+                                if (clearable) col[aboveLy] = null
+                                aboveY++
+                            }
+                        }
                         continue
                     }
 
@@ -2631,10 +2806,9 @@ class SselithRepertoryChunkGenerator(
         // fallthrough was the dominant 25s cost in the chunk-gen
         // hot path. Wall recompute at chunk-edge positions now
         // reads the buffer's `wallBits = false` (its initialised
-        // value), and `wallOutlineAt` falls back to a fresh
-        // `isWallOutline` compute that only needs in-cache
-        // `isPathFloor` lookups — handful of calls at the chunk
-        // perimeter per Y, dwarfed by the savings.
+        // value). `wallOutlineAt` has no fallback inside the window, so a
+        // wall at the chunk edge gets no side toward the next chunk here;
+        // `markPosForPostprocessing` lets vanilla repair that shape.
         val wallBits = BooleanArray(cacheSize * cacheSize * span)
         val edgeLo = 2
         val edgeHi = cacheSize - 2
@@ -2698,663 +2872,6 @@ class SselithRepertoryChunkGenerator(
     }
 
 
-    /** Build the cube exclusion mask. Covers every position any cube touched
-     *  by this chunk could occupy, plus +1 padding. Marks: axial strip,
-     *  every platform, every realised connection bbox. */
-    private fun buildCubeExclude(
-        exclBaseX: Int, exclBaseZ: Int, baseY: Int, exclSize: Int, span: Int,
-    ): BooleanArray {
-        val excl = BooleanArray(exclSize * exclSize * span)
-        val exclMaxX = exclBaseX + exclSize - 1
-        val exclMaxZ = exclBaseZ + exclSize - 1
-        val maxY = baseY + span - 1
-
-        // Axial strip + 1 padding, full Y, full mask extent in the orthogonal axis.
-        val stripPadLo = PATH_RANGE.first - 1
-        val stripPadHi = PATH_RANGE.last + 1
-        markExclusionBox(excl, exclBaseX, exclBaseZ, baseY, exclSize, span,
-            stripPadLo, stripPadHi, baseY, maxY, exclBaseZ, exclMaxZ, pad = false)
-        markExclusionBox(excl, exclBaseX, exclBaseZ, baseY, exclSize, span,
-            exclBaseX, exclMaxX, baseY, maxY, stripPadLo, stripPadHi, pad = false)
-
-        // Cells whose connections / platforms could touch the exclusion window.
-        val minCellX = Math.floorDiv(exclBaseX - GRID_OFFSET, MAZE_CELL_X) - 1
-        val maxCellX = Math.floorDiv(exclMaxX - GRID_OFFSET, MAZE_CELL_X) + 1
-        val minCellY = Math.floorDiv(baseY, MAZE_CELL_Y) - 1
-        val maxCellY = Math.floorDiv(maxY, MAZE_CELL_Y) + 1
-        val minCellZ = Math.floorDiv(exclBaseZ - GRID_OFFSET, MAZE_CELL_Z) - 1
-        val maxCellZ = Math.floorDiv(exclMaxZ - GRID_OFFSET, MAZE_CELL_Z) + 1
-        for (cellX in minCellX..maxCellX) {
-            for (cellY in minCellY..maxCellY) {
-                for (cellZ in minCellZ..maxCellZ) {
-                    val node = mazeNodeAt(cellX, cellY, cellZ) ?: continue
-                    // Platform 5×5×1 at node.ny.
-                    markExclusionBox(excl, exclBaseX, exclBaseZ, baseY, exclSize, span,
-                        node.nx, node.nx + FLOOR_SIZE - 1,
-                        node.ny, node.ny,
-                        node.nz, node.nz + FLOOR_SIZE - 1,
-                        pad = true)
-                    // Outgoing connections.
-                    for (vIdx in pickConnections(cellX, cellY, cellZ)) {
-                        if (IS_STAIRWELL_VEC[vIdx] && !stairwellAllowed(cellX, cellY, cellZ, vIdx)) continue
-                        val v = CONN_VECTORS[vIdx]
-                        mazeNodeAt(cellX + v.dx, cellY + v.dy, cellZ + v.dz) ?: continue
-                        val bbox = connectionBBox(cellX, cellY, cellZ, vIdx)
-                        markExclusionBox(excl, exclBaseX, exclBaseZ, baseY, exclSize, span,
-                            bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5],
-                            pad = true)
-                    }
-                }
-            }
-        }
-        return excl
-    }
-
-    /** Mark `excl[lx,lz,ly]=true` for every position inside the given bbox
-     *  (with optional ±1 padding on every axis), clipped to the mask window. */
-    private fun markExclusionBox(
-        excl: BooleanArray,
-        baseX: Int, baseZ: Int, baseY: Int, size: Int, span: Int,
-        xLo: Int, xHi: Int, yLo: Int, yHi: Int, zLo: Int, zHi: Int,
-        pad: Boolean,
-    ) {
-        val p = if (pad) 1 else 0
-        val clipXLo = Math.max(xLo - p, baseX)
-        val clipXHi = Math.min(xHi + p, baseX + size - 1)
-        if (clipXLo > clipXHi) return
-        val clipYLo = Math.max(yLo - p, baseY)
-        val clipYHi = Math.min(yHi + p, baseY + span - 1)
-        if (clipYLo > clipYHi) return
-        val clipZLo = Math.max(zLo - p, baseZ)
-        val clipZHi = Math.min(zHi + p, baseZ + size - 1)
-        if (clipZLo > clipZHi) return
-        for (wx in clipXLo..clipXHi) {
-            val lx = wx - baseX
-            for (wz in clipZLo..clipZHi) {
-                val lz = wz - baseZ
-                val baseIdx = (lx * size + lz) * span
-                for (wy in clipYLo..clipYHi) {
-                    excl[baseIdx + (wy - baseY)] = true
-                }
-            }
-        }
-    }
-
-
-    /** Iterate slot positions in the chunk's column. Each slot picks (via
-     *  hash) one of [FEATURE_TYPE_COUNT] feature types. Anchor-in-column
-     *  ownership: a feature is painted by exactly the chunk whose column
-     *  contains its anchor, and the feature must fit within that column.
-     *  This means features never straddle chunk boundaries and there's no
-     *  slicing. Per-feature `try*` functions check anchor-fit + exclusion
-     *  mask before writing. */
-    private fun paintFeaturesInto(
-        featureCache: Array<Array<Array<BlockState?>>>,
-        excl: BooleanArray,
-        exclBaseX: Int, exclBaseZ: Int, exclSize: Int,
-        baseX: Int, baseZ: Int, baseY: Int, cacheSize: Int, span: Int,
-        chunkX0: Int, chunkZ0: Int,
-    ) {
-        val chunkXEnd = chunkX0 + 15
-        val chunkZEnd = chunkZ0 + 15
-        val maxY = baseY + span - 1
-        val offsetSpan = 2 * SLOT_JITTER + 1
-        val minSlotX = Math.floorDiv(chunkX0 - SLOT_JITTER, SLOT_SIZE)
-        val maxSlotX = Math.floorDiv(chunkXEnd + SLOT_JITTER, SLOT_SIZE)
-        val minSlotY = Math.floorDiv(baseY - SLOT_JITTER, SLOT_SIZE)
-        val maxSlotY = Math.floorDiv(maxY + SLOT_JITTER, SLOT_SIZE)
-        val minSlotZ = Math.floorDiv(chunkZ0 - SLOT_JITTER, SLOT_SIZE)
-        val maxSlotZ = Math.floorDiv(chunkZEnd + SLOT_JITTER, SLOT_SIZE)
-
-        for (slotX in minSlotX..maxSlotX) {
-            for (slotY in minSlotY..maxSlotY) {
-                for (slotZ in minSlotZ..maxSlotZ) {
-                    val ax = slotX * SLOT_SIZE + positiveMod(hash(slotX, slotY, slotZ, 17), offsetSpan) - SLOT_JITTER
-                    if (ax < chunkX0 || ax > chunkXEnd) continue
-                    val az = slotZ * SLOT_SIZE + positiveMod(hash(slotX, slotY, slotZ, 23), offsetSpan) - SLOT_JITTER
-                    if (az < chunkZ0 || az > chunkZEnd) continue
-                    val ay = slotY * SLOT_SIZE + positiveMod(hash(slotX, slotY, slotZ, 19), offsetSpan) - SLOT_JITTER
-                    if (ay < baseY || ay > maxY) continue
-                    if (positiveMod(hash(slotX, slotY, slotZ, 11), 100) < FEATURE_SKIP_PERCENT) continue
-
-                    val ft = positiveMod(hash(slotX, slotY, slotZ, 13), FEATURE_TYPE_COUNT)
-                    val seed = hash(slotX, slotY, slotZ, 29)
-                    when (ft) {
-                        0 -> tryFloatingShelf(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, maxY)
-                        1 -> tryShelfTower(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, maxY)
-                        2 -> tryShelfWall(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        3 -> tryFurnitureIsland(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        4 -> tryReadingNook(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        5 -> tryChandelier(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        6 -> tryTomeShrine(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        7 -> tryWallCorner(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        8 -> trySpiralPillar(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        9 -> tryLecternGarden(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        10 -> tryTotem(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, maxY)
-                        11 -> tryCubeOfSize(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY, size = 5, hollow = false)
-                        12 -> tryCubeOfSize(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY, size = 7, hollow = true)
-                        13 -> tryCubeOfSize(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY, size = 11, hollow = true)
-                        14 -> tryBambooFloor(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                        15 -> tryLecternRoom(featureCache, excl, exclBaseX, exclBaseZ, exclSize, baseX, baseZ, baseY, cacheSize, span, ax, ay, az, seed, chunkX0, chunkXEnd, chunkZ0, chunkZEnd, maxY)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun isFeatureExcluded(
-        excl: BooleanArray, exclBaseX: Int, exclBaseZ: Int, exclSize: Int, baseY: Int, span: Int,
-        wx: Int, wy: Int, wz: Int,
-    ): Boolean {
-        val cx = wx - exclBaseX
-        if (cx !in 0 until exclSize) return true
-        val cz = wz - exclBaseZ
-        if (cz !in 0 until exclSize) return true
-        val cy = wy - baseY
-        if (cy !in 0 until span) return true
-        return excl[(cx * exclSize + cz) * span + cy]
-    }
-
-    private fun putFeatureBlock(
-        featureCache: Array<Array<Array<BlockState?>>>,
-        baseX: Int, baseZ: Int, baseY: Int, cacheSize: Int, span: Int,
-        wx: Int, wy: Int, wz: Int, block: BlockState,
-    ) {
-        val cx = wx - baseX
-        if (cx !in 0 until cacheSize) return
-        val cz = wz - baseZ
-        if (cz !in 0 until cacheSize) return
-        val cy = wy - baseY
-        if (cy !in 0 until span) return
-        featureCache[cx][cz][cy] = block
-    }
-
-    /** Mark every still-null position in the given bbox as explicit AIR — each
-     *  feature calls this to carve its clearance out of the surrounding library
-     *  mass. Without this, the dimension's default chiseled-bookshelf fill
-     *  would bury the feature in solid books. */
-    private fun fillBboxAir(
-        fc: Array<Array<Array<BlockState?>>>,
-        baseX: Int, baseZ: Int, baseY: Int, cacheSize: Int, span: Int,
-        xLo: Int, xHi: Int, yLo: Int, yHi: Int, zLo: Int, zHi: Int,
-    ) {
-        for (wx in xLo..xHi) {
-            val cx = wx - baseX
-            if (cx !in 0 until cacheSize) continue
-            for (wz in zLo..zHi) {
-                val cz = wz - baseZ
-                if (cz !in 0 until cacheSize) continue
-                for (wy in yLo..yHi) {
-                    val cy = wy - baseY
-                    if (cy !in 0 until span) continue
-                    if (fc[cx][cz][cy] == null) fc[cx][cz][cy] = AIR
-                }
-            }
-        }
-    }
-
-    private fun tryFloatingShelf(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int, maxY: Int,
-    ) {
-        val chainLen = 2 + positiveMod(seed, 5)
-        if (ay + chainLen > maxY) return
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay, az)) return
-        for (i in 1..chainLen) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + i, az)) return
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay, az, CHISELED_BOOKSHELF)
-        for (i in 1..chainLen) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + i, az, CHAIN)
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 1, ay, ay + chainLen, az - 1, az + 1)
-    }
-
-    private fun tryShelfTower(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int, maxY: Int,
-    ) {
-        val height = 3 + positiveMod(seed, 6)
-        val capped = positiveMod(seed ushr 4, 4) > 0
-        val topY = if (capped) ay + height + 1 else ay + height - 1
-        if (topY > maxY) return
-        for (i in 0 until height) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + i, az)) return
-        if (capped) {
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + height, az)) return
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + height + 1, az)) return
-        }
-        for (i in 0 until height) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + i, az, CHISELED_BOOKSHELF)
-        if (capped) {
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + height, az, CHISELED_DEEPSLATE)
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + height + 1, az, LIT_CANDLE)
-        }
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 1, ay - 1, topY + 1, az - 1, az + 1)
-    }
-
-    private fun tryShelfWall(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        val width = 3 + positiveMod(seed, 3)            // 3-5
-        val height = 2 + positiveMod(seed ushr 4, 3)    // 2-4
-        val alongZ = positiveMod(seed ushr 8, 2) == 0
-        val xEnd = if (alongZ) ax else ax + width - 1
-        val zEnd = if (alongZ) az + width - 1 else az
-        if (xEnd > cxHi || zEnd > czHi || ay + height - 1 > maxY) return
-        for (w in 0 until width) for (h in 0 until height) {
-            val x = if (alongZ) ax else ax + w
-            val z = if (alongZ) az + w else az
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, x, ay + h, z)) return
-        }
-        for (w in 0 until width) for (h in 0 until height) {
-            val x = if (alongZ) ax else ax + w
-            val z = if (alongZ) az + w else az
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, x, ay + h, z, CHISELED_BOOKSHELF)
-        }
-        val xLoP = if (alongZ) ax - 1 else ax - 1
-        val xHiP = if (alongZ) ax + 1 else ax + width
-        val zLoP = if (alongZ) az - 1 else az - 1
-        val zHiP = if (alongZ) az + width else az + 1
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, xLoP, xHiP, ay - 1, ay + height, zLoP, zHiP)
-    }
-
-    private fun tryFurnitureIsland(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        if (ax + 2 > cxHi || az + 2 > czHi) return
-        val chainLen = 3 + positiveMod(seed, 4)
-        if (ay + chainLen > maxY) return
-        // 3×3 floor at ay (player walks on top at ay+1).
-        for (dx in 0..2) for (dz in 0..2)
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay, az + dz)) return
-        val cx = ax + 1
-        val cz = az + 1
-        // Lectern at centre of floor (sits on top, so at ay+1).
-        if (ay + 1 > maxY) return
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, cx, ay + 1, cz)) return
-        // Candle at one of the 4 corners on top of floor.
-        val candleCorner = positiveMod(seed ushr 4, 4)
-        val candleX = ax + intArrayOf(0, 2, 0, 2)[candleCorner]
-        val candleZ = az + intArrayOf(0, 0, 2, 2)[candleCorner]
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, candleX, ay + 1, candleZ)) return
-        // Chain rising from opposite corner.
-        val opp = (candleCorner + 3) and 3
-        val chainX = ax + intArrayOf(0, 2, 0, 2)[opp]
-        val chainZ = az + intArrayOf(0, 0, 2, 2)[opp]
-        for (i in 1..chainLen) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, chainX, ay + i, chainZ)) return
-
-        for (dx in 0..2) for (dz in 0..2)
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay, az + dz, DEEPSLATE_BRICKS)
-        val lecternFacing = LADDER_FACINGS[positiveMod(seed ushr 12, 4)]
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, cx, ay + 1, cz,
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, lecternFacing))
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, candleX, ay + 1, candleZ, LIT_CANDLE)
-        for (i in 1..chainLen) putFeatureBlock(fc, bX, bZ, bY, cs, sp, chainX, ay + i, chainZ, CHAIN)
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 3, ay - 1, ay + chainLen + 1, az - 1, az + 3)
-    }
-
-    private fun tryReadingNook(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        // Linear 3-block arrangement along +X at z=az: chair at ax, lectern at ax+1,
-        // bookshelf column 3 tall at ax+2. Floor 3 deepslate bricks at ay-1.
-        if (ax + 2 > cxHi || ay + 2 > maxY || ay - 1 < bY) return
-        val facing = Direction.EAST   // chair/lectern face the shelf wall
-        for (dx in 0..2) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay - 1, az)) return
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay, az)) return       // chair
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + 1, ay, az)) return   // lectern
-        for (h in 0..2) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + 2, ay + h, az)) return
-
-        for (dx in 0..2) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay - 1, az, DEEPSLATE_BRICKS)
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay, az,
-            DEEPSLATE_BRICK_STAIRS_BASE.setValue(StairBlock.FACING, facing))
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + 1, ay, az,
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, facing))
-        for (h in 0..2) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + 2, ay + h, az, CHISELED_BOOKSHELF)
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 3, ay - 1, ay + 3, az - 1, az + 1)
-    }
-
-    private fun tryChandelier(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        if (ax - 1 < cxLo || ax + 1 > cxHi || az - 1 < czLo || az + 1 > czHi) return
-        if (ay - 1 < bY) return
-        val chainLen = 2 + positiveMod(seed, 4)
-        if (ay + chainLen > maxY) return
-        // Central shelf at (ax, ay, az). Arms at (ax±1, ay, az) and (ax, ay, az±1).
-        // Lanterns one below each arm. Chain rises from (ax, ay+1..ay+chainLen, az).
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay, az)) return
-        val arms = arrayOf(intArrayOf(1, 0), intArrayOf(-1, 0), intArrayOf(0, 1), intArrayOf(0, -1))
-        for (a in arms) {
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + a[0], ay, az + a[1])) return
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + a[0], ay - 1, az + a[1])) return
-        }
-        for (i in 1..chainLen) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + i, az)) return
-
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay, az, CHISELED_BOOKSHELF)
-        for (a in arms) {
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + a[0], ay, az + a[1], CHISELED_BOOKSHELF)
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + a[0], ay - 1, az + a[1], LANTERN)
-        }
-        for (i in 1..chainLen) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + i, az, CHAIN)
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 2, ax + 2, ay - 2, ay + chainLen + 1, az - 2, az + 2)
-    }
-
-    private fun tryTomeShrine(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        if (ax + 2 > cxHi || az + 2 > czHi) return
-        val height = 4 + positiveMod(seed, 3)  // 4-6
-        if (ay + height + 1 > maxY) return
-        val cx = ax + 1
-        val cz = az + 1
-        // Floor 3×3 at ay (chiseled centre).
-        for (dx in 0..2) for (dz in 0..2)
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay, az + dz)) return
-        // Column.
-        for (i in 1..height) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, cx, ay + i, cz)) return
-        // Lantern cap.
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, cx, ay + height + 1, cz)) return
-
-        for (dx in 0..2) for (dz in 0..2) {
-            val block = if (dx == 1 && dz == 1) CHISELED_DEEPSLATE else DEEPSLATE_BRICKS
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay, az + dz, block)
-        }
-        for (i in 1..height) putFeatureBlock(fc, bX, bZ, bY, cs, sp, cx, ay + i, cz, CHISELED_BOOKSHELF)
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, cx, ay + height + 1, cz, LANTERN)
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 3, ay - 1, ay + height + 2, az - 1, az + 3)
-    }
-
-    private fun tryWallCorner(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        val len = 3 + positiveMod(seed, 2)              // 3-4
-        val height = 2 + positiveMod(seed ushr 4, 2)    // 2-3
-        if (ax + len - 1 > cxHi || az + len - 1 > czHi || ay + height - 1 > maxY) return
-        // Wall A along +X at z=az. Wall B along +Z at x=ax (shared corner at ax,_,az).
-        for (i in 0 until len) for (h in 0 until height) {
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + i, ay + h, az)) return
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + h, az + i)) return
-        }
-        for (i in 0 until len) for (h in 0 until height) {
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + i, ay + h, az, CHISELED_BOOKSHELF)
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + h, az + i, CHISELED_BOOKSHELF)
-        }
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + len, ay - 1, ay + height, az - 1, az + len)
-    }
-
-    private fun trySpiralPillar(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        if (ax - 1 < cxLo || ax + 1 > cxHi || az - 1 < czLo || az + 1 > czHi) return
-        val height = 5 + positiveMod(seed, 4)  // 5-8
-        if (ay + height - 1 > maxY) return
-        val dxArr = intArrayOf(1, 0, -1, 0)
-        val dzArr = intArrayOf(0, 1, 0, -1)
-        val phase = positiveMod(seed ushr 4, 4)
-        for (i in 0 until height) {
-            val p = (phase + i) and 3
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dxArr[p], ay + i, az + dzArr[p])) return
-        }
-        for (i in 0 until height) {
-            val p = (phase + i) and 3
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dxArr[p], ay + i, az + dzArr[p], CHISELED_BOOKSHELF)
-        }
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 2, ax + 2, ay - 1, ay + height, az - 2, az + 2)
-    }
-
-    private fun tryLecternGarden(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        if (ax + 2 > cxHi || az + 2 > czHi || ay + 1 > maxY) return
-        for (dx in 0..2) for (dz in 0..2)
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay, az + dz)) return
-        // 3 lecterns at 3 deterministic positions among the 9 floor cells.
-        val positions = IntArray(3)
-        var s = seed
-        for (k in 0..2) {
-            positions[k] = positiveMod(s, 9)
-            s = s ushr 3
-            // Avoid duplicates (cheap rejection: nudge by 1).
-            for (j in 0 until k) if (positions[k] == positions[j]) positions[k] = (positions[k] + 1) % 9
-        }
-        for (p in positions) {
-            val dx = p / 3; val dz = p % 3
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay + 1, az + dz)) return
-        }
-
-        for (dx in 0..2) for (dz in 0..2) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay, az + dz, DEEPSLATE_TILES)
-        for ((k, p) in positions.withIndex()) {
-            val dx = p / 3; val dz = p % 3
-            val facing = LADDER_FACINGS[positiveMod(seed ushr (12 + k * 2), 4)]
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay + 1, az + dz,
-                LECTERN_DEFAULT.setValue(LecternBlock.FACING, facing))
-        }
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 3, ay - 1, ay + 2, az - 1, az + 3)
-    }
-
-    /** Generic wireframe cube. Corners → CHISELED_DEEPSLATE, edges →
-     *  DEEPSLATE_BRICKS, faces → air windows, interior → BOOKSHELF when
-     *  `hollow=false` else air. Chains rise 2-5 blocks from each of the 4
-     *  top corners. */
-    private fun tryCubeOfSize(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-        size: Int, hollow: Boolean,
-    ) {
-        val end = size - 1
-        if (ax + end > cxHi || az + end > czHi || ay + end > maxY) return
-        val chainLen = 2 + positiveMod(seed, 4)  // 2-5
-        if (ay + end + chainLen > maxY) return
-
-        // Exclusion check: skip face positions (extrema==1) and interior
-        // positions in hollow cubes (extrema==0 && hollow).
-        for (lx in 0..end) {
-            val xE = lx == 0 || lx == end
-            for (lz in 0..end) {
-                val zE = lz == 0 || lz == end
-                for (ly in 0..end) {
-                    val yE = ly == 0 || ly == end
-                    val extrema = (if (xE) 1 else 0) + (if (yE) 1 else 0) + (if (zE) 1 else 0)
-                    if (extrema == 1) continue
-                    if (extrema == 0 && hollow) continue
-                    if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + lx, ay + ly, az + lz)) return
-                }
-            }
-        }
-        // Chain positions.
-        for (cornerIdx in 0..3) {
-            val cx = if ((cornerIdx and 1) == 0) ax else ax + end
-            val cz = if ((cornerIdx and 2) == 0) az else az + end
-            for (i in 1..chainLen) {
-                if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, cx, ay + end + i, cz)) return
-            }
-        }
-
-        for (lx in 0..end) {
-            val xE = lx == 0 || lx == end
-            for (lz in 0..end) {
-                val zE = lz == 0 || lz == end
-                for (ly in 0..end) {
-                    val yE = ly == 0 || ly == end
-                    val extrema = (if (xE) 1 else 0) + (if (yE) 1 else 0) + (if (zE) 1 else 0)
-                    val block: BlockState = when (extrema) {
-                        3 -> CHISELED_DEEPSLATE
-                        2 -> DEEPSLATE_BRICKS
-                        1 -> AIR                                 // face window
-                        0 -> if (hollow) AIR else CHISELED_BOOKSHELF  // interior
-                        else -> AIR
-                    }
-                    putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + lx, ay + ly, az + lz, block)
-                }
-            }
-        }
-        for (cornerIdx in 0..3) {
-            val cx = if ((cornerIdx and 1) == 0) ax else ax + end
-            val cz = if ((cornerIdx and 2) == 0) az else az + end
-            for (i in 1..chainLen) {
-                putFeatureBlock(fc, bX, bZ, bY, cs, sp, cx, ay + end + i, cz, CHAIN)
-            }
-        }
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + end + 1, ay - 1, ay + end + chainLen + 1, az - 1, az + end + 1)
-    }
-
-    private fun tryBambooFloor(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        val size = if (positiveMod(seed, 2) == 0) 5 else 7
-        val end = size - 1
-        if (ax + end > cxHi || az + end > czHi || ay + 1 > maxY) return
-        // Floor 5×5 or 7×7 at Y=ay.
-        for (dx in 0..end) for (dz in 0..end) {
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay, az + dz)) return
-        }
-        // Bookshelf positions scattered on top.
-        val numShelves = 3 + positiveMod(seed ushr 4, 5)  // 3-7
-        val area = size * size
-        val positions = IntArray(numShelves)
-        var s = seed ushr 8
-        for (k in 0 until numShelves) {
-            var p = positiveMod(s, area)
-            s = s * 1103515245 + 12345
-            // Reject duplicates.
-            var attempts = 0
-            while (attempts < area) {
-                var dup = false
-                for (j in 0 until k) if (positions[j] == p) { dup = true; break }
-                if (!dup) break
-                p = (p + 1) % area
-                attempts++
-            }
-            positions[k] = p
-        }
-        for (p in positions) {
-            val dx = p / size; val dz = p % size
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay + 1, az + dz)) return
-        }
-
-        for (dx in 0..end) for (dz in 0..end) {
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay, az + dz, BAMBOO_PLANKS)
-        }
-        for (p in positions) {
-            val dx = p / size; val dz = p % size
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay + 1, az + dz, CHISELED_BOOKSHELF)
-        }
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + end + 1, ay - 1, ay + 2, az - 1, az + end + 1)
-    }
-
-    private fun tryLecternRoom(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int,
-        cxLo: Int, cxHi: Int, czLo: Int, czHi: Int, maxY: Int,
-    ) {
-        if (ax + 4 > cxHi || az + 4 > czHi || ay + 3 > maxY) return
-        val cx = ax + 2
-        val cz = az + 2
-        val doorSide = positiveMod(seed, 4)  // 0=N(z-), 1=S(z+), 2=E(x+), 3=W(x-)
-
-        // 5×5 floor at Y=ay.
-        for (dx in 0..4) for (dz in 0..4) {
-            if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay, az + dz)) return
-        }
-        // 5×5 perimeter walls at Y=ay+1..ay+3, with 1×2 door cutout on one side.
-        for (h in 1..3) {
-            for (dx in 0..4) for (dz in 0..4) {
-                if (dx != 0 && dx != 4 && dz != 0 && dz != 4) continue
-                val isDoor = h <= 2 && when (doorSide) {
-                    0 -> dx == 2 && dz == 0
-                    1 -> dx == 2 && dz == 4
-                    2 -> dx == 4 && dz == 2
-                    else -> dx == 0 && dz == 2
-                }
-                if (isDoor) continue
-                if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax + dx, ay + h, az + dz)) return
-            }
-        }
-        // Lectern atop centre of floor.
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, cx, ay + 1, cz)) return
-
-        for (dx in 0..4) for (dz in 0..4) {
-            putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay, az + dz, DEEPSLATE_BRICKS)
-        }
-        for (h in 1..3) {
-            for (dx in 0..4) for (dz in 0..4) {
-                if (dx != 0 && dx != 4 && dz != 0 && dz != 4) continue
-                val isDoor = h <= 2 && when (doorSide) {
-                    0 -> dx == 2 && dz == 0
-                    1 -> dx == 2 && dz == 4
-                    2 -> dx == 4 && dz == 2
-                    else -> dx == 0 && dz == 2
-                }
-                if (isDoor) continue
-                putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax + dx, ay + h, az + dz, CHISELED_BOOKSHELF)
-            }
-        }
-        val facing = LADDER_FACINGS[positiveMod(seed ushr 4, 4)]
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, cx, ay + 1, cz,
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, facing))
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 5, ay - 1, ay + 4, az - 1, az + 5)
-    }
-
-    private fun tryTotem(
-        fc: Array<Array<Array<BlockState?>>>, excl: BooleanArray,
-        ebX: Int, ebZ: Int, es: Int,
-        bX: Int, bZ: Int, bY: Int, cs: Int, sp: Int,
-        ax: Int, ay: Int, az: Int, seed: Int, maxY: Int,
-    ) {
-        val coreHeight = 4 + positiveMod(seed, 3)  // 4-6
-        val topY = ay + coreHeight + 1
-        if (topY > maxY) return
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay, az)) return
-        for (i in 1..coreHeight) if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, ay + i, az)) return
-        if (isFeatureExcluded(excl, ebX, ebZ, es, bY, sp, ax, topY, az)) return
-
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay, az, CHISELED_DEEPSLATE)
-        for (i in 1..coreHeight) putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, ay + i, az, CHISELED_BOOKSHELF)
-        putFeatureBlock(fc, bX, bZ, bY, cs, sp, ax, topY, az, CHISELED_DEEPSLATE)
-        fillBboxAir(fc, bX, bZ, bY, cs, sp, ax - 1, ax + 1, ay - 1, topY + 1, az - 1, az + 1)
-    }
-
     private fun connectionBlockForVector(
         wx: Int, wy: Int, wz: Int, a: MazeNode, b: MazeNode, v: ConnVec,
     ): BlockState? = when {
@@ -3396,6 +2913,10 @@ class SselithRepertoryChunkGenerator(
     private fun isPathFloor(wx: Int, wy: Int, wz: Int): Boolean {
         val block = pathBlockAt(wx, wy, wz) ?: return false
         if (block.block is LadderBlock) return false
+        // Platform wall candles can sit just above a short piece's footprint; they are not floor.
+        if (block.block is CandleBlock || block.block is LanternBlock ||
+            block.block is org.shipwrights.enderkinesis.block.SselithLanternBlock
+        ) return false
         if (block.`is`(Blocks.DEEPSLATE)) return false
         if (block.`is`(Blocks.DEEPSLATE_BRICKS)) return false
         if (block.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS)) return false
@@ -3408,7 +2929,7 @@ class SselithRepertoryChunkGenerator(
         // outlines / candle decoration on top of the parapet. Treat the
         // whole battlement footprint as non-path-floor so the maze decor
         // pass leaves the crown alone.
-        if (isInsideCellTopBattlement(wx, wy, wz)) return false
+        if (isInsideCellBattlement(wx, wy, wz)) return false
         return true
     }
 
@@ -3576,7 +3097,7 @@ class SselithRepertoryChunkGenerator(
      *    - wall outline (at path_Y+1)             → deepslate-brick wall
      *    - one above a wall                       → chiseled-top OR lantern
      *  Chiseled columns (hash-selected) replace ALL three layers with a
-     *  3-tall CHISELED_DEEPSLATE post. Bamboo wall signs hang on the
+     *  3-tall OWL_DEEPSLATE post. Bamboo wall signs hang on the
      *  interior side of chiseled posts (45% chance per post). */
     private fun decorBlockAt(wx: Int, wy: Int, wz: Int): BlockState? {
         // Salt regions are self-contained — their NBT brings the entire
@@ -3586,14 +3107,11 @@ class SselithRepertoryChunkGenerator(
         // on top of NBT carpets, etc.
         if (isInsideSalt(wx, wy, wz)) return null
         if (isSlabOutline(wx, wy, wz)) {
-            if (isChiseledColumn(wx, wz)) return CHISELED_DEEPSLATE
+            if (isChiseledColumn(wx, wz)) return OWL_DEEPSLATE
             return DEEPSLATE_BRICK_SLAB_TOP
         }
         if (wallOutlineAt(wx, wy, wz)) {
-            if (isChiseledColumn(wx, wz)) return CHISELED_DEEPSLATE
-            val lectern = lecternWallAt(wx, wy, wz)
-            if (lectern != null) return lectern
-
+            if (isChiseledColumn(wx, wz)) return OWL_DEEPSLATE
             // Neighbour-wall connectivity. Mirrors vanilla
             // [WallBlock.connectsTo]: connect to walls
             // ([BlockTags.WALLS]), iron bars, perpendicular fence
@@ -3624,10 +3142,16 @@ class SselithRepertoryChunkGenerator(
                 // statue facing the adjacent corridor. Same deterministic hash
                 // so `chiseledPostSignAt` can detect this case and skip the sign.
                 chiseledPostStatueAt(wx, wy, wz)?.let { return it }
-                return CHISELED_DEEPSLATE
+                return OWL_DEEPSLATE
             }
             val decoration = wallTopDecoration(wx, wz)
             if (decoration != null) return decoration
+        }
+        // The upper half of a statue that replaced a chiseled-post top.
+        if (isChiseledColumn(wx, wz) && wallOutlineAt(wx, wy - 2, wz)) {
+            chiseledPostStatueAt(wx, wy - 1, wz)?.let {
+                return it.setValue(org.shipwrights.enderkinesis.block.StatueBlock.HALF, DoubleBlockHalf.UPPER)
+            }
         }
         // Bamboo sign hung on the interior face of a chiseled post — at the
         // air column 2 blocks above a corridor floor (i.e., the same Y as
@@ -3791,59 +3315,6 @@ class SselithRepertoryChunkGenerator(
     }
 
 
-    private fun cubeBlockAt(wx: Int, wy: Int, wz: Int): BlockState? {
-        val minCellX = Math.floorDiv(wx - FRAME_SIZE + 1 - OFFSET_RANGE, CELL_SIZE)
-        val maxCellX = Math.floorDiv(wx + OFFSET_RANGE, CELL_SIZE)
-        val minCellY = Math.floorDiv(wy - FRAME_SIZE + 1 - OFFSET_RANGE, CELL_SIZE)
-        val maxCellY = Math.floorDiv(wy + OFFSET_RANGE, CELL_SIZE)
-        val minCellZ = Math.floorDiv(wz - FRAME_SIZE + 1 - OFFSET_RANGE, CELL_SIZE)
-        val maxCellZ = Math.floorDiv(wz + OFFSET_RANGE, CELL_SIZE)
-        val offsetSpan = 2 * OFFSET_RANGE + 1
-        val maxLocal = FRAME_SIZE - 1
-
-        var hasEdge = false
-        var hasInterior = false
-        for (cellX in minCellX..maxCellX) {
-            val fx = cellX * CELL_SIZE +
-                positiveMod(hash(cellX, 0, 0, 11), offsetSpan) - OFFSET_RANGE
-            val lx = wx - fx
-            if (lx !in 0..maxLocal) continue
-            for (cellY in minCellY..maxCellY) {
-                val fy = cellY * CELL_SIZE +
-                    positiveMod(hash(cellX, cellY, 0, 23), offsetSpan) - OFFSET_RANGE
-                val ly = wy - fy
-                if (ly !in 0..maxLocal) continue
-                for (cellZ in minCellZ..maxCellZ) {
-                    val fz = cellZ * CELL_SIZE +
-                        positiveMod(hash(cellX, cellY, cellZ, 37), offsetSpan) - OFFSET_RANGE
-                    val lz = wz - fz
-                    if (lz !in 0..maxLocal) continue
-                    if (!cubeIsValid(fx, fy, fz)) continue
-                    var extrema = 0
-                    if (lx == 0 || lx == maxLocal) extrema++
-                    if (ly == 0 || ly == maxLocal) extrema++
-                    if (lz == 0 || lz == maxLocal) extrema++
-                    when (extrema) {
-                        3 -> return CHISELED_DEEPSLATE
-                        2 -> hasEdge = true
-                        0 -> hasInterior = true
-                    }
-                }
-            }
-        }
-        return when {
-            hasEdge -> DEEPSLATE_BRICKS
-            hasInterior -> BOOKSHELF
-            else -> null
-        }
-    }
-
-    private fun cubeIsValid(fx: Int, fy: Int, fz: Int): Boolean {
-        if (fy < MIN_Y) return false
-        if (fy + FRAME_SIZE > MIN_Y + WORLD_HEIGHT) return false
-        return true
-    }
-
     //
     // **Grid layout.** Every `(cellX, cellY, cellZ)` cell hosts a 5×5 platform
     // at deterministic position — no random offsets. Each platform picks up to
@@ -3903,7 +3374,7 @@ class SselithRepertoryChunkGenerator(
         mazeNodeAtCtx(activeCaches.get(), cellX, cellY, cellZ)
 
     /** Pre-fetched-context variant of [mazeNodeAt]. Hot loops (paint
-     *  passes, lectern-map build, cube-exclude, frame build) should
+     *  passes, cube-exclude, frame build) should
      *  hoist `activeCaches.get()` once and use this — profile (R4)
      *  showed `mazeNodeAt` at 11.0 self/s, much of which was the
      *  per-call ThreadLocal hop. */
@@ -4052,9 +3523,16 @@ class SselithRepertoryChunkGenerator(
     private fun gapArchwayBlock(
         worldX: Int, tileYMod: Int, worldZ: Int, cellY: Int,
     ): BlockState? {
-        val topY = MAZE_CELL_Y - 1
-        val stepDepth = topY - tileYMod  // -1 = Y=top+1, 0 = Y=top, 1 = Y=top-1
-        if (stepDepth < -1 || stepDepth > 1) return null
+        // Y = top + 1 (stepDepth −1, the domed lintel) is row 0 of the cell above.
+        if (tileYMod == 0 && cellY - 1 >= LOWEST_CELL_Y) {
+            gapArchwayBlockAt(worldX, worldZ, cellY - 1, -1)?.let { return it }
+        }
+        val stepDepth = MAZE_CELL_Y - 1 - tileYMod  // 0 = Y=top, 1 = Y=top-1
+        if (stepDepth !in 0..1) return null
+        return gapArchwayBlockAt(worldX, worldZ, cellY, stepDepth)
+    }
+
+    private fun gapArchwayBlockAt(worldX: Int, worldZ: Int, cellY: Int, stepDepth: Int): BlockState? {
         if (worldX == GAP_COLUMN_POS_X || worldX == GAP_COLUMN_NEG_X) {
             return gapColLineArchAt(worldZ, cellY, stepDepth, alongAxisIsZ = true)
         }
@@ -4273,80 +3751,6 @@ class SselithRepertoryChunkGenerator(
         block != null && (block.`is`(Blocks.POLISHED_DEEPSLATE) ||
             block.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS))
 
-    /** Per-platform wall lectern — O(1) hash lookup into the chunk's
-     *  precomputed [ChunkCaches.lecterns] map. Every platform at every
-     *  reachable `cellY` gets its own lectern at one of the four wall
-     *  corners (alongIdx 0 or 4 — never on a corridor exit at 2) on a
-     *  hash-picked side, facing into the platform interior. The map is
-     *  built once per chunk by [buildLecternMap] before [buildDecorCache]
-     *  runs, replacing the previous per-call cell-window scan. */
-    private fun lecternWallAt(wx: Int, wy: Int, wz: Int): BlockState? {
-        val map = activeCaches.get()?.lecterns ?: return null
-        return map.get(packLecternKey(wx, wy, wz))
-    }
-
-    /** Precompute every wall lectern within the chunk's decor window plus
-     *  a 1-block border (so neighbour wall-connectivity queries at the
-     *  chunk edges hit lecterns that physically live in the next chunk over).
-     *  Iterates the cells whose platforms could project a lectern into
-     *  that range, using the same hash + side/along logic the OLD
-     *  per-call scan used. */
-    private fun buildLecternMap(
-        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
-    ): Long2ObjectOpenHashMap<BlockState> {
-        // Cover chunk + 1-block decor border + 1-block neighbour reach.
-        val wxMin = chunkX0 - 3
-        val wxMax = chunkX0 + 18
-        val wzMin = chunkZ0 - 3
-        val wzMax = chunkZ0 + 18
-        val baseY = minY
-        val maxY = minY + span - 1
-        // Same cell-window math as the OLD lecternWallAt, applied at
-        // both window extremes so we sweep every cell whose lectern
-        // could land anywhere in [wxMin..wxMax, wzMin..wzMax].
-        val cellMinX = Math.floorDiv(wxMin - GRID_OFFSET - FLOOR_SIZE - LIBRARY_QUADRANT_SHIFT, MAZE_CELL_X)
-        val cellMaxX = Math.floorDiv(wxMax - GRID_OFFSET + LIBRARY_QUADRANT_SHIFT + 2, MAZE_CELL_X)
-        val cellMinZ = Math.floorDiv(wzMin - GRID_OFFSET - FLOOR_SIZE - LIBRARY_QUADRANT_SHIFT, MAZE_CELL_Z)
-        val cellMaxZ = Math.floorDiv(wzMax - GRID_OFFSET + LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT + 2, MAZE_CELL_Z)
-        val cellMinY = Math.floorDiv(baseY, MAZE_CELL_Y)
-        val cellMaxY = Math.floorDiv(maxY, MAZE_CELL_Y)
-        val map = Long2ObjectOpenHashMap<BlockState>()
-        for (cx in cellMinX..cellMaxX) {
-            for (cz in cellMinZ..cellMaxZ) {
-                for (cy in cellMinY..cellMaxY) {
-                    if (cy >= TOP_CELL_Y) continue
-                    val node = mazeNodeAt(cx, cy, cz) ?: continue
-                    val sideIdx = positiveMod(mazeHash(cx, cy, cz, 313), 4)
-                    val alongIdx = positiveMod(mazeHash(cx, cy, cz, 317), 2) * (FLOOR_SIZE - 1)
-                    val targetX: Int; val targetZ: Int; val facing: Direction
-                    when (sideIdx) {
-                        0 -> { targetX = node.nx + FLOOR_SIZE; targetZ = node.nz + alongIdx; facing = Direction.WEST }
-                        1 -> { targetX = node.nx - 1;          targetZ = node.nz + alongIdx; facing = Direction.EAST }
-                        2 -> { targetX = node.nx + alongIdx;   targetZ = node.nz + FLOOR_SIZE; facing = Direction.NORTH }
-                        else -> { targetX = node.nx + alongIdx; targetZ = node.nz - 1;        facing = Direction.SOUTH }
-                    }
-                    val ty = node.ny + 1
-                    if (targetX in wxMin..wxMax && targetZ in wzMin..wzMax && ty in baseY..maxY) {
-                        map.put(
-                            packLecternKey(targetX, ty, targetZ),
-                            cachedLectern(facing),
-                        )
-                    }
-                }
-            }
-        }
-        return map
-    }
-
-    /** Pack (wx, wz, wy) into a single Long for [ChunkCaches.lecterns]
-     *  lookup. 21 signed bits each fit Sselith comfortably (~±1M XZ,
-     *  ±1M Y); collision-free for our coordinate range. */
-    private fun packLecternKey(wx: Int, wy: Int, wz: Int): Long {
-        return (wx.toLong() and 0x1FFFFFL) or
-            ((wz.toLong() and 0x1FFFFFL) shl 21) or
-            ((wy.toLong() and 0x1FFFFFL) shl 42)
-    }
-
     /** Attach a sign-text block-entity NBT to a freshly-placed bamboo wall
      *  sign with its first line set to the floor name (top floor 1 =
      *  "Spines", middle floor 5 = "Atrium", bottom floor 9 = "Frontispiece").
@@ -4407,7 +3811,7 @@ class SselithRepertoryChunkGenerator(
             if (!isChiseledColumn(px, pz)) continue
             // Post top exists at wy iff the post's wall-outline middle exists
             // at wy-1 (decorBlockAt's "one block above a wall outline" rule
-            // returns CHISELED_DEEPSLATE there for chiseled columns).
+            // returns OWL_DEEPSLATE there for chiseled columns).
             if (!isWallOutline(px, wy - 1, pz)) continue
             // If the post itself got swapped to a statue, suppress its sign.
             if (chiseledPostStatueAt(px, wy, pz) != null) continue
@@ -4429,7 +3833,7 @@ class SselithRepertoryChunkGenerator(
     private fun chiseledPostStatueAt(wx: Int, wy: Int, wz: Int): BlockState? {
         if (positiveMod(mazeHash(wx, wy, wz, 757), 100) >= CHISELED_POST_STATUE_PERCENT) return null
         val facing = nearestPathDirectionFromPostTop(wx, wy, wz) ?: return null
-        val statues = org.shipwrights.enderkinesis.registry.EKBlocks.STATUES
+        val statues = org.shipwrights.enderkinesis.registry.EKBlocks.WORLDGEN_STATUES
         val kindIdx = positiveMod(mazeHash(wx, wy, wz, 821), statues.size)
         return statues[kindIdx].get().defaultBlockState()
             .setValue(HorizontalDirectionalBlock.FACING, facing)
@@ -4447,11 +3851,30 @@ class SselithRepertoryChunkGenerator(
         return null
     }
 
+    /** The shelf column behind a ladder only holds a 1..3 book stack, so the ladder would
+     *  hang on air or a lantern. Fill the column solid wherever a ladder sits in front. */
+    private fun archwayLadderBackingAt(
+        cellX: Int, cellY: Int, cellZ: Int,
+        tileX: Int, tileY: Int, tileZ: Int,
+    ): BlockState? {
+        val maxX = MAZE_CELL_X - 1
+        val maxZ = MAZE_CELL_Z - 1
+        val front = when {
+            tileX == 1 -> archwayLadderAt(cellX, cellY, cellZ, 2, tileY, tileZ)
+            tileX == maxX - 1 -> archwayLadderAt(cellX, cellY, cellZ, maxX - 2, tileY, tileZ)
+            tileZ == 1 -> archwayLadderAt(cellX, cellY, cellZ, tileX, tileY, 2)
+            tileZ == maxZ - 1 -> archwayLadderAt(cellX, cellY, cellZ, tileX, tileY, maxZ - 2)
+            else -> return null
+        }
+        return if (front != null) BOOKSHELF else null
+    }
+
     private fun ladderHere(
         cellX: Int, cellY: Int, cellZ: Int, wallId: Int, slotIdx: Int,
         alongPos: Int, alongRange: Int,
     ): Boolean {
-        if (alongPos < 0 || alongPos >= alongRange) return false
+        // The end positions sit inside the perpendicular wall's shelf column.
+        if (alongPos <= 0 || alongPos >= alongRange - 1) return false
         val seedA = cellX * 4 + wallId
         val seedB = cellY * 8 + slotIdx
         if (positiveMod(hash(seedA, seedB, cellZ, 877), 100) >= LADDER_EXISTS_PERCENT) return false
@@ -4554,20 +3977,23 @@ class SselithRepertoryChunkGenerator(
      *  the stair flight, flat at `b.ny` after the stair flight, and flat at
      *  `a.ny` for ladder connections. Returns null if `w` is outside the
      *  corridor's extent. */
-    private fun corridorFloorYAt(a: MazeNode, b: MazeNode, v: ConnVec, w: Int): Int? {
+    private fun corridorFloorYAt(src: MazeNode, dst: MazeNode, v: ConnVec, w: Int): Int? {
+        // connectionBlockForVector swaps the nodes for −X / −Z vectors and always builds +X / +Z.
+        val flip = v.dx < 0 || (v.dx == 0 && v.dz < 0)
+        val a = if (flip) dst else src
+        val b = if (flip) src else dst
         val yDiff = b.ny - a.ny
         val absDiff = Math.abs(yDiff)
         if (absDiff > MAX_CONNECT_Y_DIFF) return null
-        val aExit: Int; val ladderPos: Int; val d: Int
+        val aExit: Int; val ladderPos: Int
         if (v.dx != 0) {
-            aExit = if (v.dx > 0) a.nx + FLOOR_SIZE else a.nx - 1
+            aExit = a.nx + FLOOR_SIZE
             ladderPos = b.nx + 2
-            d = if (v.dx > 0) 1 else -1
         } else {
-            aExit = if (v.dz > 0) a.nz + FLOOR_SIZE else a.nz - 1
+            aExit = a.nz + FLOOR_SIZE
             ladderPos = b.nz + 2
-            d = if (v.dz > 0) 1 else -1
         }
+        val d = if (ladderPos >= aExit) 1 else -1
         val corridorLen = ladderPos - aExit
         val absCorridorLen = Math.abs(corridorLen)
         val stepIdx = (w - aExit) * d
@@ -4993,26 +4419,28 @@ class SselithRepertoryChunkGenerator(
             for (oCellY in cellY - 2..cellY + 2) {
                 for (oCellZ in cellZ - 1..cellZ + 1) {
                     val isSameCell = oCellX == cellX && oCellY == cellY && oCellZ == cellZ
-                    // Skip same-cell self-conflicts entirely. With
-                    // STAIRWELL_PICKS_PER_CELL > 1 the cell's own
-                    // pick list contains multiple stairwell vIdxes;
-                    // their bboxes share the source cell so the bbox
-                    // check trips, and the lex rank then culls every
-                    // pick except the smallest-vIdx one — eating the
-                    // increased per-cell density the multi-pick fix
-                    // was supposed to add. The picks point at
-                    // different neighbour cells, so they never share
-                    // actual stair material; skipping the self-check
-                    // restores the full per-cell density without
-                    // letting any real conflict slip through.
-                    if (isSameCell) continue
+                    // A connection that is never painted must not reject this stair: a cell with no node,
+                    // a target with no node, or a stairwell that a rare set-piece drops.
+                    if (mazeNodeAtCtx(ctx, oCellX, oCellY, oCellZ) == null) continue
+                    val oBlocksVertical = blocksVerticalConnections(oCellX, oCellY, oCellZ)
                     for (oPick in pickConnectionsCtx(ctx, oCellX, oCellY, oCellZ)) {
                         val isPathway = IS_PATHWAY_VEC[oPick]
                         val isStairwell = IS_STAIRWELL_VEC[oPick]
                         if (!isPathway && !isStairwell) continue
-                        val otherBox = connectionBBoxCtx(ctx, oCellX, oCellY, oCellZ, oPick)
                         val v = CONN_VECTORS[vIdx]
                         val oV = CONN_VECTORS[oPick]
+                        val oTargetX = oCellX + oV.dx
+                        val oTargetY = oCellY + oV.dy
+                        val oTargetZ = oCellZ + oV.dz
+                        if (mazeNodeAtCtx(ctx, oTargetX, oTargetY, oTargetZ) == null) continue
+                        if (isStairwell &&
+                            (oBlocksVertical || blocksVerticalConnections(oTargetX, oTargetY, oTargetZ))
+                        ) continue
+                        if (isSameCell) {
+                            if (isStairwell && losesSameSidePair(cellX, cellY, cellZ, vIdx, oPick)) return false
+                            continue
+                        }
+                        val otherBox = connectionBBoxCtx(ctx, oCellX, oCellY, oCellZ, oPick)
                         // Same-axis pathway sharing source or
                         // destination with the stair. The stair's
                         // top tread sits at `b.ny` and its bottom
@@ -5106,6 +4534,17 @@ class SselithRepertoryChunkGenerator(
             }
         }
         return true
+    }
+
+    /** The up stair and the down stair on one side of a platform leave through the same wall
+     *  opening, so only one can paint. Other picks of one cell go to different sides and never
+     *  share blocks. */
+    private fun losesSameSidePair(cellX: Int, cellY: Int, cellZ: Int, vIdx: Int, oPick: Int): Boolean {
+        val v = CONN_VECTORS[vIdx]
+        val oV = CONN_VECTORS[oPick]
+        if (v.dx != oV.dx || v.dz != oV.dz || v.dy * oV.dy >= 0) return false
+        val upWins = (mazeHash(cellX, cellY, cellZ, vIdx + oPick) and 1) != 0
+        return (v.dy > 0) != upWins
     }
 
     /** Like [bboxOverlaps] but with a STRICT Y check — two boxes that only
@@ -5217,9 +4656,39 @@ class SselithRepertoryChunkGenerator(
         val sIdx = preferredStairwell(cellX, cellY, cellZ)
         val sv = CONN_VECTORS[sIdx]
         if (mazeNodeAt(cellX + sv.dx, cellY + sv.dy, cellZ + sv.dz) == null) return false
+        // A stairwell into a rare set-piece is never painted, so it must not cost this cell its
+        // pathways too — otherwise rare cells often end up with no connection at all.
+        if (blocksVerticalConnections(cellX, cellY, cellZ) ||
+            blocksVerticalConnections(cellX + sv.dx, cellY + sv.dy, cellZ + sv.dz)
+        ) return false
         val scratch = connectionBBox(cellX, cellY, cellZ, sIdx)
         return bboxOverlaps(pathwayBox, scratch)
     }
+
+    /** True only when [isStructureReplacementNode] is certainly true, computed without picks:
+     *  the picks depend on the pathway mask, so asking [replacementTypeAt] here would recurse.
+     *  A rare roll with no node above and no upward preferred stairwell has no upward connection. */
+    private fun blocksVerticalConnections(cellX: Int, cellY: Int, cellZ: Int): Boolean {
+        // Pure of its arguments, and the stairwell scan asks for each pick of each cell.
+        val key = packStairwellKey(cellX, cellY, cellZ, 0)
+        GLOBAL_BLOCKS_VERTICAL_CACHE[key]?.let { return it }
+        val result = computeBlocksVerticalConnections(cellX, cellY, cellZ)
+        if (GLOBAL_BLOCKS_VERTICAL_CACHE.size < GLOBAL_STAIRWELL_CACHE_CAP) {
+            GLOBAL_BLOCKS_VERTICAL_CACHE.putIfAbsent(key, result)
+        }
+        return result
+    }
+
+    private fun computeBlocksVerticalConnections(cellX: Int, cellY: Int, cellZ: Int): Boolean {
+        if (hasObservatoryColumnAt(cellX, cellZ)) return true
+        if (mazeNodeAt(cellX, cellY, cellZ) == null) return false
+        if (cellY == TOP_CELL_Y - 1 || !rollsRareReplacement(cellX, cellY, cellZ)) return false
+        if (mazeNodeAt(cellX, cellY + 1, cellZ) != null) return false
+        return CONN_VECTORS[preferredStairwell(cellX, cellY, cellZ)].dy <= 0
+    }
+
+    private fun rollsRareReplacement(cellX: Int, cellY: Int, cellZ: Int): Boolean =
+        positiveMod(mazeHash(cellX, cellY, cellZ, SSELITH_GLOBE_HASH_SALT), 100) < SSELITH_GLOBE_PERCENT
 
     private fun mazeBlockAt(wx: Int, wy: Int, wz: Int): BlockState? {
         // Connections can span up to one cell in any axis (a stairwell crosses
@@ -5227,10 +4696,12 @@ class SselithRepertoryChunkGenerator(
         // iterate cells whose realised blocks could include (wx, wy, wz),
         // accounting for the GRID_OFFSET that shifts each platform inside its
         // cell.
-        val minCellX = Math.floorDiv(wx - GRID_OFFSET - MAZE_CELL_X, MAZE_CELL_X)
-        val maxCellX = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X)
-        val minCellZ = Math.floorDiv(wz - GRID_OFFSET - MAZE_CELL_Z, MAZE_CELL_Z)
-        val maxCellZ = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z)
+        // ±1 on both sides, as buildWallFrameCache does: a −X/−Z pick reaches back into the
+        // previous cell's range, so the source cell sits one above floorDiv.
+        val minCellX = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X) - 1
+        val maxCellX = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X) + 1
+        val minCellZ = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z) - 1
+        val maxCellZ = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z) + 1
         // Grid Y is now anchored at 0, so cellY = floorDiv(wy, MAZE_CELL_Y).
         val minCellY = Math.floorDiv(wy - MAZE_CELL_Y, MAZE_CELL_Y)
         val maxCellY = Math.floorDiv(wy + MAZE_CELL_Y, MAZE_CELL_Y)
@@ -5292,33 +4763,6 @@ class SselithRepertoryChunkGenerator(
             return DEEPSLATE_BRICKS
         }
         return null
-    }
-
-    /** Unused after the grid rewrite — kept to satisfy old call sites until
-     *  they're all removed. (Never actually invoked.) */
-    @Suppress("unused")
-    private fun axisBranchBlockAt(wx: Int, wy: Int, wz: Int, node: MazeNode): BlockState? {
-        val centreX = node.nx + 2
-        val centreZ = node.nz + 2
-        val distToXAxis = Math.min(Math.abs(centreZ), Math.abs(centreZ - 1))
-        val distToZAxis = Math.min(Math.abs(centreX), Math.abs(centreX - 1))
-        val nearXAxis = distToXAxis in (FLOOR_SIZE)..AXIS_BRANCH_RANGE
-        val nearZAxis = distToZAxis in (FLOOR_SIZE)..AXIS_BRANCH_RANGE
-        if (!nearXAxis && !nearZAxis) return null
-        val branchToXAxis = if (nearXAxis && nearZAxis) distToXAxis <= distToZAxis else nearXAxis
-        return if (branchToXAxis) {
-            val targetZ = if (centreZ > 0) 1 else 0
-            val virtualNz = targetZ - 2
-            val virtual = MazeNode(node.nx, PATH_Y, virtualNz, 0)
-            if (centreZ < targetZ) connectionBlockZ(wx, wy, wz, node, virtual)
-            else connectionBlockZ(wx, wy, wz, virtual, node)
-        } else {
-            val targetX = if (centreX > 0) 1 else 0
-            val virtualNx = targetX - 2
-            val virtual = MazeNode(virtualNx, PATH_Y, node.nz, 0)
-            if (centreX < targetX) connectionBlockX(wx, wy, wz, node, virtual)
-            else connectionBlockX(wx, wy, wz, virtual, node)
-        }
     }
 
     /** L-shape corridor from `a` to `b` where `b` is east (+X) of `a`.
@@ -5446,7 +4890,7 @@ class SselithRepertoryChunkGenerator(
         val wallX = ladderX - ladderFacing.stepX
         if (wx == ladderX && wz == aZ) {
             if (wy == ladderHi) return trapdoorState(ladderFacing)
-            if (wy == ladderLo) return CHISELED_DEEPSLATE
+            if (wy == ladderLo) return OWL_DEEPSLATE
             if (wy in (ladderLo + 1) until ladderHi) return ladderState(ladderFacing)
         }
         if (wx == wallX && wz == aZ && wy in ladderLo..ladderHi) {
@@ -5563,7 +5007,7 @@ class SselithRepertoryChunkGenerator(
         val wallZ = ladderZ - ladderFacing.stepZ
         if (wx == aX && wz == ladderZ) {
             if (wy == ladderHi) return trapdoorState(ladderFacing)
-            if (wy == ladderLo) return CHISELED_DEEPSLATE
+            if (wy == ladderLo) return OWL_DEEPSLATE
             if (wy in (ladderLo + 1) until ladderHi) return ladderState(ladderFacing)
         }
         if (wx == aX && wz == wallZ && wy in ladderLo..ladderHi) {
@@ -5621,6 +5065,23 @@ class SselithRepertoryChunkGenerator(
         randomState: RandomState, chunk: ChunkAccess,
     ) {}
 
+    override fun applyBiomeDecoration(level: WorldGenLevel, chunk: ChunkAccess, structureManager: StructureManager) {
+        super.applyBiomeDecoration(level, chunk, structureManager)
+        SselithForgottenItems.scatter(level, chunk)
+        scatterShelfForgottenItems(level, chunk)
+    }
+
+    private fun scatterShelfForgottenItems(level: WorldGenLevel, chunk: ChunkAccess) {
+        val random = SselithForgottenItems.shelfRandom(level, chunk)
+        val x0 = chunk.pos.minBlockX
+        val z0 = chunk.pos.minBlockZ
+        for (x in x0..x0 + 15) {
+            for (z in z0..z0 + 15) {
+                if (isOnLibraryShelfColumn(x, z)) SselithForgottenItems.scatterOnShelfColumn(level, chunk, random, x, z)
+            }
+        }
+    }
+
     /** Sselith spawns Catalogers per `(cellX, cellZ)` library cell column,
      *  not via the biome's natural-spawner roll. For each column whose
      *  platform-centre tile falls inside this chunk's XZ footprint, place one
@@ -5628,6 +5089,32 @@ class SselithRepertoryChunkGenerator(
      *  Layers with no platform get none, so columns with gaps spawn fewer.
      *  Per-chunk, so it fires exactly once when the chunk first generates and is
      *  persisted with the chunk afterwards. */
+    /** PoiManager is not thread-safe, so the adds go to the server thread, as in vanilla
+     *  `ServerLevel.onBlockStateChange`. */
+    private fun registerPendingPois(
+        level: ServerLevel,
+        pending: List<Pair<BlockPos, net.minecraft.core.Holder<net.minecraft.world.entity.ai.village.poi.PoiType>>>,
+    ) {
+        if (pending.isEmpty()) return
+        val poiManager = level.poiManager
+        level.server.execute {
+            for ((pos, holder) in pending) {
+                try {
+                    poiManager.add(pos, holder)
+                } catch (_: IllegalStateException) {
+                    // PoiSection.add throws when the position already holds a different POI type.
+                }
+            }
+        }
+    }
+
+    /** A chunk saved before its spawn step would strand its queue entry. Post it now; a chunk
+     *  that reloads from disk also gets its POIs from vanilla's consistency check. */
+    private fun flushPoisOnSave(chunkPos: ChunkPos, level: ServerLevel) {
+        val pending = pendingPoiRegistrations.remove(chunkPos) ?: return
+        registerPendingPois(level, pending)
+    }
+
     override fun spawnOriginalMobs(level: WorldGenRegion) {
         val chunkPos = level.center
         val serverLevel = level.level
@@ -5645,20 +5132,8 @@ class SselithRepertoryChunkGenerator(
         // `ServerLevel.onBlockStateChange` does the same deferral via
         // `MinecraftServer.execute`.
         val pending = pendingPoiRegistrations.remove(chunkPos)
-        if (pending != null && pending.isNotEmpty()) {
-            val poiManager = serverLevel.poiManager
-            serverLevel.server.execute {
-                for ((pos, holder) in pending) {
-                    try {
-                        poiManager.add(pos, holder)
-                    } catch (_: IllegalStateException) {
-                        // `PoiSection.add` throws if the position already holds a
-                        // different POI type. Shouldn't happen — we only record
-                        // positions where we placed a POI-target block — but be
-                        // defensive.
-                    }
-                }
-            }
+        if (pending != null) {
+            registerPendingPois(serverLevel, pending)
         }
 
         val chunkX0 = chunkPos.minBlockX
@@ -5688,7 +5163,7 @@ class SselithRepertoryChunkGenerator(
                 // collision / push is ~1.5% of the tick), so a full per-layer fill
                 // stays predictable; see [Cataloger]'s fluid-strip overrides and
                 // the natural-spawn skip that bought the budget for this density.
-                for (cellY in 0 until TOP_CELL_Y) {
+                for (cellY in LOWEST_CELL_Y until TOP_CELL_Y) {
                     val pickedNode = mazeNodeAt(cellX, cellY, cellZ) ?: continue
                     val pickedCellY = cellY
 
@@ -5718,13 +5193,52 @@ class SselithRepertoryChunkGenerator(
                     )
                 }
 
+                // One Archive per (cellX, cellZ) column at a random Y, picked
+                // deterministically from the column's valid (maze-carved) cells.
+                // The chosen cell gets a random open 1×3 air column for the
+                // archive's bbox; if nothing passable turns up in [ARCHIVE_SPAWN_ATTEMPTS]
+                // tries, skip — column is too cluttered. Spawn intent is queued
+                // and drains alongside the cataloger spawns.
+                val validCellYs = ArrayList<Int>(TOP_CELL_Y - LOWEST_CELL_Y)
+                for (cellY in LOWEST_CELL_Y until TOP_CELL_Y) {
+                    if (mazeNodeAt(cellX, cellY, cellZ) != null) validCellYs.add(cellY)
+                }
+                if (validCellYs.isNotEmpty()) {
+                    val pickHash = mazeHash(cellX, 0, cellZ, ARCHIVE_SALT_CELL)
+                    val chosenCellY = validCellYs[positiveMod(pickHash, validCellYs.size)]
+                    val cellMinY = chosenCellY * MAZE_CELL_Y
+                    val pos = BlockPos.MutableBlockPos()
+                    spawnAttempts@ for (attempt in 0 until ARCHIVE_SPAWN_ATTEMPTS) {
+                        val attHash = mazeHash(cellX, chosenCellY, cellZ, ARCHIVE_SALT_TILE + attempt)
+                        val rx = chunkX0 + positiveMod(attHash, 16)
+                        val rz = chunkZ0 + positiveMod(attHash shr 8, 16)
+                        val ry = cellMinY + 1 + positiveMod(attHash shr 16, MAZE_CELL_Y - 3)
+                        for (dy in 0 until 3) {
+                            pos.set(rx, ry + dy, rz)
+                            if (!level.getBlockState(pos).getCollisionShape(level, pos).isEmpty) {
+                                continue@spawnAttempts
+                            }
+                        }
+                        SselithPendingSpawns.enqueue(
+                            serverLevel,
+                            SselithPendingSpawns.Intent.Archive(rx, ry, rz),
+                        )
+                        break
+                    }
+                }
+
+                // Sselith Moth flocks are NO longer chunk-gen spawned — see
+                // [SselithMothSpawner] for the hostile-mob-style periodic
+                // spawner that generates flocks at distance from each player,
+                // lets them drift off, and despawns them.
+
                 // For every cell in this chunk's centre column that hosts a
                 // Gallery, fill each of the four interior side walls with a
                 // randomly-tiled grid of paintings. The pack starts from a
                 // random variant + position and then greedily places
                 // largest-area paintings into every remaining empty cell,
                 // giving a dense but visually varied wall.
-                for (cellY in 0 until TOP_CELL_Y) {
+                for (cellY in LOWEST_CELL_Y until TOP_CELL_Y) {
                     val node = mazeNodeAt(cellX, cellY, cellZ) ?: continue
                     if (replacementTypeAt(cellX, cellY, cellZ) != StructureReplacement.GALLERY) continue
                     spawnGalleryPaintings(level, node, StructureReplacement.GALLERY)
@@ -5944,6 +5458,14 @@ class SselithRepertoryChunkGenerator(
 
 
     companion object {
+        fun init() {
+            ChunkEvent.SAVE_DATA.register(ChunkEvent.SaveData { chunk, level, _ ->
+                val generator = level?.chunkSource?.generator as? SselithRepertoryChunkGenerator
+                    ?: return@SaveData
+                generator.flushPoisOnSave(chunk.pos, level)
+            })
+        }
+
         /** Shared across all C2ME chunk-gen workers — keyed by
          *  [packStairwellKey] (cellX/Y/Z + vIdx). [stairwellAllowed]
          *  is pure of its args, so once one worker computes the
@@ -5957,55 +5479,24 @@ class SselithRepertoryChunkGenerator(
          *  vIdx ≈ 100–200k entries; this cap fits that comfortably. */
         private const val GLOBAL_STAIRWELL_CACHE_CAP: Int = 262_144
 
-        /** Enable with JVM arg `-Denderkinesis.chunkProfile=true`. When
-         *  on, [fillFromNoise] times each chunk and logs a rolling
-         *  histogram. Per-chunk timing is the metric to compare across
-         *  builds — it doesn't move with exploration intensity the way
-         *  the spark sample-per-second number does. */
-        private val CHUNK_PROFILE: Boolean =
-            System.getProperty("enderkinesis.chunkProfile") == "true"
-        private const val CHUNK_PROFILE_LOG_INTERVAL = 256L
+        private val GLOBAL_BLOCKS_VERTICAL_CACHE: java.util.concurrent.ConcurrentHashMap<Long, Boolean> =
+            java.util.concurrent.ConcurrentHashMap()
+
         private val PROFILE_LOG = LogUtils.getLogger()
-        private val PROF_CHUNKS = AtomicLong()
-        private val PROF_NANOS = AtomicLong()
-        private val PROF_MAX_NANOS = AtomicLong()
-        private val PROF_BUCKETS = AtomicLongArray(8)
 
-        /** Decorative feature pass (floating shelves, towers, walls,
-         *  furniture islands, reading nooks, chandeliers, tome shrines,
-         *  wall-corners, spiral pillars, lectern gardens, totems, cubes,
-         *  bamboo floors, lectern rooms). Disabled while the library tile
-         *  is the primary dimension styling. */
-        private const val ENABLE_FEATURES = false
-
-        private const val SLOT_SIZE = 12
-        private const val SLOT_JITTER = 2
-        private const val FEATURE_SKIP_PERCENT = 25
-        private const val FEATURE_TYPE_COUNT = 16
-
-        /** Library wall block. Lazy because [EKBlocks.SSELITH_BOOKSHELF] is
-         *  populated during mod init, which runs before chunk gen but after
-         *  this companion's eager-init pass that builds other cached states. */
+        /** Every mod-block state here is lazy: this companion can load before the deferred
+         *  block registry fills, and an eager `.get()` then crashes. */
         private val BOOKSHELF: BlockState by lazy {
             org.shipwrights.enderkinesis.registry.EKBlocks.SSELITH_BOOKSHELF.get().defaultBlockState()
         }
         private val BAMBOO_PLANKS: BlockState = Blocks.BAMBOO_PLANKS.defaultBlockState()
-        /** Per user direction, the dimension uses only regular [BOOKSHELF]
-         *  (no chiseled bookshelves). These named aliases exist so the
-         *  library tile decoder (which preserves the original 4-facing
-         *  variants from the 20w14 `book_box`) maps every facing to the
-         *  same `BOOKSHELF` block. */
-        private val CHISELED_BOOKSHELF_NORTH: BlockState = BOOKSHELF
-        private val CHISELED_BOOKSHELF_SOUTH: BlockState = BOOKSHELF
-        private val CHISELED_BOOKSHELF_EAST: BlockState = BOOKSHELF
-        private val CHISELED_BOOKSHELF_WEST: BlockState = BOOKSHELF
-        private val CHISELED_BOOKSHELF: BlockState = BOOKSHELF
         /** Light source in each library tile (replaces 20w14 glowstone). Used
          *  to be `Blocks.OCHRE_FROGLIGHT` — now uses our own
          *  [org.shipwrights.enderkinesis.registry.EKBlocks.SSELITH_LAMP]
          *  so the dimension's palette stays Sselith-themed. */
-        private val OCHRE_FROGLIGHT: BlockState =
+        private val OCHRE_FROGLIGHT: BlockState by lazy {
             org.shipwrights.enderkinesis.registry.EKBlocks.SSELITH_LAMP.get().defaultBlockState()
+        }
         /** Floor decoration in each library tile (replaces 20w14 oak slab). */
         private val POLISHED_DEEPSLATE_SLAB_BOTTOM: BlockState =
             Blocks.POLISHED_DEEPSLATE_SLAB.defaultBlockState()
@@ -6027,7 +5518,7 @@ class SselithRepertoryChunkGenerator(
         /** Per-axis shift applied to each library quadrant so the cells back
          *  away from the central axial paths, leaving this many blocks of
          *  empty space between the path edge and the start of the library. */
-        private const val LIBRARY_QUADRANT_SHIFT = 5
+        private const val LIBRARY_QUADRANT_SHIFT = SselithRepertory.LIBRARY_QUADRANT_SHIFT
 
         /** Extra shift applied ONLY on the +Z half of the world, on top of
          *  [LIBRARY_QUADRANT_SHIFT]. Set to 0 so +Z matches the +X / -X / -Z
@@ -6298,9 +5789,6 @@ class SselithRepertoryChunkGenerator(
             "E.....P..P.....WE....wPPPPe....WE.....s..s.....WE..............W" +
             "E..............WE..............WE..............WPNNNNNNNNNNNNNNP"
 
-        /** Explicit-air marker for the feature cache. Distinguishes "feature
-         *  has claimed this position as carved space" from "no feature touched
-         *  this position" (which gets default-filled with CHISELED_BOOKSHELF). */
         private val AIR: BlockState = Blocks.AIR.defaultBlockState()
         private val DEEPSLATE_BRICKS: BlockState = Blocks.DEEPSLATE_BRICKS.defaultBlockState()
         /** Sentinel returned by [neighbourBlockStateAt] for out-of-cache
@@ -6357,7 +5845,9 @@ class SselithRepertoryChunkGenerator(
             Blocks.DEEPSLATE_TILE_STAIRS.defaultBlockState()
                 .setValue(StairBlock.FACING, Direction.WEST)
                 .setValue(StairBlock.HALF, Half.BOTTOM)
-        private val CHISELED_DEEPSLATE: BlockState = Blocks.CHISELED_DEEPSLATE.defaultBlockState()
+        private val OWL_DEEPSLATE: BlockState by lazy {
+            org.shipwrights.enderkinesis.registry.EKBlocks.OWL_DEEPSLATE.get().defaultBlockState()
+        }
         private val POLISHED_DEEPSLATE: BlockState = Blocks.POLISHED_DEEPSLATE.defaultBlockState()
         /** Reserved — kept for compatibility but no longer placed; backing
          *  walls use [DEEPSLATE_BRICKS] now. */
@@ -6366,13 +5856,6 @@ class SselithRepertoryChunkGenerator(
         private val CHAIN: BlockState = Blocks.CHAIN.defaultBlockState()
         private val YELLOW_CARPET: BlockState = Blocks.YELLOW_CARPET.defaultBlockState()
         private val WHITE_CARPET: BlockState = Blocks.WHITE_CARPET.defaultBlockState()
-        // Sselith-tinted lectern (subclasses vanilla LecternBlock, shares the
-        // LecternBlockEntity). Drop-in replacement: every existing LECTERN_*
-        // facing constant + cachedLectern() path picks this up automatically.
-        private val LECTERN_DEFAULT: BlockState =
-            org.shipwrights.enderkinesis.registry.EKBlocks.SSELITH_LECTERN.get().defaultBlockState()
-        private val LIT_CANDLE: BlockState = Blocks.CANDLE.defaultBlockState()
-            .setValue(CandleBlock.LIT, true)
         private val DEEPSLATE_BRICK_STAIRS_BASE: BlockState =
             Blocks.DEEPSLATE_BRICK_STAIRS.defaultBlockState()
                 .setValue(StairBlock.HALF, Half.BOTTOM)
@@ -6380,7 +5863,7 @@ class SselithRepertoryChunkGenerator(
         // the solid material sits on top of the wall and the step rises
         // from the cell-interior side, reading as a step you could climb
         // up onto from inside the cell). Painted by
-        // [paintCellTopBattlementInto] at the topmost-cellY's top row
+        // [paintCellBattlementInto] at the topmost-cellY's top row
         // only — every cell below the world's topmost layer still gets
         // its original BOOKSHELF/DEEPSLATE_BRICKS perimeter.
         private val DEEPSLATE_BRICK_STAIRS_BOTTOM_NORTH: BlockState =
@@ -6531,22 +6014,6 @@ class SselithRepertoryChunkGenerator(
             else -> BAMBOO_TRAPDOOR_NORTH
         }
 
-        private val LECTERN_NORTH: BlockState =
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, Direction.NORTH)
-        private val LECTERN_SOUTH: BlockState =
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, Direction.SOUTH)
-        private val LECTERN_EAST: BlockState =
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, Direction.EAST)
-        private val LECTERN_WEST: BlockState =
-            LECTERN_DEFAULT.setValue(LecternBlock.FACING, Direction.WEST)
-        fun cachedLectern(facing: Direction): BlockState = when (facing) {
-            Direction.NORTH -> LECTERN_NORTH
-            Direction.SOUTH -> LECTERN_SOUTH
-            Direction.EAST -> LECTERN_EAST
-            Direction.WEST -> LECTERN_WEST
-            else -> LECTERN_NORTH
-        }
-
         private val BAMBOO_WALL_SIGN_NORTH: BlockState =
             Blocks.BAMBOO_WALL_SIGN.defaultBlockState()
                 .setValue(WallSignBlock.FACING, Direction.NORTH)
@@ -6672,15 +6139,21 @@ class SselithRepertoryChunkGenerator(
                 .setValue(WallBlock.UP, up)
         }
 
-        private const val FRAME_SIZE = 5
-        private const val CELL_SIZE = 7
-        private const val OFFSET_RANGE = 2
-        /** Cube-exclusion mask extends `CUBE_EXCL_MARGIN` blocks past each
-         *  side of the chunk so it can cover every position a cube touched by
-         *  this chunk can occupy (cube reaches FRAME_SIZE-1 = 4 blocks past
-         *  the chunk's column on either side; +1 for bbox padding). */
-        private const val CUBE_EXCL_MARGIN = FRAME_SIZE - 1 + 1  // 5
-        private const val CUBE_EXCL_SIZE = 16 + 2 * CUBE_EXCL_MARGIN  // 26
+        // Vanilla WallBlock test shapes.
+        private val WALL_POST_TEST: VoxelShape = Block.box(7.0, 0.0, 7.0, 9.0, 16.0, 9.0)
+        private const val COVER_NORTH = 1
+        private const val COVER_SOUTH = 2
+        private const val COVER_EAST = 4
+        private const val COVER_WEST = 8
+        private const val COVER_POST = 16
+
+        // C2ME runs the wall pass on more than one thread.
+        private val WALL_COVER_MASKS = java.util.concurrent.ConcurrentHashMap<BlockState, Int>()
+
+        private val WALL_NORTH_TEST: VoxelShape = Block.box(7.0, 0.0, 0.0, 9.0, 16.0, 9.0)
+        private val WALL_SOUTH_TEST: VoxelShape = Block.box(7.0, 0.0, 7.0, 9.0, 16.0, 16.0)
+        private val WALL_WEST_TEST: VoxelShape = Block.box(0.0, 0.0, 7.0, 9.0, 16.0, 9.0)
+        private val WALL_EAST_TEST: VoxelShape = Block.box(7.0, 0.0, 7.0, 16.0, 16.0, 9.0)
 
         private const val PATH_Y = 0
         /** Axial path is 3 blocks wide centred on the axis. */
@@ -6698,6 +6171,8 @@ class SselithRepertoryChunkGenerator(
          *  centre post). Matches the SHELF_LANTERN_PERCENT split used by
          *  [shelfTopDecoration]. */
         private const val WALL_TOP_LANTERN_PERCENT = 40
+        private const val PLATFORM_CANDLE_DENOM = 10
+        private const val PLATFORM_CANDLE_SALT = 977
         /** Percent of wall columns swapped for a 3-tall chiseled post. */
         private const val CHISELED_WALL_PERCENT = 4
         /** Spacing of the chiseled-deepslate marker block in the middle of the
@@ -6747,6 +6222,12 @@ class SselithRepertoryChunkGenerator(
          *  capping floor / froglight above them. */
         private val TOP_CELL_Y = Math.floorDiv(MIN_Y + WORLD_HEIGHT - 1, MAZE_CELL_Y)
 
+        /** Lowest cell that fits whole above MIN_Y. The one below is cut mid-pattern by the
+         *  world floor, so it is skipped like the top cell and capped instead. */
+        private val LOWEST_CELL_Y = Math.floorDiv(MIN_Y + MAZE_CELL_Y - 1, MAZE_CELL_Y)
+        private val TOP_CAP_Y = TOP_CELL_Y * MAZE_CELL_Y
+        private val BOTTOM_CAP_Y = LOWEST_CELL_Y * MAZE_CELL_Y - 1
+
         /** Max `|Δy|` a connection can resolve with a stair flight before
          *  falling back to a ladder. Set to [MAZE_CELL_Y] so a diagonal
          *  cell-to-cell connection (cellY±1, cellX±1 or cellZ±1) becomes a
@@ -6769,6 +6250,19 @@ class SselithRepertoryChunkGenerator(
         /** Per-cell chance (0–100) of actually placing a platform. Cells whose
          *  hash exceeds this are intentionally empty. */
         private const val PLATFORM_PRESENCE_PERCENT = 80
+
+        /** Salt for the "which cell-Y in this column hosts the Archive" pick.
+         *  Stable across reloads — same world seed always yields the same Y. */
+        private const val ARCHIVE_SALT_CELL = 0x3E1A5B
+        /** Salt for the per-attempt random-position pick within the chosen
+         *  cell. The attempt index is added to this, so successive attempts
+         *  use distinct (deterministic) hashes. */
+        private const val ARCHIVE_SALT_TILE = 0x71C4D9
+        /** Number of random tile picks to try inside the chosen cell before
+         *  giving up. Most cells host enough corridor air that 1–2 succeed;
+         *  a cluttered cell may exhaust the budget and spawn no archive. */
+        private const val ARCHIVE_SPAWN_ATTEMPTS = 24
+
 
         /** One of 14 directional candidates. Every platform attempts ALL of
          *  these as outgoing connections; the connection type is derived
@@ -6884,6 +6378,7 @@ class SselithRepertoryChunkGenerator(
          *  gets. Distinct from the gate salt so the type distribution is
          *  independent of the gate roll. */
         private const val REPLACEMENT_TYPE_HASH_SALT: Int = 0x4BCDA22
+        private const val SPECIMEN_BOOK_HASH_SALT: Int = 0x1F4E6B3
 
         /** Catalogue of NBT structures that can replace the standard 5×5
          *  platform on rare cells. Each entry declares its NBT resource
@@ -6931,6 +6426,7 @@ class SselithRepertoryChunkGenerator(
              *  regular cell ceiling; positions above world-max clip
              *  naturally at paint time. */
             OBSERVATORY("sselith_observatory.nbt", 7, 244, 7),
+            STUDY("sselith_study.nbt", 7, 10, 7, cornerOffsetY = -3),
             PLATFORM_1("sselith_platform_1.nbt", 7, 7, 7, isRare = false),
             PLATFORM_2("sselith_platform_2.nbt", 7, 5, 7, isRare = false),
             PLATFORM_3("sselith_platform_3.nbt", 7, 5, 7, isRare = false),
@@ -6940,6 +6436,7 @@ class SselithRepertoryChunkGenerator(
             PLATFORM_7("sselith_platform_7.nbt", 7, 5, 7, isRare = false),
             PLATFORM_8("sselith_platform_8.nbt", 7, 6, 7, isRare = false),
             PLATFORM_10("sselith_platform_10.nbt", 7, 4, 7, isRare = false),
+            PLATFORM_11("sselith_platform_11.nbt", 7, 4, 7, isRare = false),
             ;
 
             val fullResourcePath: String = "data/enderkinesis/structures/$resourcePath"

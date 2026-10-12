@@ -56,6 +56,10 @@ object WikLakConstruction {
         val server = level as? ServerLevel ?: return EventResult.pass()
         val player = placer as? ServerPlayer ?: return EventResult.pass()
         if (!isSkull(state)) return EventResult.pass()
+        // The ritual is learned, not stumbled into: only players who hold
+        // Sureibjin's "Knowledge of Death" advancement can raise a host —
+        // everyone else just built a skull-on-mud pillar.
+        if (!hasKnowledgeOfDeath(player)) return EventResult.pass()
 
         // Capture coords + creator now; defer the pattern check so Fabric
         // and Forge agree on whether the skull is in the world yet.
@@ -63,6 +67,16 @@ object WikLakConstruction {
         val creator = player.uuid
         server.server.execute { tryConstruct(server, skullPos, creator) }
         return EventResult.pass()
+    }
+
+    /** Advancement id gating the ritual. */
+    private val KNOWLEDGE_OF_DEATH = net.minecraft.resources.ResourceLocation(
+        org.shipwrights.enderkinesis.EnderkinesisMod.MOD_ID, "sureibjin/knowledge_of_death",
+    )
+
+    private fun hasKnowledgeOfDeath(player: ServerPlayer): Boolean {
+        val advancement = player.server.advancements.getAdvancement(KNOWLEDGE_OF_DEATH) ?: return false
+        return player.advancements.getOrStartProgress(advancement).isDone
     }
 
     private fun tryConstruct(level: ServerLevel, skullPos: BlockPos, creator: UUID) {

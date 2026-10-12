@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.BufferUploader
 import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.Tesselator
+import com.mojang.blaze3d.vertex.VertexBuffer
 import com.mojang.blaze3d.vertex.VertexFormat
 import dev.architectury.event.events.client.ClientReloadShadersEvent
 import kotlin.math.cos
@@ -16,6 +17,9 @@ import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.packs.resources.ResourceProvider
+import net.minecraft.world.effect.MobEffects
+import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.level.material.FogType
 import org.joml.Matrix4f
 import org.lwjgl.opengl.GL11
 import org.shipwrights.enderkinesis.EnderkinesisMod
@@ -112,7 +116,11 @@ object SureibjinSky {
 
 
     private const val STAR_COUNT = 140
+    /** Floats for each star: position, tangent, orbit normal, heading cosine and sine. */
+    private const val STAR_STRIDE = 11
     private const val STAR_DIST = SKY_R_DIST - 2.0f
+    /** Ticks for one full turn of a star along its great circle. */
+    private const val STAR_ORBIT_TICKS = 24_000.0
     /** Half-edge of the inner black square. */
     private const val STAR_HALF = 0.55f
     /** Half-edge of the outer white square — outline is `OUTLINE_HALF − HALF`
@@ -151,7 +159,8 @@ object SureibjinSky {
         @Suppress("UNUSED_PARAMETER") isFoggy: Boolean,
         setupFog: Runnable,
     ) {
-        val gameTime = (camera.entity.level().gameTime + partialTick).toDouble()
+        // A Float loses the partial tick above 2^23 ticks of world time.
+        val gameTime = camera.entity.level().gameTime + partialTick.toDouble()
 
         // Run vanilla's sky-pass fog setup. Without this, our sea plane (and
         // anything else using a vanilla fog-aware shader) renders with
@@ -160,6 +169,10 @@ object SureibjinSky {
         // also triggers FogRendererSureibjinMixin's TAIL injection that
         // pushes the dim's MID-blue tint and tight distance fade.
         setupFog.run()
+
+        // The sky shaders use no fog. Vanilla draws no sky with Blindness or Darkness, and the water
+        // fog here is near black, so the frame keeps the fog-colour clear that vanilla made.
+        if (camera.fluidInCamera != FogType.NONE || mobEffectBlocksSky(camera)) return
 
         RenderSystem.clearColor(MID_R, MID_G, MID_B, 1.0f)
         RenderSystem.clear(GL11.GL_COLOR_BUFFER_BIT, Minecraft.ON_OSX)
@@ -174,7 +187,7 @@ object SureibjinSky {
         // Switch to POSITION_COLOR for stars and sun. The sun nebula is now
         // computed inside the sky shader itself — see rendertype_sureibjin_sky.fsh.
         RenderSystem.setShader { GameRenderer.getPositionColorShader() }
-        renderStars(poseStack)
+        renderStars(poseStack, gameTime)
         renderSunBloom(poseStack)
 
         RenderSystem.enableCull()
@@ -184,20 +197,22 @@ object SureibjinSky {
     }
 
 
+    private fun mobEffectBlocksSky(camera: Camera): Boolean {
+        val entity = camera.entity as? LivingEntity ?: return false
+        return entity.hasEffect(MobEffects.BLINDNESS) || entity.hasEffect(MobEffects.DARKNESS)
+    }
+
     private fun renderDreamSphere(poseStack: PoseStack, gameTime: Double) {
         val shader = skyShader ?: return   // pre-reload fallback: clear fill stands in
-        val matrix = poseStack.last().pose()
 
-        // Wrap Time modulo a large bounded value so Float precision stays
-        // tight even across long sessions. 100000 ticks ≈ 83 minutes.
-        val tWrapped = (gameTime % 100000.0).toFloat()
-        shader.safeGetUniform("Time")?.set(tWrapped)
-        // Inverse of the host-side pose matrix: the vertex shader uses this
-        // to undo the camera rotation embedded in the Position attribute so
-        // the noise samples in WORLD space (sky stays fixed when the player
-        // turns). Recomputed every frame because the camera rotates.
-        val invCam = Matrix4f(matrix).invert()
-        shader.safeGetUniform("InverseCamera")?.set(invCam)
+        // A shader Float loses precision at large values, so the time stays below
+        // [SKY_TIME_PERIOD]. It runs up and then down: a wrap to zero makes the pattern jump.
+        val phase = gameTime % (2.0 * SKY_TIME_PERIOD)
+        val tBounded = (if (phase <= SKY_TIME_PERIOD) phase else 2.0 * SKY_TIME_PERIOD - phase).toFloat()
+        shader.safeGetUniform("Time")?.set(tBounded)
+        // The mesh holds world-aligned positions and the pose goes into ModelViewMat, so the
+        // shader's world-space input needs no inverse.
+        shader.safeGetUniform("InverseCamera")?.set(IDENTITY)
         // Sun direction in WORLD coords — the fragment shader uses this to
         // centre the nebula effect. Static (sun is fixed at east + slight
         // pitch) so we could hardcode it in GLSL, but a uniform keeps the
@@ -205,8 +220,19 @@ object SureibjinSky {
         val sunLen = kotlin.math.sqrt(SUN_DIST * SUN_DIST + SUN_Y * SUN_Y)
         shader.safeGetUniform("SunDir")?.set(SUN_DIST / sunLen, SUN_Y / sunLen, 0f)
 
-        RenderSystem.setShader { shader }
+        val mesh = sphereMesh ?: buildSphereMesh().also { sphereMesh = it }
+        val modelView = Matrix4f(RenderSystem.getModelViewMatrix()).mul(poseStack.last().pose())
+        mesh.bind()
+        mesh.drawWithShader(modelView, RenderSystem.getProjectionMatrix(), shader)
+        VertexBuffer.unbind()
+    }
 
+    private val IDENTITY = Matrix4f()
+
+    // Static geometry: built one time on the render thread, and kept for the life of the client.
+    private var sphereMesh: VertexBuffer? = null
+
+    private fun buildSphereMesh(): VertexBuffer {
         // Precompute sin/cos rings.
         val sinPhi = FloatArray(LATITUDE_RINGS + 1)
         val cosPhi = FloatArray(LATITUDE_RINGS + 1)
@@ -241,18 +267,25 @@ object SureibjinSky {
                 val xB1 = cosB * cosTh[s + 1] * SKY_R_DIST
                 val zB1 = cosB * sinTh[s + 1] * SKY_R_DIST
 
-                builder.vertex(matrix, xT0, ySinT, zT0).endVertex()
-                builder.vertex(matrix, xB0, ySinB, zB0).endVertex()
-                builder.vertex(matrix, xB1, ySinB, zB1).endVertex()
+                builder.vertex(xT0.toDouble(), ySinT.toDouble(), zT0.toDouble()).endVertex()
+                builder.vertex(xB0.toDouble(), ySinB.toDouble(), zB0.toDouble()).endVertex()
+                builder.vertex(xB1.toDouble(), ySinB.toDouble(), zB1.toDouble()).endVertex()
 
-                builder.vertex(matrix, xT0, ySinT, zT0).endVertex()
-                builder.vertex(matrix, xB1, ySinB, zB1).endVertex()
-                builder.vertex(matrix, xT1, ySinT, zT1).endVertex()
+                builder.vertex(xT0.toDouble(), ySinT.toDouble(), zT0.toDouble()).endVertex()
+                builder.vertex(xB1.toDouble(), ySinB.toDouble(), zB1.toDouble()).endVertex()
+                builder.vertex(xT1.toDouble(), ySinT.toDouble(), zT1.toDouble()).endVertex()
             }
         }
 
-        BufferUploader.drawWithShader(builder.end())
+        val mesh = VertexBuffer(VertexBuffer.Usage.STATIC)
+        mesh.bind()
+        mesh.upload(builder.end())
+        VertexBuffer.unbind()
+        return mesh
     }
+
+    /** Upper limit of the shader `Time` uniform, in ticks (about 83 minutes). */
+    private const val SKY_TIME_PERIOD = 100000.0
 
 
 
@@ -260,7 +293,9 @@ object SureibjinSky {
 
     private fun computeStarData(): FloatArray {
         val rng = java.util.Random(0xDEEAE9_BADC0DEL)
-        val data = FloatArray(STAR_COUNT * 9)
+        // A second generator keeps the star positions of the first sequence unchanged.
+        val headingRng = java.util.Random(0x5EA7_0F_D4EA35L)
+        val data = FloatArray(STAR_COUNT * STAR_STRIDE)
         for (i in 0 until STAR_COUNT) {
             val ry = rng.nextFloat() * 2f - 1f
             val phi = rng.nextFloat() * (Math.PI * 2.0).toFloat()
@@ -277,27 +312,47 @@ object SureibjinSky {
             val upX = ry * rightZ - rz * rightY
             val upY = rz * rightX - rx * rightZ
             val upZ = rx * rightY - ry * rightX
-            val b = i * 9
+            val heading = headingRng.nextFloat() * (Math.PI * 2.0).toFloat()
+            val ch = cos(heading); val sh = sin(heading)
+            val b = i * STAR_STRIDE
             data[b] = rx;   data[b+1] = ry; data[b+2] = rz
-            data[b+3] = rightX; data[b+4] = rightY; data[b+5] = rightZ
-            data[b+6] = upX;    data[b+7] = upY;    data[b+8] = upZ
+            // Direction of travel: a unit tangent at the start position.
+            data[b+3] = ch * rightX + sh * upX
+            data[b+4] = ch * rightY + sh * upY
+            data[b+5] = ch * rightZ + sh * upZ
+            // Orbit normal. It stays perpendicular to the star for the full orbit.
+            data[b+6] = ch * upX - sh * rightX
+            data[b+7] = ch * upY - sh * rightY
+            data[b+8] = ch * upZ - sh * rightZ
+            data[b+9] = ch; data[b+10] = sh
         }
         return data
     }
 
-    private fun renderStars(poseStack: PoseStack) {
+    private fun renderStars(poseStack: PoseStack, gameTime: Double) {
+        val orbit = (gameTime % STAR_ORBIT_TICKS / STAR_ORBIT_TICKS * 2.0 * Math.PI).toFloat()
+        val co = cos(orbit); val so = sin(orbit)
         val matrix = poseStack.last().pose()
         val data = starData
         val builder = Tesselator.getInstance().builder
         builder.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR)
 
         for (i in 0 until STAR_COUNT) {
-            val b = i * 9
-            val cx = data[b]     * STAR_DIST
-            val cy = data[b + 1] * STAR_DIST
-            val cz = data[b + 2] * STAR_DIST
-            val rX = data[b + 3]; val rY = data[b + 4]; val rZ = data[b + 5]
-            val uX = data[b + 6]; val uY = data[b + 7]; val uZ = data[b + 8]
+            val b = i * STAR_STRIDE
+            val pX = data[b];     val pY = data[b + 1]; val pZ = data[b + 2]
+            val dX = data[b + 3]; val dY = data[b + 4]; val dZ = data[b + 5]
+            val nX = data[b + 6]; val nY = data[b + 7]; val nZ = data[b + 8]
+            val ch = data[b + 9]; val sh = data[b + 10]
+            val cx = (co * pX + so * dX) * STAR_DIST
+            val cy = (co * pY + so * dY) * STAR_DIST
+            val cz = (co * pZ + so * dZ) * STAR_DIST
+            // The tangent and the orbit normal carry the square along the path. A basis from
+            // world up would spin the square near the zenith.
+            val tX = co * dX - so * pX
+            val tY = co * dY - so * pY
+            val tZ = co * dZ - so * pZ
+            val rX = ch * tX - sh * nX; val rY = ch * tY - sh * nY; val rZ = ch * tZ - sh * nZ
+            val uX = sh * tX + ch * nX; val uY = sh * tY + ch * nY; val uZ = sh * tZ + ch * nZ
 
             // 1. Inverted black halo (no outline) — fan from black centre
             //    (alpha HALO_ALPHA) to black perimeter (alpha 0).

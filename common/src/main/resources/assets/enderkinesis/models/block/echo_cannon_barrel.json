@@ -1,0 +1,26 @@
+{
+	"format_version": "1.9.0",
+	"credit": "Barrel sub-model of echo_cannon; rendered dynamically by EchoCannonRenderer",
+	"textures": {
+		"0": "enderkinesis:block/echo_cannon_back",
+		"1": "enderkinesis:block/echo_cannon_side",
+		"2": "enderkinesis:block/echo_cannon_front",
+		"particle": "enderkinesis:block/echo_cannon_back"
+	},
+	"elements": [
+		{
+			"name": "barrel",
+			"from": [2, 2, -4],
+			"to": [14, 14, 12],
+			"rotation": {"angle": 0, "axis": "z", "origin": [8, 8, 4]},
+			"faces": {
+				"north": {"uv": [2, 2, 14, 14], "texture": "#2"},
+				"east": {"uv": [2, 0, 14, 16], "rotation": 270, "texture": "#1"},
+				"south": {"uv": [2, 2, 14, 14], "texture": "#0"},
+				"west": {"uv": [2, 0, 14, 16], "rotation": 90, "texture": "#1"},
+				"up": {"uv": [2, 0, 14, 16], "rotation": 180, "texture": "#1"},
+				"down": {"uv": [2, 0, 14, 16], "texture": "#1"}
+			}
+		}
+	]
+}

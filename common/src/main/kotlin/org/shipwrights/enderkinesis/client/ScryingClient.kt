@@ -121,7 +121,6 @@ object ScryingClient {
         // refraction / noCulling / fade-state stack. Mirrors the server-side
         // [ScryingSessionManager.mount] preemption keyed by player UUID.
         if (isActive()) {
-            LOG.info("Preempting existing client scry session for new one")
             actuallyEndScrying()
         }
         val mc = Minecraft.getInstance()
@@ -132,7 +131,6 @@ object ScryingClient {
         sessionStartSeconds = Util.getMillis() / 1000.0
         lastLockedYaw = null
         endRequested = false
-        LOG.info("Scrying session begin — source={} target={} viewDistance={}", source, target, viewDistance)
         // Force the player to render even when frustum / distance culling would normally
         // drop them — from the remote-camera vantage the player is behind the camera
         // until they turn around, and often past the entity-distance cutoff too. Pairs
@@ -275,7 +273,6 @@ object ScryingClient {
             return
         }
         bridge.enderkinesis_setCameraView(cameraChunkX, cameraChunkZ, cameraRadius)
-        LOG.info("Camera storage armed at chunk ({}, {}) radius {}", cameraChunkX, cameraChunkZ, cameraRadius)
         lastCameraChunkX = cameraChunkX
         lastCameraChunkZ = cameraChunkZ
     }
@@ -461,6 +458,9 @@ object ScryingClient {
         refractionEffect?.close()
         refractionEffect = null
     }
+
+    /** Release the cached EffectInstance, so the next draw loads the shader again. */
+    fun closeRefractionEffect() = deactivateRefraction()
 
     /** Run one refraction pass over the current main framebuffer.
      *

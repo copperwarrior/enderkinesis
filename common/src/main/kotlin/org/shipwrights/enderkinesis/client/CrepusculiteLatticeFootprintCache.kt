@@ -63,9 +63,20 @@ object CrepusculiteLatticeFootprintCache {
         val state: ByteArray,
     )
 
-    private val cache = HashMap<Long, Entry>()
-    private val tmpVec = Vector3d()
-    private val tmpPos = BlockPos.MutableBlockPos()
+    // In singleplayer the server thread (fluid probe) and the render thread use this object
+    // at the same time, and a ship id is the same on the two sides.
+    private class Side {
+        val cache = HashMap<Long, Entry>()
+        val tmpVec = Vector3d()
+        val tmpPos = BlockPos.MutableBlockPos()
+    }
+
+    private val clientSide = Side()
+    private val serverSide = Side()
+
+    private fun sideOf(level: Level): Side = if (level.isClientSide) clientSide else serverSide
+
+    private const val MAX_ENTRIES = 256
 
     /** Look up the 5-state classification at world `(wx, wy, wz)` for the given ship. Returns
      *  [EMPTY] for points outside the ship's local AABB. Discrete — see [alphaAt] for the
@@ -75,6 +86,7 @@ object CrepusculiteLatticeFootprintCache {
     fun stateAt(level: Level, ship: Ship, worldToShip: Matrix4dc, wx: Double, wy: Double, wz: Double): Byte {
         val entry = entryFor(level, ship) ?: return EMPTY
 
+        val tmpVec = sideOf(level).tmpVec
         tmpVec.set(wx, wy, wz)
         worldToShip.transformPosition(tmpVec)
         val lx = Math.floor(tmpVec.x).toInt()
@@ -109,6 +121,7 @@ object CrepusculiteLatticeFootprintCache {
         val entry = entryFor(level, ship) ?: return 1f
         if (entry.w <= 0 || entry.h <= 0) return 1f
 
+        val tmpVec = sideOf(level).tmpVec
         tmpVec.set(wx, wy, wz)
         // alphaAt is visual-code-only; ClientShip → renderTransform stays.
         ship.renderTransform.worldToShip.transformPosition(tmpVec)
@@ -137,6 +150,57 @@ object CrepusculiteLatticeFootprintCache {
 
     /** Cells outside the cached AABB are treated as far-exterior (alpha 1) — same as the
      *  discrete sampler's default. */
+    /** Immutable, thread-safe capture of one ship's footprint for off-thread mesh
+     *  builds — own transform copy and scratch vector, backed by the entry's
+     *  immutable state array. */
+    class Snapshot internal constructor(
+        private val minLocalX: Int, private val minLocalZ: Int,
+        private val w: Int, private val h: Int,
+        private val state: ByteArray,
+        private val worldToShip: org.joml.Matrix4d,
+    ) {
+        private val tmp = Vector3d()
+
+        fun alphaAt(wx: Double, wy: Double, wz: Double): Float {
+            tmp.set(wx, wy, wz)
+            worldToShip.transformPosition(tmp)
+            val sx = tmp.x - 0.5
+            val sz = tmp.z - 0.5
+            val baseLx = Math.floor(sx).toInt()
+            val baseLz = Math.floor(sz).toInt()
+            val fx = (sx - baseLx).toFloat()
+            val fz = (sz - baseLz).toFloat()
+            val cx0 = baseLx - minLocalX
+            val cz0 = baseLz - minLocalZ
+            val a00 = sample(cx0, cz0)
+            val a10 = sample(cx0 + 1, cz0)
+            val a01 = sample(cx0, cz0 + 1)
+            val a11 = sample(cx0 + 1, cz0 + 1)
+            val top = a00 + (a10 - a00) * fx
+            val bot = a01 + (a11 - a01) * fx
+            return top + (bot - top) * fz
+        }
+
+        private fun sample(cx: Int, cz: Int): Float {
+            if (cx < 0 || cz < 0 || cx >= w || cz >= h) return ALPHA_EMPTY
+            return when (state[cz * w + cx]) {
+                EMPTY -> ALPHA_EMPTY
+                EMPTY_NEAR_HULL -> ALPHA_NEAR_HULL
+                else -> ALPHA_CULL
+            }
+        }
+    }
+
+    /** Build (render thread — may touch level state) a [Snapshot] for worker use. */
+    fun snapshot(level: Level, ship: ClientShip): Snapshot? {
+        val entry = entryFor(level, ship) ?: return null
+        if (entry.w <= 0 || entry.h <= 0) return null
+        return Snapshot(
+            entry.minLocalX, entry.minLocalZ, entry.w, entry.h, entry.state,
+            org.joml.Matrix4d(ship.renderTransform.worldToShip),
+        )
+    }
+
     private fun sampleAlpha(entry: Entry, cx: Int, cz: Int): Float {
         if (cx < 0 || cz < 0 || cx >= entry.w || cz >= entry.h) return ALPHA_EMPTY
         return when (entry.state[cz * entry.w + cx]) {
@@ -148,8 +212,10 @@ object CrepusculiteLatticeFootprintCache {
 
     private fun entryFor(level: Level, ship: Ship): Entry? {
         val now = level.gameTime
-        return cache[ship.id]?.takeIf { now - it.builtAtGameTime < TTL_TICKS }
-            ?: build(level, ship, now).also { cache[ship.id] = it }
+        val cache = sideOf(level).cache
+        cache[ship.id]?.takeIf { now - it.builtAtGameTime < TTL_TICKS }?.let { return it }
+        if (cache.size >= MAX_ENTRIES) cache.clear()
+        return build(level, ship, now).also { cache[ship.id] = it }
     }
 
     /** Per-state alpha values for the bilinear sampler. Hull-side cells must stay at 0 so
@@ -171,6 +237,7 @@ object CrepusculiteLatticeFootprintCache {
         val w = maxX - minX + 1
         val h = maxZ - minZ + 1
         val has = BooleanArray(w * h)
+        val tmpPos = sideOf(level).tmpPos
 
         // Pass 1: hasBlock per column inside the ship's actual AABB. Padding cells stay false.
         for (lz in aabb.minZ()..aabb.maxZ()) {

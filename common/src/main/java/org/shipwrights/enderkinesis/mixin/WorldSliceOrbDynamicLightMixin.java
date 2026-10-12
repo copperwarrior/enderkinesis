@@ -28,6 +28,8 @@ public abstract class WorldSliceOrbDynamicLightMixin {
         method = "getBrightness(Lnet/minecraft/world/level/LightLayer;Lnet/minecraft/core/BlockPos;)I",
         at = @At("RETURN"),
         cancellable = true,
+        // 0: the name mapping of this vanilla override is not verified on Embeddium; no match must not stop the launch.
+        require = 0,
         remap = true
     )
     private void enderkinesis$boostFromOrbs(

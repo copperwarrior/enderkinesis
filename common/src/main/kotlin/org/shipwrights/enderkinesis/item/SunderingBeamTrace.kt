@@ -1,12 +1,14 @@
 package org.shipwrights.enderkinesis.item
 
 import net.minecraft.core.BlockPos
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.util.LoadedRay
 
 /** One straight-line piece of a Sundering beam. The beam is a polyline of
  *  these segments — first segment from staff tip to the first shield hit
@@ -70,7 +72,7 @@ object SunderingBeamTrace {
      *  Returns the segment list plus the block hit at the polyline's end
      *  (null if the beam terminated without hitting a block). */
     fun trace(
-        level: Level, player: Player,
+        level: Level, player: net.minecraft.world.entity.Entity,
         origin: Vec3, dir: Vec3, maxRange: Double,
         shields: List<AegisBox.Frame>,
     ): BeamTrace {
@@ -80,6 +82,10 @@ object SunderingBeamTrace {
         var remaining = maxRange
 
         for (bounce in 0..MAX_REFLECTIONS) {
+            if (remaining <= 0.0) break
+            // A server `clip` loads or generates each chunk on its line. The range has no cap
+            // (Infinity), so the beam ends at the edge of the loaded area.
+            if (level is ServerLevel) remaining = LoadedRay.range(level, curOrigin, curDir, remaining)
             if (remaining <= 0.0) break
             val rangeEnd = curOrigin.add(curDir.scale(remaining))
 

@@ -5,6 +5,291 @@
       { "name": "entity.firework_rocket.blast", "type": "event" }
     ]
   },
+  "item.staff_of_sundering.start": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/start",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.beam_loop_1": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/beam_loop_1",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.beam_loop_2": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/beam_loop_2",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.beam_loop_3": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/beam_loop_3",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.beam_loop_4": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/beam_loop_4",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.stage_up": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/stage_up",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.impact_loop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/impact_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.burn": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/burn_1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/staff_of_sundering/burn_2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/staff_of_sundering/burn_3",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_sundering.stop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_sundering/stop",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_concealment.cloak": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_concealment/cloak",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_concealment.hum_loop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_concealment/hum_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_concealment.decloak": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_concealment/decloak",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_aegis.raise": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_aegis/raise",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_aegis.hum_loop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_aegis/hum_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_aegis.deflect": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_aegis/deflect_1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/staff_of_aegis/deflect_2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/staff_of_aegis/deflect_3",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_aegis.push": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_aegis/push",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_aegis.shatter": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_aegis/shatter",
+        "stream": false
+      }
+    ]
+  },
+  "item.staff_of_aegis.shard_bounce": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/staff_of_aegis/shard_bounce_1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/staff_of_aegis/shard_bounce_2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/staff_of_aegis/shard_bounce_3",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.grab": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/grab",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.rip": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/rip",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.hold_loop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/hold_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.release": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/release",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.sever": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/sever",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.spent": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/spent",
+        "stream": false
+      }
+    ]
+  },
+  "item.wylland_tome.repair": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wylland_tome/repair",
+        "stream": false
+      }
+    ]
+  },
+  "event.sselith_repertory.hiss": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:event/sselith_repertory/hiss",
+        "stream": false
+      }
+    ]
+  },
+  "event.sselith_repertory.hiss_mono": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:event/sselith_repertory/hiss_mono",
+        "stream": false
+      }
+    ]
+  },
+  "event.sselith_repertory.return": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:event/sselith_repertory/return",
+        "stream": false
+      }
+    ]
+  },
+  "event.sselith_repertory.return_mono": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:event/sselith_repertory/return_mono",
+        "stream": false
+      }
+    ]
+  },
   "music_disc.mystery": {
     "category": "record",
     "sounds": [

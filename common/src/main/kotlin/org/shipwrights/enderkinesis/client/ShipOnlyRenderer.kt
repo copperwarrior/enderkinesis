@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.client
 
-import com.mojang.logging.LogUtils
 import org.valkyrienskies.mod.common.hooks.VSGameEvents
 
 /** Staff of Concealment — ship-only render redirection.
@@ -21,28 +20,17 @@ import org.valkyrienskies.mod.common.hooks.VSGameEvents
  *  no chunk shader uniform plumbing, no Sodium parallel path. */
 object ShipOnlyRenderer {
 
-    private val LOG = LogUtils.getLogger()
     private var initialised = false
     private var sideFbBound = false
 
-
-    // Diagnostic counters — flushed periodically so we don't spam the log every
-    // frame. If `renderShipFiredFor` stays at 0 while a cloak is active, the
-    // event hook is dead and the issue is upstream (ship not in per-ship loop).
-    private var shipsStartFired: Int = 0
-    private var renderShipFiredFor: Int = 0
-    private var renderShipFiredForCloaking: Int = 0
-    private var lastLogMs: Long = 0L
 
     /** Wire up the VS2 event listeners. Idempotent — safe to call multiple times. */
     @JvmStatic
     fun init() {
         if (initialised) return
         initialised = true
-        LOG.info("[enderkinesis cloak] ShipOnlyRenderer wired up VS2 events")
 
         VSGameEvents.shipsStartRendering.on { _, _ ->
-            shipsStartFired++
             // Idempotent within a frame (gated by ConcealmentShipFB's own
             // flag, reset by beginFrame() from LevelRenderer.renderLevel HEAD).
             // Vanilla path emits once per frame so this is effectively the
@@ -51,9 +39,7 @@ object ShipOnlyRenderer {
         }
 
         VSGameEvents.renderShip.on { event, _ ->
-            renderShipFiredFor++
             if (!isCloaking(event.ship.id)) return@on
-            renderShipFiredForCloaking++
             // copyMainDepth is idempotent within a frame: only the first call
             // per frame across all paths (batched + vanilla) actually blits.
             ConcealmentShipFB.copyMainDepth()
@@ -78,7 +64,6 @@ object ShipOnlyRenderer {
         // and the cancel-suspend never engages (so even after the redirect
         // mixin runs, no ship pixels land in side FB).
         VSGameEvents.shipsStartRenderingSodium.on { _, _ ->
-            shipsStartFired++
             // No-op after the first call per frame — see [ConcealmentShipFB.clearOnly].
             // Without that gate the per-pass fires would wipe earlier passes'
             // ship pixels and the side FB would only retain the LAST pass's
@@ -87,9 +72,7 @@ object ShipOnlyRenderer {
         }
 
         VSGameEvents.renderShipSodium.on { event, _ ->
-            renderShipFiredFor++
             if (!isCloaking(event.ship.id)) return@on
-            renderShipFiredForCloaking++
             ConcealmentShipFB.copyMainDepth()
             ConcealmentShipFB.bindForWrite()
             sideFbBound = true
@@ -104,29 +87,6 @@ object ShipOnlyRenderer {
                 sideFbBound = false
             }
         }
-    }
-
-    /** Periodic diagnostic flush — call from the per-frame tick. Logs once per
-     *  second when a cloak is active, so we can tell if events are firing and
-     *  whether the cloak ship is reaching the per-ship loop. */
-    @JvmStatic
-    fun maybeLogDiagnostics(anyCloakActive: Boolean) {
-        if (!anyCloakActive) {
-            shipsStartFired = 0
-            renderShipFiredFor = 0
-            renderShipFiredForCloaking = 0
-            return
-        }
-        val now = System.currentTimeMillis()
-        if (now - lastLogMs < 1000) return
-        lastLogMs = now
-        LOG.info(
-            "[enderkinesis cloak] tick: shipsStartRendering={} renderShip(all)={} renderShip(cloaking)={}",
-            shipsStartFired, renderShipFiredFor, renderShipFiredForCloaking,
-        )
-        shipsStartFired = 0
-        renderShipFiredFor = 0
-        renderShipFiredForCloaking = 0
     }
 
     private fun isCloaking(shipId: Long): Boolean {

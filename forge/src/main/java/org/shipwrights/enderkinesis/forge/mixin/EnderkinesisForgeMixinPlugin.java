@@ -30,9 +30,6 @@ public class EnderkinesisForgeMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        if (mixinClassName.endsWith(".EmbeddiumBlockRendererCloakingMixin")) {
-            return embeddiumPresent;
-        }
         return true;
     }
 

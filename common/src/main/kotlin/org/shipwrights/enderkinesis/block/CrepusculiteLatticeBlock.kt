@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
+import net.minecraft.world.item.DyeItem
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.Level
@@ -80,6 +81,22 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         player: Player, hand: InteractionHand, hit: BlockHitResult
     ): InteractionResult {
         val held = player.getItemInHand(hand)
+        val heldItem = held.item
+        if (heldItem is DyeItem) {
+            if (level is ServerLevel) {
+                val be = level.getBlockEntity(pos) as? org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
+                if (be != null) {
+                    val rgb = heldItem.dyeColor.textureDiffuseColors.let { c ->
+                        ((c[0] * 255f).toInt().coerceIn(0, 255) shl 16) or
+                            ((c[1] * 255f).toInt().coerceIn(0, 255) shl 8) or
+                            (c[2] * 255f).toInt().coerceIn(0, 255)
+                    }
+                    be.setTint(rgb)
+                    if (!player.isCreative) held.shrink(1)
+                }
+            }
+            return InteractionResult.sidedSuccess(level.isClientSide)
+        }
         if (held.`is`(Items.ENDER_PEARL)) {
             if (level is ServerLevel) {
                 val outcome = assembleConnectedShip(level, pos)
@@ -131,6 +148,8 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
     companion object {
         /** Hard cap on the flood-fill so an ender-pearl assembly can't shipify the world. */
         private const val MAX_ASSEMBLY_BLOCKS = 100_000
+        /** Slack for "does the outline shape touch this face plane" (block units). */
+        private const val FACE_REACH_EPS = 1.0e-4
 
         /**
          * Assemble the structure this lattice sits on into a VS2 ship — the same approach other
@@ -185,21 +204,18 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         }
 
         /** Structural-link gate. For each non-zero axis component of the move from
-         *  `fromPos` to `toPos`, both blocks must present a sturdy face along that axis
-         *  — `fromState`'s face in the move direction *and* `toState`'s opposite face.
+         *  `fromPos` to `toPos`, both blocks must present a *connective* face along that
+         *  axis — `fromState`'s face in the move direction *and* `toState`'s opposite face.
          *
-         *  Uses the 3-arg `BlockState.isFaceSturdy` (defaults to `SupportType.FULL`),
-         *  matching the gate vanilla uses to decide whether things like rails, scaffolds,
-         *  and torches can attach to a face. Net effect: leaves, vines, panes, fences,
-         *  most "decorative" blocks fail at least one of the directional sturdy checks
-         *  and don't get pulled into the assembly. Full blocks (stone, dirt, planks,
-         *  ores) and the rigid hull blocks the player is likely to be building with all
-         *  pass.
+         *  A face is connective (see [presentsConnectiveFace]) when the block's outline
+         *  shape reaches that face plane — so solid blocks, slabs, fences, walls, panes,
+         *  leaves and vines all link through the faces their geometry touches, while a
+         *  torch/lever/sign reaches only its mount face and is never a conduit onward.
+         *  Point-attachments still get pulled in afterward by [expandWithAttachments].
          *
          *  For diagonal / corner moves (≥2 non-zero components), every applicable axis
-         *  must pass — both blocks need sturdy faces in *each* direction we're crossing.
-         *  That preserves the 26-neighbour intent (a diagonal staircase of solid cubes
-         *  still connects) while rejecting diagonals through non-structural blocks. */
+         *  must pass, preserving the 26-neighbour intent (a diagonal staircase of solid
+         *  cubes still connects) while rejecting diagonals through non-structural blocks. */
         @JvmStatic
         fun isStructuralLink(
             level: net.minecraft.world.level.LevelReader,
@@ -209,20 +225,44 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         ): Boolean {
             if (dx != 0) {
                 val face = if (dx > 0) Direction.EAST else Direction.WEST
-                if (!fromState.isFaceSturdy(level, fromPos, face)) return false
-                if (!toState.isFaceSturdy(level, toPos, face.opposite)) return false
+                if (!presentsConnectiveFace(level, fromState, fromPos, face)) return false
+                if (!presentsConnectiveFace(level, toState, toPos, face.opposite)) return false
             }
             if (dy != 0) {
                 val face = if (dy > 0) Direction.UP else Direction.DOWN
-                if (!fromState.isFaceSturdy(level, fromPos, face)) return false
-                if (!toState.isFaceSturdy(level, toPos, face.opposite)) return false
+                if (!presentsConnectiveFace(level, fromState, fromPos, face)) return false
+                if (!presentsConnectiveFace(level, toState, toPos, face.opposite)) return false
             }
             if (dz != 0) {
                 val face = if (dz > 0) Direction.SOUTH else Direction.NORTH
-                if (!fromState.isFaceSturdy(level, fromPos, face)) return false
-                if (!toState.isFaceSturdy(level, toPos, face.opposite)) return false
+                if (!presentsConnectiveFace(level, fromState, fromPos, face)) return false
+                if (!presentsConnectiveFace(level, toState, toPos, face.opposite)) return false
             }
             return true
+        }
+
+        /** A face the assembly passes through: the block's outline shape actually REACHES
+         *  that face plane. Purely geometric, so it needs no block whitelist:
+         *   - full blocks reach every face; slabs reach their filled sides + one flat face;
+         *   - fences / walls / panes reach their post and any connected arms;
+         *   - leaves reach all faces; a vine reaches only the face it clings to;
+         *   - a point-attachment (torch, lever) reaches ONLY its mount face — so it connects
+         *     there and through no other face, exactly the "face it's connected to, not the
+         *     faces it isn't."
+         *  Empty-shape blocks (no outline) connect through nothing; they arrive, if at all,
+         *  via [expandWithAttachments] through their support. */
+        private fun presentsConnectiveFace(
+            level: net.minecraft.world.level.LevelReader,
+            state: BlockState, pos: BlockPos, face: Direction,
+        ): Boolean {
+            val shape = state.getShape(level, pos)
+            if (shape.isEmpty) return false
+            val axis = face.axis
+            return if (face.axisDirection == Direction.AxisDirection.POSITIVE) {
+                shape.max(axis) >= 1.0 - FACE_REACH_EPS
+            } else {
+                shape.min(axis) <= FACE_REACH_EPS
+            }
         }
 
         /** Expand an assembly block-set with anything that *depends* on a block already
@@ -256,30 +296,28 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         @JvmStatic
         fun expandWithAttachments(level: ServerLevel, blocks: Set<BlockPos>): Set<BlockPos> {
             val expanded = HashSet(blocks)
-            var changed = true
-            while (changed) {
-                changed = false
-                // Snapshot to avoid mutating the set during iteration.
-                val frontier = expanded.toList()
-                for (p in frontier) {
-                    for (dir in Direction.values()) {
-                        val n = p.relative(dir)
-                        if (n in expanded) continue
-                        val ns = level.getBlockState(n)
-                        if (ns.isAir) continue
-                        // Don't steal blocks that belong to another ship's claim or are
-                        // unbreakable — same gates the flood-fills already use.
-                        if (level.getLoadedShipManagingPos(n) != null) continue
-                        if (level.isBlockInShipyard(n)) continue
-                        if (ns.getDestroySpeed(level, n) < 0f) continue
-                        // Hide p; if n still survives, it didn't depend on p. The mock
-                        // reader returns AIR at p only — everything else is the real world,
-                        // so canSurvive's neighbour checks see the rest of the structure.
-                        val mock = AttachmentMockReader(level, p)
-                        if (!ns.canSurvive(mock, n)) {
-                            expanded.add(n.immutable())
-                            changed = true
-                        }
+            // The answer for a pair (p, n) does not change, so each block is examined one time.
+            val frontier = java.util.ArrayDeque(blocks)
+            while (true) {
+                val p = frontier.poll() ?: break
+                for (dir in Direction.values()) {
+                    val n = p.relative(dir)
+                    if (n in expanded) continue
+                    val ns = level.getBlockState(n)
+                    if (ns.isAir) continue
+                    // Don't steal blocks that belong to another ship's claim or are
+                    // unbreakable — same gates the flood-fills already use.
+                    if (level.getLoadedShipManagingPos(n) != null) continue
+                    if (level.isBlockInShipyard(n)) continue
+                    if (ns.getDestroySpeed(level, n) < 0f) continue
+                    // Hide p; if n still survives, it didn't depend on p. The mock
+                    // reader returns AIR at p only — everything else is the real world,
+                    // so canSurvive's neighbour checks see the rest of the structure.
+                    val mock = AttachmentMockReader(level, p)
+                    if (!ns.canSurvive(mock, n)) {
+                        val added = n.immutable()
+                        expanded.add(added)
+                        frontier.add(added)
                     }
                 }
             }

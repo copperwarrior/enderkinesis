@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
@@ -76,13 +75,6 @@ class SummonTomeFromBookshelfGoal(
         summonStartTick = mob.level().gameTime
         mob.navigation.stop()
         mob.beginTomeSummon(src, ret)
-        LOG.info(
-            "Cataloger tome-summon triggered: entity={} uuid={} at=({},{},{}) source=({},{},{}) returnTo=({},{},{})",
-            mob.id, mob.uuid,
-            mob.blockX, mob.blockY, mob.blockZ,
-            src.x, src.y, src.z,
-            ret.x, ret.y, ret.z,
-        )
     }
 
     override fun stop() {
@@ -210,7 +202,6 @@ class SummonTomeFromBookshelfGoal(
 
     companion object {
 
-        private val LOG = LogUtils.getLogger()
 
         /** Per-eligible-tick odds: 1 / N chance to fire. With Goal-
          *  selector polling canUse roughly every tick when no higher-

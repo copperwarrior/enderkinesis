@@ -13,12 +13,10 @@ import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.item.ScryingClientNetwork
-import org.slf4j.LoggerFactory
 import org.valkyrienskies.mod.common.getShipManagingPos
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-private val LOG = LoggerFactory.getLogger("EnderkinesisScryingSession")
 
 /**
  * Server-side bookkeeping for active scrying sessions. One session per player.
@@ -46,18 +44,27 @@ object ScryingSessionManager {
      *  values; the actual radius used is the server's `playerList.viewDistance`. */
     private const val MAX_SESSION_VIEW_DISTANCE: Int = 32
 
+    private const val VALIDATION_INTERVAL_TICKS = 20
+
+    /** The client limit is 1.5 blocks (`ScryingClient`). The wider limit here keeps lag from
+     *  ending a valid session. */
+    private const val MAX_PROXIMITY_SQR: Double = 6.0 * 6.0
+
     data class Session(
         val player: ServerPlayer,
         val sourceShipyardPos: BlockPos,
         val targetShipyardPos: BlockPos,
-        val targetWorldPos: Vec3,
-        val tickets: Set<ChunkPos>,
+        var targetWorldPos: Vec3,
+        var centerChunk: ChunkPos,
+        val viewDistance: Int,
+        val tickets: MutableSet<ChunkPos>,
         val pendingChunks: MutableSet<ChunkPos>,
         val sentChunks: MutableSet<ChunkPos>,
         val level: ServerLevel,
     )
 
     private val sessions: MutableMap<UUID, Session> = ConcurrentHashMap()
+    private var validationCountdown = 0
 
     fun init() {
         PlayerEvent.PLAYER_QUIT.register { player -> unmount(player as ServerPlayer) }
@@ -78,9 +85,6 @@ object ScryingSessionManager {
         sourceShipyardPos: BlockPos,
         targetShipyardPos: BlockPos,
     ): Boolean {
-        if (sessions.containsKey(player.uuid)) {
-            LOG.info("Preempting existing scry session for player {}", player.name.string)
-        }
         unmount(player)
 
         val level = player.serverLevel()
@@ -110,6 +114,8 @@ object ScryingSessionManager {
             sourceShipyardPos = sourceShipyardPos.immutable(),
             targetShipyardPos = targetShipyardPos.immutable(),
             targetWorldPos = targetWorld,
+            centerChunk = centerChunk,
+            viewDistance = viewDistance,
             tickets = tickets,
             pendingChunks = pending,
             sentChunks = HashSet(),
@@ -117,6 +123,7 @@ object ScryingSessionManager {
         )
 
         ScryingClientNetwork.sendBeginScrying(player, sourceShipyardPos, targetShipyardPos, viewDistance)
+        refreshEntityTracking(player)
         return true
     }
 
@@ -128,6 +135,50 @@ object ScryingSessionManager {
         val chunkSource = session.level.chunkSource
         for (cp in session.tickets) {
             chunkSource.removeRegionTicket(ScryingTicketType.SCRYING, cp, ScryingTicketType.DISTANCE, cp)
+        }
+        refreshEntityTracking(player)
+    }
+
+    /** Vanilla updates the pairing of an entity and a player only when one of them crosses a
+     *  section border. The tracking mixin reads the session, so each start and end needs a pass. */
+    private fun refreshEntityTracking(player: ServerPlayer) {
+        if (!player.isRemoved && !player.hasDisconnected()) player.serverLevel().chunkSource.move(player)
+    }
+
+    /** The client ends its session by these same rules, then sends the end packet. A client
+     *  that sends no end packet must not keep the camera area loaded. */
+    private fun isStillValid(session: Session): Boolean {
+        val player = session.player
+        if (player.isRemoved || !player.isAlive || player.level() !== session.level) return false
+        val source = shipyardToWorld(session.level, session.sourceShipyardPos)
+        return player.eyePosition.distanceToSqr(source) <= MAX_PROXIMITY_SQR
+    }
+
+    /** A target orb on a ship moves. The tickets and the tracking position go with it. */
+    private fun followTarget(session: Session) {
+        val world = shipyardToWorld(session.level, session.targetShipyardPos)
+        session.targetWorldPos = world
+        val center = ChunkPos(BlockPos.containing(world.x, world.y, world.z))
+        if (center == session.centerChunk) return
+        session.centerChunk = center
+        val chunkSource = session.level.chunkSource
+        val r = session.viewDistance
+        val stale = session.tickets.iterator()
+        while (stale.hasNext()) {
+            val cp = stale.next()
+            if (Math.abs(cp.x - center.x) <= r && Math.abs(cp.z - center.z) <= r) continue
+            chunkSource.removeRegionTicket(ScryingTicketType.SCRYING, cp, ScryingTicketType.DISTANCE, cp)
+            session.pendingChunks.remove(cp)
+            session.sentChunks.remove(cp)
+            stale.remove()
+        }
+        for (dx in -r..r) {
+            for (dz in -r..r) {
+                val cp = ChunkPos(center.x + dx, center.z + dz)
+                if (!session.tickets.add(cp)) continue
+                chunkSource.addRegionTicket(ScryingTicketType.SCRYING, cp, ScryingTicketType.DISTANCE, cp)
+                session.pendingChunks.add(cp)
+            }
         }
     }
 
@@ -171,27 +222,24 @@ object ScryingSessionManager {
     /** Per-tick: stream camera chunks that have reached FULL status to active sessions. */
     private fun tickAllSessions() {
         if (sessions.isEmpty()) return
+        if (++validationCountdown >= VALIDATION_INTERVAL_TICKS) {
+            validationCountdown = 0
+            for (session in sessions.values.toList()) {
+                if (isStillValid(session)) followTarget(session) else unmount(session.player)
+            }
+        }
         for (session in sessions.values) {
             if (session.pendingChunks.isEmpty()) continue
             if (session.player.connection == null) continue
-            val sentBefore = session.sentChunks.size
             val it = session.pendingChunks.iterator()
             while (it.hasNext()) {
                 val cp = it.next()
-                val chunk: LevelChunk = session.level.chunkSource.getChunk(cp.x, cp.z, false) ?: continue
+                // `getChunkNow`: the ticket gives each chunk a holder, so `getChunk` waits on the
+                // server thread until the chunk is full, for the whole camera square in one tick.
+                val chunk: LevelChunk = session.level.chunkSource.getChunkNow(cp.x, cp.z) ?: continue
                 sendChunk(session.player, session.level, chunk)
                 session.sentChunks.add(cp)
                 it.remove()
-            }
-            val sentNow = session.sentChunks.size - sentBefore
-            if (sentNow > 0) {
-                LOG.info(
-                    "Streamed {} camera chunks to {} (sent total: {}, pending: {})",
-                    sentNow,
-                    session.player.name.string,
-                    session.sentChunks.size,
-                    session.pendingChunks.size,
-                )
             }
         }
     }

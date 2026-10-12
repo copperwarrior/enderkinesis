@@ -38,4 +38,9 @@ object VentriloquismNetwork {
      *  any outgoing ventriloquism link — the mixin uses isEmpty as its fast-out. */
     @JvmStatic
     fun sendOrbs(level: ServerLevel): Collection<BlockPos> = byDim[level.dimension()] ?: emptyList()
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        byDim.clear()
+    }
 }

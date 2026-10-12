@@ -16,7 +16,7 @@ import org.shipwrights.enderkinesis.util.SculkSpread
  * Scroll of Sculk Catastrophe — single-use right-click consumable that
  * sculk-converts a 7×5×7 ellipsoid centred on the player.
  *
- *  - **Generates** on the lectern in the `sselith_specimen_sculk` structure.
+ *  - **Generates** on the lectern in about half of the `sselith_specimen_sculk` structures.
  *  - **Right-click in air** consumes the scroll and routes through
  *    [SculkSpread.spread] with the canonical catastrophe radius.
  *  - **Right-click on an empty lectern** places the scroll there (via the

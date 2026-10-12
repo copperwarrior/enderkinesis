@@ -1,0 +1,160 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "srcalpha",
+        "dstrgb": "1-srcalpha"
+    },
+    "vertex": "rendertype_irreverant_remnant",
+    "fragment": "rendertype_irreverant_remnant",
+    "attributes": [
+        "Position",
+        "Color",
+        "UV0",
+        "UV1",
+        "UV2",
+        "Normal"
+    ],
+    "uniforms": [
+        {
+            "name": "ModelViewMat",
+            "type": "matrix4x4",
+            "count": 16,
+            "values": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ]
+        },
+        {
+            "name": "ProjMat",
+            "type": "matrix4x4",
+            "count": 16,
+            "values": [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ]
+        },
+        {
+            "name": "GlowColor",
+            "type": "float",
+            "count": 4,
+            "values": [
+                1.0,
+                0.85,
+                0.2,
+                1.0
+            ]
+        },
+        {
+            "name": "EntityLight0",
+            "type": "float",
+            "count": 3,
+            "values": [
+                0.2,
+                1.0,
+                -0.7
+            ]
+        },
+        {
+            "name": "EntityLight1",
+            "type": "float",
+            "count": 3,
+            "values": [
+                -0.2,
+                1.0,
+                0.7
+            ]
+        },
+        {
+            "name": "Thickness",
+            "type": "float",
+            "count": 1,
+            "values": [
+                0.5
+            ]
+        },
+        {
+            "name": "NoiseStrength",
+            "type": "float",
+            "count": 1,
+            "values": [
+                0.18
+            ]
+        },
+        {
+            "name": "NoiseScale",
+            "type": "float",
+            "count": 1,
+            "values": [
+                4.0
+            ]
+        },
+        {
+            "name": "NoiseLevels",
+            "type": "float",
+            "count": 1,
+            "values": [
+                5.0
+            ]
+        },
+        {
+            "name": "CoreColor",
+            "type": "float",
+            "count": 4,
+            "values": [
+                1.0,
+                0.82,
+                0.16,
+                1.0
+            ]
+        },
+        {
+            "name": "CorePower",
+            "type": "float",
+            "count": 1,
+            "values": [
+                1.6
+            ]
+        },
+        {
+            "name": "CoreStrength",
+            "type": "float",
+            "count": 1,
+            "values": [
+                0.26
+            ]
+        }
+    ],
+    "samplers": [
+        {
+            "name": "Sampler2"
+        }
+    ]
+}

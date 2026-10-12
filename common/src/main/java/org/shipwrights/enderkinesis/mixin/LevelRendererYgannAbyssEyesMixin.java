@@ -4,7 +4,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LevelRenderer;
 import org.jetbrains.annotations.Nullable;
-import org.shipwrights.enderkinesis.client.IrisCompat;
 import org.shipwrights.enderkinesis.client.YgannAbyssWatchingEyes;
 import org.shipwrights.enderkinesis.client.YgannAbyssWrithingSea;
 import org.shipwrights.enderkinesis.dimension.YgannAbyss;
@@ -56,13 +55,6 @@ public abstract class LevelRendererYgannAbyssEyesMixin {
         ClientLevel lvl = this.level;
         if (lvl == null) return;
         if (!lvl.dimension().equals(YgannAbyss.INSTANCE.getLEVEL_KEY())) return;
-        // When a shader pack is active, the sky-pass mixin path is owned by the pack's
-        // `gbuffers_sky*` programs — our color output gets tinted by the pack's
-        // atmospheric math, sun-recolored on older Iris, etc. Skip this hook in that case
-        // and let {@code LevelRendererYgannAbyssPostWorldMixin} do the drawing after the
-        // whole world (and the shader's deferred composite) has rendered. The non-shader
-        // path keeps the sky-pass route — that's the proven, far-clip-escaped version.
-        if (IrisCompat.INSTANCE.isShaderPackInUse()) return;
         // The writhing sea is a permanent feature of the abyss — drawn every frame, below
         // the horizon. The watching eyes are a rare apparition gated on their own state.
         // Sea first so the upper-sky eyes layer cleanly on top of the lower-hemisphere sheet.

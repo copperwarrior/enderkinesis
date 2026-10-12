@@ -65,7 +65,6 @@ object ConcealmentPostEffect {
         ensureLoaded(mc)
 
         val cloakActive = anyCloakActive()
-        ShipOnlyRenderer.maybeLogDiagnostics(cloakActive)
 
         if (cloakActive && !wasCloakActive) pickRippleOrigin()
         wasCloakActive = cloakActive
@@ -99,7 +98,7 @@ object ConcealmentPostEffect {
         }
     }
 
-    /** World-leave / client teardown cleanup. */
+    /** Releases the shader and the two framebuffers. The next cloak frame makes them again. */
     fun reset() {
         refractionEffect?.close()
         refractionEffect = null

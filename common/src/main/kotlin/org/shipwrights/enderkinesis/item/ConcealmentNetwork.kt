@@ -16,6 +16,7 @@ import org.shipwrights.enderkinesis.client.ClientShipCloakingState
 object ConcealmentNetwork {
 
     val S2C_CLOAK_UPDATE: ResourceLocation = EnderkinesisMod.id("staff_of_concealment/cloak_update")
+    val S2C_CLOAK_TRANSFER: ResourceLocation = EnderkinesisMod.id("staff_of_concealment/cloak_transfer")
 
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, S2C_CLOAK_UPDATE) { buf, ctx ->
@@ -23,6 +24,28 @@ object ConcealmentNetwork {
             val cloaking = buf.readBoolean()
             ctx.queue { ClientShipCloakingState.onServerUpdate(shipId, cloaking) }
         }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, S2C_CLOAK_TRANSFER) { buf, ctx ->
+            val fromShipId = buf.readLong()
+            val toShipId = buf.readLong()
+            ctx.queue { ClientShipCloakingState.onTransfer(fromShipId, toShipId) }
+        }
+    }
+
+    /** The cloaked block moved from [fromShipId] to [toShipId] (VS2 split or weld). */
+    fun broadcastCloakTransfer(level: ServerLevel, fromShipId: Long, toShipId: Long) {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeLong(fromShipId)
+        buf.writeLong(toShipId)
+        for (player in level.players()) {
+            NetworkManager.sendToPlayer(player, S2C_CLOAK_TRANSFER, FriendlyByteBuf(buf.copy()))
+        }
+    }
+
+    fun sendCloakUpdate(player: net.minecraft.server.level.ServerPlayer, shipId: Long, cloaking: Boolean) {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeLong(shipId)
+        buf.writeBoolean(cloaking)
+        NetworkManager.sendToPlayer(player, S2C_CLOAK_UPDATE, buf)
     }
 
     /** Broadcast a cloak-state update to every player currently in [level]. Players in

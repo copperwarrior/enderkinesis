@@ -13,9 +13,7 @@
 //      colours pulled from this dim's palette so the glow tonally matches
 //      the surrounding clouds instead of slamming in a foreign blue.
 //
-// The nebula is computed only when the fragment direction faces the sun
-// (dot(dir, SunDir) > 0 and the projection onto the sun-perpendicular plane
-// is within 0.6) so most of the sky pays no cost for it.
+// The nebula is computed for each sky fragment: the full-sky look is intended.
 
 uniform vec4  ColorModulator;
 uniform float Time;

@@ -1,7 +1,9 @@
 package org.shipwrights.enderkinesis.block
 
-import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.Holder
@@ -9,10 +11,10 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.LongArrayTag
 import net.minecraft.nbt.Tag
-import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket
 import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.TicketType
 import net.minecraft.tags.TagKey
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.GameRules
@@ -22,6 +24,7 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.Property
+import net.minecraft.world.level.chunk.ChunkAccess
 import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.chunk.LevelChunkSection
 import net.minecraft.world.level.chunk.PalettedContainer
@@ -29,6 +32,11 @@ import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKGameRules
+import org.joml.Vector3d
+import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.isChunkInShipyard
+import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
@@ -39,8 +47,9 @@ import kotlin.math.max
  *     random face-or-vertex neighbour (14-neighbourhood: 6 faces + 8 vertices, skipping
  *     the 12 edge midpoints of the 26-neighbourhood).
  *  2. Force-load: per-dim [TaintedChunkData] tracks every chunk that has ever held Wohlon
- *     biome; every in-game hour (1000 ticks) one unloaded tainted chunk is force-loaded
- *     so spread + block conversion continue without a nearby player.
+ *     biome; every in-game hour (1000 ticks) one unloaded tainted chunk and its neighbours
+ *     get a ticket for [FORCE_LOAD_HOLD_TICKS], so spread + block conversion continue
+ *     without a nearby player.
  *  3. Conversion tags `converts_to_wogor_wood` / `_mud` / `_wogor_leaves` drive replacement.
  *  4. Random-tick: each tick, `randomTickSpeed` positions per section — if biome cell is
  *     Wohlon and the block matches a converts-to tag, it's replaced.
@@ -49,10 +58,32 @@ import kotlin.math.max
  */
 object WohlonnogondoniaSpreader {
 
-    private val LOG = LogUtils.getLogger()
-
     /** 1 in-game hour = 1000 ticks (vanilla day = 24000 ticks ÷ 24). */
     private const val FORCE_LOAD_INTERVAL_TICKS: Long = 1000L
+
+    /** One load-and-drop tick gives the sampler no time to cross into the chunk. */
+    private const val FORCE_LOAD_HOLD_TICKS: Long = 600L
+
+    /** Radius 1 also loads the neighbours, or the taint cannot leave the tainted chunk. */
+    private const val FORCE_LOAD_RADIUS: Int = 1
+
+    /** A high `wohlonSpreadSpeed` shortens the interval; this bounds the chunks held at one time. */
+    private const val FORCE_LOAD_MAX_HELD: Int = 4
+
+    private val FORCE_LOAD_TICKET: TicketType<ChunkPos> = TicketType.create(
+        "enderkinesis_wohlon_spread", Comparator.comparingLong(ChunkPos::toLong),
+    )
+
+    /** Per-dim chunk → game time of ticket release. Server thread only. */
+    private val heldForceLoads: MutableMap<ResourceKey<Level>, Long2LongOpenHashMap> = HashMap()
+
+    private const val TAINTED_DISCOVERY_INTERVAL_TICKS: Long = 20L
+
+    private const val SHIP_TRANSFER_INTERVAL_TICKS: Long = 20L
+    private const val SHIP_TRANSFER_SAMPLES: Int = 4
+
+    // Scratch for [tickShipTransfer]. Server thread only.
+    private val shipTransferScratch = Vector3d()
 
     /** Per-second biome-change rate at `wohlonSpreadSpeed = 1`.
      *  The gamerule multiplies this — so `speed = 10` gives
@@ -378,66 +409,23 @@ object WohlonnogondoniaSpreader {
      *  [tickFrontierSpread] picks from this set instead of walking
      *  every tainted chunk — the spread cost becomes
      *  `O(|frontier|)` ≈ `O(r)` (boundary), not `O(r²)` (volume).
-     *
-     *  Wraps a plain `HashSet<Long>` to match the auto-boxing
-     *  pattern used elsewhere in this file; the per-tick sampling
-     *  cost is dominated by the `toLongArray()` snapshot, which is
-     *  O(|activeFrontierChunks|) per spread tick — typically a
-     *  few hundred entries, negligible.
-     *
-     *  Cleared on [SERVER_STOPPED]. Chunks self-evict from the set
-     *  when their `frontierCount` returns to 0 via the maintenance
-     *  hook in [updateFrontierForFlip]. */
-    private val activeFrontierChunks: ConcurrentHashMap<ResourceKey<Level>, MutableSet<Long>> =
+     *  Chunks leave when `frontierCount` returns to 0 or on eviction. */
+    private val activeFrontierChunks: ConcurrentHashMap<ResourceKey<Level>, LongOpenHashSet> =
         ConcurrentHashMap()
 
-    /** Per-(dim, chunk) cache, keyed by `(level.dimension hash,
-     *  ChunkPos.asLong)` — see [chunkCacheKey]. Lives in a
-     *  [ConcurrentHashMap] because the server tick is
-     *  single-threaded but chunk unload can fire off-tick on
-     *  some platforms; we don't want lock contention.
-     *
-     *  Eviction policy:
-     *   - [evictUnloadedChunkStates] runs every
-     *     [STATE_EVICTION_INTERVAL_TICKS] ticks per dimension and
-     *     drops entries whose chunk is no longer loaded. The cache
-     *     is purely a runtime accelerator (see [ChunkSpreadState]),
-     *     so dropped entries lazily rebuild on next access.
-     *   - [SERVER_STOPPED] clears everything.
-     *   - [STATE_CACHE_SOFT_CAP] is a noisy ceiling — if the cache
-     *     grows past it (e.g. a very wide infection on a server
-     *     that's been up for weeks), [tickLevel] logs a warning so
-     *     the operator can investigate. It does **not** auto-trim;
-     *     trimming without a usage-recency signal could evict a
-     *     hot chunk's state mid-spread and cause a re-scan storm.
-     *     Phase 3 tiering adds the timestamps needed for safe LRU. */
-    private val chunkStates: ConcurrentHashMap<Long, ChunkSpreadState> = ConcurrentHashMap()
+    /** Per-dim runtime cache, keyed by `ChunkPos.asLong`. Holds loaded chunks only:
+     *  [evictUnloadedChunkStates] drops the others, and a dropped entry rebuilds lazily. */
+    private val chunkStates: ConcurrentHashMap<ResourceKey<Level>, ConcurrentHashMap<Long, ChunkSpreadState>> =
+        ConcurrentHashMap()
+
+    private fun statesFor(dim: ResourceKey<Level>): ConcurrentHashMap<Long, ChunkSpreadState> =
+        chunkStates.computeIfAbsent(dim) { ConcurrentHashMap() }
 
     /** How often to sweep [chunkStates] and evict entries whose
      *  chunks are no longer loaded. 600 ticks = 30 s — eviction
      *  doesn't need to be quick, just steady. Cost: one
      *  `getChunkNow` probe per entry, hash lookups in chunk source. */
     private const val STATE_EVICTION_INTERVAL_TICKS: Long = 600L
-
-    /** Upper-32-bit mask, used by [evictUnloadedChunkStates] to
-     *  isolate the dim-hash portion of a [chunkCacheKey] long.
-     *  Kotlin's `0xFFFFFFFF00000000L` would overflow the literal
-     *  parser; build it as `0xFFFFFFFFL shl 32` instead. */
-    private const val UPPER_32_MASK: Long = 0xFFFFFFFFL shl 32
-
-    /** Per-dim observability threshold for the chunk-state cache.
-     *  Crossing this size produces a one-shot warning log per
-     *  rising-edge; the cache keeps working, this just tells the
-     *  operator the eviction sweep isn't keeping up with the
-     *  growth rate. 50_000 entries × ~32 bytes ≈ 1.6 MB per dim —
-     *  not catastrophic, but a useful smoke signal. */
-    private const val STATE_CACHE_SOFT_CAP: Int = 50_000
-
-    /** One-shot flag per dim: have we already logged the soft-cap
-     *  warning since the cache last dropped under the cap? Avoids
-     *  spamming the log every tick while large. Cleared on
-     *  [SERVER_STOPPED] with the rest of the per-session state. */
-    private val cacheCapWarned: ConcurrentHashMap<ResourceKey<Level>, Boolean> = ConcurrentHashMap()
 
 /** Per-dimension list of in-progress portal seed jobs. A job
      *  starts when [startPortalSeed] is called by the heart
@@ -451,15 +439,10 @@ object WohlonnogondoniaSpreader {
      *  persistent regardless. */
     private val seedJobs: ConcurrentHashMap<ResourceKey<Level>, MutableList<SeedJob>> = ConcurrentHashMap()
 
-    /** Per-dimension batched chunk-resync queue. Random-tick
-     *  spread accumulates touched chunks here and the
-     *  [BROADCAST_FLUSH_INTERVAL_TICKS] tick beat flushes the set
-     *  with one packet per chunk. Pre-fix this was a per-tick
-     *  broadcast loop — same chunks at the spread front rebroadcast
-     *  20 times per second, ~26 % of server CPU. Set semantics
-     *  dedupe so a chunk touched 20 ticks in a row only costs one
-     *  packet per second. */
-    private val pendingResyncs: ConcurrentHashMap<ResourceKey<Level>, MutableSet<Long>> = ConcurrentHashMap()
+    /** Per-dimension batched biome-resync queue. Each biome write adds its chunk, and the
+     *  [BROADCAST_FLUSH_INTERVAL_TICKS] beat sends one biome packet for each chunk. Server
+     *  thread only. */
+    private val pendingResyncs: MutableMap<ResourceKey<Level>, LongOpenHashSet> = HashMap()
 
     /** Ticks between batched chunk-resync flushes. 20 = once per
      *  second at 20 tps. Visual latency is bounded by this. */
@@ -494,19 +477,19 @@ object WohlonnogondoniaSpreader {
      *  converted** — not air, not stone, not a player-placed
      *  block) and its biome cell is not yet Wohlon, the cell
      *  enqueues. Drained by [drainQueue] up to
-     *  [SPREAD_DRAIN_PER_SEC] cells per second. `LinkedHashSet`
+     *  [SPREAD_DRAIN_PER_SEC] cells per second. The linked set
      *  gives O(1) add / contains (so duplicate enqueues coalesce)
      *  while preserving insertion order for the drain. Not
      *  persisted — on server restart the queue starts empty and
      *  refills naturally as random-ticks fire. */
-    private val spreadQueue: MutableMap<ResourceKey<Level>, LinkedHashSet<Long>> = HashMap()
+    private val spreadQueue: MutableMap<ResourceKey<Level>, LongLinkedOpenHashSet> = HashMap()
 
     /** Per-dimension FIFO of biome cells waiting to be flipped to
      *  Wohlon via the column cascade (sky cells above a fresh
      *  horizontal flip). Kept distinct from [spreadQueue] so the
      *  paced horizontal-spread budget isn't burned on bulk
      *  vertical fills that don't need pacing. */
-    private val verticalSpreadQueue: MutableMap<ResourceKey<Level>, LinkedHashSet<Long>> = HashMap()
+    private val verticalSpreadQueue: MutableMap<ResourceKey<Level>, LongLinkedOpenHashSet> = HashMap()
 
     /** Per-dimension fractional accumulator for the queue
      *  drain. Each tick we add `SPREAD_DRAIN_PER_SEC / 20.0`
@@ -530,23 +513,15 @@ object WohlonnogondoniaSpreader {
         // keys collide).
         dev.architectury.event.events.common.LifecycleEvent.SERVER_STOPPED.register { _ ->
             chunkStates.clear()
-            cacheCapWarned.clear()
             activeFrontierChunks.clear()
             seedJobs.clear()
             pendingResyncs.clear()
+            heldForceLoads.clear()
             spreadQueue.clear()
             verticalSpreadQueue.clear()
             spreadDrainBudget.clear()
             verticalDrainBudget.clear()
         }
-    }
-
-    private fun chunkCacheKey(dimHash: Int, chunkLong: Long): Long {
-        // 32 bits of dim hash in the upper word, chunkpos.asLong's
-        // lower 32 bits in the lower word — collisions are
-        // extremely unlikely across dimensions and chunk indexes
-        // and would only cost a stale recompute.
-        return (dimHash.toLong() shl 32) xor chunkLong
     }
 
     /** Read + clamp `wohlonSpreadSpeed`. Snapped to `[1, 100]`
@@ -607,18 +582,9 @@ object WohlonnogondoniaSpreader {
         verticalDrainBudget[level.dimension()] = budgetVert - toDrainVert
         if (toDrainVert > 0) drainQueue(level, toDrainVert, verticalSpreadQueue)
 
-        if (gameTime % 600L == 0L) {
-            val queueSize = spreadQueue[level.dimension()]?.size ?: 0
-            val vQueueSize = verticalSpreadQueue[level.dimension()]?.size ?: 0
-            LOG.info(
-                "WohlonSpreader: dim={} speed={} (ticks {}× random-density), drain={}/s (vert {}/s), queue={} (vert {}), forceLoadInterval={}t, tainted: {}",
-                level.dimension().location(), speed, speed,
-                drainPerSec, verticalDrainPerSec,
-                queueSize, vQueueSize,
-                forceLoadInterval, tainted.positions.size,
-            )
-        }
-        if (gameTime % forceLoadInterval == 0L) tryForceLoadTaintedChunk(level)
+        releaseExpiredForceLoads(level, gameTime)
+        if (gameTime % forceLoadInterval == 0L) tryForceLoadTaintedChunk(level, gameTime)
+        if (gameTime % SHIP_TRANSFER_INTERVAL_TICKS == 0L) tickShipTransfer(level)
         // Phase 2: spread sampling now reads from the frontier
         // bitmask instead of from random ticks across every
         // tainted chunk. Block conversion still runs through
@@ -629,75 +595,25 @@ object WohlonnogondoniaSpreader {
         if (gameTime % STATE_EVICTION_INTERVAL_TICKS == 0L) evictUnloadedChunkStates(level)
     }
 
-    /** Walk [chunkStates] and drop entries whose keys belong to
-     *  the current dim AND whose chunk is no longer loaded. The
-     *  state is purely a runtime cache (see [ChunkSpreadState]),
-     *  so dropping unloaded-chunk entries is harmless — the next
-     *  time the chunk loads and the spread tick touches it,
-     *  [sectionMaskFor] will lazily rebuild the entry.
-     *
-     *  Bounded cost: O(chunkStates.size) per sweep, dominated by
-     *  one [ChunkSource.getChunkNow] hash lookup per entry.
-     *  At [STATE_EVICTION_INTERVAL_TICKS] = 600 t = 30 s, this is
-     *  cheap even at the [STATE_CACHE_SOFT_CAP] ceiling.
-     *
-     *  Also emits a one-shot operator warning if cache size for
-     *  this dim crosses [STATE_CACHE_SOFT_CAP] — gated by
-     *  [cacheCapWarned] so the log isn't spammed every sweep
-     *  while the cache is large. Resets when size drops back
-     *  under the cap, so the next rising edge re-warns. */
+    /** Drop the state of each chunk that is no longer loaded, and take it out of the frontier
+     *  sampler. Cost: one `getChunkNow` for each entry, each [STATE_EVICTION_INTERVAL_TICKS]. */
     private fun evictUnloadedChunkStates(level: ServerLevel) {
-        val dimHash = level.dimension().location().hashCode()
-        val chunkSource = level.chunkSource
-        val keyDimMask = dimHash.toLong() shl 32
-        var evicted = 0
-        var dimEntries = 0
-        val iter = chunkStates.entries.iterator()
-        while (iter.hasNext()) {
-            val e = iter.next()
-            // Cheap filter: only inspect entries from this dim.
-            // Key layout is `(dimHash << 32) xor chunkLong`; the
-            // chunkLong's upper 32 bits are usually zero (chunk
-            // coords are small `int` values), so xor'ing the dim
-            // mask in/out is reliable in practice. We still
-            // double-check by recovering the chunk pos and
-            // probing chunkSource, so an occasional cross-dim
-            // false positive in the filter just means one extra
-            // getChunkNow lookup — not a correctness bug.
-            if ((e.key and UPPER_32_MASK) != keyDimMask) continue
-            dimEntries++
-            val chunkLong = e.key xor keyDimMask
-            val cx = ChunkPos.getX(chunkLong)
-            val cz = ChunkPos.getZ(chunkLong)
-            if (chunkSource.getChunkNow(cx, cz) == null) {
-                iter.remove()
-                evicted++
-            }
-        }
-        // Soft-cap observability — rising-edge warning only.
         val dimKey = level.dimension()
-        val overCap = dimEntries > STATE_CACHE_SOFT_CAP
-        val previouslyWarned = cacheCapWarned[dimKey] == true
-        if (overCap && !previouslyWarned) {
-            LOG.warn(
-                "WohlonSpreader: chunk-state cache for dim={} crossed soft cap ({} > {}). Eviction is keeping up if this number plateaus; if it grows steadily, investigate.",
-                dimKey.location(), dimEntries, STATE_CACHE_SOFT_CAP,
-            )
-            cacheCapWarned[dimKey] = true
-        } else if (!overCap && previouslyWarned) {
-            cacheCapWarned[dimKey] = false
-        }
-        if (evicted > 0) {
-            LOG.debug(
-                "WohlonSpreader: evicted {} stale chunk-state entries for dim={} ({} remaining)",
-                evicted, dimKey.location(), dimEntries - evicted,
-            )
+        val states = chunkStates[dimKey] ?: return
+        val chunkSource = level.chunkSource
+        val active = activeFrontierChunks[dimKey]
+        val iter = states.keys.iterator()
+        while (iter.hasNext()) {
+            val chunkLong = iter.next()
+            if (chunkSource.getChunkNow(ChunkPos.getX(chunkLong), ChunkPos.getZ(chunkLong)) != null) continue
+            iter.remove()
+            active?.remove(chunkLong)
         }
     }
 
     /** Enqueue a biome cell for spread. Idempotent — repeated
      *  calls for the same cell collapse into one queue entry
-     *  via [LinkedHashSet]. Called from [tickChunkConversions]
+     *  via the linked set. Called from [tickChunkConversions]
      *  every time a random-tick lands on a block in a non-
      *  Wohlon biome cell that is face-adjacent to a Wohlon cell.
      *
@@ -709,7 +625,7 @@ object WohlonnogondoniaSpreader {
      *  the queue may stay near-empty and the drain is the
      *  bottleneck. Both cases self-stabilise. */
     private fun enqueueCellSpread(level: ServerLevel, qx: Int, qy: Int, qz: Int) {
-        val queue = spreadQueue.getOrPut(level.dimension()) { LinkedHashSet() }
+        val queue = spreadQueue.getOrPut(level.dimension()) { LongLinkedOpenHashSet() }
         queue.add(BlockPos.asLong(qx, qy, qz))
     }
 
@@ -718,7 +634,7 @@ object WohlonnogondoniaSpreader {
      *  [verticalDrainBudget] pair, independent of the horizontal
      *  random-tick spread. */
     private fun enqueueVerticalSpread(level: ServerLevel, qx: Int, qy: Int, qz: Int) {
-        val queue = verticalSpreadQueue.getOrPut(level.dimension()) { LinkedHashSet() }
+        val queue = verticalSpreadQueue.getOrPut(level.dimension()) { LongLinkedOpenHashSet() }
         queue.add(BlockPos.asLong(qx, qy, qz))
     }
 
@@ -729,46 +645,26 @@ object WohlonnogondoniaSpreader {
      *  drain keeps going until [count] **successful** flips, or
      *  until the queue runs dry, whichever comes first.
      *
-     *  Resyncs are coalesced per touched chunk: the
-     *  [setBiomeCellSilent] writes don't broadcast, and a single
-     *  [broadcastChunkResync] at the end of the drain sends one
-     *  packet per chunk regardless of how many cells flipped in
-     *  it. */
+     *  [setBiomeCellSilent] queues the client resync of each touched chunk. */
     private fun drainQueue(
         level: ServerLevel,
         count: Int,
-        queueMap: MutableMap<ResourceKey<Level>, LinkedHashSet<Long>>,
+        queueMap: MutableMap<ResourceKey<Level>, LongLinkedOpenHashSet>,
     ) {
         if (count <= 0) return
         val queue = queueMap[level.dimension()] ?: return
         if (queue.isEmpty()) return
         val wohlonBiome = lookupBiome(level) ?: return
         val touchedChunks = HashSet<ChunkPos>()
-        // Each loop turn opens a fresh iterator so [setBiomeCellSilent]'s
-        // column cascade (which writes back into [verticalSpreadQueue]
-        // when this drain is the vertical one) doesn't trip a
-        // ConcurrentModificationException on a held iterator. Cost is
-        // one O(1) iterator allocation per drained cell — fine at the
-        // configured drain rates.
+        // No held iterator: the column cascade in [setBiomeCellSilent] adds to the vertical queue.
         var drained = 0
-        while (drained < count) {
-            val iter = queue.iterator()
-            if (!iter.hasNext()) break
-            val packed = iter.next()
-            iter.remove()
+        while (drained < count && !queue.isEmpty()) {
+            val packed = queue.removeFirstLong()
             val qx = BlockPos.getX(packed)
             val qy = BlockPos.getY(packed)
             val qz = BlockPos.getZ(packed)
             if (setBiomeCellSilent(level, qx, qy, qz, wohlonBiome, touchedChunks)) {
                 drained++
-            }
-        }
-        if (touchedChunks.isNotEmpty()) {
-            // Immediate broadcast — same shape as [tickSeedJobs].
-            val chunkSource = level.chunkSource
-            for (pos in touchedChunks) {
-                val chunk = chunkSource.getChunkNow(pos.x, pos.z) ?: continue
-                broadcastChunkResync(level, chunk)
             }
         }
     }
@@ -824,13 +720,6 @@ object WohlonnogondoniaSpreader {
             if (!seenCells.add(BlockPos.asLong(qx, qy, qz))) continue
             setBiomeCellSilent(level, qx, qy, qz, wohlonBiome, touchedChunks)
         }
-        // One resync per touched chunk, regardless of how many
-        // cells flipped in it — mirrors [tickSeedJobs]'s
-        // coalesce strategy.
-        for (cp in touchedChunks) {
-            val chunk = level.chunkSource.getChunkNow(cp.x, cp.z) as? LevelChunk ?: continue
-            broadcastChunkResync(level, chunk)
-        }
     }
 
     @JvmStatic
@@ -843,10 +732,6 @@ object WohlonnogondoniaSpreader {
         val totalTicks = max(1, SEED_TOTAL_TICKS / speed)
         val job = SeedJob(ArrayDeque(cells), totalTicks)
         seedJobs.computeIfAbsent(level.dimension()) { mutableListOf() }.add(job)
-        LOG.info(
-            "WohlonSeed: queued {} cells around {} in {} over {} ticks (speed {})",
-            cells.size, portalPos, level.dimension().location(), totalTicks, speed,
-        )
     }
 
     /** Enumerate the biome cells inside a sphere of radius
@@ -882,11 +767,7 @@ object WohlonnogondoniaSpreader {
      *    so the queue empties exactly at tick [SEED_TOTAL_TICKS].
      *  - Skip writes for cells that are already Wohlon (no work,
      *    no packet).
-     *  - Coalesce client resyncs: every cell write across all
-     *    jobs this tick is batched into a single
-     *    `Set<ChunkPos>` and we send ONE
-     *    `ClientboundLevelChunkWithLightPacket` per chunk at the
-     *    end — not one per cell. */
+     *  - Client resyncs go through [pendingResyncs]. */
     private fun tickSeedJobs(level: ServerLevel) {
         val list = seedJobs[level.dimension()] ?: return
         if (list.isEmpty()) {
@@ -911,113 +792,112 @@ object WohlonnogondoniaSpreader {
             }
             job.ticksRemaining = (job.ticksRemaining - 1).coerceAtLeast(0)
         }
-        // Coalesced resync — one packet per touched chunk per
-        // tick regardless of how many cells changed in it.
-        for (chunkPos in touchedChunks) {
-            val chunk = level.chunkSource.getChunkNow(chunkPos.x, chunkPos.z) ?: continue
-            broadcastChunkResync(level, chunk)
-        }
         if (list.isEmpty()) seedJobs.remove(level.dimension())
     }
 
-/** Pick one unloaded chunk and force-load it (vanilla
-     *  `getChunk` is synchronous), giving its biome-spread + block-
-     *  conversion logic a turn even when no player is nearby. We
-     *  don't explicitly unload — vanilla's chunk-keep-alive will
-     *  drop the chunk again on its normal cadence.
+/** Give one unloaded tainted chunk and its neighbours a ticket for [FORCE_LOAD_HOLD_TICKS],
+     *  so spread and conversion get a turn with no player nearby. The ticket loads off the
+     *  server thread; a synchronous `getChunk` generated terrain on it.
      *
-     *  Phase 4: prefer unloaded chunks face-adjacent to a chunk
-     *  in [activeFrontierChunks]. Those are exactly the chunks
-     *  the spread sampler is enqueuing cells into right now — the
-     *  drain currently no-ops on them because the chunk is
-     *  unloaded; force-loading lets the queued cells actually
-     *  flip. Falls back to uniform random pick from tainted
-     *  unloaded chunks when no frontier-adjacent candidates exist
-     *  (cold start before the spread has built a frontier, or a
-     *  dim where the only Wohlon is interior). */
-    private fun tryForceLoadTaintedChunk(level: ServerLevel) {
-        val data = getTaintedData(level)
-        if (data.positions.isEmpty()) return
+     *  A chunk at the edge of the tainted set is preferred: the taint advances there. Shipyard
+     *  chunks are never picked — a ship loads with its ship. */
+    private fun tryForceLoadTaintedChunk(level: ServerLevel, gameTime: Long) {
+        val positions = getTaintedData(level).positions
+        if (positions.isEmpty()) return
+        val held = heldForceLoads.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
+        if (held.size >= FORCE_LOAD_MAX_HELD) return
         val chunkSource = level.chunkSource
         val random = level.random
 
-        // Primary: frontier-adjacent unloaded picks.
-        val active = activeFrontierChunks[level.dimension()]
-        if (active != null && active.isNotEmpty()) {
-            val adjacent = collectFrontierAdjacentUnloaded(active, chunkSource)
-            if (adjacent.isNotEmpty()) {
-                val pick = adjacent[random.nextInt(adjacent.size)]
-                val pos = ChunkPos(pick)
-                level.getChunk(pos.x, pos.z)
-                LOG.debug(
-                    "WohlonSpread: force-loaded frontier-adjacent chunk {} in {}",
-                    pos, level.dimension().location(),
-                )
-                return
-            }
+        var edgePick = 0L
+        var edgeSeen = 0
+        var anyPick = 0L
+        var anySeen = 0
+        val iter = positions.iterator()
+        while (iter.hasNext()) {
+            val packed = iter.nextLong()
+            if (held.containsKey(packed)) continue
+            val cx = ChunkPos.getX(packed)
+            val cz = ChunkPos.getZ(packed)
+            if (chunkSource.getChunkNow(cx, cz) != null) continue
+            if (level.isChunkInShipyard(cx, cz)) continue
+            // Reservoir pick: uniform with no candidate list.
+            anySeen++
+            if (random.nextInt(anySeen) == 0) anyPick = packed
+            if (!isTaintEdge(positions, cx, cz)) continue
+            edgeSeen++
+            if (random.nextInt(edgeSeen) == 0) edgePick = packed
         }
-
-        // Fallback: uniform random pick from unloaded tainted
-        // chunks (the original behaviour, kept for cold-start and
-        // no-frontier cases).
-        val unloaded = ArrayList<Long>()
-        for (packed in data.positions) {
-            val pos = ChunkPos(packed)
-            if (chunkSource.getChunkNow(pos.x, pos.z) == null) unloaded.add(packed)
-        }
-        if (unloaded.isEmpty()) return
-        val pick = unloaded[random.nextInt(unloaded.size)]
+        if (anySeen == 0) return
+        val pick = if (edgeSeen > 0) edgePick else anyPick
         val pos = ChunkPos(pick)
-        // Touching the chunk via getChunk pulls it through the
-        // chunkgen pipeline (or loads from disk) to ChunkStatus.FULL
-        // and registers it as loaded for subsequent ticks.
-        level.getChunk(pos.x, pos.z)
-        LOG.debug(
-            "WohlonSpread: force-loaded tainted chunk {} (uniform fallback) in {}",
-            pos, level.dimension().location(),
-        )
+        chunkSource.addRegionTicket(FORCE_LOAD_TICKET, pos, FORCE_LOAD_RADIUS, pos)
+        held.put(pick, gameTime + FORCE_LOAD_HOLD_TICKS)
     }
 
-    /** Walk the active frontier chunk set and collect every
-     *  face-adjacent neighbour (4 horizontal sides) whose chunk
-     *  isn't loaded. These are the "spread is enqueuing into me
-     *  but I'm not loaded" candidates — force-loading any of them
-     *  immediately lets the next drain tick make progress.
-     *
-     *  Returns a dedup'd snapshot — the same neighbour can be
-     *  adjacent to several frontier chunks; the `HashSet` collapses
-     *  those into one entry so the uniform random pick at the call
-     *  site doesn't over-weight intersections.
-     *
-     *  Cost: O(|activeFrontierChunks| × 4) hash lookups, ≤ a few
-     *  thousand operations even on a mature biome. Allocates one
-     *  `HashSet<Long>` + one `LongArray` per force-load; force-load
-     *  runs ≤ once per hour by default, so the allocation rate is
-     *  negligible. */
-    private fun collectFrontierAdjacentUnloaded(
-        active: MutableSet<Long>,
-        chunkSource: net.minecraft.server.level.ServerChunkCache,
-    ): LongArray {
-        val seen = HashSet<Long>()
-        // Snapshot first — `active` is a live set that
-        // `updateFrontierForFlip` may mutate from the same tick.
-        val snapshot = active.toLongArray()
-        for (chunkLong in snapshot) {
-            val cx = ChunkPos.getX(chunkLong)
-            val cz = ChunkPos.getZ(chunkLong)
-            // 4 face-adjacent chunk positions (horizontal). Spread
-            // happens in 3D but chunks are columns, so face-adjacent
-            // for chunk-load purposes is only horizontal.
-            val n1 = ChunkPos.asLong(cx - 1, cz)
-            val n2 = ChunkPos.asLong(cx + 1, cz)
-            val n3 = ChunkPos.asLong(cx, cz - 1)
-            val n4 = ChunkPos.asLong(cx, cz + 1)
-            if (chunkSource.getChunkNow(cx - 1, cz) == null) seen.add(n1)
-            if (chunkSource.getChunkNow(cx + 1, cz) == null) seen.add(n2)
-            if (chunkSource.getChunkNow(cx, cz - 1) == null) seen.add(n3)
-            if (chunkSource.getChunkNow(cx, cz + 1) == null) seen.add(n4)
+    private fun isTaintEdge(positions: LongOpenHashSet, cx: Int, cz: Int): Boolean =
+        !positions.contains(ChunkPos.asLong(cx - 1, cz)) ||
+            !positions.contains(ChunkPos.asLong(cx + 1, cz)) ||
+            !positions.contains(ChunkPos.asLong(cx, cz - 1)) ||
+            !positions.contains(ChunkPos.asLong(cx, cz + 1))
+
+    private fun releaseExpiredForceLoads(level: ServerLevel, gameTime: Long) {
+        val held = heldForceLoads[level.dimension()] ?: return
+        if (held.isEmpty()) return
+        val iter = held.long2LongEntrySet().fastIterator()
+        while (iter.hasNext()) {
+            val entry = iter.next()
+            if (gameTime < entry.longValue) continue
+            val pos = ChunkPos(entry.longKey)
+            level.chunkSource.removeRegionTicket(FORCE_LOAD_TICKET, pos, FORCE_LOAD_RADIUS, pos)
+            iter.remove()
         }
-        return seen.toLongArray()
+    }
+
+    /** World → ship transfer, the only way taint reaches a ship. Ship blocks live in shipyard
+     *  chunks far from the world cells they float in, so coordinate adjacency never gets there.
+     *  A ship cell that holds a block and whose WORLD position is in a Wohlon cell is queued. */
+    private fun tickShipTransfer(level: ServerLevel) {
+        val dimId = level.dimensionId
+        val samples = SHIP_TRANSFER_SAMPLES * spreadSpeed(level)
+        val random = level.random
+        val world = shipTransferScratch
+        for (ship in level.shipObjectWorld.loadedShips) {
+            if (ship.chunkClaimDimension != dimId) continue
+            val aabb = ship.shipAABB ?: continue
+            repeat(samples) {
+                val sx = aabb.minX() + random.nextInt(aabb.maxX() - aabb.minX() + 1)
+                val sy = aabb.minY() + random.nextInt(aabb.maxY() - aabb.minY() + 1)
+                val sz = aabb.minZ() + random.nextInt(aabb.maxZ() - aabb.minZ() + 1)
+                val qx = sx shr 2
+                val qy = sy shr 2
+                val qz = sz shr 2
+                val shipCell = getBiomeCellNonLoading(level, qx, qy, qz) ?: return@repeat
+                if (isWohlon(shipCell)) return@repeat
+                if (cellIsAllAir(level, qx, qy, qz)) return@repeat
+                ship.shipToWorld.transformPosition(world.set(sx + 0.5, sy + 0.5, sz + 0.5))
+                val worldCell = getBiomeCellNonLoading(
+                    level,
+                    Math.floor(world.x).toInt() shr 2,
+                    Math.floor(world.y).toInt() shr 2,
+                    Math.floor(world.z).toInt() shr 2,
+                ) ?: return@repeat
+                if (isWohlon(worldCell)) enqueueCellSpread(level, qx, qy, qz)
+            }
+        }
+    }
+
+    /** Coordinate adjacency must not carry taint into a shipyard claim, out of one, or between
+     *  two ships. Inside one ship it is free. */
+    private fun sameSpreadScope(level: ServerLevel, cxA: Int, czA: Int, cxB: Int, czB: Int): Boolean {
+        if (cxA == cxB && czA == czB) return true
+        val yardA = level.isChunkInShipyard(cxA, czA)
+        val yardB = level.isChunkInShipyard(cxB, czB)
+        if (!yardA && !yardB) return true
+        if (yardA != yardB) return false
+        val shipA = level.getShipManagingPos(cxA, czA) ?: return false
+        val shipB = level.getShipManagingPos(cxB, czB) ?: return false
+        return shipA.id == shipB.id
     }
 
 /** Non-Wohlon-dimension path: walk only the tainted chunks
@@ -1051,45 +931,34 @@ object WohlonnogondoniaSpreader {
         val random = level.random
         val mutPos = BlockPos.MutableBlockPos()
         val chunkSource = level.chunkSource
-        val dimHash = level.dimension().location().hashCode()
-        val taintedSnapshot = data.positions.toLongArray()
-
+        val states = statesFor(level.dimension())
         val gameTime = level.gameTime
-        for (packed in taintedSnapshot) {
-            val pos = ChunkPos(packed)
-            val chunk = chunkSource.getChunkNow(pos.x, pos.z) ?: continue
-            val mask = sectionMaskFor(level, chunk, dimHash)
-            if (mask == 0L) continue
+        if (gameTime % TAINTED_DISCOVERY_INTERVAL_TICKS == 0L) discoverLoadedTainted(level, data, states)
 
-            // Phase 3: per-chunk tier gate. Chunks bucket into
-            // hot / warm / cold based on elapsed time since last
-            // activity; warm and cold tick on a slower cadence
-            // (every 10 or every 1200 ticks), staggered by a
-            // per-chunk phase so the whole tier doesn't fire on
-            // the same tick. A freshly-created state with
-            // `lastActivityGameTime == 0L` is bootstrapped to the
-            // current gameTime so it doesn't get demoted to cold
-            // by zero-vs-large math on its first appearance.
-            val key = chunkCacheKey(dimHash, packed)
-            val state = chunkStates[key]
-            if (state != null && state.lastActivityGameTime == 0L) {
-                state.lastActivityGameTime = gameTime
-            }
-            val lastActivity = state?.lastActivityGameTime ?: gameTime
-            val elapsed = gameTime - lastActivity
+        // The states hold loaded chunks only, so the cost follows the loaded part of the taint.
+        for (entry in states.entries) {
+            val state = entry.value
+            val mask = state.sectionMask
+            if (mask == 0L) continue
+            val packed: Long = entry.key
+
+            // Phase 3: per-chunk tier gate, before the chunk lookup. Chunks bucket into
+            // hot / warm / cold by time since last activity; warm and cold tick on a
+            // slower cadence, staggered by a per-chunk phase.
+            if (state.lastActivityGameTime == 0L) state.lastActivityGameTime = gameTime
+            val elapsed = gameTime - state.lastActivityGameTime
             val interval = when {
                 elapsed < HOT_THRESHOLD_TICKS -> HOT_TICK_INTERVAL
                 elapsed < WARM_THRESHOLD_TICKS -> WARM_TICK_INTERVAL
                 else -> COLD_TICK_INTERVAL
             }
             if (interval > 1L) {
-                // Stagger same-tier chunks across ticks. The phase
-                // is a deterministic hash of the chunk pos so a
-                // single chunk's tick schedule is stable across
-                // ticks (no drifting).
-                val phase = (packed xor (packed ushr 32)).let { it - (it / interval) * interval }
+                // floorMod: the packed key is negative for a chunk with negative Z.
+                val phase = Math.floorMod(packed xor (packed ushr 32), interval)
                 if (((gameTime % interval) + interval) % interval != phase) continue
             }
+            val chunk = chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) ?: continue
+            if (!state.frontierPopulated) populateFrontier(level, chunk, state)
 
             val converted = tickChunkConversions(
                 level, chunk, mask, effectiveTickRate, random, mutPos,
@@ -1099,32 +968,40 @@ object WohlonnogondoniaSpreader {
                 // from interior cells (full rate). May be null —
                 // [tickChunkConversions] treats null as "all
                 // interior" and skips the gate entirely.
-                state?.frontierBits,
+                state.frontierBits,
             )
-            if (converted > 0) {
-                // Promote back to hot via the standard activity
-                // stamp. computeIfAbsent because state may be
-                // null here if sectionMaskFor didn't materialise
-                // one (unlikely — mask != 0 implies state exists
-                // — but harmless to be safe).
-                markChunkActivity(level, pos)
-            }
+            if (converted > 0) state.lastActivityGameTime = gameTime
         }
     }
 
-    /** Drain the per-dim batched resync queue, sending one
-     *  full-chunk packet per chunk. Called from [tickLevel] on
-     *  the [BROADCAST_FLUSH_INTERVAL_TICKS] beat. */
+    /** Make a state for each tainted chunk that loaded since the last pass. */
+    private fun discoverLoadedTainted(
+        level: ServerLevel, data: TaintedChunkData, states: ConcurrentHashMap<Long, ChunkSpreadState>,
+    ) {
+        val chunkSource = level.chunkSource
+        val iter = data.positions.iterator()
+        while (iter.hasNext()) {
+            val packed = iter.nextLong()
+            if (states.containsKey(packed)) continue
+            val chunk = chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) ?: continue
+            sectionMaskFor(level, chunk)
+        }
+    }
+
+    /** Send the queued biome changes, one biome packet for each chunk. Vanilla `/fillbiome`
+     *  uses the same path; it carries no block or light data. */
     private fun flushPendingResyncs(level: ServerLevel) {
         val pending = pendingResyncs[level.dimension()] ?: return
         if (pending.isEmpty()) return
         val chunkSource = level.chunkSource
-        for (packed in pending) {
-            val pos = ChunkPos(packed)
-            val chunk = chunkSource.getChunkNow(pos.x, pos.z) ?: continue
-            broadcastChunkResync(level, chunk)
+        val chunks = ArrayList<ChunkAccess>(pending.size)
+        val iter = pending.iterator()
+        while (iter.hasNext()) {
+            val packed = iter.nextLong()
+            chunks.add(chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) ?: continue)
         }
         pending.clear()
+        if (chunks.isNotEmpty()) chunkSource.chunkMap.resendBiomesForChunks(chunks)
     }
 
     /** Per-chunk inner loop. [sectionMask] selects which sections
@@ -1284,9 +1161,10 @@ object WohlonnogondoniaSpreader {
      *  means "no Wohlon cells anywhere in this chunk" and the
      *  conversion loop short-circuits. The cache is invalidated
      *  on biome spread via [invalidateSectionMask]. */
-    private fun sectionMaskFor(level: ServerLevel, chunk: LevelChunk, dimHash: Int): Long {
-        val key = chunkCacheKey(dimHash, chunk.pos.toLong())
-        val existing = chunkStates[key]
+    private fun sectionMaskFor(level: ServerLevel, chunk: LevelChunk): Long {
+        val states = statesFor(level.dimension())
+        val key = chunk.pos.toLong()
+        val existing = states[key]
         if (existing != null) {
             // Phase 5: state may have been created by
             // [bumpSectionMask] with only one frontier bit set (the
@@ -1314,7 +1192,7 @@ object WohlonnogondoniaSpreader {
         // class: concurrent computers either both write the same
         // mask (same chunk content) or the second-arriving one
         // overwrites with the correct mask anyway.
-        val state = chunkStates.computeIfAbsent(key) { ChunkSpreadState() }
+        val state = states.computeIfAbsent(key) { ChunkSpreadState() }
         state.sectionMask = mask
         if (mask != 0L && !state.frontierPopulated) {
             populateFrontier(level, chunk, state)
@@ -1365,7 +1243,7 @@ object WohlonnogondoniaSpreader {
                 val qzW = chunkBaseQz or qz
                 if (!hasNonWohlonNeighbor(level, qxW, qyW, qzW)) continue
                 if (bits == null) {
-                    bits = LongArray(24)
+                    bits = LongArray(sections.size)
                     state.frontierBits = bits
                 }
                 val bit = frontierBitMask(qxW, qyW, qzW)
@@ -1378,7 +1256,7 @@ object WohlonnogondoniaSpreader {
         state.frontierCount = count
         state.frontierPopulated = true
         if (count > 0) {
-            activeFrontierChunks.computeIfAbsent(level.dimension()) { HashSet() }.add(chunk.pos.toLong())
+            activeFrontierChunks.computeIfAbsent(level.dimension()) { LongOpenHashSet() }.add(chunk.pos.toLong())
         }
     }
 
@@ -1400,10 +1278,8 @@ object WohlonnogondoniaSpreader {
      *  with random-tick spread at default settings. After this
      *  change, the mask lookup is a `ConcurrentHashMap.get`. */
     private fun bumpSectionMask(level: ServerLevel, chunkPos: ChunkPos, sectionIdx: Int) {
-        val dimHash = level.dimension().location().hashCode()
-        val key = chunkCacheKey(dimHash, chunkPos.toLong())
         val bit = 1L shl sectionIdx
-        val state = chunkStates.computeIfAbsent(key) { ChunkSpreadState() }
+        val state = statesFor(level.dimension()).computeIfAbsent(chunkPos.toLong()) { ChunkSpreadState() }
         // The mask is OR-only — Wohlon biome never retracts — so a
         // racing concurrent OR is idempotent. No need for a lock or
         // an atomic write.
@@ -1421,9 +1297,7 @@ object WohlonnogondoniaSpreader {
      *  Cheap: one hash lookup, one volatile-long write. No
      *  allocation on the common path. */
     private fun markChunkActivity(level: ServerLevel, chunkPos: ChunkPos) {
-        val dimHash = level.dimension().location().hashCode()
-        val key = chunkCacheKey(dimHash, chunkPos.toLong())
-        val state = chunkStates.computeIfAbsent(key) { ChunkSpreadState() }
+        val state = statesFor(level.dimension()).computeIfAbsent(chunkPos.toLong()) { ChunkSpreadState() }
         state.lastActivityGameTime = level.gameTime
     }
 
@@ -1519,19 +1393,19 @@ object WohlonnogondoniaSpreader {
      *  bit is a no-op. */
     private fun setFrontierBit(
         dimKey: ResourceKey<Level>, state: ChunkSpreadState,
-        chunkLong: Long, sectionIdx: Int, mask: Long,
+        chunkLong: Long, sectionIdx: Int, sectionCount: Int, mask: Long,
     ) {
-        if (sectionIdx < 0 || sectionIdx >= 24) return
+        if (sectionIdx < 0 || sectionIdx >= sectionCount) return
         var bits = state.frontierBits
         if (bits == null) {
-            bits = LongArray(24)
+            bits = LongArray(sectionCount)
             state.frontierBits = bits
         }
         if ((bits[sectionIdx] and mask) != 0L) return
         bits[sectionIdx] = bits[sectionIdx] or mask
         state.frontierCount++
         if (state.frontierCount == 1) {
-            activeFrontierChunks.computeIfAbsent(dimKey) { HashSet() }.add(chunkLong)
+            activeFrontierChunks.computeIfAbsent(dimKey) { LongOpenHashSet() }.add(chunkLong)
         }
     }
 
@@ -1543,8 +1417,8 @@ object WohlonnogondoniaSpreader {
         dimKey: ResourceKey<Level>, state: ChunkSpreadState,
         chunkLong: Long, sectionIdx: Int, mask: Long,
     ) {
-        if (sectionIdx < 0 || sectionIdx >= 24) return
         val bits = state.frontierBits ?: return
+        if (sectionIdx < 0 || sectionIdx >= bits.size) return
         if ((bits[sectionIdx] and mask) == 0L) return
         bits[sectionIdx] = bits[sectionIdx] and mask.inv()
         state.frontierCount--
@@ -1569,17 +1443,18 @@ object WohlonnogondoniaSpreader {
      *  spread rates (≤ 20/s after seed) this is well under 1 ms/s. */
     private fun updateFrontierForFlip(level: ServerLevel, qx: Int, qy: Int, qz: Int) {
         val dimKey = level.dimension()
-        val dimHash = dimKey.location().hashCode()
+        val states = statesFor(dimKey)
 
         // Self
         val selfChunk = level.chunkSource.getChunkNow(qx shr 2, qz shr 2) ?: return
         val selfSection = (qy shr 2) - selfChunk.minSection
         if (selfSection < 0 || selfSection >= selfChunk.sections.size) return
         val selfMask = frontierBitMask(qx, qy, qz)
-        val selfKey = chunkCacheKey(dimHash, selfChunk.pos.toLong())
-        val selfState = chunkStates.computeIfAbsent(selfKey) { ChunkSpreadState() }
+        val selfState = states.computeIfAbsent(selfChunk.pos.toLong()) { ChunkSpreadState() }
         if (hasNonWohlonNeighbor(level, qx, qy, qz)) {
-            setFrontierBit(dimKey, selfState, selfChunk.pos.toLong(), selfSection, selfMask)
+            setFrontierBit(
+                dimKey, selfState, selfChunk.pos.toLong(), selfSection, selfChunk.sections.size, selfMask,
+            )
         } else {
             clearFrontierBit(dimKey, selfState, selfChunk.pos.toLong(), selfSection, selfMask)
         }
@@ -1603,8 +1478,7 @@ object WohlonnogondoniaSpreader {
             val nSection = (nqy shr 2) - nChunk.minSection
             if (nSection < 0 || nSection >= nChunk.sections.size) continue
             val nMask = frontierBitMask(nqx, nqy, nqz)
-            val nKey = chunkCacheKey(dimHash, nChunk.pos.toLong())
-            val nState = chunkStates[nKey] ?: continue
+            val nState = states[nChunk.pos.toLong()] ?: continue
             val nBits = nState.frontierBits ?: continue
             if ((nBits[nSection] and nMask) == 0L) continue
             if (!hasNonWohlonNeighbor(level, nqx, nqy, nqz)) {
@@ -1668,7 +1542,7 @@ object WohlonnogondoniaSpreader {
         if (active.isEmpty()) return
         val samples = FRONTIER_SAMPLES_PER_TICK_BASE * spreadSpeed(level)
         if (samples <= 0) return
-        val dimHash = dimKey.location().hashCode()
+        val states = statesFor(dimKey)
         val random = level.random
         // Snapshot the active set so concurrent mutations from a
         // spread enqueue don't trip us mid-iteration. The set's
@@ -1680,8 +1554,7 @@ object WohlonnogondoniaSpreader {
 
         repeat(samples) {
             val chunkLong = snapshot[random.nextInt(snapshot.size)]
-            val key = chunkCacheKey(dimHash, chunkLong)
-            val state = chunkStates[key] ?: return@repeat
+            val state = states[chunkLong] ?: return@repeat
             val bits = state.frontierBits ?: return@repeat
             val count = state.frontierCount
             if (count <= 0) return@repeat
@@ -1689,7 +1562,7 @@ object WohlonnogondoniaSpreader {
             var target = random.nextInt(count)
             var sectionIdx = -1
             var bitInLong = -1
-            for (s in 0 until 24) {
+            for (s in bits.indices) {
                 val popCount = java.lang.Long.bitCount(bits[s])
                 if (target < popCount) {
                     // Walk to the `target`-th set bit in this long.
@@ -1765,6 +1638,7 @@ object WohlonnogondoniaSpreader {
             // means the biome doesn't bleed into open sky around tainted
             // ground, only climbs the column directly above it.
             if (cellIsAllAir(level, nqx, nqy, nqz)) return@repeat
+            if (!sameSpreadScope(level, cPos.x, cPos.z, nqx shr 2, nqz shr 2)) return@repeat
             enqueueCellSpread(level, nqx, nqy, nqz)
         }
     }
@@ -1798,23 +1672,18 @@ object WohlonnogondoniaSpreader {
         level: ServerLevel, pos: BlockPos, source: BlockState, target: BlockState, flags: Int,
     ) {
         if (target.`is`(EKBlocks.WOGOR_WOOD.get())) {
-            level.setBlock(pos, WogorVariantPicker.pick(source), flags)
+            // The picker's full-cube fallback is the default state; [target] carries the axis.
+            val picked = WogorVariantPicker.pick(source)
+            level.setBlock(pos, if (picked.`is`(EKBlocks.WOGOR_WOOD.get())) target else picked, flags)
             return
         }
         level.setBlock(pos, target, flags)
     }
 
     /** Write [biome] into the biome cell at world-quarter
-     *  coordinates [(qx, qy, qz)]. Forces a chunk load if needed
-     *  (called from the force-load tick), marks the chunk unsaved,
-     *  and broadcasts a full-chunk packet so clients see the
-     *  colour change immediately.
-     *
-     *  **Note**: this is the immediate-broadcast variant, used
-     *  only by paths that fire infrequently. The high-volume
-     *  random-tick spread uses [setBiomeCellSilent] + the
-     *  per-server-tick coalesce loop in [tickConversionsTainted]
-     *  to avoid one chunk packet per flip. */
+     *  coordinates [(qx, qy, qz)]. Loads the chunk if needed and sends the
+     *  biome packet at once. Only the debug command uses it; spread uses
+     *  [setBiomeCellSilent]. */
     private fun setBiomeCellTo(
         level: ServerLevel, qx: Int, qy: Int, qz: Int, biome: Holder<Biome>,
     ): Boolean {
@@ -1841,12 +1710,8 @@ object WohlonnogondoniaSpreader {
         return true
     }
 
-    /** Mutating sibling of [setBiomeCellTo] that does NOT
-     *  broadcast — used by [tickSeedJobs] which coalesces every
-     *  cell write per tick into one resync packet per chunk. The
-     *  caller adds the touched chunk pos to [touchedChunks];
-     *  the seed job loop sends a single resync per chunk after
-     *  all writes are done. */
+    /** Sibling of [setBiomeCellTo] that never loads a chunk and queues the client resync in
+     *  [pendingResyncs]. [touchedChunks] dedupes the per-chunk work inside one caller pass. */
     private fun setBiomeCellSilent(
         level: ServerLevel,
         qx: Int, qy: Int, qz: Int,
@@ -1874,6 +1739,7 @@ object WohlonnogondoniaSpreader {
         // was 4 s of profile time at default settings.
         if (touchedChunks.add(chunk.pos)) {
             markTainted(getTaintedData(level), chunk.pos)
+            pendingResyncs.getOrPut(level.dimension()) { LongOpenHashSet() }.add(chunk.pos.toLong())
         }
         bumpSectionMask(level, chunk.pos, sectionIdx)
         updateFrontierForFlip(level, qx, qy, qz)
@@ -1885,7 +1751,8 @@ object WohlonnogondoniaSpreader {
         // plus its own region-level dedup so we only ever spawn one
         // march per region. Cheap — 4 biome lookups per call, no
         // allocation on the no-trigger path.
-        WohlonnogondoniaWorldRootGrower.maybeEnqueueCell(level, qx, qy, qz)
+        // A world root has no place in the shipyard.
+        if (!level.isChunkInShipyard(cx, cz)) WohlonnogondoniaWorldRootGrower.maybeEnqueueCell(level, qx, qy, qz)
 
         // Cascade upward through the column above this cell. Goes to
         // the dedicated [verticalSpreadQueue] (paced via
@@ -1903,15 +1770,8 @@ object WohlonnogondoniaSpreader {
         return true
     }
 
-    /** Resend the chunk to nearby players so they see the new
-     *  biome colour without a relog. Vanilla 1.20.1 has no
-     *  per-cell biome packet — full chunk resync is the
-     *  canonical path. Sent at most ~3× per minute via the
-     *  spread cadence so the bandwidth cost is negligible. */
     private fun broadcastChunkResync(level: ServerLevel, chunk: LevelChunk) {
-        val packet = ClientboundLevelChunkWithLightPacket(chunk, level.lightEngine, null, null)
-        val players = level.chunkSource.chunkMap.getPlayers(chunk.pos, false)
-        for (player in players) player.connection.send(packet)
+        level.chunkSource.chunkMap.resendBiomesForChunks(listOf<ChunkAccess>(chunk))
     }
 
     private fun isWohlon(biome: Holder<Biome>): Boolean = biome.`is`(Wohlonnogondonia.BIOME_KEY)
@@ -1935,6 +1795,16 @@ object WohlonnogondoniaSpreader {
         )
     }
 
+    /** Snapshot of every chunk in [level] that has ever held a Wohlon
+     *  biome cell, encoded as `ChunkPos.toLong()` values. Returned as a
+     *  fresh array so callers can iterate without holding the data
+     *  structure's lock. Empty array means "no Wohlon biome in this
+     *  level" — a useful zero-cost early-out for per-tick scanners
+     *  (e.g. [org.shipwrights.enderkinesis.entity.WohlonAnimalConversion]). */
+    @JvmStatic
+    fun getTaintedChunkSnapshot(level: ServerLevel): LongArray =
+        getTaintedData(level).positions.toLongArray()
+
     /** Compact (qx, qy, qz) tuple used while building the cell
      *  pool inside [trySpread]. Inline-`data class` lets us avoid
      *  manual hashCode/equals for the same flat-array effort. */
@@ -1949,7 +1819,7 @@ object WohlonnogondoniaSpreader {
      *  ever held a Wohlon biome cell in this dimension. */
     class TaintedChunkData : SavedData() {
 
-        @JvmField val positions: MutableSet<Long> = HashSet()
+        @JvmField val positions: LongOpenHashSet = LongOpenHashSet()
 
         override fun save(tag: CompoundTag): CompoundTag {
             tag.put("positions", LongArrayTag(positions.toLongArray()))

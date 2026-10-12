@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.physics
 
+import org.shipwrights.enderkinesis.util.ServerTicks
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.valkyrienskies.core.api.ships.PhysShip
@@ -13,9 +14,8 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * - Touch-driven hover: while [touch] keeps being called from the game thread (the manager
  *   does so each game tick until the 4-second window expires), the phys tick applies a
- *   P-controlled force toward [targetWorldY], plus gravity cancellation. Modeled on
- *   [VoidGravityController]'s staleness window so an interrupted touch trail releases the
- *   ship cleanly.
+ *   P-controlled force toward [targetWorldY]. The manager also calls [ShipGravityHold.hold],
+ *   which cancels gravity. A stale touch releases the ship cleanly.
  *
  * - Queued one-shot impulse: [queueNudge] parks a (force, COM-relative position) pair
  *   that the next phys tick consumes via `applyInvariantForceToPos`. That single tick of
@@ -24,14 +24,14 @@ import java.util.concurrent.atomic.AtomicReference
  */
 class RodLevitationAttachment : ShipPhysicsListener {
 
-    @Volatile private var lastTouchMs: Long = Long.MIN_VALUE
+    @Volatile private var lastTouchTick: Int = NEVER
     @Volatile private var targetWorldY: Double = Double.NaN
 
     private val pendingNudge = AtomicReference<Pair<Vector3dc, Vector3dc>?>(null)
 
     fun touch(target: Double) {
         targetWorldY = target
-        lastTouchMs = System.nanoTime() / 1_000_000L
+        lastTouchTick = ServerTicks.now
     }
 
     fun queueNudge(force: Vector3dc, comRelative: Vector3dc) {
@@ -47,13 +47,12 @@ class RodLevitationAttachment : ShipPhysicsListener {
 
         // Touch-driven lift. Three explicit stages:
         //   Stage 1 (rise):  currentY is more than HOVER_THRESHOLD below targetY → drive
-        //                    velocity to MAX_LIFT_VEL upward, cancel gravity.
+        //                    velocity to MAX_LIFT_VEL upward.
         //   Stage 2 (hover): currentY is within HOVER_THRESHOLD of targetY → snap velocity
-        //                    to zero, cancel gravity (block hangs in place).
+        //                    to zero (block hangs in place).
         //   Stage 3 (release): manager stops touching → staleness check trips → we
         //                      return early, gravity resumes (no lift force applied).
-        val now = System.nanoTime() / 1_000_000L
-        if (now - lastTouchMs > STALENESS_MS) return        // ← Stage 3
+        if (ServerTicks.now - lastTouchTick > STALENESS_TICKS) return        // ← Stage 3
         if (physShip.isStatic || physShip.mass <= 0.0) return
         val target = targetWorldY
         if (target.isNaN()) return
@@ -66,17 +65,13 @@ class RodLevitationAttachment : ShipPhysicsListener {
         } else {
             0.0                                             // ← Stage 2
         }
-        // F = m · ((Δv/Δt) + g). The +g cancels VS2's per-tick gravity; the Δv/Δt
-        // drives velocity to targetVy in this single phys tick. Net per-tick
-        // velocity delta after gravity + this force = targetVy − currentVy.
-        val forceY = mass * ((targetVy - currentVy) / PHYS_DT + GRAVITY)
+        // F = m · Δv/Δt drives velocity to targetVy in one phys tick. It assumes
+        // [ShipGravityHold] has cancelled gravity.
+        val forceY = mass * (targetVy - currentVy) / PHYS_DT
         physShip.applyInvariantForce(Vector3d(0.0, forceY, 0.0))
     }
 
     companion object {
-        /** VS2 world gravity magnitude (m/s²). Matches the dimension default. */
-        private const val GRAVITY = 10.0
-
         /** Approximate phys tick interval (s). VS2's phys runs ~60 Hz; the exact value
          *  only affects responsiveness, not correctness. */
         private const val PHYS_DT = 1.0 / 60.0
@@ -90,8 +85,9 @@ class RodLevitationAttachment : ShipPhysicsListener {
          *  to rest looks instantaneous. */
         private const val HOVER_THRESHOLD = 0.1
 
-        /** Game-tick slack on the touch heartbeat. Two game ticks (~100 ms) — past that
-         *  the manager has either cleared the entry or the ship has gone away. */
-        private const val STALENESS_MS = 100L
+        /** Game-tick slack on the touch heartbeat. Past that the manager has either
+         *  cleared the entry or the ship has gone away. */
+        private const val STALENESS_TICKS = 2
+        private const val NEVER = Int.MIN_VALUE / 2
     }
 }

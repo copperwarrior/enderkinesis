@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "enderkinesis:item/penfeather_of_the_accursed_owl"
+  }
+}

@@ -9,6 +9,7 @@
   { "block": "enderkinesis:crepusculite_block",   "mass": 200.0 },
   { "block": "enderkinesis:crepusculite_lattice", "mass": 200.0 },
   { "block": "enderkinesis:crepusculite_glass",   "mass": 100.0 },
+  { "block": "enderkinesis:crepusculite_lightstone", "mass": 10.0 },
 
   { "block": "enderkinesis:ancrite_block",   "mass": 4000.0 },
   { "block": "enderkinesis:raw_ancrite",     "mass": 4000.0 },
@@ -34,5 +35,9 @@
     "elasticity": 0.0,
     "no_collision": true },
 
-  { "block": "enderkinesis:shulker_strut_top", "mass": 100.0, "friction": 0.9 }
+  { "block": "enderkinesis:shulker_strut_top", "mass": 100.0, "friction": 0.9 },
+
+  { "block": "enderkinesis:constriliar_platform",
+    "mass": 400.0,
+    "friction": 0.6 }
 ]

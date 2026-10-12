@@ -7,6 +7,7 @@ import net.minecraft.world.effect.MobEffect
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.effect.AmbrosialCravingEffect
 import org.shipwrights.enderkinesis.effect.CrepuscularFloatationEffect
+import org.shipwrights.enderkinesis.effect.OwlsMarkEffect
 import org.shipwrights.enderkinesis.effect.SselithMadnessEffect
 import org.shipwrights.enderkinesis.effect.YgannMadnessEffect
 
@@ -42,6 +43,9 @@ object EKEffects {
     /** Java-callable static accessor for [AMBROSIAL_CRAVING]. */
     @JvmStatic
     fun ambrosialCravingEffect(): MobEffect = AMBROSIAL_CRAVING.get()
+
+    val OWLS_MARK: RegistrySupplier<MobEffect> =
+        EFFECTS.register("owls_mark") { OwlsMarkEffect() }
 
     fun register() = EFFECTS.register()
 }

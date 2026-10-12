@@ -1,0 +1,14 @@
+{
+  "display": {
+    "icon": { "item": "enderkinesis:crepusculite_glass" },
+    "title": { "translate": "advancements.enderkinesis.ygann_abyss.root.title" },
+    "description": { "translate": "advancements.enderkinesis.ygann_abyss.root.description" },
+    "background": "enderkinesis:textures/block/crepusculite_glass.png",
+    "show_toast": false,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "manual": { "trigger": "minecraft:impossible" }
+  }
+}

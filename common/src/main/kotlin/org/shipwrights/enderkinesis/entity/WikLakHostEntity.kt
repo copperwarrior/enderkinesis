@@ -136,6 +136,8 @@ class WikLakHostEntity(type: EntityType<out WikLakHostEntity>, level: Level) : P
      *  axe-throw mods would land via `source.entity` instead but we don't
      *  ship a thrown axe in this codebase. */
     override fun hurt(source: DamageSource, amount: Float): Boolean {
+        val cause = source.entity
+        if (cause is WikLakHostEntity || (cause is Player && cause.uuid == creatorUuid)) return false
         val attacker = source.directEntity
         val scaled =
             if (attacker is LivingEntity && attacker.mainHandItem.item is AxeItem) amount * 2f

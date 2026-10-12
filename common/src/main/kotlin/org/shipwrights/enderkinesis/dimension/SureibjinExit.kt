@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.dimension
 
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.EntityEvent
+import dev.architectury.event.events.common.PlayerEvent
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.LivingEntity
@@ -25,6 +26,28 @@ object SureibjinExit {
 
     fun init() {
         EntityEvent.LIVING_HURT.register(::onLivingHurt)
+        // A command or a mod teleport can take a player out of the dream with no death.
+        PlayerEvent.CHANGE_DIMENSION.register { player, from, to ->
+            if (from == Sureibjin.LEVEL_KEY && to != Sureibjin.LEVEL_KEY) restoreIfDreaming(player)
+        }
+        // A death that did not go through `hurt` ends in a normal respawn.
+        PlayerEvent.PLAYER_RESPAWN.register { player, _ ->
+            if (player.level().dimension() != Sureibjin.LEVEL_KEY) restoreIfDreaming(player)
+        }
+    }
+
+    // [wakeUp] removes the snapshot before its teleport, so this acts only on an exit that it did not start.
+    private fun restoreIfDreaming(player: ServerPlayer) {
+        val snapshot = SureibjinEntry.takeReturnData(player.server, player.uuid) ?: return
+        restoreState(player, snapshot)
+    }
+
+    /** Vanilla's `readAdditionalSaveData` rebuilds inventory, ender chest, food, XP, effects and abilities. */
+    private fun restoreState(player: ServerPlayer, snapshot: SureibjinEntry.ReturnSnapshot) {
+        player.inventory.clearContent()
+        // `readAdditionalSaveData` adds the saved effects to the current ones, so remove the dream's effects first.
+        player.removeAllEffects()
+        player.readAdditionalSaveData(snapshot.playerStateTag)
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -46,45 +69,28 @@ object SureibjinExit {
      *  Public so a debug command could force-wake a stuck player. */
     fun wakeUp(player: ServerPlayer) {
         val server = player.server
+        // Awarded regardless of whether we can restore — dying in the
+        // dream is the trigger, not the successful bed return.
+        SureibjinEntry.grantAdvancement(player, SureibjinEntry.ADV_KNOWLEDGE_OF_DEATH)
         val snapshot = SureibjinEntry.takeReturnData(server, player.uuid)
-
-        // No entry record — heal and drop at overworld spawn so they
-        // aren't stuck mid-drown in the dream.
-        if (snapshot == null) {
-            healMinimal(player)
-            val overworld = server.overworld()
-            val spawn = overworld.sharedSpawnPos
-            player.teleportTo(
-                overworld,
-                spawn.x + 0.5, spawn.y.toDouble(), spawn.z + 0.5,
-                player.yRot, player.xRot,
-            )
-            return
-        }
-
-        // Source dim gone (datapack swap?) — overworld fallback.
-        val targetLevel = server.getLevel(snapshot.dimension)
-        if (targetLevel == null) {
-            healMinimal(player)
-            val overworld = server.overworld()
-            val spawn = overworld.sharedSpawnPos
-            player.teleportTo(
-                overworld,
-                spawn.x + 0.5, spawn.y.toDouble(), spawn.z + 0.5,
-                player.yRot, player.xRot,
-            )
-            return
-        }
 
         // Heal first so the lethal hit that triggered this doesn't kill
         // them on the next tick before the snapshot restores.
         healMinimal(player)
+        if (snapshot != null) restoreState(player, snapshot)
 
-        // Restore full player state from the entry snapshot — vanilla's
-        // readAdditionalSaveData rebuilds inventory, ender chest, food,
-        // XP, effects, abilities, all in one call.
-        player.inventory.clearContent()
-        player.readAdditionalSaveData(snapshot.playerStateTag)
+        // No entry record, or the source dim is gone (datapack swap?) — overworld spawn.
+        val targetLevel = snapshot?.let { server.getLevel(it.dimension) }
+        if (snapshot == null || targetLevel == null) {
+            val overworld = server.overworld()
+            val spawn = overworld.sharedSpawnPos
+            player.teleportTo(
+                overworld,
+                spawn.x + 0.5, spawn.y.toDouble(), spawn.z + 0.5,
+                player.yRot, player.xRot,
+            )
+            return
+        }
 
         player.teleportTo(
             targetLevel,
@@ -100,5 +106,6 @@ object SureibjinExit {
         player.foodData.foodLevel = 20
         player.airSupply = player.maxAirSupply
         player.fallDistance = 0.0f
+        player.clearFire()
     }
 }

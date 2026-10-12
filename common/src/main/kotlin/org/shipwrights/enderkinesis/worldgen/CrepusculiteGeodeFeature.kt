@@ -232,8 +232,8 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
      * neighbour dependency, no player nearby), so rather than *waiting* for it — which loses the
      * race and abandons the geode as static blocks — we **force-load** the lattice's chunk to FULL
      * on the server thread, making assembly deterministic regardless of player proximity. A small
-     * retry budget remains only for the rare case the chunk is still mid-pipeline. [TickTask] is
-     * the vanilla "run on the main thread at tick N" primitive.
+     * retry budget remains only for the rare case the chunk is still mid-pipeline. The
+     * [TickTask] is the hand-off from the worldgen worker to the server thread, not a delay.
      */
     private fun scheduleShipAssembly(
         server: ServerLevel, blocks: Set<BlockPos>, latticePos: BlockPos, attemptsLeft: Int,
@@ -251,19 +251,22 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
                     // unsettled-transform value.
                     (server.getBlockEntity(latticePos) as? CrepusculiteLatticeBlockEntity)
                         ?.captureSeaLevel(latticePos.y + 0.5)
-                    ShipAssembler.assembleToShip(server, blocks)
+                    val ship = ShipAssembler.assembleToShip(server, blocks)
+                    if (ship != null) {
+                        org.shipwrights.enderkinesis.dimension.YgannDiscoveries.mark(
+                            ms, ship.id, org.shipwrights.enderkinesis.dimension.YgannDiscoveries.KIND_GEODE,
+                        )
+                    }
                 } catch (t: Throwable) {
                     LOG.error("[EK] geode ship assembly threw at {}", latticePos, t)
                 }
                 return@TickTask
             }
             if (attemptsLeft > 1) {
-                scheduleShipAssembly(server, blocks, latticePos, attemptsLeft - 1)
-            } else {
-                LOG.warn(
-                    "[EK] gave up assembling geode ship at {} (chunk never ready / lattice missing)",
-                    latticePos,
-                )
+                // A TickTask is not a delay, so the retry waits real ticks first.
+                org.shipwrights.enderkinesis.util.ServerTicks.runAfter(ms, ASSEMBLY_DELAY_TICKS) {
+                    scheduleShipAssembly(server, blocks, latticePos, attemptsLeft - 1)
+                }
             }
         })
     }

@@ -24,16 +24,23 @@ import net.minecraft.world.level.Explosion
 import net.minecraft.world.level.GameRules
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
+import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.shipObjectWorld
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.EntityHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKEntities
+import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.ShipBlockMove
+import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
+import org.valkyrienskies.mod.common.dimensionId
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 
 /**
  * Magic Missile — homing projectile fired by the Magic Missile Launcher block. Locks onto
@@ -49,11 +56,15 @@ import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
  * missile now hunts whoever the *original* shooter was loyal to.
  */
 class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level) :
-    Projectile(type, level) {
+    Projectile(type, level), ShipMoveListener {
+
+    /** Ships that VS2 split from, or welded into, the home ship. Server only. */
+    private val homeLineage = LongOpenHashSet()
 
     /** Reflection-tracker: server-side cache of the owner uuid last seen. When this changes
      *  (Aegis reassigned us), we re-derive [homeShipId] from the new owner's host ship. */
     private var lastOwnerUuidHash: Int = 0
+    private var ownerHashKnown: Boolean = false
 
     /** Cached target. Re-resolved every [TARGET_REFRESH_TICKS] ticks; in between we just steer
      *  toward the cached entity so the search cost is amortised. */
@@ -102,6 +113,11 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
      *  ship chunks — so looking up this stored blockPos is correct in both cases. */
     var targetBlockPos: BlockPos? = null
 
+    /** Qualifier shots (Shulkonaut AROUND/NEAR/… orders): the point target needs no
+     *  backing block — it's a spot in the air — and the missile DETONATES on reaching
+     *  it (flak burst) instead of flying through and loitering. */
+    var detonateAtPoint: Boolean = false
+
     init {
         noPhysics = true                                    // we own our own movement
     }
@@ -128,21 +144,26 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
     override fun addAdditionalSaveData(tag: CompoundTag) {
         super.addAdditionalSaveData(tag)
         if (homeShipId != NO_SHIP) tag.putLong(NBT_HOME_SHIP, homeShipId)
+        if (detonateAtPoint) tag.putBoolean(NBT_DETONATE_AT_POINT, true)
         targetPos?.let {
             tag.putDouble(NBT_TARGET_X, it.x)
             tag.putDouble(NBT_TARGET_Y, it.y)
             tag.putDouble(NBT_TARGET_Z, it.z)
         }
         targetBlockPos?.let { tag.putLong(NBT_TARGET_BLOCK, it.asLong()) }
+        if (!homeLineage.isEmpty()) tag.putLongArray(NBT_HOME_LINEAGE, homeLineage.toLongArray())
     }
 
     override fun readAdditionalSaveData(tag: CompoundTag) {
         super.readAdditionalSaveData(tag)
         homeShipId = if (tag.contains(NBT_HOME_SHIP)) tag.getLong(NBT_HOME_SHIP) else NO_SHIP
+        detonateAtPoint = tag.getBoolean(NBT_DETONATE_AT_POINT)
         targetPos = if (tag.contains(NBT_TARGET_X)) {
             Vec3(tag.getDouble(NBT_TARGET_X), tag.getDouble(NBT_TARGET_Y), tag.getDouble(NBT_TARGET_Z))
         } else null
         targetBlockPos = if (tag.contains(NBT_TARGET_BLOCK)) BlockPos.of(tag.getLong(NBT_TARGET_BLOCK)) else null
+        homeLineage.clear()
+        for (id in tag.getLongArray(NBT_HOME_LINEAGE)) homeLineage.add(id)
     }
 
     override fun tick() {
@@ -150,21 +171,56 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
 
         // --- Server-side steering + reflection handoff.
         if (!level().isClientSide) {
+            if (tickCount >= MAX_LIFETIME_TICKS) {
+                fizzle()
+                return
+            }
             // Reflection detection. Aegis reassigns owner; pick up its new home ship.
             val owner = this.owner
             val ownerHash = owner?.uuid?.hashCode() ?: 0
-            if (ownerHash != lastOwnerUuidHash) {
+            if (!ownerHashKnown) {
+                // First tick, also after a reload: the launcher or the save set the home ship.
+                // A "change" from the initial 0 cleared it, and the missile hit its own ship.
+                ownerHashKnown = true
+                lastOwnerUuidHash = ownerHash
+            } else if (ownerHash != lastOwnerUuidHash) {
                 lastOwnerUuidHash = ownerHash
                 if (owner is Player) {
                     homeShipId = currentlyDraggingShipId(owner) ?: NO_SHIP
+                    homeLineage.clear()
                 }
+            }
+
+            // Ship-frame tracking: when the point-target's anchor block belongs to a
+            // ship, re-derive the world aim from the anchor's CURRENT spot every tick —
+            // the aim rides the moving hull instead of pointing at where the ship was
+            // when the shot fired. World-terrain anchors have no managing ship (no-op).
+            val anchorPos = targetBlockPos
+            if (anchorPos != null && targetPos != null) {
+                val anchorShip = level().getShipManagingPos(anchorPos)
+                if (anchorShip != null) {
+                    val v = anchorShip.shipToWorld.transformPosition(
+                        org.joml.Vector3d(anchorPos.x + 0.5, anchorPos.y + 0.5, anchorPos.z + 0.5),
+                    )
+                    targetPos = Vec3(v.x, v.y, v.z)
+                }
+            }
+
+            val fuzePoint = targetPos
+            if (detonateAtPoint && fuzePoint != null &&
+                distanceToSqr(fuzePoint.x, fuzePoint.y, fuzePoint.z) < POINT_FUZE_RANGE_SQ
+            ) {
+                detonate(fuzePoint)
+                return
             }
 
             // Pick a target point. Order of precedence:
             //   1. [lockedTargetEntityId]  — staff-dispatched entity lock; tracks the
             //      entity as it moves, no fallback if the entity dies.
-            //   2. [targetPos]             — staff-dispatched point target; fixed coord.
-            //   3. Entity scan             — default nearest-hostile homing.
+            //   2. [targetPos]             — staff-dispatched point target; fixed coord
+            //      for terrain, hull-tracked for ships (above).
+            //   3. Entity scan             — default nearest-hostile homing; autonomous
+            //      missiles additionally re-acquire the nearest SHIP when no mob bites.
             val rawLockedEntity = if (lockedTargetEntityId >= 0)
                 level().getEntity(lockedTargetEntityId)?.takeIf { it.isAlive } else null
             // Teleport detection: if the locked entity's position jumped more than
@@ -186,31 +242,48 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
             }
             val targetCentre: Vec3? = if (lockedEntity != null) {
                 lockedEntity.position().add(0.0, lockedEntity.bbHeight * 0.5, 0.0)
-            } else if (targetPos != null && !level().getBlockState(
+            } else if (targetPos != null && detonateAtPoint) {
+                // Air-point order: no block backing required; proximity-fuzed below.
+                targetPos
+            } else if (targetPos != null && !isPointTargetGone(
                     // Prefer the recorded raycast blockPos — for ship blocks that's in
                     // shipyard space, which `level.getBlockState` correctly routes through
                     // VS2's ship chunks. Falling back to `BlockPos.containing(targetPos)`
                     // only when the missile came in via NBT load without a stored blockPos.
                     targetBlockPos ?: BlockPos.containing(targetPos)
-                ).isAir) {
+                )) {
                 // Staff-aimed point. Treat the aim as invalid when the block at that
                 // position is air — the wall/floor the staff was pointed at is gone now
                 // (mined, exploded, etc.), so the missile has nothing left to hit there.
                 targetPos
             } else {
+                // Reaching here with a non-null targetPos means the point target just
+                // INVALIDATED (anchor block destroyed) — drop it so it can't linger.
+                if (targetPos != null) {
+                    targetPos = null
+                    targetBlockPos = null
+                }
                 // Refresh target if cached one is gone, dead, friendly, or stale. Cached id can
                 // point at a Monster/Player OR another MagicMissileEntity, so we re-validate
                 // against the unified [isValidTarget] predicate every tick.
                 var target: Entity? = if (cachedTargetId >= 0) {
                     level().getEntity(cachedTargetId)?.takeIf { it.isAlive && isValidTarget(it) }
                 } else null
-                if (ticksUntilTargetRefresh <= 0 || target == null) {
+                if (ticksUntilTargetRefresh <= 0 || (target == null && cachedTargetId >= 0)) {
                     target = findNearestTarget()
                     cachedTargetId = target?.id ?: -1
                     ticksUntilTargetRefresh = TARGET_REFRESH_TICKS
+                    // Autonomous missiles (no player owner — Shulkonaut volleys) with no
+                    // mob in range hunt VESSELS: nearest same-dimension ship, home ship
+                    // excluded, locked via a fresh hull anchor so branch 2 (plus its
+                    // ship-frame tracking) takes over next tick. Player-fired missiles
+                    // never do this — a stray shot must not swing at a parked ship.
+                    if (target == null && owner == null) {
+                        acquireNearestShipTarget()
+                    }
                 }
                 ticksUntilTargetRefresh--
-                target?.position()?.add(0.0, target.bbHeight * 0.5, 0.0)
+                target?.position()?.add(0.0, target.bbHeight * 0.5, 0.0) ?: targetPos
             }
 
             // Unreachability watchdog. Counts ticks during which the missile has no
@@ -316,7 +389,7 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
         // or the same owner uuid; same predicate the targeting filter already uses, so
         // a missile that's been *excluded as a target* is also *not collidable*.
         val hit = ProjectileUtil.getHitResultOnMoveVector(this) { e ->
-            !(e is MagicMissileEntity && isFriendlyMissile(e))
+            !e.isSpectator && e.isAlive && e.isPickable && !(e is MagicMissileEntity && isFriendlyMissile(e))
         }
         if (hit.type != HitResult.Type.MISS && !level().isClientSide) {
             onHit(hit)
@@ -366,13 +439,17 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
     private fun homeShipFizzle(blockPos: net.minecraft.core.BlockPos): Boolean {
         if (homeShipId == NO_SHIP) return false
         val ship = level().getShipManagingPos(blockPos) ?: return false
-        if (ship.id != homeShipId) return false
+        if (!isHomeShip(ship.id)) return false
         fizzle()
         return true
     }
 
     /** Friendly-fire termination — soft shulker-bullet "hurt" sound + discard. No
      *  explosion, no damage. Server-only because the client never executes detonate either. */
+    /** An unloaded anchor is not read: the read loads the chunk. */
+    private fun isPointTargetGone(pos: BlockPos): Boolean =
+        LoadedRay.blockLoaded(level(), pos) && level().getBlockState(pos).isAir
+
     private fun fizzle() {
         if (level().isClientSide) return
         level().playSound(
@@ -440,6 +517,7 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
             worldPos.x, worldPos.y, worldPos.z,
             EXPLOSION_RADIUS, false, interaction,
         )
+        if (org.shipwrights.enderkinesis.platform.ExplosionHooks.startCancelled(server, explosion)) return
         explosion.explode()
         explosion.finalizeExplosion(false)
 
@@ -530,9 +608,10 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
      *  count as the same "side." */
     override fun hurt(source: DamageSource, amount: Float): Boolean {
         if (source.`is`(net.minecraft.tags.DamageTypeTags.IS_EXPLOSION)) {
-            val attacker = source.entity
+            // `directEntity` is the exploding missile; `entity` is its owner or null.
+            val attacker = source.directEntity
             val fromEnemyMissile = attacker is MagicMissileEntity &&
-                attacker.homeShipId != this.homeShipId
+                attacker.homeShipId != this.homeShipId && !sharesHomeLineage(attacker)
             if (!fromEnemyMissile) return false
         }
         if (!level().isClientSide && !isRemoved) {
@@ -632,6 +711,36 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
     /** Find the nearest valid target — hostile mob, player, or non-friendly magic missile —
      *  within [TARGET_SEARCH_RADIUS]. Two scoped class scans keep the chunked entity index
      *  fast-path (broad `Entity::class.java` would disable it). Closest-by-distSqr wins. */
+    /** Retarget onto the nearest ship's hull (autonomous missiles only). Returns after
+     *  setting [targetPos] + [targetBlockPos]; no-op when no eligible ship is in range. */
+    private fun acquireNearestShipTarget() {
+        val server = level() as? ServerLevel ?: return
+        val dimId = server.dimensionId
+        var best: org.valkyrienskies.core.api.ships.Ship? = null
+        var bestDistSq = SHIP_SEEK_RADIUS * SHIP_SEEK_RADIUS
+        for (ship in server.shipObjectWorld.loadedShips) {
+            if (isHomeShip(ship.id)) continue
+            if (ship.chunkClaimDimension != dimId) continue
+            val box = ship.worldAABB
+            val cx = (box.minX() + box.maxX()) * 0.5
+            val cy = (box.minY() + box.maxY()) * 0.5
+            val cz = (box.minZ() + box.maxZ()) * 0.5
+            val ddx = x - cx; val ddy = y - cy; val ddz = z - cz
+            val d = ddx * ddx + ddy * ddy + ddz * ddz
+            if (d < bestDistSq) {
+                bestDistSq = d
+                best = ship
+            }
+        }
+        val ship = best ?: return
+        val anchor = org.shipwrights.enderkinesis.util.ShipTargeting.solidShipAnchor(server, ship) ?: return
+        val v = ship.shipToWorld.transformPosition(
+            org.joml.Vector3d(anchor.x + 0.5, anchor.y + 0.5, anchor.z + 0.5),
+        )
+        targetBlockPos = anchor
+        targetPos = Vec3(v.x, v.y, v.z)
+    }
+
     private fun findNearestTarget(): Entity? {
         val box = AABB(
             this.x - TARGET_SEARCH_RADIUS, this.y - TARGET_SEARCH_RADIUS, this.z - TARGET_SEARCH_RADIUS,
@@ -675,7 +784,7 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
      *  one is also from the ship's pilot. */
     private fun isFriendlyMissile(other: MagicMissileEntity): Boolean {
         if (other === this) return true
-        if (this.homeShipId != NO_SHIP && other.homeShipId == this.homeShipId) return true
+        if (this.homeShipId != NO_SHIP && (other.homeShipId == this.homeShipId || sharesHomeLineage(other))) return true
         val myOwnerUuid = this.owner?.uuid
         val otherOwnerUuid = other.owner?.uuid
         if (myOwnerUuid != null && myOwnerUuid == otherOwnerUuid) return true
@@ -690,9 +799,23 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
     private fun isDraggedByHomeShip(entity: Entity): Boolean {
         if (homeShipId == NO_SHIP) return false
         val info = (entity as? IEntityDraggingInformationProvider)?.draggingInformation
-        val shipId = info?.lastShipStoodOn ?: return false
-        return shipId == homeShipId
+        // `lastShipStoodOn` stays set after the entity leaves the ship.
+        if (info == null || !info.isEntityBeingDraggedByAShip()) return false
+        val shipId = info.lastShipStoodOn ?: return false
+        return isHomeShip(shipId)
     }
+
+    /** Every part of a home ship that VS2 split or welded stays friendly. */
+    private fun isHomeShip(shipId: Long): Boolean =
+        homeShipId != NO_SHIP && (shipId == homeShipId || homeLineage.contains(shipId))
+
+    override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
+        if (isHomeShip(move.fromShipId)) homeLineage.add(move.toShipId)
+        targetBlockPos?.let { if (move.contains(it)) targetBlockPos = move.mapBlock(it) }
+    }
+
+    private fun sharesHomeLineage(other: MagicMissileEntity): Boolean =
+        other.homeShipId != NO_SHIP && (isHomeShip(other.homeShipId) || other.isHomeShip(homeShipId))
 
     private fun currentlyDraggingShipId(entity: Entity): Long? {
         val info = (entity as? IEntityDraggingInformationProvider)?.draggingInformation
@@ -703,10 +826,12 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
         const val NO_SHIP: Long = Long.MIN_VALUE
 
         private const val NBT_HOME_SHIP = "HomeShipId"
+        private const val NBT_DETONATE_AT_POINT = "EkDetonateAtPoint"
         private const val NBT_TARGET_X = "TargetX"
         private const val NBT_TARGET_Y = "TargetY"
         private const val NBT_TARGET_Z = "TargetZ"
         private const val NBT_TARGET_BLOCK = "TargetBlock"
+        private const val NBT_HOME_LINEAGE = "HomeLineage"
 
         /** Blocks/tick. Vanilla firework rocket cruises at ~1.2; we use 1.5 (30 blocks/s) so
          *  the missile reads as a fast streak, not a lazy shulker bullet. */
@@ -721,15 +846,19 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
         /** Search radius (blocks) for the target scan. Bigger than the missile's straight-line
          *  range per tick so it can re-acquire if the current target moves out of cone. */
         private const val TARGET_SEARCH_RADIUS: Double = 32.0
+        /** Ship re-acquisition range for autonomous missiles (blocks). */
+        private const val SHIP_SEEK_RADIUS = 96.0
+        /** Proximity fuze radius² for air-point (qualifier) shots. */
+        private const val POINT_FUZE_RANGE_SQ = 2.0 * 2.0
 
         /** How often to re-pick the target. Once every half-second keeps the swarm-vs-strafe
          *  behaviour stable without thrashing the entity scan. */
         private const val TARGET_REFRESH_TICKS: Int = 10
 
-        /** Explosion radius. Reduced from the original 2.0 — at this size the missile is a
-         *  precise dart, not a creeper, so a successful hit is worth dodging without being
-         *  area-of-effect punishing. */
-        private const val EXPLOSION_RADIUS: Float = 1.0f
+        /** Explosion radius. Still well below TNT (4.0) and creeper (3.0) — the missile
+         *  reads as a precise dart, not an area weapon — but enough to chip nearby blocks
+         *  and stagger an adjacent mob alongside the direct-hit damage. */
+        private const val EXPLOSION_RADIUS: Float = 1.5f
 
         /** Multiplier applied to the explosion-induced velocity delta on each affected
          *  entity. Vanilla's knockback formula is calibrated for TNT-sized blasts and
@@ -812,6 +941,9 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
          *  target this tick (live locked entity, fixed point, or any hostile in
          *  scan range) resets the counter; one with no target accumulates. */
         private const val UNREACHABLE_KILL_TICKS: Int = 200
+
+        /** A target on a block with no collision shape gives an orbit with no end. */
+        private const val MAX_LIFETIME_TICKS: Int = 1200
 
         /** Squared inter-tick position jump that flags the locked entity as having
          *  teleported. 8 blocks² ≈ entity moved more than ~3 blocks in one tick —

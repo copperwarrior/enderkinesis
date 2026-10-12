@@ -113,7 +113,7 @@ float h3(vec3 p) {
 
 // 3D value noise — hashed grid-point values, smoothly interpolated
 // with smoothstep weighting. Output in [0, 1].
-float noise3(in vec3 p) {
+float valueNoise3(in vec3 p) {
     vec3 i = floor(p);
     vec3 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
@@ -132,14 +132,14 @@ float noise3(in vec3 p) {
     );
 }
 
-// Fractal Brownian motion — sum of `noise3` at increasing frequencies
+// Fractal Brownian motion — sum of `valueNoise3` at increasing frequencies
 // with halving amplitudes. Standard turbulence for cloudy / wispy
 // textures. Output in [0, ~1].
 float fbm(vec3 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 5; ++i) {
-        v += a * noise3(p);
+        v += a * valueNoise3(p);
         p *= 2.03;  // slightly off-2 to avoid grid alignment
         a *= 0.5;
     }
@@ -152,7 +152,7 @@ float fbm(vec3 p) {
 // "accumulates for each iteration of added fractal noise."
 //
 // CRITICAL DETAIL: the warp source is PER-LATTICE-CELL DISCRETE —
-// `h3(floor(s))` instead of `noise3(s)`. This is what produces the
+// `h3(floor(s))` instead of `valueNoise3(s)`. This is what produces the
 // visible sharp edges that distinguish lattice warp from regular
 // smooth-warped noise. The displacement is piecewise-constant
 // within each integer cell, so at cell boundaries the noise sample
@@ -167,7 +167,7 @@ float latticeWarpFBM(vec3 p) {
     vec3 q = p;
     for (int i = 0; i < 5; ++i) {
         vec3 s = q + warp;
-        float n = noise3(s);
+        float n = valueNoise3(s);
         v += a * n;
         // Per-cell discrete warp via `h3(floor(...))` — piecewise-
         // constant within each integer cell, jumps at cell
@@ -230,7 +230,7 @@ float ridgedFBM(vec3 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 5; ++i) {
-        v += a * (1.0 - abs(noise3(p) - 0.5) * 2.0);
+        v += a * (1.0 - abs(valueNoise3(p) - 0.5) * 2.0);
         p *= 2.03;
         a *= 0.5;
     }

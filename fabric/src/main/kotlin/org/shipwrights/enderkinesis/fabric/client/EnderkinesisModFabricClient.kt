@@ -1,13 +1,14 @@
 package org.shipwrights.enderkinesis.fabric.client
 
-import com.mojang.logging.LogUtils
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelLoadingPlugin
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelModifier
 import net.fabricmc.fabric.api.client.rendering.v1.BuiltinItemRendererRegistry
+import net.fabricmc.fabric.api.client.rendering.v1.CoreShaderRegistrationCallback
 import net.fabricmc.fabric.api.client.rendering.v1.DimensionRenderingRegistry
 import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents
+import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper
 import net.fabricmc.fabric.api.resource.ResourcePackActivationType
 import net.fabricmc.loader.api.FabricLoader
@@ -18,16 +19,19 @@ import org.shipwrights.enderkinesis.client.CatalogerTomeWorldRenderer
 import org.shipwrights.enderkinesis.client.EnderkinesisModClient
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer
 import org.shipwrights.enderkinesis.client.SselithDimensionEffects
+import org.shipwrights.enderkinesis.client.TightRobeArmorRenderer
 import org.shipwrights.enderkinesis.client.SureibjinDimensionEffects
 import org.shipwrights.enderkinesis.client.WohlonnogondoniaDimensionEffects
 import org.shipwrights.enderkinesis.client.WyllandTomeBEWLR
 import net.fabricmc.fabric.api.client.rendering.v1.ArmorRenderer
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
+import org.shipwrights.enderkinesis.client.model.ConstriliarModel
 import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
 import org.shipwrights.enderkinesis.client.model.PrismaticGoatModel
 import org.shipwrights.enderkinesis.client.model.StatueBlackGoatModel
 import org.shipwrights.enderkinesis.client.model.StatueCatalogerModel
 import org.shipwrights.enderkinesis.client.model.StatueCountingModel
+import org.shipwrights.enderkinesis.client.model.StatueOwlModel
 import org.shipwrights.enderkinesis.client.model.StatueSteveModel
 import org.shipwrights.enderkinesis.client.model.StatueTentacledBeastModel
 import org.shipwrights.enderkinesis.client.model.StatueTentaclesModel
@@ -44,13 +48,19 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 Component.literal("Sselith"),
                 ResourcePackActivationType.ALWAYS_ENABLED,
             )
-            LOG.info("Registered built-in Sselith translation pack (success={})", ok)
         }
 
         // Register Cataloger's model layer. Fabric API exposes this through
         // EntityModelLayerRegistry; the supplier is invoked once at bake time.
         EntityModelLayerRegistry.registerModelLayer(CatalogerModel.LAYER_LOCATION) {
             CatalogerModel.createBodyLayer()
+        }
+
+        // Wohlem — entity model, drawn by WohlemRenderer.
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.WohlemModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.WohlemModel.createBodyLayer()
         }
 
         // Heart of the Wild — block-entity model registered the same way.
@@ -60,6 +70,10 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             HeartOfTheWildModel.createBodyLayer()
         }
 
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.SselithMothModel.LAYER_LOCATION,
+        ) { org.shipwrights.enderkinesis.client.model.SselithMothModel.createBodyLayer() }
+
         // Prismatic Goat — entity model. Drawn by [PrismaticGoatRenderer]
         // (registered in the common client init through
         // Architectury's EntityRendererRegistry).
@@ -67,7 +81,18 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             PrismaticGoatModel.createBodyLayer()
         }
 
-        // Six statue layers, drawn by StatueBlockEntityRenderer.
+        // Constriliar — entity model, drawn by ConstriliarRenderer.
+        EntityModelLayerRegistry.registerModelLayer(ConstriliarModel.LAYER_LOCATION) {
+            ConstriliarModel.createBodyLayer()
+        }
+
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.ShulkonautModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.ShulkonautModel.createBodyLayer()
+        }
+
+        // Statue layers, drawn by StatueBlockEntityRenderer.
         EntityModelLayerRegistry.registerModelLayer(StatueSteveModel.LAYER_LOCATION)           { StatueSteveModel.createBodyLayer() }
         EntityModelLayerRegistry.registerModelLayer(StatueCatalogerModel.LAYER_LOCATION)       { StatueCatalogerModel.createBodyLayer() }
         EntityModelLayerRegistry.registerModelLayer(StatueTentaclesModel.LAYER_LOCATION)       { StatueTentaclesModel.createBodyLayer() }
@@ -75,11 +100,11 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         EntityModelLayerRegistry.registerModelLayer(StatueYellowTowerModel.LAYER_LOCATION)     { StatueYellowTowerModel.createBodyLayer() }
         EntityModelLayerRegistry.registerModelLayer(StatueBlackGoatModel.LAYER_LOCATION)       { StatueBlackGoatModel.createBodyLayer() }
         EntityModelLayerRegistry.registerModelLayer(StatueCountingModel.LAYER_LOCATION)        { StatueCountingModel.createBodyLayer() }
+        EntityModelLayerRegistry.registerModelLayer(StatueOwlModel.LAYER_LOCATION)             { StatueOwlModel.createBodyLayer() }
 
         // Tight-fit robe armor — two HumanoidModel bakes at CubeDeformation(0.15f) instead
         // of vanilla's 0.5/1.0, plus an ArmorRenderer registration for every robe item so
-        // the model is swapped in at render time. Forge picks up the namespaced texture
-        // path via ScalingRobeArmorItem.getArmorTexture; no per-loader Forge wiring needed.
+        // the model is swapped in at render time.
         EntityModelLayerRegistry.registerModelLayer(TightRobeArmorModel.INNER_LAYER) {
             TightRobeArmorModel.createInnerLayer()
         }
@@ -92,10 +117,10 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         EntityModelLayerRegistry.registerModelLayer(TightRobeArmorModel.WITCH_HAT_LAYER) {
             TightRobeArmorModel.createWitchHatLayer()
         }
-        val tightRobeRenderer = TightRobeArmorRenderer()
-        // Mystic Wind: tagged-item right-clicks fire a 0.1-second backward
-        // wind pulse on the wearer's robes.
-        TightRobeArmorRenderer.registerEvents(tightRobeRenderer)
+        // The renderer is common code; Forge reaches it from a mixin on the armour layer.
+        val tightRobeRenderer = ArmorRenderer { matrices, consumers, stack, entity, slot, light, model ->
+            TightRobeArmorRenderer.INSTANCE.render(matrices, consumers, stack, entity, slot, light, model)
+        }
         ArmorRenderer.register(
             tightRobeRenderer,
             EKItems.END_CULT_HOOD.get(),
@@ -118,7 +143,6 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         // critical setting — see [SselithDimensionEffects] for why.
         val effectsId = EnderkinesisMod.id("sselith_repertory")
         DimensionRenderingRegistry.registerDimensionEffects(effectsId, SselithDimensionEffects())
-        LOG.info("Registered Sselith DimensionSpecialEffects (id={}, skyType=NONE, clouds=NaN)", effectsId)
 
         // Wohlonnogondonia uses NORMAL sky type but suppresses vanilla's warm
         // sunrise/sunset gradient via getSunriseColor → null. Sun and moon
@@ -126,10 +150,6 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         val wohlonEffectsId = EnderkinesisMod.id("wohlonnogondonia")
         DimensionRenderingRegistry.registerDimensionEffects(
             wohlonEffectsId, WohlonnogondoniaDimensionEffects()
-        )
-        LOG.info(
-            "Registered Wohlonnogondonia DimensionSpecialEffects (id={}, skyType=NORMAL, no sunset gradient)",
-            wohlonEffectsId,
         )
 
         // Sureibjin — the dream coast. NORMAL sky for now (vanilla gradient
@@ -139,16 +159,34 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         DimensionRenderingRegistry.registerDimensionEffects(
             sureibjinEffectsId, SureibjinDimensionEffects()
         )
-        LOG.info(
-            "Registered Sureibjin DimensionSpecialEffects (id={}, skyType=NONE, custom dream sky)",
-            sureibjinEffectsId,
-        )
 
         // Wylland Tome — register the three open-tome sub-models so
         // they get baked (no item directly references them) and wire
         // the BEWLR as the item's custom renderer. Fabric flips the
         // baked model's customRenderer flag so vanilla
         // ItemRenderer.render dispatches into our BEWLR.
+        // Moth Cloth glint overlay shader — loaded once per resource pack reload.
+        CoreShaderRegistrationCallback.EVENT.register { ctx ->
+            ctx.register(
+                ResourceLocation("enderkinesis", "moth_cloth"),
+                DefaultVertexFormat.BLOCK,
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.MothClothRenderType.shader = instance
+            }
+            ctx.register(
+                ResourceLocation("enderkinesis", "moth_camo"),
+                DefaultVertexFormat.NEW_ENTITY,
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.MothCamoRenderType.shader = instance
+            }
+            ctx.register(
+                ResourceLocation("enderkinesis", "owl_sight"),
+                DefaultVertexFormat.POSITION,
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.OwlSightPasses.shader = instance
+            }
+        }
+
         ModelLoadingPlugin.register { ctx ->
             ctx.addModels(
                 WyllandTomeBEWLR.ICON_MODEL_LOC,
@@ -157,6 +195,9 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 WyllandTomeBEWLR.COVER2_MODEL_LOC,
                 WyllandTomeBEWLR.PAGE3_MODEL_LOC,
                 WyllandTomeBEWLR.PAGE4_MODEL_LOC,
+                org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION,
+                org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC,
+                org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC,
             )
             ctx.modifyModelAfterBake().register(
                 ModelModifier.AfterBake { model, modelCtx ->
@@ -167,8 +208,23 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                         WyllandTomeBEWLR.COVER2_MODEL_LOC -> WyllandTomeBEWLR.cover2Model = model
                         WyllandTomeBEWLR.PAGE3_MODEL_LOC -> WyllandTomeBEWLR.page3Model = model
                         WyllandTomeBEWLR.PAGE4_MODEL_LOC -> WyllandTomeBEWLR.page4Model = model
+                        org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION ->
+                            org.shipwrights.enderkinesis.client.EchoCannonRenderer.capturedBarrelModel = model
+                        org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC ->
+                            org.shipwrights.enderkinesis.client.ParallelographBEWLR.baseModel = model
+                        org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC ->
+                            org.shipwrights.enderkinesis.client.ParallelographBEWLR.armModel = model
                     }
                     model
+                },
+            )
+            ctx.modifyModelAfterBake().register(
+                ModelModifier.AfterBake { model, modelCtx ->
+                    if (model != null && modelCtx.id() == CutoutBakedModel.INEGRIC_RETORT_SUPPORTS) {
+                        CutoutBakedModel.wrap(model)
+                    } else {
+                        model
+                    }
                 },
             )
         }
@@ -176,6 +232,20 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             EKItems.WYLLAND_TOME.get(),
         ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
             WyllandTomeBEWLR.renderByItem(stack, mode, poseStack, vertexConsumers, light, overlay)
+        }
+        BuiltinItemRendererRegistry.INSTANCE.register(
+            EKItems.PARALLELOGRAPH.get(),
+        ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
+            org.shipwrights.enderkinesis.client.ParallelographBEWLR.renderByItem(
+                stack, mode, poseStack, vertexConsumers, light, overlay,
+            )
+        }
+        BuiltinItemRendererRegistry.INSTANCE.register(
+            EKItems.ICHAERIC_INK_JAR_ITEM.get(),
+        ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
+            org.shipwrights.enderkinesis.client.IchaericInkJarBEWLR.renderByItem(
+                stack, mode, poseStack, vertexConsumers, light, overlay,
+            )
         }
 
         // Magic Missile — renders as the vanilla ShulkerBulletModel via [MagicMissileBEWLR].
@@ -208,6 +278,11 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             val consumers = ctx.consumers() ?: return@AfterEntities
             val camera = ctx.camera().position
             CatalogerTomeWorldRenderer.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            // Detached barnacle shrivel-out death (block already broke) — cutout, so it
+            // belongs in the entity pass with the block-entity renderer's geometry.
+            org.shipwrights.enderkinesis.client.YgannBarnacleDeathRenderer.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
         })
@@ -254,6 +329,5 @@ class EnderkinesisModFabricClient : ClientModInitializer {
     }
 
     companion object {
-        private val LOG = LogUtils.getLogger()
     }
 }

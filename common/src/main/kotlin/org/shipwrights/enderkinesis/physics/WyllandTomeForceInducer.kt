@@ -57,7 +57,7 @@ class WyllandTomeForceInducer(
     @Transient var localOffsetZ: Double = 0.0,
     /** Desired world-frame orientation, written by the manager. The PD
      *  controller drives `shipToWorldRotation` toward this each tick. */
-    @Transient var idealRotation: Quaterniond = Quaterniond(),
+    @Transient @Volatile var idealRotation: Quaterniond = Quaterniond(),
     /** Set true by the manager while the player is grabbing this ship,
      *  false on release. The attachment stays on the ship for cheap
      *  reuse on a future grab. */
@@ -151,13 +151,10 @@ class WyllandTomeForceInducer(
         val iDiff = rotatedDir.sub(dir).mul(iConst)
 
         // Force at COM (not at grab point — that's the whole point of
-        // this rewrite). Gravity cancellation is unscaled: we always
-        // want exactly the weight relief, not a mass-gain-amplified
-        // levitation.
+        // this rewrite). [ShipGravityHold] cancels gravity.
         val force = Vector3d(posDiff).add(iDiff)
             .sub(Vector3d(physShip.velocity).mul(dConst))
             .mul(mass)
-        force.y += mass * GRAVITY
         physShip.applyInvariantForce(force)
     }
 
@@ -182,9 +179,6 @@ class WyllandTomeForceInducer(
          *  aggressively cancel sag during rotation; too large causes
          *  whip-around. VMod ships 10.0 by default. */
         const val IDK_CONST = 10.0
-        /** VS2 world gravity (m/s²); subtracted from spring acceleration
-         *  so the ship hovers freely without the spring fighting weight. */
-        const val GRAVITY = 10.0
         /** Asymptotic stiffness multiplier at infinite mass. At m = 0
          *  → 1.0; at m → ∞ → 1 + MASS_GAIN_MAX. */
         const val MASS_GAIN_MAX = 2.0

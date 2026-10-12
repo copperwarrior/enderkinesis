@@ -120,8 +120,6 @@ object EnderAstrolabeGeometry {
                 center = bakeIndices(CENTER_INDICES),
             )
             baked = result
-            LOG.info("[EK] astrolabe geometry baked: base={} shaft={} pitchTop={} center={} quads",
-                result.base.size, result.shaft.size, result.pitchTop.size, result.center.size)
             result
         } catch (t: Throwable) {
             LOG.error("[EK] failed to bake astrolabe geometry", t)

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.dimension
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
@@ -50,6 +51,10 @@ object YgannAbyssBlockSweeper {
     /** Voxels sampled per non-air section per tick — vanilla's `random_tick_speed = 3`. */
     private const val RANDOM_TICK_SPEED = 3
 
+    // Scratch for [sweep], which runs each tick. Server thread only.
+    private val visited = LongOpenHashSet()
+    private val chunkProbe = BlockPos.MutableBlockPos()
+
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(TickEvent.ServerLevelTick { level ->
             if (level.dimension() == YgannAbyss.LEVEL_KEY) sweep(level)
@@ -60,7 +65,7 @@ object YgannAbyssBlockSweeper {
         val players = level.players()
         if (players.isEmpty()) return                     // no observers → no loaded chunks to scan
         val rng = level.random
-        val visited = HashSet<Long>()
+        visited.clear()
         val viewDist = level.server.playerList.viewDistance
         for (player in players) {
             val cx = player.blockX shr 4
@@ -77,8 +82,8 @@ object YgannAbyssBlockSweeper {
     private fun sweepChunk(level: ServerLevel, chunk: LevelChunk, rng: RandomSource) {
         // Whole-chunk shortcut: every block inside a VS2 shipyard chunk is, by definition,
         // a legitimate ship block — no need to look at individual voxels.
-        val chunkCenter = BlockPos(chunk.pos.minBlockX + 8, level.minBuildHeight + 1, chunk.pos.minBlockZ + 8)
-        if (level.isBlockInShipyard(chunkCenter)) return
+        chunkProbe.set(chunk.pos.minBlockX + 8, level.minBuildHeight + 1, chunk.pos.minBlockZ + 8)
+        if (level.isBlockInShipyard(chunkProbe)) return
 
         val minSection = level.minSection
         val sections = chunk.sections

@@ -4,15 +4,20 @@ import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.InteractionEvent
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundEvents
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.level.Level
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.block.state.BlockState
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.physics.RodLevitationAttachment
+import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.valkyrienskies.core.api.attachment.getOrPutAttachment
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
@@ -52,6 +57,19 @@ object RodOfLevitationManager {
      *  particle's built-in upward drift carries them up through the ship from below. */
     private const val UNDER_DEPTH = 1.0
 
+    /** Game ticks for the spiral to climb from the bottom of the ship to the top. */
+    private const val SPIRAL_TICKS = 20
+    private const val SPIRAL_TURNS = 2.0
+    private const val SPIRAL_ARMS = 2
+    private const val SPIRAL_STEPS_PER_TICK = 2
+
+    /** Gap (blocks) between the footprint corners and the spiral. */
+    private const val SPIRAL_MARGIN = 0.2
+
+    private const val NUDGE_PARTICLES = 4
+    private const val NUDGE_PARTICLE_SPREAD = 0.25
+    private const val NUDGE_PARTICLE_SPEED = 0.1
+
     private data class Pending(
         val state: BlockState,
         val targetY: Double,
@@ -67,8 +85,8 @@ object RodOfLevitationManager {
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::onLevelTick)
-        InteractionEvent.LEFT_CLICK_BLOCK.register { player, hand, pos, _ ->
-            handleLeftClick(player, hand, pos)
+        InteractionEvent.LEFT_CLICK_BLOCK.register { player, hand, pos, face ->
+            handleLeftClick(player, hand, pos, face)
         }
     }
 
@@ -87,6 +105,7 @@ object RodOfLevitationManager {
         // hovers it 2 blocks above where the player clicked.
         val targetY = pos.y + 0.5 + LIFT_BLOCKS
         pending[ship.id] = Pending(state, targetY, DURATION_TICKS, attached = false, dim = level.dimension())
+        playRodSound(level, SoundEvents.AMETHYST_BLOCK_RESONATE, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
         return true
     }
 
@@ -111,7 +130,13 @@ object RodOfLevitationManager {
         )
         ship.getOrPutAttachment(RodLevitationAttachment::class.java) { RodLevitationAttachment() }
             .touch(targetY)
+        val shipPos = ship.transform.positionInWorld
+        playRodSound(level, SoundEvents.AMETHYST_BLOCK_RESONATE, shipPos.x(), shipPos.y(), shipPos.z())
         return true
+    }
+
+    private fun playRodSound(level: ServerLevel, sound: SoundEvent, x: Double, y: Double, z: Double) {
+        level.playSound(null, x, y, z, sound, SoundSource.PLAYERS, 1f, 1f)
     }
 
     private fun onLevelTick(level: ServerLevel) {
@@ -139,7 +164,9 @@ object RodOfLevitationManager {
                 entry.attached = true
             }
             loaded.getAttachment(RodLevitationAttachment::class.java)?.touch(entry.targetY)
+            ShipGravityHold.hold(level, loaded)
             spawnLiftParticles(level, loaded)
+            spawnSpiralParticles(level, loaded, DURATION_TICKS - entry.ticksRemaining)
             entry.ticksRemaining--
             if (entry.ticksRemaining > 0) continue
 
@@ -157,25 +184,65 @@ object RodOfLevitationManager {
      *  the exact spawn point with no random drift; the portal particle's built-in tick
      *  animation carries it gently upward through the ship without any extra velocity.
      *
-     *  Spawn point is picked in *shipyard* coords (uniform over the XZ block footprint at
-     *  underside Y) and then transformed to world. Sampling in shipyard frame avoids the
-     *  OBB→AABB inflation a rotated ship would produce if we picked from a world-frame box. */
+     *  XZ is picked in *shipyard* coords (uniform over the block footprint) and then
+     *  transformed to world, which avoids the OBB→AABB inflation of a world-frame box.
+     *  Y is world-frame: "beneath" follows world down, not ship down. */
     private fun spawnLiftParticles(level: ServerLevel, ship: org.valkyrienskies.core.api.ships.LoadedServerShip) {
         val ab = ship.shipAABB ?: return
         val toWorld = ship.transform.shipToWorld
-        val sMinX = ab.minX().toDouble(); val sMaxX = (ab.maxX() + 1).toDouble()
-        val sMinZ = ab.minZ().toDouble(); val sMaxZ = (ab.maxZ() + 1).toDouble()
-        val sMinY = ab.minY().toDouble()
+        val sMinX = ab.minX().toDouble(); val sMaxX = ab.maxX().toDouble()
+        val sMinZ = ab.minZ().toDouble(); val sMaxZ = ab.maxZ().toDouble()
+        val sMidY = (ab.minY() + ab.maxY()) * 0.5
+        val worldMinY = ship.worldAABB.minY()
         val random = level.random
         val p = Vector3d()
         repeat(PARTICLES_PER_TICK) {
             p.set(
                 sMinX + random.nextDouble() * (sMaxX - sMinX),
-                sMinY - random.nextDouble() * UNDER_DEPTH,
+                sMidY,
                 sMinZ + random.nextDouble() * (sMaxZ - sMinZ),
             )
             toWorld.transformPosition(p)
+            p.y = worldMinY - random.nextDouble() * UNDER_DEPTH
             level.sendParticles(ParticleTypes.PORTAL, p.x, p.y, p.z, 1, 0.0, 0.0, 0.0, 0.0)
+        }
+    }
+
+    /** REVERSE_PORTAL stays at its spawn point at speed 0, so the trail keeps the helix
+     *  shape. PORTAL starts 1 block high and falls. The helix axis is world Y, not ship Y.
+     *  `shipAABB` max is exclusive: a 1×1×1 ship has max - min == 1. */
+    private fun spawnSpiralParticles(
+        level: ServerLevel,
+        ship: org.valkyrienskies.core.api.ships.LoadedServerShip,
+        elapsedTicks: Int,
+    ) {
+        if (elapsedTicks >= SPIRAL_TICKS) return
+        val ab = ship.shipAABB ?: return
+        val sizeX = (ab.maxX() - ab.minX()).toDouble()
+        val sizeZ = (ab.maxZ() - ab.minZ()).toDouble()
+        val radius = Math.hypot(sizeX, sizeZ) * 0.5 + SPIRAL_MARGIN
+        val center = Vector3d(
+            ab.minX() + sizeX * 0.5,
+            (ab.minY() + ab.maxY()) * 0.5,
+            ab.minZ() + sizeZ * 0.5,
+        )
+        ship.transform.shipToWorld.transformPosition(center)
+        val worldAABB = ship.worldAABB
+        val bottomY = worldAABB.minY()
+        val height = worldAABB.maxY() - bottomY
+        for (step in 0 until SPIRAL_STEPS_PER_TICK) {
+            val progress = (elapsedTicks + step.toDouble() / SPIRAL_STEPS_PER_TICK) / SPIRAL_TICKS
+            val baseAngle = progress * SPIRAL_TURNS * 2.0 * Math.PI
+            for (arm in 0 until SPIRAL_ARMS) {
+                val angle = baseAngle + arm * 2.0 * Math.PI / SPIRAL_ARMS
+                level.sendParticles(
+                    ParticleTypes.REVERSE_PORTAL,
+                    center.x + radius * Math.cos(angle),
+                    bottomY + progress * height,
+                    center.z + radius * Math.sin(angle),
+                    1, 0.0, 0.0, 0.0, 0.0,
+                )
+            }
         }
     }
 
@@ -188,7 +255,7 @@ object RodOfLevitationManager {
      *  lets creative-mode insta-break race the server's nudge handler before our
      *  [EventResult.interruptTrue] from the server side can land. VS2's shipObjectWorld
      *  is mirrored client-side, so the ship presence check works there too. */
-    private fun handleLeftClick(player: Player, hand: InteractionHand, pos: BlockPos): EventResult {
+    private fun handleLeftClick(player: Player, hand: InteractionHand, pos: BlockPos, face: Direction): EventResult {
         if (!player.getItemInHand(hand).`is`(EKItems.ROD_OF_LEVITATION.get())) return EventResult.pass()
         val level = player.level()
         // Ship-ness check on whichever side fired the event. If the click isn't on a ship,
@@ -215,11 +282,38 @@ object RodOfLevitationManager {
                     )
                     ship.getOrPutAttachment(RodLevitationAttachment::class.java) { RodLevitationAttachment() }
                         .queueNudge(force, rel)
+                    nudgeFeedback(level, ship, pos, face)
                 }
             }
         }
         // Both sides return interruptTrue: client cancels the swing animation /
         // creative-mode insta-break; server cancels the attack-block packet round-trip.
         return EventResult.interruptTrue()
+    }
+
+    /** [pos] is a shipyard position. The burst spawns on the clicked face, because
+     *  particles at the block centre are hidden inside the block. */
+    private fun nudgeFeedback(
+        level: ServerLevel,
+        ship: org.valkyrienskies.core.api.ships.LoadedServerShip,
+        pos: BlockPos,
+        face: Direction,
+    ) {
+        val p = Vector3d(
+            pos.x + 0.5 + face.stepX * 0.5,
+            pos.y + 0.5 + face.stepY * 0.5,
+            pos.z + 0.5 + face.stepZ * 0.5,
+        )
+        ship.transform.shipToWorld.transformPosition(p)
+        level.sendParticles(
+            ParticleTypes.REVERSE_PORTAL, p.x, p.y, p.z, NUDGE_PARTICLES,
+            NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPEED,
+        )
+        playRodSound(level, SoundEvents.AMETHYST_BLOCK_CHIME, p.x, p.y, p.z)
+    }
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        pending.clear()
     }
 }

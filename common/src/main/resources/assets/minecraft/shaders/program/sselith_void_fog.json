@@ -1,0 +1,30 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "one",
+    "dstrgb": "zero"
+  },
+  "vertex": "blit",
+  "fragment": "sselith_void_fog",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" },
+    { "name": "ColumnMask" }
+  ],
+  "uniforms": [
+    { "name": "ProjMat",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "OutSize",     "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "InvViewProj", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "CamBlockWrap", "type": "int",      "count": 2,  "values": [ 0, 0 ] },
+    { "name": "CamFrac",     "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "CamY",        "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "DepthParams", "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "FogRange",    "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "SlabY",       "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "MaxDist",     "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Density",     "type": "float",     "count": 2,  "values": [ 128.0, 0.25 ] },
+    { "name": "EdgeFade",    "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "BreaksLo",    "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 0.0, 0.0 ] },
+    { "name": "BreaksHi",    "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 0.0, 0.0 ] }
+  ]
+}

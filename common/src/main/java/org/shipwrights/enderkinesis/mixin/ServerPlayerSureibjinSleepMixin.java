@@ -54,6 +54,9 @@ public abstract class ServerPlayerSureibjinSleepMixin {
         // sleep tick logic (skip-night detection in ServerLevel.tick) will
         // pick this up like any other sleeping player.
         self.startSleeping(bedPos);
+        // Vanilla `Player.startSleepInBed` does this. The counter stays at 100..110 for half a
+        // second after a wake, which the night skip reads as a full sleep.
+        ((PlayerSleepCounterAccessor) self).setSleepCounter(0);
         // CRITICAL: refresh the level's sleep status. The sleepStatus is
         // only recomputed when startSleepInBed / stopSleepInBed call
         // updateSleepingPlayerList — without this our sleeper is invisible

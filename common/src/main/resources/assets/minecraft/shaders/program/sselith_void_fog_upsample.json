@@ -1,0 +1,23 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "blit",
+  "fragment": "sselith_void_fog_upsample",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" },
+    { "name": "HalfSampler" }
+  ],
+  "uniforms": [
+    { "name": "ProjMat",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "OutSize",     "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "FogColor",    "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "DepthParams", "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "HalfSize",    "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] }
+  ]
+}

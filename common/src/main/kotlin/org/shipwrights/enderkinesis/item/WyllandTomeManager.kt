@@ -3,23 +3,32 @@ package org.shipwrights.enderkinesis.item
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
+import dev.architectury.registry.registries.RegistrySupplier
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
 import net.minecraft.world.entity.projectile.Projectile
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.joml.Quaterniond
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.physics.WyllandTomeForceInducer
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.util.ShipBlockMove
+import org.shipwrights.enderkinesis.util.ShipMoveListener
+import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.isBlockInShipyard
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 
@@ -42,7 +51,7 @@ import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
  *    using the player's local up + right axes — full 3DOF rotation
  *    when the mod key is held.
  */
-object WyllandTomeManager {
+object WyllandTomeManager : ShipMoveListener {
 
     /** Per-player grab record. */
     private data class Grab(
@@ -85,6 +94,11 @@ object WyllandTomeManager {
          *  yet — sent to the client as the beam endpoint so the visual
          *  doesn't dangle at (0,0,0) during the grace window. */
         val pendingAnchor: Vector3d = Vector3d(),
+        /** Grab point in the shipyard of a ship that VS2 just split or welded. The new ship
+         *  has no valid centre of mass until it loads, so [localOffset] is set then. */
+        var pendingShipyardPoint: Vector3d? = null,
+        /** Dimension of the grab. The tick of that level owns it. */
+        val dimension: net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>,
     )
 
     private val grabs = ConcurrentHashMap<UUID, Grab>()
@@ -93,6 +107,10 @@ object WyllandTomeManager {
         TickEvent.SERVER_LEVEL_POST.register(TickEvent.ServerLevelTick { level ->
             tickAll(level)
         })
+        dev.architectury.event.events.common.LifecycleEvent.SERVER_STOPPED.register { _ ->
+            grabs.clear()
+            org.shipwrights.enderkinesis.body.OrbGrabState.clear()
+        }
         // Cancel entity attacks while the player holds a tome — left-click
         // is the grab gesture, it must never hurt entities.
         PlayerEvent.ATTACK_ENTITY.register(
@@ -107,15 +125,38 @@ object WyllandTomeManager {
 
     /** Player wants to grab whatever's under their crosshair. Called from
      *  the network receiver. */
+    /** The client shows the beam from the button press. Each refusal must end it. */
+    private fun refuseGrab(player: ServerPlayer) = WyllandTomeNetwork.sendGrabEnd(player)
+
+    private fun refuseSpent(player: ServerPlayer) {
+        playSound(player, EKSounds.WYLLAND_SPENT)
+        refuseGrab(player)
+    }
+
+    private fun playSound(
+        player: ServerPlayer, sound: RegistrySupplier<SoundEvent>,
+        x: Double = player.x, y: Double = player.y, z: Double = player.z,
+    ) {
+        player.serverLevel().playSound(null, x, y, z, sound.get(), SoundSource.PLAYERS, 1f, 1f)
+    }
+
     fun beginGrab(player: ServerPlayer, target: GrabTarget) {
-        if (player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return
+        if (player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return refuseGrab(player)
         // A spent tome refuses to grab until it's repaired. It never
         // shatters — it just goes inert at the bottom of its bar.
-        if (WyllandTomeItem.isBroken(player.mainHandItem)) return
+        if (WyllandTomeItem.isBroken(player.mainHandItem)) return refuseSpent(player)
         when (target) {
             is GrabTarget.Ship -> {
-                val ship = player.serverLevel().shipObjectWorld
-                    .loadedShips.getById(target.shipId) ?: return
+                val level = player.serverLevel()
+                val ship = level.shipObjectWorld.loadedShips.getById(target.shipId)
+                val world = Vector3d(target.shipLocalX, target.shipLocalY, target.shipLocalZ)
+                // `loadedShips` holds the ships of all dimensions.
+                if (ship == null || ship.chunkClaimDimension != level.dimensionId ||
+                    !inGrabReach(player, ship.transform.shipToWorld.transformPosition(world))
+                ) {
+                    WyllandTomeNetwork.sendGrabEnd(player)
+                    return
+                }
                 // Client sends ship-frame coords directly — see
                 // [WyllandTomeClient.tryBeginGrab]. The client re-runs
                 // the voxelshape clip in ship-frame so partial blocks
@@ -124,8 +165,14 @@ object WyllandTomeManager {
                 grabLoadedShip(player, ship, target.shipLocalX, target.shipLocalY, target.shipLocalZ)
             }
             is GrabTarget.Entity -> {
-                val entity = (player.level() as ServerLevel)
-                    .getEntity(target.entityUuid) ?: return
+                val entity = (player.level() as ServerLevel).getEntity(target.entityUuid)
+                // No player grab: the client does not offer it, and a self-grab is flight.
+                if (entity == null || entity is net.minecraft.world.entity.player.Player ||
+                    !inGrabReach(player, Vector3d(entity.x, entity.y, entity.z))
+                ) {
+                    WyllandTomeNetwork.sendGrabEnd(player)
+                    return
+                }
                 val eye = player.eyePosition
                 val rawDist = entity.position().distanceTo(eye)
                 val dist = rawDist.coerceIn(
@@ -133,6 +180,7 @@ object WyllandTomeManager {
                     WyllandTomeItem.MAX_GRAB_DISTANCE,
                 )
                 grabs[player.uuid] = Grab(
+                    dimension = player.level().dimension(),
                     shipId = null,
                     entityUuid = entity.uuid,
                     grabDistance = dist,
@@ -147,10 +195,15 @@ object WyllandTomeManager {
                 // projectile won't pop on its original owner. Per-tick re-aim of velocity
                 // and xPower/yPower/zPower lives in [applyToEntity].
                 if (entity is AbstractHurtingProjectile) entity.owner = player
+                playSound(player, EKSounds.WYLLAND_GRAB)
             }
             is GrabTarget.Orb -> {
                 val world = player.serverLevel().shipObjectWorld
-                val body = world.allBodies.getById(target.bodyId) ?: return
+                val body = world.allBodies.getById(target.bodyId)
+                if (body == null || !inGrabReach(player, Vector3d(body.kinematics.position))) {
+                    WyllandTomeNetwork.sendGrabEnd(player)
+                    return
+                }
                 // Record the body's position in the player-look basis
                 // at grab time (right, up-perp, forward). On every
                 // subsequent server tick we rebuild the world target
@@ -160,11 +213,22 @@ object WyllandTomeManager {
                 // silhouette they clicked.
                 val localOffset = computeGrabLocalOffset(player, body.kinematics.position)
                 org.shipwrights.enderkinesis.body.OrbGrabState.beginGrab(
-                    player.uuid, target.bodyId, body.kinematics.rotation, localOffset
+                    player.uuid, target.bodyId, body.kinematics.rotation, localOffset,
+                    player.level().dimension(),
                 )
+                playSound(player, EKSounds.WYLLAND_GRAB)
             }
         }
     }
+
+    private fun inGrabReach(player: ServerPlayer, world: org.joml.Vector3dc): Boolean {
+        val eye = player.eyePosition
+        return world.distanceSquared(eye.x, eye.y, eye.z) <= GRAB_REACH_SQ
+    }
+
+    /** [WyllandTomeItem.MAX_GRAB_DISTANCE] plus slack for lag and for a large target. */
+    private const val GRAB_REACH_SQ: Double =
+        (WyllandTomeItem.MAX_GRAB_DISTANCE + 8.0) * (WyllandTomeItem.MAX_GRAB_DISTANCE + 8.0)
 
     /** Install a grab record on the player keyed to an already-resolved
      *  loaded ship. Shared by the two entry points that get to this
@@ -209,6 +273,7 @@ object WyllandTomeManager {
             WyllandTomeItem.MAX_GRAB_DISTANCE,
         )
         grabs[player.uuid] = Grab(
+            dimension = player.level().dimension(),
             shipId = ship.id,
             entityUuid = null,
             grabDistance = dist,
@@ -218,6 +283,7 @@ object WyllandTomeManager {
             lastYRot = player.yRot,
             lastXRot = player.xRot,
         )
+        playSound(player, EKSounds.WYLLAND_GRAB)
     }
 
     /** Euclidean radius of the rip-up sphere, in blocks. 2.5 keeps the
@@ -251,20 +317,28 @@ object WyllandTomeManager {
         pos: BlockPos,
         hitX: Double, hitY: Double, hitZ: Double,
     ) {
-        if (player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return
-        if (WyllandTomeItem.isBroken(player.mainHandItem)) return
+        if (player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) return refuseGrab(player)
+        if (WyllandTomeItem.isBroken(player.mainHandItem)) return refuseSpent(player)
         val level = player.serverLevel()
-        if (!level.isLoaded(pos)) return
+        if (!level.isLoaded(pos)) return refuseGrab(player)
+        // The rip moves a 5×5×5 volume; a packet must not do that out of reach, in adventure
+        // mode, or in spawn protection.
+        if (!inGrabReach(player, Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)) ||
+            !player.mayBuild() || !level.mayInteract(player, pos)
+        ) {
+            WyllandTomeNetwork.sendGrabEnd(player)
+            return
+        }
         // Already part of a ship — the regular ship-grab path handles
         // these, we should not reach here from a sane client.
-        if (level.getLoadedShipManagingPos(pos) != null || level.isBlockInShipyard(pos)) return
+        if (level.getLoadedShipManagingPos(pos) != null || level.isBlockInShipyard(pos)) return refuseGrab(player)
 
         val state = level.getBlockState(pos)
-        if (state.isAir) return
+        if (state.isAir) return refuseGrab(player)
         if (state.getDestroySpeed(level, pos) < 0f) return               // bedrock / unbreakable
 
         val blocks = floodFillSphere(level, pos)
-        if (blocks.isEmpty()) return
+        if (blocks.isEmpty()) return refuseGrab(player)
         // Pull in anything that's structurally attached to the ripped set — tall grass
         // on the dirt we yanked, a torch on the wall, the head of a bed whose foot is
         // already inside, etc. Shared with the lattice and rod assembly paths.
@@ -315,7 +389,7 @@ object WyllandTomeManager {
         worldHitX: Double, worldHitY: Double, worldHitZ: Double,
     ) {
         // Self-grab guard — same rule as [grabLoadedShip].
-        if (draggingShipIdOf(player) == ship.id) return
+        if (draggingShipIdOf(player) == ship.id) return refuseGrab(player)
         val grabPointLocal = Vector3d(shipLocalX, shipLocalY, shipLocalZ)
         val offset = Vector3d(grabPointLocal).sub(ship.transform.positionInShip)
         val eye = player.eyePosition
@@ -328,6 +402,7 @@ object WyllandTomeManager {
             WyllandTomeItem.MAX_GRAB_DISTANCE,
         )
         grabs[player.uuid] = Grab(
+            dimension = player.level().dimension(),
             shipId = ship.id,
             entityUuid = null,
             grabDistance = dist,
@@ -339,6 +414,7 @@ object WyllandTomeManager {
             loadGraceTicks = LOAD_GRACE_TICKS,
             pendingAnchor = Vector3d(worldHitX, worldHitY, worldHitZ),
         )
+        playSound(player, EKSounds.WYLLAND_RIP, worldHitX, worldHitY, worldHitZ)
     }
 
     /** Connected flood fill outward from [origin] through solid blocks,
@@ -419,9 +495,11 @@ object WyllandTomeManager {
     fun release(player: ServerPlayer) {
         // Always clear the orb-grab side too — orb grabs and ship/entity
         // grabs use disjoint storage, so a release should clear both.
+        val hadOrb = org.shipwrights.enderkinesis.body.OrbGrabState.grabFor(player.uuid) != null
         org.shipwrights.enderkinesis.body.OrbGrabState.release(player.uuid)
-        val g = grabs.remove(player.uuid) ?: return
-        deactivateShipInducer(player, g)
+        val g = grabs.remove(player.uuid)
+        if (g != null || hadOrb) playSound(player, EKSounds.WYLLAND_RELEASE)
+        if (g != null) deactivateShipInducer(player, g)
     }
 
     /** Server-initiated grab termination — used by all the per-tick
@@ -435,12 +513,32 @@ object WyllandTomeManager {
         WyllandTomeNetwork.sendGrabEnd(player)
     }
 
+    /** A grab follows its grab point to the ship that now has that block. */
+    @OptIn(VsBeta::class)
+    override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
+        val from = level.shipObjectWorld.loadedShips.getById(move.fromShipId) ?: return
+        for (g in grabs.values) {
+            if (g.shipId != move.fromShipId) continue
+            val point = Vector3d(g.localOffset).add(from.transform.positionInShip)
+            if (!move.fromShipDeleted && !move.touches(point)) continue
+            val world = shipGrabPointWorld(from, g)
+            g.pendingAnchor.set(world.x, world.y, world.z)
+            from.getAttachment(WyllandTomeForceInducer::class.java)?.active = false
+            g.shipId = move.toShipId
+            g.pendingShipyardPoint = move.mapPoint(point)
+            g.loadGraceTicks = LOAD_GRACE_TICKS
+        }
+    }
+
     /** Flip the ship's [WyllandTomeForceInducer] back to inactive so the
      *  physics thread stops applying the cursor spring. The attachment
      *  stays on the ship for cheap reuse on a future grab. */
-    private fun deactivateShipInducer(player: ServerPlayer, g: Grab) {
+    private fun deactivateShipInducer(player: ServerPlayer, g: Grab) =
+        deactivateShipInducer(player.serverLevel(), g)
+
+    private fun deactivateShipInducer(level: ServerLevel, g: Grab) {
         val shipId = g.shipId ?: return
-        val ship = player.serverLevel().shipObjectWorld.loadedShips.getById(shipId) ?: return
+        val ship = level.shipObjectWorld.loadedShips.getById(shipId) ?: return
         ship.getAttachment(WyllandTomeForceInducer::class.java)?.let { ind ->
             ind.active = false
         }
@@ -577,8 +675,16 @@ object WyllandTomeManager {
         val it = grabs.entries.iterator()
         while (it.hasNext()) {
             val (uuid, g) = it.next()
-            val player = level.getPlayerByUUID(uuid) as? ServerPlayer
-            if (player == null || player.level() !== level) continue
+            if (g.dimension != level.dimension()) continue
+            val player = level.server.playerList.getPlayer(uuid)
+            // Logged out, or in a different dimension now. Without the release, the spring
+            // holds the ship at the last target until a restart.
+            if (player == null || player.level() !== level) {
+                it.remove()
+                deactivateShipInducer(level, g)
+                if (player != null) WyllandTomeNetwork.sendGrabEnd(player)
+                continue
+            }
             // Drop the grab if the player put the tome away (or died).
             if (!player.isAlive || player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) {
                 it.remove()
@@ -596,8 +702,15 @@ object WyllandTomeManager {
      *  the player stops holding the tome or leaves the dimension. */
     private fun tickOrbGrabs(level: ServerLevel) {
         org.shipwrights.enderkinesis.body.OrbGrabState.forEachGrab { uuid, bodyId ->
-            val player = level.getPlayerByUUID(uuid) as? ServerPlayer ?: return@forEachGrab
-            if (player.level() !== level) return@forEachGrab
+            if (org.shipwrights.enderkinesis.body.OrbGrabState.dimensionFor(uuid) != level.dimension()) {
+                return@forEachGrab
+            }
+            val player = level.server.playerList.getPlayer(uuid)
+            if (player == null || player.level() !== level) {
+                org.shipwrights.enderkinesis.body.OrbGrabState.release(uuid)
+                if (player != null) WyllandTomeNetwork.sendGrabEnd(player)
+                return@forEachGrab
+            }
             if (!player.isAlive || player.mainHandItem.item !== EKItems.WYLLAND_TOME.get()) {
                 org.shipwrights.enderkinesis.body.OrbGrabState.release(uuid)
                 WyllandTomeNetwork.sendGrabEnd(player)
@@ -674,6 +787,7 @@ object WyllandTomeManager {
         if (!player.abilities.instabuild) {
             if (WyllandTomeItem.isBroken(tome)) {
                 grabs.remove(player.uuid)
+                playSound(player, EKSounds.WYLLAND_SPENT)
                 severGrab(player, g)
                 return
             }
@@ -728,12 +842,17 @@ object WyllandTomeManager {
                 grabs.remove(player.uuid)
                 // Ship gone — nothing to deactivate; the attachment died
                 // with the ship. Client still needs to clear its beam.
+                playSound(player, EKSounds.WYLLAND_SEVER)
                 WyllandTomeNetwork.sendGrabEnd(player)
                 return
             }
             // Ship is now loaded — clear the grace so any later
             // disappearance is treated as "gone" and severs the grab.
             g.loadGraceTicks = 0
+            g.pendingShipyardPoint?.let {
+                g.localOffset.set(it).sub(ship.transform.positionInShip)
+                g.pendingShipyardPoint = null
+            }
             // Cut the connection if the player has stepped onto / been
             // mounted to the ship they're holding — same reasoning as in
             // beginGrab.
@@ -749,10 +868,12 @@ object WyllandTomeManager {
                 WyllandTomeItem.MAX_HOLD_DISTANCE * WyllandTomeItem.MAX_HOLD_DISTANCE
             ) {
                 grabs.remove(player.uuid)
+                playSound(player, EKSounds.WYLLAND_SEVER)
                 severGrab(player, g)
                 return
             }
             applyToShip(ship, target, g.idealRotation, g.localOffset)
+            ShipGravityHold.hold(level, ship)
             // Sync the actual grab anchor world position back to the
             // grabbing player so their beam draws to the contact point on
             // the ship. Also send the cursor (look-projected spring
@@ -769,6 +890,7 @@ object WyllandTomeManager {
             val entity = level.getEntity(g.entityUuid!!)
             if (entity == null || !entity.isAlive) {
                 grabs.remove(player.uuid)
+                playSound(player, EKSounds.WYLLAND_SEVER)
                 WyllandTomeNetwork.sendGrabEnd(player)
                 return
             }
@@ -777,6 +899,7 @@ object WyllandTomeManager {
                 WyllandTomeItem.MAX_HOLD_DISTANCE * WyllandTomeItem.MAX_HOLD_DISTANCE
             ) {
                 grabs.remove(player.uuid)
+                playSound(player, EKSounds.WYLLAND_SEVER)
                 WyllandTomeNetwork.sendGrabEnd(player)
                 return
             }
@@ -815,11 +938,9 @@ object WyllandTomeManager {
         inducer.localOffsetX = localOffset.x
         inducer.localOffsetY = localOffset.y
         inducer.localOffsetZ = localOffset.z
-        // Copy in the player's current target orientation — defensive
-        // copy because the inducer reads on the physics thread and the
-        // manager mutates this on the network thread inside
-        // applyRotateInput. JOML quaternions are mutable.
-        inducer.idealRotation.set(idealRotation)
+        // A new object: the physics thread reads the old one, and `set` writes four fields
+        // with no lock.
+        inducer.idealRotation = Quaterniond(idealRotation)
         inducer.active = true
     }
 

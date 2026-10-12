@@ -1,0 +1,117 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "facing": "north"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_base"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "paper": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_paper"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "ink": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_inkwell"
+      }
+    },
+    {
+      "when": {
+        "facing": "east"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_base",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "paper": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_paper",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "ink": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_inkwell",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "south"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_base",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "paper": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_paper",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "ink": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_inkwell",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "west"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_base",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "paper": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_paper",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "ink": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/scribes_desk_inkwell",
+        "y": 270
+      }
+    }
+  ]
+}

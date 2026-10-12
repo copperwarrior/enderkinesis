@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.item
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
@@ -43,7 +42,6 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_hinging")
 
-    private val LOG = LogUtils.getLogger()
 
     /** Compliance for the *non-rotational* DOFs of the hinge (3 translational, 2 of 3
      *  rotational). Matches Binding's near-rigid value so the hinge anchor doesn't drift. */
@@ -91,16 +89,12 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos) ?: return
         val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
         for (receiverPos in receivers) {
-            val recvBe = level.getBlockEntity(receiverPos) as? OrbOfLinkingBlockEntity ?: continue
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
             val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
             val dx = recvCentre.x - sendCentre.x
             val dy = recvCentre.y - sendCentre.y
             val dz = recvCentre.z - sendCentre.z
             if (dx * dx + dy * dy + dz * dz > maxSq) {
-                LOG.info(
-                    "[EK hinging] dropping {} → {} (distance > {} blocks)",
-                    sendBe.blockPos, receiverPos, OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE,
-                )
                 sendBe.removeOutgoingLink(level, tomeKind, receiverPos)
                 continue
             }
@@ -209,15 +203,10 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
                 val stillPending = sendBe.isJointPending(tomeKind, receiverPos)
                 val stillLinked = sendBe.hasOutgoingLink(tomeKind, receiverPos)
                 if (!stillPending || !stillLinked) {
-                    LOG.info("[EK hinging] dropping callback joint id={} (pair gone)", id)
                     gtpa.removeJoint(id)
                     sendBe.clearJointPending(tomeKind, receiverPos)
                 } else {
                     sendBe.setJointId(tomeKind, receiverPos, id)
-                    LOG.debug(
-                        "[EK hinging] hinged {} ↔ {} (power {}, force {}) as joint id={}",
-                        sendBe.blockPos, receiverPos, clampedPower, driveForceLimit, id,
-                    )
                 }
             }
         }

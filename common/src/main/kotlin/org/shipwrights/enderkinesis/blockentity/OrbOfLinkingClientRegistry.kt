@@ -35,4 +35,9 @@ object OrbOfLinkingClientRegistry {
     /** All loaded orb BEs in [level]. The caller should filter by role as needed. */
     fun sendOrbs(level: Level): Collection<OrbOfLinkingBlockEntity> =
         byLevel[level] ?: emptyList()
+
+    /** The map key is the level. Without this, an old level and its chunks stay in memory. */
+    fun dropLevels(clientSide: Boolean) {
+        byLevel.keys.removeIf { it.isClientSide == clientSide }
+    }
 }

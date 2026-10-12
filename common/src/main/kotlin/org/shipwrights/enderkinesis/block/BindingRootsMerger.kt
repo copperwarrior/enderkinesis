@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.block
 
-import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
@@ -46,8 +45,6 @@ import org.valkyrienskies.mod.common.vsCore
  * candidate's blocks live in the host.
  */
 object BindingRootsMerger {
-
-    private val LOG = LogUtils.getLogger()
 
     // Engagement gate is now a block-volume intersection check (per-axis |delta| < 1 — see
     // [arePairIntersecting]) rather than a Euclidean radius. The player has to physically
@@ -114,6 +111,9 @@ object BindingRootsMerger {
         LifecycleEvent.SERVER_STOPPED.register { _ ->
             positions.clear()
             activeJoints.clear()
+            pendingWelds.clear()
+            forceAccumulator.clear()
+            keepJointsDuringMove = false
         }
     }
 
@@ -133,17 +133,11 @@ object BindingRootsMerger {
         if (data.anchorPositions.isNotEmpty()) {
             val watch = positions.getOrPut(level) { mutableSetOf() }
             watch.addAll(data.anchorPositions)
-            LOG.info(
-                "BindingRoots: restored {} anchor position(s) in {}.",
-                data.anchorPositions.size, level.dimension().location(),
-            )
         }
         if (data.records.isEmpty()) return
         // Capture records up-front so we can mutate `data.records` (the prune below) without
         // a ConcurrentModificationException.
         val snapshot = data.records.values.toList()
-        var revived = 0
-        var pruned = 0
         for (record in snapshot) {
             // Schedule the load-check + revive on the level's tick so chunk loading has time
             // to expose the bound_root states.
@@ -153,7 +147,6 @@ object BindingRootsMerger {
                 if (!aState.`is`(EKBlocks.BINDING_ROOTS.get()) || !bState.`is`(EKBlocks.BINDING_ROOTS.get())) {
                     data.records.remove(record.blockAPos.asLong())
                     data.setDirty()
-                    pruned++
                     return@execute
                 }
                 val joint: VSJoint = VSFixedJoint(
@@ -174,57 +167,69 @@ object BindingRootsMerger {
                         map[bLong] = JointBinding(id, aLong)
                     }
                 }
-                revived++
             }
         }
-        LOG.info(
-            "BindingRoots: restoring {} saved joint(s) in {} (pending block-existence checks).",
-            snapshot.size, level.dimension().location(),
-        )
     }
 
     private class ForceAccum {
         val force: Vector3d = Vector3d()
         val point: Vector3d = Vector3d()
         val torque: Vector3d = Vector3d()
+        var pointWeight: Double = 0.0
         var active: Boolean = false
     }
 
-    private val forceAccumulator: MutableMap<LoadedServerShip, ForceAccum> = mutableMapOf()
+    // One map for each level: a shared map let one level's tick zero the force of a ship in a different level.
+    private val forceAccumulator: MutableMap<ServerLevel, MutableMap<LoadedServerShip, ForceAccum>> = mutableMapOf()
+
+    /** Keeps the anchor mean defined when a pull force is zero. */
+    private const val MIN_PULL_POINT_WEIGHT: Double = 1.0e-6
 
     /** Per-pair outcome from [checkPair]: invalid (no engagement), engaged (forces applied
      *  this tick), or merged (the pair was consumed by an actual merge — caller must bail
      *  out of the pair walk because the position snapshot is now stale). */
     private enum class PairOutcome { INVALID, ENGAGED, MERGED }
 
+    /** One free, loaded root for this tick's pair walk. */
+    private class RootProbe(
+        val pos: BlockPos, val state: BlockState, val ship: LoadedServerShip?, val centre: Vector3d,
+    )
+
     private fun tickLevel(level: ServerLevel) {
+        if (WohlonnogondoniaCatastrophe.isDraining(level)) return
         val watched = positions[level] ?: return
 
         // Clear last tick's accumulators before walking pairs.
-        for (accum in forceAccumulator.values) {
-            accum.force.set(0.0); accum.point.set(0.0); accum.torque.set(0.0); accum.active = false
+        forceAccumulator[level]?.values?.forEach { accum ->
+            accum.force.set(0.0); accum.point.set(0.0); accum.torque.set(0.0)
+            accum.pointWeight = 0.0; accum.active = false
         }
 
         if (watched.size >= 2) {
-            val snapshot = watched.toLongArray()
+            val probes = collectProbes(level, watched)
             // Each root participates in AT MOST ONE pair per tick. Without this guard, a
             // ship with multiple binding-roots stacks force from every valid pair it's in
             // and gets violently dragged around. Greedy assignment: first valid pair wins.
-            val engaged = HashSet<Long>(snapshot.size)
-            outer@ for (i in snapshot.indices) {
-                val a = snapshot[i]
-                if (a in engaged) continue
-                for (j in i + 1 until snapshot.size) {
-                    val b = snapshot[j]
-                    if (b in engaged) continue
-                    when (checkPair(level, BlockPos.of(a), BlockPos.of(b))) {
+            val engaged = BooleanArray(probes.size)
+            outer@ for (i in probes.indices) {
+                if (engaged[i]) continue
+                val a = probes[i]
+                for (j in i + 1 until probes.size) {
+                    if (engaged[j]) continue
+                    val b = probes[j]
+                    // Cube overlap on the cached centres rejects almost each pair with no world read.
+                    if (Math.abs(b.centre.x - a.centre.x) >= 1.0 ||
+                        Math.abs(b.centre.y - a.centre.y) >= 1.0 ||
+                        Math.abs(b.centre.z - a.centre.z) >= 1.0
+                    ) continue
+                    when (checkPair(level, a, b)) {
                         PairOutcome.MERGED -> {
-                            flushForcesAndClear()
+                            flushForcesAndClear(level)
                             return
                         }
                         PairOutcome.ENGAGED -> {
-                            engaged.add(a)
-                            engaged.add(b)
+                            engaged[i] = true
+                            engaged[j] = true
                             continue@outer
                         }
                         PairOutcome.INVALID -> {}
@@ -232,63 +237,86 @@ object BindingRootsMerger {
                 }
             }
         }
-        flushForcesAndClear()
+        flushForcesAndClear(level)
     }
 
-    private fun flushForcesAndClear() {
-        for ((ship, accum) in forceAccumulator) {
+    /** Roots in loaded chunks that anchor no joint. A read through the level loads the chunk,
+     *  so the state comes from `getChunkNow`. A position that is no longer a root is dropped. */
+    private fun collectProbes(level: ServerLevel, watched: MutableSet<Long>): List<RootProbe> {
+        val block = EKBlocks.BINDING_ROOTS.get()
+        val jointMap = activeJoints[level]
+        val pending = pendingWelds[level]
+        val probes = ArrayList<RootProbe>(watched.size)
+        for (packed in watched.toLongArray()) {
+            val pos = BlockPos.of(packed)
+            val chunk = level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4) ?: continue
+            val state = chunk.getBlockState(pos)
+            if (!state.`is`(block)) {
+                unregisterPosition(level, pos)
+                onJointAnchorBroken(level, pos)
+                continue
+            }
+            // A root that anchors a joint is locked; more spring force fights the joint.
+            if (jointMap != null && packed in jointMap) continue
+            if (pending != null && packed in pending) continue
+            val ship = level.getLoadedShipManagingPos(pos) as? LoadedServerShip
+            probes.add(RootProbe(pos, state, ship, worldCenter(level, pos, ship)))
+        }
+        return probes
+    }
+
+    private fun flushForcesAndClear(level: ServerLevel) {
+        val accums = forceAccumulator[level] ?: return
+        val iter = accums.entries.iterator()
+        while (iter.hasNext()) {
+            val (ship, accum) = iter.next()
             val attachment = ship.getOrPutAttachment { BindingRootsPullAttachment() }
             if (!accum.active) {
                 attachment.clear()
+                // Dropped after one clear, or the map keeps each ship that ever engaged.
+                iter.remove()
             } else {
+                // A ship with two or more engaged roots gets one force at the weighted mean anchor.
+                if (accum.pointWeight > 0.0) accum.point.div(accum.pointWeight)
+                accum.pointWeight = 0.0
                 attachment.update(accum.force, accum.point, accum.torque)
             }
         }
     }
 
-    private fun accumPull(ship: LoadedServerShip, force: Vector3d, worldPoint: Vector3d) {
-        val accum = forceAccumulator.getOrPut(ship) { ForceAccum() }
+    private fun accumFor(level: ServerLevel, ship: LoadedServerShip): ForceAccum =
+        forceAccumulator.getOrPut(level) { mutableMapOf() }.getOrPut(ship) { ForceAccum() }
+
+    private fun accumPull(level: ServerLevel, ship: LoadedServerShip, force: Vector3d, worldPoint: Vector3d) {
+        val accum = accumFor(level, ship)
         accum.force.add(force)
-        accum.point.add(worldPoint)
+        val weight = maxOf(force.length(), MIN_PULL_POINT_WEIGHT)
+        accum.point.fma(weight, worldPoint)
+        accum.pointWeight += weight
         accum.active = true
     }
 
-    private fun accumTorque(ship: LoadedServerShip, torque: Vector3d) {
-        val accum = forceAccumulator.getOrPut(ship) { ForceAccum() }
+    private fun accumTorque(level: ServerLevel, ship: LoadedServerShip, torque: Vector3d) {
+        val accum = accumFor(level, ship)
         accum.torque.add(torque)
         accum.active = true
     }
 
     /** Tri-state outcome — see [PairOutcome]. */
-    private fun checkPair(level: ServerLevel, posA: BlockPos, posB: BlockPos): PairOutcome {
-        val stateA = level.getBlockState(posA)
-        val stateB = level.getBlockState(posB)
-        val block = EKBlocks.BINDING_ROOTS.get()
-        if (!stateA.`is`(block) || !stateB.`is`(block)) return PairOutcome.INVALID
-
-        // Skip binding_roots already anchoring a joint weld — they're physically locked
-        // into place; applying more spring force would just fight the joint and produce
-        // shaky physics.
-        val jointMap = activeJoints[level]
-        if (jointMap != null && (posA.asLong() in jointMap || posB.asLong() in jointMap)) {
-            return PairOutcome.INVALID
-        }
-
-        val shipA: LoadedServerShip? = level.getLoadedShipManagingPos(posA) as? LoadedServerShip
-        val shipB: LoadedServerShip? = level.getLoadedShipManagingPos(posB) as? LoadedServerShip
+    private fun checkPair(level: ServerLevel, a: RootProbe, b: RootProbe): PairOutcome {
+        val posA = a.pos
+        val posB = b.pos
+        val stateA = a.state
+        val stateB = b.state
+        val shipA = a.ship
+        val shipB = b.ship
         if (shipA != null && shipA === shipB) return PairOutcome.INVALID
         if (shipA == null && shipB == null) return PairOutcome.INVALID
 
-        val centreA = worldCenter(level, posA, shipA)
-        val centreB = worldCenter(level, posB, shipB)
+        val centreA = a.centre
+        val centreB = b.centre
         val delta = Vector3d(centreB).sub(centreA)
         val distance = delta.length()
-        // Engagement requires the two 1×1×1 root cubes to actually overlap in world space —
-        // i.e. per-axis centre delta < 1 (block-volume intersection, not Euclidean radius).
-        // The player has to physically push the roots into intersection before forces engage.
-        if (Math.abs(delta.x) >= 1.0 || Math.abs(delta.y) >= 1.0 || Math.abs(delta.z) >= 1.0) {
-            return PairOutcome.INVALID
-        }
 
         // Coarse engagement gate: facings must point toward each other (dot < 0). Tight
         // anti-parallel is enforced at the snap firing — the alignment torque pulls the
@@ -306,14 +334,14 @@ object BindingRootsMerger {
         if (shipA != null) {
             val pull = Vector3d(forceDirAtoB).mul(pForceMag)
             val damp = Vector3d(shipA.velocity).mul(-ATTRACTION_KD)
-            accumPull(shipA, pull.add(damp), centreA)
-            accumTorque(shipA, alignmentPDTorque(shipA))
+            accumPull(level, shipA, pull.add(damp), centreA)
+            accumTorque(level, shipA, alignmentPDTorque(shipA))
         }
         if (shipB != null) {
             val pull = Vector3d(forceDirAtoB).mul(-pForceMag)
             val damp = Vector3d(shipB.velocity).mul(-ATTRACTION_KD)
-            accumPull(shipB, pull.add(damp), centreB)
-            accumTorque(shipB, alignmentPDTorque(shipB))
+            accumPull(level, shipB, pull.add(damp), centreB)
+            accumTorque(level, shipB, alignmentPDTorque(shipB))
         }
 
         // Snap firing requires the tight gates: cardinal alignment on both ships, exact
@@ -347,11 +375,11 @@ object BindingRootsMerger {
         // resized by Staff of Scales) can't be expressed by vanilla Rotation,
         // so we fall through to a joint-weld instead — the joint accepts any
         // anchor frames and preserves each ship's scale independently.
-        val fired = if (!involvesStrutLid && areUpAligned(shipA, shipB) && scalesMatch(shipA, shipB)) {
-            performBlockMerge(level, posA, posB, shipA, shipB)
-        } else {
+        // A block merge that cannot run (occupied target, failed move) welds, or the pair
+        // would pull and scan again each tick with no end.
+        val canMerge = !involvesStrutLid && areUpAligned(shipA, shipB) && scalesMatch(shipA, shipB)
+        val fired = (canMerge && performBlockMerge(level, posA, posB, shipA, shipB)) ||
             performJointWeld(level, posA, posB, shipA, shipB, centreA, centreB)
-        }
         return if (fired) PairOutcome.MERGED else PairOutcome.ENGAGED
     }
 
@@ -430,35 +458,38 @@ object BindingRootsMerger {
 
         val rotation = computeYawRotation(candidate, hostShip)
 
-        if (rotation == Rotation.NONE) {
-            // Pure translation — VS2's `moveBlocksFromTo` handles BE / lighting / chunk
-            // update packets. `floorDiv` (not `/`) because the centroid formula 2N+1 needs
-            // floor rounding for negative-shipyard-coord ships, not truncate-toward-zero.
-            val minStructurePos = BlockPos(aabb.minX(), aabb.minY(), aabb.minZ())
-            val maxStructurePos = BlockPos(aabb.maxX(), aabb.maxY(), aabb.maxZ())
-            val toCenter = Vector3i(
-                Math.floorDiv(aabb.minX() + aabb.maxX() + 1, 2) + (hostPos.x - candidatePos.x),
-                Math.floorDiv(aabb.minY() + aabb.maxY() + 1, 2) + (hostPos.y - candidatePos.y),
-                Math.floorDiv(aabb.minZ() + aabb.maxZ() + 1, 2) + (hostPos.z - candidatePos.z),
-            )
-            val result = ShipAssembler.moveBlocksFromTo(
-                level, blocks, candidate, hostShip,
-                minStructurePos, maxStructurePos, toCenter, true,
-            )
-            if (!result.wasSuccessful) {
-                LOG.warn(
-                    "BindingRoots: moveBlocksFromTo failed for candidate {} into host {}.",
-                    candidate.id, hostShip?.id ?: "world",
+        // The move removes each root of the candidate; its joint records must stay for
+        // [migrateJointsToHost]. The watch set follows through onRemove / onPlace.
+        keepJointsDuringMove = true
+        try {
+            if (rotation == Rotation.NONE) {
+                // Pure translation — VS2's `moveBlocksFromTo` handles BE / lighting / chunk
+                // update packets. `floorDiv` (not `/`) because the centroid formula 2N+1 needs
+                // floor rounding for negative-shipyard-coord ships, not truncate-toward-zero.
+                val minStructurePos = BlockPos(aabb.minX(), aabb.minY(), aabb.minZ())
+                val maxStructurePos = BlockPos(aabb.maxX(), aabb.maxY(), aabb.maxZ())
+                val toCenter = Vector3i(
+                    Math.floorDiv(aabb.minX() + aabb.maxX() + 1, 2) + (hostPos.x - candidatePos.x),
+                    Math.floorDiv(aabb.minY() + aabb.maxY() + 1, 2) + (hostPos.y - candidatePos.y),
+                    Math.floorDiv(aabb.minZ() + aabb.maxZ() + 1, 2) + (hostPos.z - candidatePos.z),
                 )
+                val result = ShipAssembler.moveBlocksFromTo(
+                    level, blocks, candidate, hostShip,
+                    minStructurePos, maxStructurePos, toCenter, true,
+                )
+                if (!result.wasSuccessful) {
+                    return false
+                }
+            } else if (!performYawMove(level, blocks, candidatePos, hostPos, rotation)) {
                 return false
             }
-        } else {
-            performYawMove(level, blocks, candidatePos, hostPos, rotation)
+        } finally {
+            keepJointsDuringMove = false
         }
 
         level.setBlock(hostPos, EKBlocks.WOGOR_WOOD.get().defaultBlockState(), 3)
-        positions[level]?.remove(candidatePos.asLong())
-        positions[level]?.remove(hostPos.asLong())
+        unregisterPosition(level, candidatePos)
+        unregisterPosition(level, hostPos)
 
         // Re-target any existing joints the candidate had with OTHER ships into the host's
         // frame BEFORE we reap the candidate. Without this, deleteShip orphans them.
@@ -466,10 +497,6 @@ object BindingRootsMerger {
 
         ShipAssembler.deleteShip(level, candidate, false, false)
 
-        LOG.info(
-            "BindingRoots: block-merged candidate ship {} into host {} (rotation={}, {} blocks).",
-            candidate.id, hostShip?.id ?: "world", rotation, blocks.size,
-        )
         return true
     }
 
@@ -538,10 +565,6 @@ object BindingRootsMerger {
             savedData.setDirty()
 
             if (redundantSelfLoop) {
-                LOG.info(
-                    "BindingRoots: dropping joint {} → {} after merge (became same-ship self-loop).",
-                    old.blockAPos, old.blockBPos,
-                )
                 continue
             }
 
@@ -581,11 +604,6 @@ object BindingRootsMerger {
                     BindingRootsSavedData.forLevel(level).add(migrated)
                 }
             }
-            LOG.info(
-                "BindingRoots: migrated joint {}↔{} → {}↔{} (candidate ship {} absorbed by {}).",
-                old.blockAPos, old.blockBPos, newBlockA, newBlockB,
-                candidateShipId, hostShip?.id ?: "world",
-            )
         }
     }
 
@@ -634,23 +652,24 @@ object BindingRootsMerger {
     /** Manual Y-axis-rotated move. Uses vanilla `BlockPos.rotate(Rotation)` (Y-axis rotation
      *  around origin) for positions and `state.rotate(Rotation)` for block states — both
      *  built-in for the Y-axis case. BE NBT is captured before clearing, restored after
-     *  placement. */
+     *  placement. Returns false, with no change, when a target cell holds a host block. */
     private fun performYawMove(
         level: ServerLevel,
         candidateBlocks: Set<BlockPos>,
         candidatePos: BlockPos,
         hostPos: BlockPos,
         rotation: Rotation,
-    ) {
+    ): Boolean {
         data class Move(val src: BlockPos, val target: BlockPos, val newState: BlockState, val beTag: CompoundTag?)
         val moves = ArrayList<Move>(candidateBlocks.size)
         for (srcPos in candidateBlocks) {
+            val target = transformBlockPos(srcPos, candidatePos, hostPos, rotation)
+            // The two anchors overlap by design; each other target cell must be free.
+            if (target != hostPos && !level.getBlockState(target).canBeReplaced()) {
+                return false
+            }
             val state = level.getBlockState(srcPos)
-            val rel = BlockPos(srcPos.x - candidatePos.x, srcPos.y - candidatePos.y, srcPos.z - candidatePos.z)
-            val rotatedRel = rel.rotate(rotation)
-            val target = BlockPos(hostPos.x + rotatedRel.x, hostPos.y + rotatedRel.y, hostPos.z + rotatedRel.z)
-            val be = level.getBlockEntity(srcPos)
-            val beTag = be?.saveWithFullMetadata()
+            val beTag = level.getBlockEntity(srcPos)?.saveWithFullMetadata()
             moves.add(Move(srcPos, target, state.rotate(rotation), beTag))
         }
         val air = Blocks.AIR.defaultBlockState()
@@ -659,14 +678,21 @@ object BindingRootsMerger {
                 if (be is Clearable) Clearable.tryClear(be) else be.load(CompoundTag())
                 level.removeBlockEntity(mv.src)
             }
-            level.setBlock(mv.src, air, 2)
+            level.setBlock(mv.src, air, MOVE_FLAGS)
         }
         for (mv in moves) {
-            level.setBlock(mv.target, mv.newState, 2)
+            level.setBlock(mv.target, mv.newState, MOVE_FLAGS)
             val tag = mv.beTag ?: continue
             level.getBlockEntity(mv.target)?.load(tag)
+            // The block change alone does not carry the block entity data to clients.
+            level.chunkSource.blockChanged(mv.target)
         }
+        return true
     }
+
+    /** UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE | UPDATE_SUPPRESS_DROPS. With a shape update, a
+     *  torch or rail breaks when its support leaves first, and drops while its copy moves. */
+    private const val MOVE_FLAGS: Int = 2 or 16 or 32
 
     /** Joint-based weld — used when the two ships' world-ups are mis-aligned and a clean
      *  block merge isn't possible. Snap-aligns the candidate to its nearest octahedral
@@ -779,8 +805,13 @@ object BindingRootsMerger {
             pose1Pos = Vector3d(pose1Pos),
             pose1Rot = Quaterniond(pose1Rot),
         )
+        // Until the callback runs, the pair is in no joint map and would weld a second time.
+        val pending = pendingWelds.getOrPut(level) { mutableSetOf() }
+        pending.add(candidatePosLong)
+        pending.add(hostPosLong)
         gtpa.addJoint(joint, 0) { id: Int ->
             level.executeOrSchedule {
+                pendingWelds[level]?.let { it.remove(candidatePosLong); it.remove(hostPosLong) }
                 // If the player broke either binding_roots between the request and the
                 // callback, abandon the joint.
                 val candStill = level.getBlockState(candidatePos).`is`(EKBlocks.BINDING_ROOTS.get())
@@ -796,10 +827,6 @@ object BindingRootsMerger {
             }
         }
 
-        LOG.info(
-            "BindingRoots: welded candidate ship {} to host {} at anchor {} (joint pending).",
-            candidate.id, hostShip?.id ?: "world", hostPos,
-        )
         return true
     }
 
@@ -839,6 +866,10 @@ object BindingRootsMerger {
 
     private data class JointBinding(val jointId: Int, val partnerPos: Long)
     private val activeJoints: MutableMap<ServerLevel, MutableMap<Long, JointBinding>> = mutableMapOf()
+    private val pendingWelds: MutableMap<ServerLevel, MutableSet<Long>> = mutableMapOf()
+
+    // Server thread only. True while [performBlockMerge] moves the candidate's blocks.
+    private var keepJointsDuringMove: Boolean = false
 
     /** Called from [BindingRootsBlock.onRemove] when a binding_roots block is broken. If the
      *  block is currently anchoring a joint weld, removes both endpoints from [activeJoints]
@@ -846,12 +877,12 @@ object BindingRootsMerger {
      *  after a world reload. No-op for binding_roots that aren't part of a joint. */
     @JvmStatic
     fun onJointAnchorBroken(level: ServerLevel, pos: BlockPos) {
+        if (keepJointsDuringMove) return
         BindingRootsSavedData.forLevel(level).removeInvolving(pos)
         val map = activeJoints[level] ?: return
         val binding = map.remove(pos.asLong()) ?: return
         map.remove(binding.partnerPos)
         ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).removeJoint(binding.jointId)
-        LOG.info("BindingRoots: released joint {} (binding_roots broken at {}).", binding.jointId, pos)
     }
 
     /** Inverse stiffness for the weld — 0.0 = perfectly rigid. Krunch_Konstant (PhysX)

@@ -1,7 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
-import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.math.Axis
 import net.minecraft.Util
 import net.minecraft.client.Minecraft
@@ -10,16 +9,10 @@ import net.minecraft.client.renderer.ItemBlockRenderTypes
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.entity.ItemRenderer
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.util.RandomSource
 import net.minecraft.world.item.ItemDisplayContext
 import net.minecraft.world.item.ItemStack
-import org.joml.Matrix3f
-import org.joml.Matrix4f
-import org.joml.Vector3f
-import org.joml.Vector4f
 
 /**
  * Replaces vanilla predicate/override machinery — BEWLR receives [ItemDisplayContext]
@@ -399,7 +392,7 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
      *  When [alpha] < 1, the fast vanilla path doesn't work
      *  ([ItemRenderer.renderModelLists] hard-codes alpha 255 inside
      *  `putBulkData`), so we fall through to a manual quad emitter
-     *  ([emitModelTranslucent]) targeting [RenderType.entityTranslucentCull]. */
+     *  ([BakedItemModels.emit]) targeting [RenderType.entityTranslucentCull]. */
     private fun renderModelPart(
         model: BakedModel,
         stack: ItemStack,
@@ -416,97 +409,6 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
         // difference is invisible; translucent-at-alpha-1 reads
         // identically to a solid render.
         if (alpha <= 0.001f) return
-        emitModelTranslucent(
-            model, stack, poseStack, bufferSource, packedLight, packedOverlay, alpha,
-        )
+        BakedItemModels.emit(model, poseStack, bufferSource, packedLight, packedOverlay, alpha)
     }
-
-    /** Manual translucent vertex emitter. Walks the model's
-     *  per-direction + null-face quads (same enumeration vanilla's
-     *  [ItemRenderer.renderModelLists] uses), transforms each vertex
-     *  by the current pose, and writes through
-     *  [RenderType.entityTranslucentCull] with the requested alpha
-     *  packed onto the per-vertex colour. The render type's
-     *  translucent batch is flushed by the level renderer's
-     *  end-of-frame buffer flush so the cataloger summon's quads land
-     *  alongside everything else translucent. */
-    private fun emitModelTranslucent(
-        model: BakedModel,
-        stack: ItemStack,
-        poseStack: PoseStack,
-        bufferSource: MultiBufferSource,
-        packedLight: Int,
-        packedOverlay: Int,
-        alpha: Float,
-    ) {
-        val random = RandomSource.create()
-        val vertexConsumer = bufferSource.getBuffer(
-            RenderType.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS),
-        )
-        val pose = poseStack.last()
-        val matrix = pose.pose()
-        val normalMatrix = pose.normal()
-
-        // The Wylland Tome's baked quads are not tinted — every quad
-        // uses the atlas texture's own colour, so we hard-wire RGB
-        // to white and only the alpha varies for the fade.
-        fun emitQuads(quads: List<net.minecraft.client.renderer.block.model.BakedQuad>) {
-            for (quad in quads) {
-                emitQuad(
-                    vertexConsumer, matrix, normalMatrix, quad,
-                    1f, 1f, 1f, alpha, packedLight, packedOverlay,
-                )
-            }
-        }
-
-        for (dir in net.minecraft.core.Direction.values()) {
-            random.setSeed(QUAD_RANDOM_SEED)
-            emitQuads(model.getQuads(null, dir, random))
-        }
-        random.setSeed(QUAD_RANDOM_SEED)
-        emitQuads(model.getQuads(null, null, random))
-    }
-
-    /** Emit one [net.minecraft.client.renderer.block.model.BakedQuad]
-     *  through [vc] with the given vertex colour (RGBA). Vertex layout
-     *  matches `DefaultVertexFormat.BLOCK`: 8 ints per vertex,
-     *  4 vertices per quad. */
-    private fun emitQuad(
-        vc: VertexConsumer,
-        matrix: Matrix4f,
-        normalMatrix: Matrix3f,
-        quad: net.minecraft.client.renderer.block.model.BakedQuad,
-        r: Float, g: Float, b: Float, a: Float,
-        packedLight: Int, packedOverlay: Int,
-    ) {
-        val vertices = quad.vertices
-        val faceNormal = quad.direction.normal
-        val nx = faceNormal.x.toFloat()
-        val ny = faceNormal.y.toFloat()
-        val nz = faceNormal.z.toFloat()
-        val n = Vector3f(nx, ny, nz)
-        n.mul(normalMatrix)
-        for (i in 0..3) {
-            val o = i * 8
-            val x = Float.fromBits(vertices[o])
-            val y = Float.fromBits(vertices[o + 1])
-            val z = Float.fromBits(vertices[o + 2])
-            val u = Float.fromBits(vertices[o + 4])
-            val v = Float.fromBits(vertices[o + 5])
-            val pos = Vector4f(x, y, z, 1f)
-            pos.mul(matrix)
-            vc.vertex(pos.x().toDouble(), pos.y().toDouble(), pos.z().toDouble())
-                .color(r, g, b, a)
-                .uv(u, v)
-                .overlayCoords(packedOverlay)
-                .uv2(packedLight)
-                .normal(n.x(), n.y(), n.z())
-                .endVertex()
-        }
-    }
-
-    /** Same seed [ItemRenderer.renderModelLists] uses — keeps any
-     *  non-deterministic per-face variant baked-models picking the
-     *  same face. */
-    private const val QUAD_RANDOM_SEED: Long = 42L
 }

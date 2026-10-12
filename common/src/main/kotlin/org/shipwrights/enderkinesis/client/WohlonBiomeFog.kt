@@ -24,6 +24,8 @@ object WohlonBiomeFog {
      *  RATE=8 → half-life ≈ 87 ms, time-to-95% ≈ 374 ms. */
     private const val BLEND_LERP_RATE_PER_SEC: Float = 8f
 
+    private const val BLEND_ZERO_SNAP: Float = 1.0e-3f
+
     /** Read each frame by the mixin's `@WrapOperation` and `setupFog` TAIL — they can't see the camera. */
     @JvmStatic
     @Volatile var currentBlend: Float = 0f
@@ -40,6 +42,19 @@ object WohlonBiomeFog {
      *  first-call sentinel — no lerp until we have a real delta
      *  to work with. */
     @Volatile private var lastUpdateNanos: Long = 0L
+
+    // Key of the last spatial sample. Render thread only.
+    private var sampleKey: Long = Long.MIN_VALUE
+    private var sampleRadius: Int = -1
+    private var sampleLevel: Level? = null
+    private var sampleNanos: Long = 0L
+    private const val RESAMPLE_NANOS: Long = 250_000_000L
+
+    fun onDisconnect() {
+        sampleLevel = null
+        targetBlend = 0f
+        currentBlend = 0f
+    }
 
     /**
      * Compute the Wohlon-biome blend factor by sampling the
@@ -65,19 +80,31 @@ object WohlonBiomeFog {
         val cy = center.y
         val cz = center.z
         val radius = Minecraft.getInstance().options.biomeBlendRadius().get()
-        val span = radius * 2 + 1
-        val total = span * span
-        var wohlonHits = 0
-        val mut = BlockPos.MutableBlockPos()
-        for (dx in -radius..radius) {
-            for (dz in -radius..radius) {
-                mut.set(cx + dx, cy, cz + dz)
-                if (level.getBiome(mut).`is`(Wohlonnogondonia.BIOME_KEY)) {
-                    wohlonHits++
+        val now = System.nanoTime()
+        // The spatial sample changes only when the camera changes block, or when the spreader
+        // flips a cell near it; the time limit covers the second case.
+        val key = BlockPos.asLong(cx, cy, cz)
+        if (key != sampleKey || radius != sampleRadius || level !== sampleLevel ||
+            now - sampleNanos > RESAMPLE_NANOS
+        ) {
+            sampleKey = key
+            sampleRadius = radius
+            sampleLevel = level
+            sampleNanos = now
+            val span = radius * 2 + 1
+            val total = span * span
+            var wohlonHits = 0
+            val mut = BlockPos.MutableBlockPos()
+            for (dx in -radius..radius) {
+                for (dz in -radius..radius) {
+                    mut.set(cx + dx, cy, cz + dz)
+                    if (level.getBiome(mut).`is`(Wohlonnogondonia.BIOME_KEY)) {
+                        wohlonHits++
+                    }
                 }
             }
+            targetBlend = wohlonHits.toFloat() / total.toFloat()
         }
-        targetBlend = wohlonHits.toFloat() / total.toFloat()
 
         // Temporal low-pass: ease currentBlend toward the just-
         // computed targetBlend by a per-second rate scaled by the
@@ -85,7 +112,6 @@ object WohlonBiomeFog {
         // frame takes a bigger step; at 240 fps each is smaller;
         // either way the perceived ease-to-target duration is the
         // same. First call has no delta yet, so we snap.
-        val now = System.nanoTime()
         val dtSeconds: Float = if (lastUpdateNanos == 0L) {
             0f
         } else {
@@ -98,7 +124,9 @@ object WohlonBiomeFog {
         // Asymptotic, so successive spatial-sample steps bleed into
         // each other instead of producing a piecewise-linear staircase.
         val alpha = (1.0 - Math.exp(-BLEND_LERP_RATE_PER_SEC * dtSeconds.toDouble())).toFloat()
-        currentBlend += (targetBlend - currentBlend) * alpha
+        val eased = currentBlend + (targetBlend - currentBlend) * alpha
+        // The low-pass never reaches 0 exactly, and each consumer gates on `blend <= 0`.
+        currentBlend = if (targetBlend == 0f && eased < BLEND_ZERO_SNAP) 0f else eased
 
         return currentBlend
     }

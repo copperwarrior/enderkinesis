@@ -42,7 +42,7 @@ import org.shipwrights.enderkinesis.entity.Cataloger
  * animations layer on top — [HierarchicalModel] doesn't give us free head tracking
  * the way [HumanoidModel] does.
  */
-class CatalogerModel(private val root: ModelPart) : HierarchicalModel<Cataloger>() {
+class CatalogerModel(private val root: ModelPart) : CachedHierarchicalModel<Cataloger>() {
 
     private val head: ModelPart = root.getChild("head")
 
@@ -63,7 +63,7 @@ class CatalogerModel(private val root: ModelPart) : HierarchicalModel<Cataloger>
         headPitch: Float,
     ) {
         entityAlpha = entity.intersectionAlpha
-        root.allParts.forEach { it.resetPose() }
+        resetAllParts()
         head.yRot = netHeadYaw * Mth.DEG_TO_RAD
         head.xRot = headPitch * Mth.DEG_TO_RAD
 

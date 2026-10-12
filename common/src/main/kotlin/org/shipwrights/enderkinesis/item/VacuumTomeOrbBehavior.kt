@@ -40,8 +40,19 @@ object VacuumTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
     /** Half-extent (blocks) along each of the two axes perpendicular to FACING. */
     private const val HALF_WIDTH: Double = 2.5
 
+    // The peek of this tick for this orb, so the pull does not scan the box a second time.
+    // Server thread only.
+    private var peeked: ItemEntity? = null
+    private var peekedOrb: OrbOfLinkingBlockEntity? = null
+    private var peekedTick: Long = Long.MIN_VALUE
+
     override fun pullSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
-        val target = firstSuctionCandidate(level, sendBe) ?: return null
+        val remembered = peeked?.takeIf {
+            peekedOrb === sendBe && peekedTick == level.gameTime && it.isAlive && !it.item.isEmpty
+        }
+        peeked = null
+        peekedOrb = null
+        val target = remembered ?: firstSuctionCandidate(level, sendBe) ?: return null
         // Split one item off and re-set so the entity-data watcher syncs the new count to
         // tracking clients (mutating the returned stack in place wouldn't trigger the data
         // watcher). The entity stays alive as long as the stack has count > 0, so a stack
@@ -57,6 +68,9 @@ object VacuumTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
      *  ask the destination "do you specifically want this?" before committing to a pull. */
     override fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
         val target = firstSuctionCandidate(level, sendBe) ?: return null
+        peeked = target
+        peekedOrb = sendBe
+        peekedTick = level.gameTime
         return target.item.copy().also { it.count = 1 }
     }
 

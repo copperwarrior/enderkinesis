@@ -1,6 +1,8 @@
 package org.shipwrights.enderkinesis.item
 
 import net.minecraft.core.BlockPos
+import net.minecraft.nbt.CompoundTag
+import net.minecraft.nbt.ListTag
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.Container
@@ -33,8 +35,8 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
  */
 abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
 
-    /** Server ticks per block of separation. 20 = 1 block/sec. */
-    protected open val ticksPerBlock: Double = 20.0
+    /** Server ticks of flight for each block of separation. */
+    protected open val ticksPerBlock: Double = 10.0
     /** Floor on travel time so adjacent or sub-block links still take a visible beat. */
     protected open val minTravelTicks: Int = 20
     /** Maximum in-flight dispatches per SEND orb. Caps new outbound dispatches; bounces
@@ -52,6 +54,37 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
     open class MoverState {
         var cursor: Int = 0
         val pending: MutableList<PendingDelivery> = mutableListOf()
+
+        /** Saved with the block entity, or a chunk unload or a server stop deletes the
+         *  stacks that are in flight. */
+        fun savePending(): ListTag {
+            val list = ListTag()
+            for (d in pending) {
+                val t = CompoundTag()
+                t.put("Stack", d.stack.save(CompoundTag()))
+                t.putLong("Send", d.sendPos.asLong())
+                t.putLong("Recv", d.receiverPos.asLong())
+                t.putBoolean("Returning", d.returning)
+                t.putLong("Tick", d.deliveryTick)
+                list.add(t)
+            }
+            return list
+        }
+
+        fun loadPending(list: ListTag) {
+            pending.clear()
+            for (i in 0 until list.size) {
+                val t = list.getCompound(i)
+                val stack = ItemStack.of(t.getCompound("Stack"))
+                if (stack.isEmpty) continue
+                pending.add(
+                    PendingDelivery(
+                        stack, BlockPos.of(t.getLong("Send")), BlockPos.of(t.getLong("Recv")),
+                        t.getBoolean("Returning"), t.getLong("Tick"),
+                    ),
+                )
+            }
+        }
     }
 
     /** A queued delivery — at [deliveryTick] (server game time) we perform the actual stack
@@ -137,6 +170,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             if (d.receiverPos == receiverPos) {
                 dropAt(level, receiverPos, d.stack)
                 iter.remove()
+                sendBe.setChanged()
             }
         }
     }
@@ -159,6 +193,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
                 iter.remove()
             }
         }
+        if (arrivals.isNotEmpty()) sendBe.setChanged()
         for (d in arrivals) {
             if (d.returning) processReturn(level, sendBe, state, d)
             else processOutbound(level, sendBe, state, d)
@@ -177,7 +212,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         state: MoverState,
         d: PendingDelivery,
     ) {
-        val recvBe = level.getBlockEntity(d.receiverPos) as? OrbOfLinkingBlockEntity
+        val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, d.receiverPos)
         val targetContainer: Container? = if (recvBe != null) {
             resolveContainer(level, d.receiverPos.relative(recvBe.facing))
         } else null
@@ -218,11 +253,12 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             return
         }
         val dist = sendCentre.distanceTo(recvCentre)
-        val travelTicks = Math.max(minTravelTicks, Math.ceil(dist / ticksPerBlock).toInt())
+        val travelTicks = Math.max(minTravelTicks, Math.ceil(dist * ticksPerBlock).toInt())
         state.pending.add(d.copy(
             returning = true,
             deliveryTick = level.gameTime + travelTicks,
         ))
+        level.getBlockEntity(d.sendPos)?.setChanged()
         TransportationNetwork.broadcastDispatch(
             level = level,
             sendPos = d.receiverPos,
@@ -232,7 +268,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         )
     }
 
-    /** Round-robin dispatch with destination filtering: scan receivers starting from the
+    /** True when a stack left the source. Round-robin dispatch with destination filtering: scan receivers starting from the
      *  cursor, pick the first one whose destination is currently accepting (per
      *  [canReceiverAccept]), pull from the source, and queue the delivery. If **every**
      *  receiver's destination is full, skip the tick without touching the source — items
@@ -242,22 +278,22 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
      *  we actually chose (so fairness is preserved across saturation windows). On a fully-
      *  saturated tick the cursor doesn't move; the next tick will start from the same
      *  receiver and the same scan will run again, cheaply, until *something* drains. */
-    private fun tryDispatch(
+    protected fun tryDispatch(
         level: ServerLevel,
         sendBe: OrbOfLinkingBlockEntity,
         state: MoverState,
-    ) {
-        if (state.pending.size >= maxInFlightPerSend) return
+    ): Boolean {
+        if (state.pending.size >= maxInFlightPerSend) return false
         val receivers = sendBe.outgoingPeers(tomeKind)
-        if (receivers.isEmpty()) return
+        if (receivers.isEmpty()) return false
 
-        val sendCentre = sendBe.worldCenter() ?: return
+        val sendCentre = sendBe.worldCenter() ?: return false
         val startIdx = state.cursor % receivers.size
 
         // Peek what we'd actually dispatch — destination filtering has to be item-aware so
         // a "full chest of unrelated items" is recognised as having no room for *this*
         // stack (the false-positive that was driving the bounce loop).
-        val candidate = peekSourceStack(level, sendBe) ?: return    // nothing to send this tick
+        val candidate = peekSourceStack(level, sendBe) ?: return false    // nothing to send this tick
 
         // Filter priority: if any receiver in this SEND's set has a filter that *specifies*
         // this candidate's item type, only those filter-matching receivers are eligible —
@@ -265,7 +301,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         // receiver exists. If the dedicated receivers are all full, this tick is a no-op
         // (the catch-all is genuinely a fallback for *unmatched* items, not an overflow).
         val onlyFiltered = receivers.any { pos ->
-            val recvBe = level.getBlockEntity(pos) as? OrbOfLinkingBlockEntity ?: return@any false
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, pos) ?: return@any false
             !recvBe.filter.isEmpty && matchesFilter(recvBe.filter, candidate)
         }
 
@@ -277,7 +313,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         for (offset in receivers.indices) {
             val idx = (startIdx + offset) % receivers.size
             val pos = receivers[idx]
-            val recvBe = level.getBlockEntity(pos) as? OrbOfLinkingBlockEntity ?: continue
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, pos) ?: continue
             val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, pos) ?: continue
             if (onlyFiltered && recvBe.filter.isEmpty) continue     // skip catch-alls
             if (!canReceiverAccept(level, recvBe, candidate)) continue
@@ -286,13 +322,13 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             chosenRecvCentre = recvCentre
             break
         }
-        if (chosenPos == null || chosenRecvCentre == null) return  // no receiver wants it
+        if (chosenPos == null || chosenRecvCentre == null) return false  // no receiver wants it
 
-        val pulled = pullSourceStack(level, sendBe) ?: return       // raced — source emptied
+        val pulled = pullSourceStack(level, sendBe) ?: return false       // raced — source emptied
         state.cursor = (chosenIdx + 1) % receivers.size
 
         val dist = sendCentre.distanceTo(chosenRecvCentre)
-        val travelTicks = Math.max(minTravelTicks, Math.ceil(dist / ticksPerBlock).toInt())
+        val travelTicks = Math.max(minTravelTicks, Math.ceil(dist * ticksPerBlock).toInt())
 
         state.pending.add(PendingDelivery(
             stack = pulled,
@@ -309,6 +345,8 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             stack = pulled,
             totalTicks = travelTicks,
         )
+        sendBe.setChanged()
+        return true
     }
 
     /** True iff [candidate] passes [filter] — empty filter matches
@@ -326,8 +364,19 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
      *  the compiled predicate until the filter stack changes. */
     protected fun matchesFilter(filter: ItemStack, candidate: ItemStack): Boolean {
         if (filter.isEmpty) return true
-        return OrbFilter.from(filter).matchesItem(candidate)
+        var compiled = lastFilter
+        if (compiled == null || lastFilterStack !== filter) {
+            compiled = OrbFilter.from(filter)
+            lastFilterStack = filter
+            lastFilter = compiled
+        }
+        return compiled.matchesItem(candidate)
     }
+
+    // One entry: a loop over slots or item entities asks with the same filter stack each time,
+    // and a written-book filter is costly to parse. Server thread only.
+    private var lastFilterStack: ItemStack? = null
+    private var lastFilter: OrbFilter? = null
 
     /** True iff [container] has at least one slot accessible from [side] that would accept
      *  [stack] right now. Item-aware mirror of [pushStack]'s placement logic — exactly the
@@ -473,6 +522,8 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         val z = pos.z + 0.5 + airSide.stepZ * dropOffsetFromCentre
         val drop = ItemEntity(level, x, y, z, stack)
         drop.setDeltaMovement(0.0, 0.0, 0.0)
+        // Without the delay a Vacuum orb takes the stack again on the next tick.
+        drop.setDefaultPickUpDelay()
         level.addFreshEntity(drop)
     }
 }

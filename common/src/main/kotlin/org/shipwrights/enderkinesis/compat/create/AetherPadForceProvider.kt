@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.compat.create
 
+import org.shipwrights.enderkinesis.util.ServerTicks
 import java.util.concurrent.ConcurrentHashMap
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
@@ -21,11 +22,11 @@ import org.valkyrienskies.core.api.world.PhysLevel
 class AetherPadForceProvider : ShipPhysicsListener {
 
     /** One entry per pad. World-frame force vector + the model-space (shipyard) position to
-     *  apply it at, plus the wallclock the entry was last refreshed. */
+     *  apply it at, plus the server tick of the last refresh. */
     private data class StagedForce(
         val fx: Double, val fy: Double, val fz: Double,
         val mx: Double, val my: Double, val mz: Double,
-        val setAtMs: Long,
+        val setAtTick: Int,
     )
 
     private val staged = ConcurrentHashMap<Long, StagedForce>()
@@ -39,11 +40,11 @@ class AetherPadForceProvider : ShipPhysicsListener {
         fx: Double, fy: Double, fz: Double,
         mx: Double, my: Double, mz: Double,
     ) {
-        staged[padKey] = StagedForce(fx, fy, fz, mx, my, mz, nowMs())
+        staged[padKey] = StagedForce(fx, fy, fz, mx, my, mz, ServerTicks.now)
     }
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
-        val now = nowMs()
+        val now = ServerTicks.now
         // Block-sourced scale³ multiplier — preserves ship-lengths-per-second
         // across Staff-of-Scales settings (VS2's drag is cross-section ∝ scale²).
         val s1 = physShip.transform.shipToWorldScaling.x()
@@ -51,7 +52,7 @@ class AetherPadForceProvider : ShipPhysicsListener {
         val iter = staged.entries.iterator()
         while (iter.hasNext()) {
             val (_, f) = iter.next()
-            if (now - f.setAtMs > STALENESS_MS) {
+            if (now - f.setAtTick > STALENESS_TICKS) {
                 iter.remove()
                 continue
             }
@@ -62,12 +63,10 @@ class AetherPadForceProvider : ShipPhysicsListener {
         }
     }
 
-    private fun nowMs(): Long = System.nanoTime() / 1_000_000L
 
     companion object {
-        /** Wallclock window after which a staged entry is considered abandoned. Two game-
-         *  tick windows of slack — past that the contraption is probably gone, the pad
-         *  lost power, or moved out of ground range. */
-        private const val STALENESS_MS = 100L
+        /** Server ticks after which a staged entry is considered abandoned — past that
+         *  the contraption is probably gone, the pad lost power, or moved out of ground range. */
+        private const val STALENESS_TICKS = 2
     }
 }

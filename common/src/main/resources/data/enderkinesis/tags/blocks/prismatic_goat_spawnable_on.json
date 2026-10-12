@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:animals_spawnable_on",
+    "enderkinesis:wogor_log",
+    "enderkinesis:wogor_wood",
+    "enderkinesis:wogor_planks",
+    "enderkinesis:wogor_leaves",
+    "minecraft:mud",
+    "minecraft:packed_mud",
+    "minecraft:muddy_mangrove_roots"
+  ]
+}

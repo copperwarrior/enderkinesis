@@ -17,6 +17,7 @@ import org.shipwrights.enderkinesis.block.StatueKind
 import org.shipwrights.enderkinesis.client.model.StatueBlackGoatModel
 import org.shipwrights.enderkinesis.client.model.StatueCatalogerModel
 import org.shipwrights.enderkinesis.client.model.StatueCountingModel
+import org.shipwrights.enderkinesis.client.model.StatueOwlModel
 import org.shipwrights.enderkinesis.client.model.StatueSteveModel
 import org.shipwrights.enderkinesis.client.model.StatueTentacledBeastModel
 import org.shipwrights.enderkinesis.client.model.StatueTentaclesModel
@@ -55,6 +56,7 @@ object StatueBEWLR : BlockEntityWithoutLevelRenderer(
             StatueKind.YELLOW_TOWER    -> StatueYellowTowerModel(em.bakeLayer(StatueYellowTowerModel.LAYER_LOCATION))
             StatueKind.BLACK_GOAT      -> StatueBlackGoatModel(em.bakeLayer(StatueBlackGoatModel.LAYER_LOCATION))
             StatueKind.COUNTING        -> StatueCountingModel(em.bakeLayer(StatueCountingModel.LAYER_LOCATION))
+            StatueKind.OWL             -> StatueOwlModel(em.bakeLayer(StatueOwlModel.LAYER_LOCATION))
         }
     }
 
@@ -81,6 +83,7 @@ object StatueBEWLR : BlockEntityWithoutLevelRenderer(
 
         val consumer = buffers.getBuffer(RenderType.entityTranslucentCull(block.kind.texture))
         model.renderToBuffer(pose, consumer, light, OverlayTexture.NO_OVERLAY, 1f, 1f, 1f, 1f)
+        renderStatueEmissive(block.kind, model, pose, buffers)
         pose.popPose()
     }
 }

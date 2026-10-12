@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.BlockLightEngine;
 import net.minecraft.world.level.lighting.LightEngine;
@@ -29,8 +30,6 @@ public abstract class BlockLightEngineOrbDynamicLightMixin {
     @Final
     protected LightChunkGetter chunkSource;
 
-    private static final String CLIENT_CHUNK_CACHE_CLASS = "net.minecraft.client.multiplayer.ClientChunkCache";
-
     @Inject(
         method = "getLightValue(Lnet/minecraft/core/BlockPos;)I",
         at = @At("RETURN"),
@@ -45,8 +44,9 @@ public abstract class BlockLightEngineOrbDynamicLightMixin {
         // spawning, plant growth, redstone, etc. all see the
         // unmodified vanilla light value. Same gate the Wohlon
         // ambient mixin uses.
+        // Not a class-name compare: production Fabric uses intermediary names.
         if (chunkSource == null
-            || !CLIENT_CHUNK_CACHE_CLASS.equals(chunkSource.getClass().getName())) return;
+            || !(chunkSource.getLevel() instanceof Level level) || !level.isClientSide()) return;
         int stored = cir.getReturnValueI();
         if (stored >= 15) return;
         int orb = OrbDynamicLightMap.contributionAt(pos.getX(), pos.getY(), pos.getZ());

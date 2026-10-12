@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        { "type": "minecraft:loot_table", "name": "enderkinesis:entities/archive", "weight": 49 },
+        { "type": "minecraft:item", "name": "enderkinesis:parallelograph", "weight": 1 }
+      ]
+    }
+  ]
+}

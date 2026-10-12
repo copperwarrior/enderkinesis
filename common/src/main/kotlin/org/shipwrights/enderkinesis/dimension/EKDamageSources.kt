@@ -43,4 +43,26 @@ object EKDamageSources {
         val key = LIGHT_DAMAGE_KEYS[target.random.nextInt(LIGHT_DAMAGE_KEYS.size)]
         return DamageSource(registry.getHolderOrThrow(key))
     }
+
+    /** Used by the Wand of Ga'Mylan when it kills a low-HP player —
+     *  death message reads "<attacker> brought light into <victim>'s
+     *  layer" (`death.attack.gamylan_light`). Attacker is carried in the
+     *  DamageSource so vanilla can interpolate it into the message. */
+    private val GAMYLAN_LIGHT_KEY: ResourceKey<DamageType> =
+        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("gamylan_light"))
+
+    fun gamylanLight(level: ServerLevel, attacker: ServerPlayer): DamageSource {
+        val registry = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
+        return DamageSource(registry.getHolderOrThrow(GAMYLAN_LIGHT_KEY), attacker)
+    }
+
+    /** Contact with the Sselith Remnant's field — no attacker entity, the
+     *  mass is a pseudo-entity with nothing to blame. */
+    private val SSELITH_REMNANT_KEY: ResourceKey<DamageType> =
+        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("irreverant_remnant"))
+
+    fun irreverantRemnant(level: ServerLevel): DamageSource {
+        val registry = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
+        return DamageSource(registry.getHolderOrThrow(SSELITH_REMNANT_KEY))
+    }
 }

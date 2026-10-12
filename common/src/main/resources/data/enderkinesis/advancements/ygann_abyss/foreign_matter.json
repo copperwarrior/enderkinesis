@@ -1,0 +1,22 @@
+{
+  "parent": "enderkinesis:ygann_abyss/root",
+  "display": {
+    "icon": {
+      "item": "enderkinesis:crepusculite"
+    },
+    "title": {
+      "translate": "advancements.enderkinesis.ygann_abyss.foreign_matter.title"
+    },
+    "description": {
+      "translate": "advancements.enderkinesis.ygann_abyss.foreign_matter.description"
+    },
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "manual": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

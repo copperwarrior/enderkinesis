@@ -65,20 +65,32 @@ object ClientOrbRegistry {
 
     private val backing: MutableMap<Long, Entry> = LinkedHashMap()
 
+    private val nearCache = OrbNear.Cache()
+
+    /** Ids of the orbs near a player. The array is shared; do not change it. */
+    @Synchronized fun near(level: net.minecraft.world.level.Level): LongArray = nearCache.get(level, backing.keys)
+
     @Synchronized fun add(bodyId: Long, anchor: Vector3dc, fractalType: Int) {
         backing[bodyId] = Entry(org.joml.Vector3d(anchor), fractalType)
+        nearCache.invalidate()
     }
 
     @Synchronized fun remove(bodyId: Long) {
         backing.remove(bodyId)
+        nearCache.invalidate()
     }
 
     @Synchronized fun replaceForDim(entries: List<Pair<Long, Entry>>) {
         backing.clear()
         for ((id, entry) in entries) backing[id] = entry
+        nearCache.invalidate()
     }
 
     @Synchronized fun snapshot(): List<Long> = backing.keys.toList()
+
+    @Synchronized fun forEachId(action: (Long) -> Unit) {
+        for (id in backing.keys) action(id)
+    }
 
     @Synchronized fun isEmpty(): Boolean = backing.isEmpty()
 

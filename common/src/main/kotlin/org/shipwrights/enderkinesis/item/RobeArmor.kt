@@ -89,11 +89,13 @@ class ScalingRobeArmorItem(
         // server side; running on both would just race.
         if (level.isClientSide) return
         if (entity !is LivingEntity) return
+        // The score reads each worn item. A stack with no modifiers yet syncs at once.
+        if (entity.tickCount % SYNC_INTERVAL_TICKS != 0 && stack.tag?.contains(SCORE_NBT_KEY) == true) return
         syncAttributeModifiers(stack, entity)
     }
 
     /** Forge `IItemExtension.getArmorTexture` shim — invoked by `HumanoidArmorLayer`.
-     *  Fabric uses [org.shipwrights.enderkinesis.fabric.client.TightRobeArmorRenderer] which
+     *  Fabric uses [org.shipwrights.enderkinesis.client.TightRobeArmorRenderer] which
      *  builds the same path independently. */
     @Suppress("unused")
     fun getArmorTexture(stack: ItemStack, entity: Entity, slot: EquipmentSlot, type: String?): String {
@@ -121,9 +123,11 @@ class ScalingRobeArmorItem(
         val uuid = ARMOR_UUID_PER_TYPE.getValue(this.type)
         val slotKey = this.equipmentSlot
 
-        // Wipe prior AttributeModifiers entry so we don't accumulate duplicates each time
-        // the score changes — addAttributeModifier appends rather than replaces.
-        stack.orCreateTag.remove("AttributeModifiers")
+        // `addAttributeModifier` appends, so remove the entries of the last score. Only the
+        // entries with the robe UUID: other mods and commands put modifiers on the stack too.
+        stack.orCreateTag.getList("AttributeModifiers", net.minecraft.nbt.Tag.TAG_COMPOUND.toInt()).removeIf {
+            it is net.minecraft.nbt.CompoundTag && it.hasUUID("UUID") && it.getUUID("UUID") == uuid
+        }
         stack.addAttributeModifier(
             Attributes.ARMOR,
             AttributeModifier(uuid, "Robe armor", armor, AttributeModifier.Operation.ADDITION),
@@ -138,6 +142,7 @@ class ScalingRobeArmorItem(
     }
 
     companion object {
+        private const val SYNC_INTERVAL_TICKS = 20
         /** NBT key for the last-written enchantment score. */
         private const val SCORE_NBT_KEY = "EkRobeScore"
         /** Score deltas under this don't trigger a NBT rewrite — kills idle thrash. */

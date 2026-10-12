@@ -168,8 +168,9 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
         level: ServerLevel, sourcePos: BlockPos, sourceWorld: Vec3, player: Player,
     ): BlockPos? {
         val look = player.lookAngle
-        var best: BlockPos? = null
-        var bestDistSq = Double.MAX_VALUE
+        // Geometry first, with no block read: a read of a far orb loads its chunk. Then the
+        // nearest candidate is checked, and a farther one only if that check fails.
+        val inCone = ArrayList<Pair<Double, BlockPos>>()
         for (candidatePos in ScryingOrbRegistry.get(level).all()) {
             if (candidatePos == sourcePos) continue
             val candidateWorld = shipyardToWorld(level, candidatePos)
@@ -181,14 +182,16 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
             if (len < 1e-6) continue
             val dot = (dx * look.x + dy * look.y + dz * look.z) / len
             if (dot < DIRECTION_THRESHOLD) continue
-            if (distSq >= bestDistSq) continue
+            inCone.add(distSq to candidatePos.immutable())
+        }
+        inCone.sortBy { it.first }
+        for ((_, candidatePos) in inCone) {
             val candidateState = level.getBlockState(candidatePos)
             if (candidateState.block !is OrbOfScryingBlock) continue
             if (candidateState.getValue(CARPET) != ScryingCarpet.NONE) continue
-            bestDistSq = distSq
-            best = candidatePos.immutable()
+            return candidatePos
         }
-        return best
+        return null
     }
 
     private fun shipyardToWorld(level: ServerLevel, pos: BlockPos): Vec3 {

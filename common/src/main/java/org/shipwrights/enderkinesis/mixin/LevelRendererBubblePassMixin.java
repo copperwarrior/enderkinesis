@@ -17,6 +17,7 @@ import org.shipwrights.enderkinesis.client.ConcealmentShipFB;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderType;
 import org.shipwrights.enderkinesis.client.ScryingClient;
+import org.shipwrights.enderkinesis.client.SselithVoidFog;
 import org.shipwrights.enderkinesis.client.TomeSummonOverlay;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -103,6 +104,9 @@ public abstract class LevelRendererBubblePassMixin {
             OrbBeamLineRenderer.INSTANCE.renderConcealed(poseStack, bufferSource, camX, camY, camZ, partialTick);
             bufferSource.endBatch(OrbBeamLineRenderType.INSTANCE.getBEAM_LINE_CONCEALED());
         }
+
+        // World-space fog goes under the screen-space overlays below.
+        SselithVoidFog.render(poseStack, projectionMatrix, camera, partialTick);
 
         // Each renderRefraction call is a no-op when its effect isn't active.
         // Order: concealment first so scrying/tome-summon see the refracted

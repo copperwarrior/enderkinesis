@@ -23,6 +23,7 @@ object ClientShipCloakingState {
 
     /** S2C entry point — called from [org.shipwrights.enderkinesis.item.ConcealmentNetwork]. */
     fun onServerUpdate(shipId: Long, cloaking: Boolean) {
+        ConcealmentSounds.onServerUpdate(shipId, cloaking)
         val now = nowMs()
         val existing = states[shipId]
         if (existing == null) {
@@ -36,12 +37,23 @@ object ClientShipCloakingState {
         existing.direction = if (cloaking) +1 else -1
     }
 
+    /** The new ship keeps the fade so the cloak stays continuous; the old ship uncloaks. */
+    fun onTransfer(fromShipId: Long, toShipId: Long) {
+        val from = states[fromShipId] ?: return
+        val now = nowMs()
+        advance(from, now)
+        states[toShipId] = CloakState(from.direction, from.progress, now)
+        from.direction = -1
+        ConcealmentSounds.onTransfer(fromShipId, toShipId)
+    }
+
     /** Per-frame query. Returns 0.0 (fully visible) → 1.0 (fully cloaked). */
     fun getProgress(shipId: Long): Float {
         val state = states[shipId] ?: return 0f
         advance(state, nowMs())
         // Once fully uncloaked, drop the entry to keep the map sparse.
-        if (state.direction == -1 && state.progress <= 0f) {
+        // `advance` sets the direction to 0 when an uncloak reaches 0, so -1 never shows here.
+        if (state.direction != +1 && state.progress <= 0f) {
             states.remove(shipId)
             return 0f
         }
@@ -51,6 +63,7 @@ object ClientShipCloakingState {
     /** Disconnect cleanup — wipe everything. Called on world-change / world-leave. */
     fun reset() {
         states.clear()
+        ConcealmentSounds.reset()
     }
 
     /** Snapshot of ship IDs with any cloak activity (progress > 0 or actively cloaking).

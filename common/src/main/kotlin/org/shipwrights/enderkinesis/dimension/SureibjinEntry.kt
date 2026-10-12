@@ -3,11 +3,16 @@ package org.shipwrights.enderkinesis.dimension
 import java.util.UUID
 import net.minecraft.core.BlockPos
 import net.minecraft.nbt.CompoundTag
+import net.minecraft.nbt.Tag
 import net.minecraft.resources.ResourceKey
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /**
  * Sureibjin entry: a player who successfully starts to sleep in any of the
@@ -23,19 +28,18 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
  * chest, food, XP, active effects, abilities, etc. That's how the player
  * "returns to themselves" without us having to enumerate each field.
  *
- * <p>State is held in memory only (same pattern as [SselithChatTeleport]).
- * A server restart drops the dream; the player wakes up in their normal
- * inventory back in the bed dim — see [SureibjinExit] for the fallback.
+ * <p>The snapshot is on disk in [SureibjinReturnSavedData], so a dream survives a server restart.
  */
 object SureibjinEntry {
 
-    /** World X of the arrival point. Just east of the coast meridian
+    /** World X of the arrival column. Just east of the coast meridian
      *  (which is at world X = 0 with ±29 wobble), so players land on the
      *  beach band facing the ocean. */
-    private const val ARRIVAL_X: Double = 5.0
-    /** Conservative high arrival Y — well above the sand surface. The
-     *  player falls a few blocks onto the beach. */
-    private const val ARRIVAL_Y: Double = 80.0
+    private const val ARRIVAL_X: Int = 5
+    /** Columns east of [ARRIVAL_X] that [findArrival] tries when a tendril or rock fills a column. */
+    private const val ARRIVAL_SEARCH_COLUMNS: Int = 8
+    /** Used only when no searched column has an open spot. */
+    private const val ARRIVAL_FALLBACK_Y: Int = 80
     /** Half-range of the random N/S spawn offset; players spawn at
      *  `Z ∈ [−Z_OFFSET_MAX, +Z_OFFSET_MAX]` so different dream entries land
      *  far apart along the coast. */
@@ -43,6 +47,10 @@ object SureibjinEntry {
     /** Yaw facing world-east (+X) so the player wakes up looking at the
      *  ocean. Minecraft yaw conventions: 0 = south, −90 = east. */
     private const val ARRIVAL_YAW: Float = -90.0f
+
+    private val ADV_ROOT: ResourceLocation = EnderkinesisMod.id("sureibjin/root")
+    private val ADV_DISTANT_DREAMS: ResourceLocation = EnderkinesisMod.id("sureibjin/distant_dreams")
+    internal val ADV_KNOWLEDGE_OF_DEATH: ResourceLocation = EnderkinesisMod.id("sureibjin/knowledge_of_death")
 
     /** Snapshot of everything we need to put the player back the way they
      *  were before the dream. `playerStateTag` is the result of
@@ -74,6 +82,9 @@ object SureibjinEntry {
     fun enter(player: ServerPlayer, bedPos: BlockPos) {
         val server = player.server
         val sureibjinLevel = server.getLevel(Sureibjin.LEVEL_KEY) ?: return
+
+        // A snapshot from a dream that ended with no restore. The new snapshot replaces it.
+        SureibjinReturnSavedData.get(server).take(player.uuid)?.let { returnStaleItems(player, it) }
 
         // 1. Snapshot the full player NBT (inventory, ender chest, food,
         //    XP, abilities, active effects — everything `addAdditionalSaveData`
@@ -110,14 +121,57 @@ object SureibjinEntry {
             )
         }
 
-        // 4. Hash-random N/S offset along the infinite coast.
-        val arrivalZ = (player.random.nextInt(Z_OFFSET_MAX * 2) - Z_OFFSET_MAX).toDouble()
+        // 4. Random N/S offset along the infinite coast.
+        val arrival = findArrival(sureibjinLevel, player.random.nextInt(Z_OFFSET_MAX * 2) - Z_OFFSET_MAX)
 
         player.teleportTo(
             sureibjinLevel,
-            ARRIVAL_X, ARRIVAL_Y, arrivalZ,
+            arrival.x + 0.5, arrival.y.toDouble(), arrival.z + 0.5,
             ARRIVAL_YAW, 0.0f,
         )
+
+        grantAdvancement(player, ADV_ROOT)
+        grantAdvancement(player, ADV_DISTANT_DREAMS)
+    }
+
+    /** The highest open spot below the barrier, at the arrival column or east of it. The block reads
+     *  generate the arrival chunk on the server thread, one time for each dream. */
+    private fun findArrival(level: ServerLevel, z: Int): BlockPos {
+        val pos = BlockPos.MutableBlockPos()
+        val top = SureibjinChunkGenerator.BARRIER_START_Y - 2
+        for (x in ARRIVAL_X until ARRIVAL_X + ARRIVAL_SEARCH_COLUMNS) {
+            for (y in top downTo level.seaLevel + 1) {
+                if (isOpen(level, pos.set(x, y, z)) && isOpen(level, pos.set(x, y + 1, z)) &&
+                    !isOpen(level, pos.set(x, y - 1, z))
+                ) return BlockPos(x, y, z)
+            }
+        }
+        return BlockPos(ARRIVAL_X, ARRIVAL_FALLBACK_Y, z)
+    }
+
+    private fun isOpen(level: ServerLevel, pos: BlockPos): Boolean {
+        val state = level.getBlockState(pos)
+        return state.getCollisionShape(level, pos).isEmpty && state.fluidState.isEmpty
+    }
+
+    private fun returnStaleItems(player: ServerPlayer, stale: ReturnSnapshot) {
+        val items = Inventory(player)
+        items.load(stale.playerStateTag.getList("Inventory", Tag.TAG_COMPOUND.toInt()))
+        for (slot in 0 until items.containerSize) {
+            val stack = items.getItem(slot)
+            if (!stack.isEmpty) player.inventory.placeItemBackInInventory(stack)
+        }
+    }
+
+    /** Marks every remaining criterion of [id] complete on [player].
+     *  No-op if the advancement doesn't exist or is already finished. */
+    internal fun grantAdvancement(player: ServerPlayer, id: ResourceLocation) {
+        val advancement = player.server.advancements.getAdvancement(id) ?: return
+        val progress = player.advancements.getOrStartProgress(advancement)
+        if (progress.isDone) return
+        for (criterion in progress.remainingCriteria) {
+            player.advancements.award(advancement, criterion)
+        }
     }
 
     /** Resets a player to the dream's clean baseline. Idempotent — safe to

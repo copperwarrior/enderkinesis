@@ -1,7 +1,11 @@
 package org.shipwrights.enderkinesis.client
 
+import com.mojang.blaze3d.systems.RenderSystem
+import com.mojang.blaze3d.vertex.BufferBuilder
+import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
-import com.mojang.blaze3d.vertex.VertexConsumer
+import com.mojang.blaze3d.vertex.VertexBuffer
+import com.mojang.blaze3d.vertex.VertexFormat
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.MultiBufferSource
 import org.joml.Matrix4f
@@ -40,6 +44,7 @@ import kotlin.math.sqrt
  * required — all the magic lives in the per-vertex colour/alpha.
  */
 object CrepusculiteLatticeMeshRenderer {
+    private val LOG = com.mojang.logging.LogUtils.getLogger()
 
     /** Master toggle. False ⇒ no mesh; the existing particle path is unaffected either way. */
     @JvmField
@@ -57,10 +62,72 @@ object CrepusculiteLatticeMeshRenderer {
      *  Per-tile distance cull on the coarse tier excludes any tile whose centre is within
      *  the fine tier's outer radius, so the two passes don't overlap and re-add via the
      *  additive render type. */
+    /** Cached per-pass vertex grid (world-space positions + colours), rebuilt on
+     *  alternating frames. Keyed by lattice blockPos × pass index. */
+    /** Per-(lattice × pass) retained GPU buffer + worker-side build state. The
+     *  worker thread owns `builder` and the scratch arrays; the render thread owns
+     *  `vertexBuffer`; hand-off is the `pending` atomic. */
+    private class PassBuffer {
+        var vertexBuffer: VertexBuffer? = null          // render-thread only
+        var builder: BufferBuilder? = null              // worker-thread only
+        val pending = java.util.concurrent.atomic.AtomicReference<Prepared?>(null)
+        @Volatile var building = false
+        var lastBuildNanos = 0L
+        var hasData = false
+        var originX = 0.0; var originY = 0.0; var originZ = 0.0
+        var lastUsedFrame = 0L
+        /** Render-thread per-frame gate — false while the host ship is fully cloaked
+         *  (builds pause, so the retained buffer would otherwise draw stale). */
+        var drawThisFrame = false
+
+        // worker-side vertex grid scratch
+        var vw = 0
+        var stepsX = 0
+        var stepsZ = 0
+        var px = DoubleArray(0); var py = DoubleArray(0); var pz = DoubleArray(0)
+        var nr = FloatArray(0); var ng = FloatArray(0); var nb = FloatArray(0); var na = FloatArray(0)
+        fun ensure(n: Int) {
+            if (px.size < n) {
+                px = DoubleArray(n); py = DoubleArray(n); pz = DoubleArray(n)
+                nr = FloatArray(n); ng = FloatArray(n); nb = FloatArray(n); na = FloatArray(n)
+            }
+        }
+    }
+
+    private class Prepared(
+        val rendered: BufferBuilder.RenderedBuffer,
+        val originX: Double, val originY: Double, val originZ: Double,
+        val vertexCount: Int,
+    )
+
+    /** Immutable inputs for one worker-side pass build — everything snapshotted on
+     *  the render thread so the worker never touches level/ship state. */
+    private class BuildJob(
+        val zone: LatticeCatchZone,
+        val time: Double,
+        val cameraX: Double, val cameraY: Double, val cameraZ: Double,
+        val wakeSources: List<WakeSource>,
+        val cloakFade: Float,
+        val footprint: CrepusculiteLatticeFootprintCache.Snapshot?,
+        val phantom: Boolean, val lodFadeIn: Boolean,
+        val meshStep: Double, val outerRadius: Double, val innerCullRadius: Double,
+    )
+
+    private val passCaches = HashMap<Long, PassBuffer>()
+    private var frameCounter = 0L
+    private val tmpSwell = DoubleArray(1)
+    private val buildExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "EK-lattice-mesh").apply { isDaemon = true }
+    }
+    /** Worker rebuild cadence — 30 Hz, above the 20 Hz wave field. */
+    private const val REBUILD_NANOS = 33_000_000L
+
     private const val FINE_MESH_STEP: Double = 0.75
     private const val FINE_RADIUS_BLOCKS: Double = 48.0
 
     private const val COARSE_MESH_STEP: Double = 3.0
+    /** Half-width (blocks) of the fine↔coarse crossfade band around [FINE_RADIUS_BLOCKS]. */
+    private const val LOD_BLEND_HALF: Double = 6.0
     private const val COARSE_RADIUS_BLOCKS: Double = 200.0
 
     /** Phantom under-mesh y-offset. Small enough to keep parallax subtle; large enough to
@@ -92,13 +159,12 @@ object CrepusculiteLatticeMeshRenderer {
     /** Base alpha at head-on (cosθ = 1). View-angle falloff scales this down at grazing. */
     private const val TOP_BASE_ALPHA: Float = 0.50f
 
+    /** Alpha floor for a black-dyed mesh (dye dimming is luminance-linear above it). */
+    private const val DYE_DIM_MIN: Float = 0.08f
+
     /** Lerp factor toward white at full grazing — preserves the rim-glow *look* (silhouette
      *  edges read whiter) without the alpha boost that was driving the additive over-bright. */
     private const val FRESNEL_WHITE_SHIFT: Float = 0.30f
-
-    /** Soft edge falloff at the zone's elliptical perimeter. Keeps the rectangular grid from
-     *  showing a hard outer edge. */
-    private const val FALLOFF_START: Double = 0.80
 
     /** View-angle alpha falloff exponent for the **top** layer. Higher → faster drop-off at
      *  grazing. The earlier "peak alpha drop" used wave height as the variable — but the
@@ -117,6 +183,7 @@ object CrepusculiteLatticeMeshRenderer {
     private const val MIN_VIEW_FACTOR: Float = 0.05f
 
     private val tmpNormal = Vector3d()
+    private val authorityByShip = it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<net.minecraft.core.BlockPos>()
 
     fun renderAll(
         poseStack: PoseStack,
@@ -129,46 +196,120 @@ object CrepusculiteLatticeMeshRenderer {
         val entries = LatticeRegistry.entries(level)
         if (entries.isEmpty()) return
 
-        val matrix = poseStack.last().pose()
-        val consumer = bufferSource.getBuffer(OrbBeamLineRenderType.BEAM_LINE)
         val time = level.gameTime.toDouble() + partialTicks.toDouble()
+        frameCounter++
+        if (frameCounter % 256L == 0L) {
+            val it = passCaches.values.iterator()
+            while (it.hasNext()) {
+                val pb = it.next()
+                if (frameCounter - pb.lastUsedFrame > 600L && !pb.building && pb.pending.get() == null) {
+                    pb.vertexBuffer?.close()
+                    pb.builder?.discard()
+                    it.remove()
+                }
+            }
+        }
 
-        // Build the wake-source list once per frame from VS2's loaded-ship enumeration.
-        // Each source is a snapshot of (centre, velocity direction, speed, hull half-extents).
-        // Both client and server can build identical lists from the same VS2-synced state, so
-        // calling `Wake.heightAt(...)` with this list gives a deterministic answer without
-        // any lattice-side network sync.
         val wakeSources = collectWakeSources(level)
+        val now = System.nanoTime()
+        var anyData = false
+
+        // Owner rule: one ocean for each ship, from its highest lattice.
+        authorityByShip.clear()
+        for ((be, _) in entries) {
+            val shipId = level.getShipManagingPos(be.blockPos)?.id ?: continue
+            val best = authorityByShip.get(shipId)
+            if (best == null || org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity.comparePos(be.blockPos, best) > 0) {
+                authorityByShip.put(shipId, be.blockPos)
+            }
+        }
 
         for ((be, zone) in entries) {
-            // The lattice ocean stays on main FB even when its host ship is cloaked.
-            // The concealment refraction shader uses `background = mainFB(originalUV)`
-            // for the inside-bubble composite, so a lattice rendered to main FB is
-            // preserved at full intensity all the way through the cloak transition —
-            // `mixFactor = silhouette * shipSample.a * fade` reaches zero at full
-            // cloak (fade = 1 - progress = 0), at which point the lattice is the
-            // sole contributor to the pixel. Routing the lattice through the
-            // concealed-FB pipeline (BEAM_LINE_CONCEALED) instead made it inherit the
-            // ship's fade-out curve and read as "extremely dim during transition".
+            // Lattice ocean stays on main FB through cloaking (see BEAM_LINE notes) —
+            // the fade is baked into the vertex build via cloakFade.
             val ship = level.getShipManagingPos(be.blockPos) as? ClientShip
+            if (ship != null && authorityByShip.get(ship.id) != be.blockPos) continue
+            val cloakFade: Float = if (ship != null) {
+                (1f - ClientShipCloakingState.getProgress(ship.id)).coerceIn(0f, 1f)
+            } else 1f
+            val footprint = if (ship != null && cloakFade > 0f) {
+                CrepusculiteLatticeFootprintCache.snapshot(level, ship)
+            } else null
 
-            // Two-tier LOD: fine mesh near the camera, coarse mesh further out. Each
-            // tier is rendered for both top and phantom layers. Coarse tier excludes
-            // the inner radius (the fine tier's area) via per-tile distance cull so
-            // they don't overlap.
-            renderLayer(consumer, matrix, zone, ship, time, cameraX, cameraY, cameraZ, wakeSources,
-                phantom = false, meshStep = FINE_MESH_STEP,
-                outerRadius = FINE_RADIUS_BLOCKS, innerCullRadius = 0.0)
-            renderLayer(consumer, matrix, zone, ship, time, cameraX, cameraY, cameraZ, wakeSources,
-                phantom = true, meshStep = FINE_MESH_STEP,
-                outerRadius = FINE_RADIUS_BLOCKS, innerCullRadius = 0.0)
-            renderLayer(consumer, matrix, zone, ship, time, cameraX, cameraY, cameraZ, wakeSources,
-                phantom = false, meshStep = COARSE_MESH_STEP,
-                outerRadius = COARSE_RADIUS_BLOCKS, innerCullRadius = FINE_RADIUS_BLOCKS)
-            renderLayer(consumer, matrix, zone, ship, time, cameraX, cameraY, cameraZ, wakeSources,
-                phantom = true, meshStep = COARSE_MESH_STEP,
-                outerRadius = COARSE_RADIUS_BLOCKS, innerCullRadius = FINE_RADIUS_BLOCKS)
+            val baseKey = be.blockPos.asLong() shl 2
+            for (pass in 0..3) {
+                val phantom = pass == 1 || pass == 3
+                val coarse = pass >= 2
+                val pb = passCaches.getOrPut(baseKey + pass) { PassBuffer() }
+                pb.lastUsedFrame = frameCounter
+                pb.drawThisFrame = cloakFade > 0f
+
+                if (cloakFade > 0f && !pb.building && pb.pending.get() == null &&
+                    now - pb.lastBuildNanos >= REBUILD_NANOS
+                ) {
+                    pb.building = true
+                    pb.lastBuildNanos = now
+                    val job = BuildJob(
+                        zone, time, cameraX, cameraY, cameraZ, wakeSources, cloakFade, footprint,
+                        phantom = phantom,
+                        lodFadeIn = coarse,
+                        meshStep = when {
+                            !coarse && !phantom -> FINE_MESH_STEP
+                            !coarse -> FINE_MESH_STEP * 2.0
+                            !phantom -> COARSE_MESH_STEP
+                            else -> COARSE_MESH_STEP * 2.0
+                        },
+                        outerRadius = if (coarse) COARSE_RADIUS_BLOCKS else FINE_RADIUS_BLOCKS + LOD_BLEND_HALF,
+                        innerCullRadius = if (coarse) {
+                            FINE_RADIUS_BLOCKS - LOD_BLEND_HALF - COARSE_MESH_STEP
+                        } else 0.0,
+                    )
+                    buildExecutor.execute { buildPass(pb, job) }
+                }
+
+                // Upload a finished build (GL — render thread only).
+                pb.pending.getAndSet(null)?.let { prep ->
+                    if (prep.vertexCount == 0) {
+                        prep.rendered.release()
+                        pb.hasData = false
+                    } else {
+                        val vb = pb.vertexBuffer ?: VertexBuffer(VertexBuffer.Usage.DYNAMIC)
+                            .also { pb.vertexBuffer = it }
+                        vb.bind()
+                        vb.upload(prep.rendered)
+                        VertexBuffer.unbind()
+                        pb.originX = prep.originX
+                        pb.originY = prep.originY
+                        pb.originZ = prep.originZ
+                        pb.hasData = true
+                    }
+                }
+                if (pb.hasData && cloakFade > 0f) anyData = true
+            }
         }
+        if (!anyData) return
+
+        // Draw all retained buffers directly — additive blending commutes, so drawing
+        // ahead of the batched consumers at this stage is order-safe.
+        val pose = poseStack.last().pose()
+        OrbBeamLineRenderType.BEAM_LINE.setupRenderState()
+        val projection = RenderSystem.getProjectionMatrix()
+        val shader = RenderSystem.getShader()
+        if (shader != null) {
+            for (pb in passCaches.values) {
+                if (!pb.hasData || !pb.drawThisFrame || pb.lastUsedFrame != frameCounter) continue
+                val vb = pb.vertexBuffer ?: continue
+                val modelView = Matrix4f(pose).translate(
+                    (pb.originX - cameraX).toFloat(),
+                    (pb.originY - cameraY).toFloat(),
+                    (pb.originZ - cameraZ).toFloat(),
+                )
+                vb.bind()
+                vb.drawWithShader(modelView, projection, shader)
+            }
+            VertexBuffer.unbind()
+        }
+        OrbBeamLineRenderType.BEAM_LINE.clearRenderState()
     }
 
     /** Walk VS2's loaded ships in [level], building a [WakeSource] per ship that's actually
@@ -220,28 +361,46 @@ object CrepusculiteLatticeMeshRenderer {
         return out
     }
 
-    private fun renderLayer(
-        consumer: VertexConsumer,
-        matrix: Matrix4f,
-        zone: LatticeCatchZone,
-        ship: ClientShip?,
-        time: Double,
-        cameraX: Double, cameraY: Double, cameraZ: Double,
-        wakeSources: List<WakeSource>,
-        phantom: Boolean,
-        meshStep: Double,
-        outerRadius: Double,
-        innerCullRadius: Double,
-    ) {
-        val level = Minecraft.getInstance().level ?: return
+
+    /** WORKER-THREAD pass build: pure math over snapshotted inputs (zone, camera,
+     *  wake, footprint) — no level/ship/GL access. Produces a RenderedBuffer with
+     *  vertices relative to the zone centre; the render thread uploads and draws it. */
+    private fun buildPass(pb: PassBuffer, job: BuildJob) {
+        try {
+            buildPassInner(pb, job)
+        } catch (t: Throwable) {
+            LOG.error("[EK] lattice mesh build failed", t)
+            pb.pending.set(null)
+        } finally {
+            pb.building = false
+        }
+    }
+
+    private fun buildPassInner(pb: PassBuffer, job: BuildJob) {
+        val zone = job.zone
+        val time = job.time
+        val cameraX = job.cameraX
+        val cameraY = job.cameraY
+        val cameraZ = job.cameraZ
+        val wakeSources = job.wakeSources
+        val cloakFade = job.cloakFade
+        val phantom = job.phantom
+        val lodFadeIn = job.lodFadeIn
+        val meshStep = job.meshStep
+        val outerRadius = job.outerRadius
+        val innerCullRadius = job.innerCullRadius
+        val originX = zone.cx
+        val originY = zone.waterLineY
+        val originZ = zone.cz
+
         // Window: intersect the zone's world XZ extents with a camera-centred radius. Then
         // **snap to a fixed world grid** at `meshStep` spacing — without this, tiny camera
         // movement shifts every tile position, which makes hull-boundary tiles toggle
         // between "inside" / "outside" the cull mask and produces flicker.
-        val rawMinX = max(zone.cx - zone.ax, cameraX - outerRadius)
-        val rawMaxX = min(zone.cx + zone.ax, cameraX + outerRadius)
-        val rawMinZ = max(zone.cz - zone.az, cameraZ - outerRadius)
-        val rawMaxZ = min(zone.cz + zone.az, cameraZ + outerRadius)
+        val rawMinX = max(zone.cx - zone.boundX, cameraX - outerRadius)
+        val rawMaxX = min(zone.cx + zone.boundX, cameraX + outerRadius)
+        val rawMinZ = max(zone.cz - zone.boundZ, cameraZ - outerRadius)
+        val rawMaxZ = min(zone.cz + zone.boundZ, cameraZ + outerRadius)
         if (rawMaxX - rawMinX < meshStep || rawMaxZ - rawMinZ < meshStep) return
         // floor/ceil to grid multiples so tile centres land at world coords that don't move
         // when the camera moves.
@@ -255,15 +414,15 @@ object CrepusculiteLatticeMeshRenderer {
         val dx = meshStep
         val dz = meshStep
 
-        // Inner cull radius squared — used per-tile to skip tiles inside the previous LOD
-        // tier's region (so the coarse tier doesn't double-draw atop the fine tier).
-        val innerCullSq = innerCullRadius * innerCullRadius
-
         val vw = stepsX + 1
         val vh = stepsZ + 1
         val n = vw * vh
-        val px = DoubleArray(n); val py = DoubleArray(n); val pz = DoubleArray(n)
-        val nr = FloatArray(n); val ng = FloatArray(n); val nb = FloatArray(n); val na = FloatArray(n)
+        pb.ensure(n)
+        pb.vw = vw
+        pb.stepsX = stepsX
+        pb.stepsZ = stepsZ
+        val px = pb.px; val py = pb.py; val pz = pb.pz
+        val nr = pb.nr; val ng = pb.ng; val nb = pb.nb; val na = pb.na
 
         // Phantom layer: y-offset, amplitude-scaled, phase-offset wave so it parallaxes against
         // the top layer. Time and XZ offsets shift the wave's "view" so the same world XZ samples
@@ -276,17 +435,6 @@ object CrepusculiteLatticeMeshRenderer {
         val zOff = if (phantom) PHANTOM_Z_OFFSET else 0.0
         val layerAlphaScale = if (phantom) PHANTOM_ALPHA_SCALE else 1.0f
 
-        // Cloak fade: linearly attenuate vertex alpha by (1 − progress) for ship-mounted
-        // lattices. At progress 0 the ocean reads at full intensity; at progress 1 it's
-        // fully invisible. The additive render type means the fade reads as a smooth
-        // dim-out rather than a hard cull, matching how the cloaked ship blocks fade.
-        // Querying [ClientShipCloakingState] inside the renderer keeps the lookup
-        // out of the per-vertex inner loop — `cloakFade` is constant across the layer.
-        val cloakFade: Float = if (ship != null) {
-            val progress = ClientShipCloakingState.getProgress(ship.id)
-            (1f - progress).coerceIn(0f, 1f)
-        } else 1f
-        if (cloakFade <= 0f) return   // host fully cloaked — skip the whole layer
 
         val intensity = zone.waveIntensity * layerAmpScale
 
@@ -303,47 +451,115 @@ object CrepusculiteLatticeMeshRenderer {
         // Layer-specific view-angle falloff exponent (phantom drops harder at grazing).
         val viewFalloffPower = if (phantom) PHANTOM_VIEW_FALLOFF_POWER else TOP_VIEW_FALLOFF_POWER
 
+        // Dye luminance dims the whole mesh: with additive blending a black tint's
+        // BODY is already zero, but the fresnel white-shift and foam lightening kept
+        // it clearly visible — scale alpha by tint luminance so black dye reads
+        // near-invisible and gray sits where black used to. Un-dyed keeps full look.
+        val dyeDim: Float = if (zone.dyed) {
+            val luma = 0.2126f * zone.tintR + 0.7152f * zone.tintG + 0.0722f * zone.tintB
+            DYE_DIM_MIN + (1f - DYE_DIM_MIN) * luma.coerceIn(0f, 1f)
+        } else 1f
+
+        // Hot-loop precomputation. Inside [interiorSafe] the shore math is identity
+        // (taper 1, edge 1) — the bulk of the ocean skips every atan2/warp/tendril
+        // evaluation. The coarse tier bands the wave spectrum: capillaries (λ ≤ 1.4)
+        // are below Nyquist at its 3-block step and were pure aliasing noise.
+        val shore = org.shipwrights.enderkinesis.physics.LatticeShore
+        val interiorSafe = shore.interiorSafeRadius(zone.ax, zone.az)
+        val circumference = Math.PI * (zone.ax + zone.az)
+        val waveCount =
+            if (meshStep > 1.0) GerstnerOcean.NON_CAPILLARY_COUNT else GerstnerOcean.waveCount
+        val bandInner = FINE_RADIUS_BLOCKS - LOD_BLEND_HALF
+        val bandOuter = FINE_RADIUS_BLOCKS + LOD_BLEND_HALF
+        val bandInnerSq = bandInner * bandInner
+        val bandOuterSq = bandOuter * bandOuter
+        val flatY = zone.waterLineY + layerY
+
         for (iz in 0..stepsZ) {
             val z = minZ + iz * dz
             for (ix in 0..stepsX) {
                 val x = minX + ix * dx
-                val h = GerstnerOcean.heightAt(x + xOff, z + zOff, layerTime, intensity)
-                // Ship-driven wake: bow bunching ahead of moving ships + stern V-pattern
-                // behind. Sums contributions from every nearby ship deterministically
-                // (math is a pure function of (x, z, t, sources) — client/server agree
-                // without networking). Phantom layer gets the same wake — the under-mesh's
-                // parallax against the surface carries through naturally.
-                val wakeH = Wake.heightAt(x + xOff, z + zOff, layerTime, wakeSources)
-                val worldY = zone.waterLineY + layerY + h + wakeH
                 val idx = iz * vw + ix
                 px[idx] = x
-                py[idx] = worldY
                 pz[idx] = z
 
-                // (1) Twilight gradient: deep → ender → foam by **swell-normalised** height.
-                //     Swell-only sampling keeps adjacent-vertex colours close even when their
-                //     full heights diverge (sharp peaks vs flat troughs), so triangle-edge
-                //     colour interpolation stays clean.
-                val swellH = GerstnerOcean.swellHeightAt(x + xOff, z + zOff, layerTime, intensity)
-                val t01 = ((swellH + swellMax) * invTwoSwellMax).coerceIn(0.0, 1.0).toFloat()
+                // ---- Cheap rejections first: most vertices never reach the wave math.
+                val rxN = zone.localNx(x, z)
+                val rzN = zone.localNz(x, z)
+                val rRaw = sqrt(rxN * rxN + rzN * rzN)
+                if (rRaw >= 1.0) {
+                    // Beyond the ellipse: taper is exactly 0 there, so flat IS the
+                    // true geometry — bordering quads interpolate seamlessly.
+                    py[idx] = flatY
+                    na[idx] = 0f
+                    continue
+                }
+
+                // Shore factors — identity inside the safe radius, one shared
+                // theta/rDir/warp evaluation (taper + tendril edge) otherwise.
+                val taper: Double
+                val edge: Float
+                if (rRaw <= interiorSafe) {
+                    taper = 1.0
+                    edge = 1f
+                } else {
+                    val theta = kotlin.math.atan2(rzN * zone.az, rxN * zone.ax)
+                    val rDir = shore.rDirAt(theta, zone.ax, zone.az)
+                    val rWarped =
+                        rRaw / shore.rimWarpAt(theta, rDir, zone.waveTime, circumference)
+                    taper = shore.amplitudeTaper(rWarped)
+                    edge = shore.shoreEdgeAt(rWarped, theta, rDir, zone.waveTime, circumference)
+                }
+
+                // LOD crossfade — sqrt only inside the blend band; a zero-fade vertex
+                // gets cheap swell-only geometry (it borders visible quads) and no
+                // colour/normal work.
+                val ddx = x - cameraX
+                val ddz = z - cameraZ
+                val distSq = ddx * ddx + ddz * ddz
+                val lodFade: Float = when {
+                    distSq <= bandInnerSq -> if (lodFadeIn) 0f else 1f
+                    distSq >= bandOuterSq -> if (lodFadeIn) 1f else 0f
+                    else -> {
+                        val bandT = ((Math.sqrt(distSq) - bandInner) / (2.0 * LOD_BLEND_HALF))
+                            .coerceIn(0.0, 1.0)
+                        val bandS = (bandT * bandT * (3.0 - 2.0 * bandT)).toFloat()
+                        if (lodFadeIn) bandS else 1f - bandS
+                    }
+                }
+                if (lodFade <= 0f || edge <= 0f) {
+                    val approxH = GerstnerOcean.swellHeightAt(x + xOff, z + zOff, layerTime, intensity)
+                    py[idx] = flatY + approxH * taper
+                    na[idx] = 0f
+                    continue
+                }
+
+                // ---- Full path: fused height+normal (one shared wave loop; coarse
+                // tier drops the sub-Nyquist capillaries), wake, colour, view factor.
+                val h = GerstnerOcean.sampleHeightNormal(
+                    x + xOff, z + zOff, layerTime, intensity, waveCount, tmpNormal, tmpSwell,
+                )
+                val wakeH = Wake.heightAt(x + xOff, z + zOff, layerTime, wakeSources)
+                val worldY = flatY + (h + wakeH) * taper
+                py[idx] = worldY
+
+                // Twilight gradient by swell-normalised height — the swell partial
+                // falls out of the fused sampler for free.
+                val t01 = ((tmpSwell[0] + swellMax) * invTwoSwellMax).coerceIn(0.0, 1.0).toFloat()
                 var cr: Float; var cg: Float; var cb: Float
                 if (t01 < 0.5f) {
                     val u = t01 * 2f
-                    cr = lerp(DEEP_R, ENDER_R, u)
-                    cg = lerp(DEEP_G, ENDER_G, u)
-                    cb = lerp(DEEP_B, ENDER_B, u)
+                    cr = lerp(zone.tintDeepR, zone.tintR, u)
+                    cg = lerp(zone.tintDeepG, zone.tintG, u)
+                    cb = lerp(zone.tintDeepB, zone.tintB, u)
                 } else {
                     val u = (t01 - 0.5f) * 2f
-                    cr = lerp(ENDER_R, FOAM_R, u)
-                    cg = lerp(ENDER_G, FOAM_G, u)
-                    cb = lerp(ENDER_B, FOAM_B, u)
+                    cr = lerp(zone.tintR, zone.tintFoamR, u)
+                    cg = lerp(zone.tintG, zone.tintFoamG, u)
+                    cb = lerp(zone.tintB, zone.tintFoamB, u)
                 }
 
-                // (2) View-angle factor. `cosθ = dot(normal, viewDir)`. Head-on = 1, edge-on = 0.
-                //     Used both to drive the colour rim-white shift (preserved) AND to *reduce*
-                //     alpha at grazing — counteracts the additive over-bright the user sees at
-                //     glancing angles, where many wave fragments stack in line of sight.
-                GerstnerOcean.normalAt(x + xOff, z + zOff, layerTime, intensity, tmpNormal)
+                // View-angle factor from the (already computed) surface normal.
                 val vx = cameraX - x
                 val vy = cameraY - worldY
                 val vz = cameraZ - z
@@ -351,63 +567,30 @@ object CrepusculiteLatticeMeshRenderer {
                 val cosTheta = if (vLen > 1e-9) {
                     (tmpNormal.x * vx + tmpNormal.y * vy + tmpNormal.z * vz) / vLen
                 } else 1.0
-                // `abs(cosθ)` so the wave is equally visible from above AND below — the surface
-                // is two-sided (no backface culling in the render state). Without abs, viewing
-                // from underneath gives a negative dot product → clamped to 0 → near-zero alpha
-                // (after MIN_VIEW_FACTOR floor), which reads as if the back face is hidden.
+                // abs: the surface is two-sided (no backface culling) — equally
+                // visible from above and below.
                 val cosThetaF = Math.abs(cosTheta).coerceIn(0.0, 1.0).toFloat()
-                val grazing = 1f - cosThetaF                                  // 0 = head-on, 1 = grazing
+                val grazing = 1f - cosThetaF
                 val rimR = lerp(cr, 1f, grazing * FRESNEL_WHITE_SHIFT)
                 val rimG = lerp(cg, 1f, grazing * FRESNEL_WHITE_SHIFT)
                 val rimB = lerp(cb, 1f, grazing * FRESNEL_WHITE_SHIFT)
-
-                // View-angle alpha falloff. `cosθ^power` is 1 head-on, drops smoothly to
-                // `MIN_VIEW_FACTOR` at grazing. Phantom uses a higher power so it falls off
-                // faster, eliminating the screen-space double-add at angles.
                 val viewAlphaFactor = max(MIN_VIEW_FACTOR, cosThetaF.pow(viewFalloffPower))
 
-                // Soft edge: radial dimming over the outer 20 % of the zone ellipse.
-                val rxN = (x - zone.cx) / zone.ax
-                val rzN = (z - zone.cz) / zone.az
-                val r = sqrt(rxN * rxN + rzN * rzN)
-                val edge = when {
-                    r >= 1.0 -> 0f
-                    r > FALLOFF_START ->
-                        ((1.0 - (r - FALLOFF_START) / (1.0 - FALLOFF_START)).coerceIn(0.0, 1.0)).toFloat()
-                    else -> 1f
-                }
+                // Hull-footprint factor: bilinear vs the STATIC waterline (see
+                // FootprintCache) so the cull pattern doesn't oscillate with waves.
+                val hullFactor = job.footprint?.alphaAt(x, zone.waterLineY, z) ?: 1f
 
-                // Hull-footprint cull at the **vertex** — pass the lattice's *static*
-                // `zone.waterLineY` so the cull pattern doesn't oscillate with wave motion.
-                // Per-vertex wave-displaced Y would otherwise fold into ship-local Z (on
-                // rolled/pitched ships) via the rotation's off-diagonal terms by
-                // `±maxAmp · sin(roll)` *every frame*, which is the flicker. The lateral-
-                // interpolation leak that vertex-Y was trying to address is now structurally
-                // gone — the fade lives in EMPTY_NEAR_HULL (outside the hull), so a small
-                // static lookup offset on tilted ships can't bleed alpha across the hull
-                // into an interior cell.
-                // Smoothed bilinear-sampled hull factor. The discrete state-bin lookup was
-                // snapping alpha values whenever a vertex crossed a cache-cell boundary —
-                // and since vertices cross cell boundaries every frame as the ship moves,
-                // that produced the per-frame flicker ("quads immediately become cutout, and
-                // vice versa, permutated"). Bilinear at the sub-cell offset makes the alpha
-                // vary continuously with motion. Hull-side cells (BOUNDARY / INTERIOR /
-                // ENCLOSED) still all map to 0 inside the sampler, so any 2×2 sample
-                // entirely inside the ship still gives 0 — no lateral leak across the hull.
-                val hullFactor = if (ship != null)
-                    CrepusculiteLatticeFootprintCache.alphaAt(level, ship, x, zone.waterLineY, z) else 1f
-
-                val alpha = TOP_BASE_ALPHA * viewAlphaFactor * edge * layerAlphaScale * hullFactor * cloakFade
+                val alpha = TOP_BASE_ALPHA * viewAlphaFactor * edge * layerAlphaScale * hullFactor * cloakFade * lodFade * dyeDim
                 nr[idx] = rimR; ng[idx] = rimG; nb[idx] = rimB
                 na[idx] = alpha.coerceIn(0f, 1f)
             }
         }
 
-        // QUADS mode — 4 verts per tile, CCW from above; render type has NO_CULL so winding
-        // doesn't matter. Skip tiles whose four corners are all alpha=0 (outside the
-        // elliptical falloff OR fully inside the hull interior). Per-vertex 3-state hull
-        // cull above gives a soft boundary that meets the hull silhouette: interior columns
-        // → alpha 0, boundary columns → partial alpha, empty columns → full alpha.
+        // Emit surviving quads into the worker-owned builder, origin-relative.
+        val builder = pb.builder ?: BufferBuilder(786432).also { pb.builder = it }
+        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR)
+        val innerCullSq = innerCullRadius * innerCullRadius
+        var vertexCount = 0
         for (iz in 0 until stepsZ) {
             for (ix in 0 until stepsX) {
                 val i00 = iz * vw + ix
@@ -415,47 +598,25 @@ object CrepusculiteLatticeMeshRenderer {
                 val i11 = (iz + 1) * vw + (ix + 1)
                 val i01 = (iz + 1) * vw + ix
                 if (na[i00] + na[i10] + na[i11] + na[i01] <= 0.001f) continue
-
-                // LOD inner-cull: skip tiles whose centre is inside the previous tier's
-                // outer radius. The fine tier passes `innerCullRadius = 0` so this is a
-                // no-op; the coarse tier passes the fine tier's `outerRadius` so it draws
-                // only the ring outside the fine mesh.
                 if (innerCullSq > 0.0) {
                     val tcx = (px[i00] + px[i11]) * 0.5 - cameraX
                     val tcz = (pz[i00] + pz[i11]) * 0.5 - cameraZ
                     if (tcx * tcx + tcz * tcz < innerCullSq) continue
                 }
-
-                emit(consumer, matrix,
-                    px[i00] - cameraX, py[i00] - cameraY, pz[i00] - cameraZ,
-                    nr[i00], ng[i00], nb[i00], na[i00])
-                emit(consumer, matrix,
-                    px[i10] - cameraX, py[i10] - cameraY, pz[i10] - cameraZ,
-                    nr[i10], ng[i10], nb[i10], na[i10])
-                emit(consumer, matrix,
-                    px[i11] - cameraX, py[i11] - cameraY, pz[i11] - cameraZ,
-                    nr[i11], ng[i11], nb[i11], na[i11])
-                emit(consumer, matrix,
-                    px[i01] - cameraX, py[i01] - cameraY, pz[i01] - cameraZ,
-                    nr[i01], ng[i01], nb[i01], na[i01])
+                builder.vertex(px[i00] - originX, py[i00] - originY, pz[i00] - originZ)
+                    .color(nr[i00], ng[i00], nb[i00], na[i00]).endVertex()
+                builder.vertex(px[i10] - originX, py[i10] - originY, pz[i10] - originZ)
+                    .color(nr[i10], ng[i10], nb[i10], na[i10]).endVertex()
+                builder.vertex(px[i11] - originX, py[i11] - originY, pz[i11] - originZ)
+                    .color(nr[i11], ng[i11], nb[i11], na[i11]).endVertex()
+                builder.vertex(px[i01] - originX, py[i01] - originY, pz[i01] - originZ)
+                    .color(nr[i01], ng[i01], nb[i01], na[i01]).endVertex()
+                vertexCount += 4
             }
         }
+        pb.pending.set(Prepared(builder.end(), originX, originY, originZ, vertexCount))
     }
 
-    private fun emit(
-        consumer: VertexConsumer, matrix: Matrix4f,
-        x: Double, y: Double, z: Double,
-        r: Float, g: Float, b: Float, a: Float,
-    ) {
-        consumer.vertex(matrix, x.toFloat(), y.toFloat(), z.toFloat())
-            .color(
-                (r * 255f).toInt().coerceIn(0, 255),
-                (g * 255f).toInt().coerceIn(0, 255),
-                (b * 255f).toInt().coerceIn(0, 255),
-                (a * 255f).toInt().coerceIn(0, 255),
-            )
-            .endVertex()
-    }
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 }

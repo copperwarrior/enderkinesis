@@ -51,6 +51,7 @@ public final class TranslatorMain {
         Translator translator = new Translator(dict, posModelPath, lemmaDictPath);
 
         Files.createDirectories(outputDir);
+        deleteOutputsWithoutSource(sourceDir, outputDir);
         try (Stream<Path> files = Files.walk(sourceDir)) {
             files.filter(Files::isRegularFile)
                  .filter(p -> {
@@ -99,6 +100,18 @@ public final class TranslatorMain {
         System.out.println("Translating mod " + modIn.getFileName() + " → "
                 + modOut.getFileName());
         langJson.translateFile(modIn, modOut);
+    }
+
+    // A renamed or deleted source must not continue to ship from an old run.
+    private static void deleteOutputsWithoutSource(Path sourceRoot, Path outputRoot) throws IOException {
+        try (Stream<Path> outputs = Files.walk(outputRoot)) {
+            for (Path output : outputs.filter(Files::isRegularFile).toList()) {
+                if (!Files.exists(sourceRoot.resolve(outputRoot.relativize(output)))) {
+                    Files.delete(output);
+                    System.out.println("Deleted stale output: " + outputRoot.relativize(output));
+                }
+            }
+        }
     }
 
     private static void translateFile(Path source, Path sourceRoot, Path outputRoot,

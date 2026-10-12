@@ -1,5 +1,6 @@
 package sselith.translator;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -53,9 +54,9 @@ class TranslatorTest {
     @Test
     void verbGetsPastSuffix() throws IOException {
         assumeModels();
-        // "ruled" → lemma "rule" → regarnkh + -acht → regarnkhacht.
+        // "ruled" → lemma "rule" → regarn + -acht → regarnacht.
         String out = buildTranslator().translate("He ruled.");
-        assertTrue(out.contains("regarnkhacht"),
+        assertTrue(out.contains("regarnacht"),
                 "Expected PAST suffix on 'rule'. Got: " + out);
     }
 
@@ -83,7 +84,7 @@ class TranslatorTest {
         assumeModels();
         // 'creeper' and 'night' are now lexicon entries; 'creeper' is sentence-initial.
         String out = buildTranslator().translate("Creeper attacks at night.");
-        assertTrue(out.contains("Khruehpuhr"),
+        assertTrue(out.contains("Morkrelarn"),
                 "Sentence-initial 'Creeper' should translate and capitalize. Got: " + out);
         assertTrue(out.contains("naxt"),
                 "'night' should translate to 'naxt'. Got: " + out);
@@ -95,9 +96,9 @@ class TranslatorTest {
         // 'Creeper' is Title-cased in the English source — that pattern carries through
         // to the Sselith translation regardless of position in the sentence.
         String out = buildTranslator().translate("The Creeper hunts.");
-        assertTrue(out.contains("Khruehpuhr"),
-                "Mid-sentence Title-case 'Creeper' should translate to Title-case 'Khruehpuhr'. Got: " + out);
-        assertFalse(out.contains("khruehpuhr"),
+        assertTrue(out.contains("Morkrelarn"),
+                "Mid-sentence Title-case 'Creeper' should translate to Title-case 'Morkrelarn'. Got: " + out);
+        assertFalse(out.contains("morkrelarn"),
                 "Title-case source must not produce a lowercase translation. Got: " + out);
     }
 
@@ -106,8 +107,8 @@ class TranslatorTest {
         assumeModels();
         // All-caps surface should produce an all-caps Sselith translation.
         String out = buildTranslator().translate("The CREEPER hunts.");
-        assertTrue(out.contains("KHRUEHPUHR"),
-                "All-caps 'CREEPER' should translate to all-caps 'KHRUEHPUHR'. Got: " + out);
+        assertTrue(out.contains("MORKRELARN"),
+                "All-caps 'CREEPER' should translate to all-caps 'MORKRELARN'. Got: " + out);
     }
 
     @Test
@@ -115,9 +116,9 @@ class TranslatorTest {
         assumeModels();
         // Lowercase mid-sentence should stay lowercase.
         String out = buildTranslator().translate("The creeper hunts.");
-        assertTrue(out.contains("khruehpuhr"),
-                "Lowercase 'creeper' should translate to lowercase 'khruehpuhr'. Got: " + out);
-        assertFalse(out.contains("Khruehpuhr"),
+        assertTrue(out.contains("morkrelarn"),
+                "Lowercase 'creeper' should translate to lowercase 'morkrelarn'. Got: " + out);
+        assertFalse(out.contains("Morkrelarn"),
                 "Lowercase source must not produce a Title-case translation mid-sentence. Got: " + out);
     }
 
@@ -131,8 +132,8 @@ class TranslatorTest {
         assertTrue(out.contains("Mournhold"),
                 "Unknown 'Mournhold' should pass through unchanged. Got: " + out);
         // 'Queen' is Title-cased; the translation carries that pattern through.
-        assertTrue(out.contains("Regarnvrelkh"),
-                "Title-case 'Queen' should translate to Title-case 'Regarnvrelkh'. Got: " + out);
+        assertTrue(out.contains("Regarnvkh"),
+                "Title-case 'Queen' should translate to Title-case 'Regarnvkh'. Got: " + out);
         assertTrue(out.contains("toch"),
                 "'of' should translate to 'toch'. Got: " + out);
     }
@@ -140,12 +141,12 @@ class TranslatorTest {
     @Test
     void mixedKnownAndUnknownWords() throws IOException {
         assumeModels();
-        // 'mojang'/'studios' not in lexicon → passthrough; 'update' translates.
-        String out = buildTranslator().translate("Mojang Studios released the update.");
-        assertTrue(out.contains("Mojang"),
-                "Unknown 'Mojang' should pass through unchanged. Got: " + out);
-        assertTrue(out.contains("Studios"),
-                "Unknown 'Studios' should pass through unchanged. Got: " + out);
+        // 'zorblax'/'quendimar' not in lexicon → passthrough; 'update' translates.
+        String out = buildTranslator().translate("Zorblax Quendimar released the update.");
+        assertTrue(out.contains("Zorblax Quendimar"),
+                "Unknown words should pass through unchanged. Got: " + out);
+        assertFalse(out.contains("update"),
+                "'update' should translate. Got: " + out);
         assertTrue(out.contains("krekraekust"),
                 "'update' should translate to 'krekraekust'. Got: " + out);
     }
@@ -205,8 +206,9 @@ class TranslatorTest {
         // 'iron golem' is a dictionary entry. Lookup must consume both tokens together
         // rather than translating 'iron' and 'golem' independently.
         String out = buildTranslator().translate("Summon an Iron Golem to help.");
-        assertFalse(out.toLowerCase(java.util.Locale.ROOT).contains("airon kholem"),
-                "Multi-word 'Iron Golem' must NOT translate as the two single-token forms. Got: " + out);
+        String entry = SselithDictionary.load(dictPath).lookup("iron golem").sselith();
+        assertTrue(out.toLowerCase(java.util.Locale.ROOT).contains(entry),
+                "Multi-word 'Iron Golem' must translate as its own entry '" + entry + "'. Got: " + out);
     }
 
     @Test
@@ -251,11 +253,56 @@ class TranslatorTest {
     @Test
     void inflectedFormFallsThroughToMorphologyWhenAbsent() throws IOException {
         assumeModels();
-        // 'crafted' is NOT in the dict — surface lookup misses, lemma + PAST
-        // morphology kicks in: craft (kraekh) + PAST (-acht) → kraekhakht.
-        String out = buildTranslator().translate("crafted");
-        assertTrue(out.toLowerCase(java.util.Locale.ROOT).contains("kraekh"),
-                "Lemma-derived form for 'crafted' should still contain the 'kraekh' stem. Got: " + out);
+        // 'forged' is NOT in the dict — surface lookup misses, lemma + PAST
+        // morphology kicks in: forge (morkr) + PAST (-acht) → morkracht.
+        String out = buildTranslator().translate("forged");
+        assertEquals("morkracht", out.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    // ── Source spacing, placeholders and numerals ─────────────────────────────
+
+    @Test
+    void sourceSpacingIsKept() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("Zorblax-Quendimar Host").startsWith("Zorblax-Quendimar "),
+                "A hyphenated word must get no spaces around the hyphen.");
+        assertTrue(t.translate("Upgrade: ").endsWith(": "), "A trailing space must stay.");
+        assertTrue(t.translate("player(s)").endsWith("(s)"), "A lone 's' is not the possessive.");
+        assertTrue(t.translate("other tomes' links").contains("' "), "A plural possessive apostrophe stays on its word.");
+    }
+
+    @Test
+    void placeholdersSurviveWithAttachedLetters() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("%s's Head").startsWith("%soch "), "POSS on a placeholder must stay lower case.");
+        assertTrue(t.translate("%s%s done").startsWith("%s%s "), "Adjacent placeholders must both return.");
+        assertTrue(t.translate("50% done").startsWith("Schaer"), "A percent sign before a space is not a placeholder.");
+        assertFalse(t.translate("50% done").contains("done"), "The word after a percent sign must translate.");
+    }
+
+    @Test
+    void sectionNumeralWinsOverDictionary() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertEquals("Leampagkh Vir", t.translate("Page I"));
+        assertTrue(t.translate("the book I read").contains("Zhol"), "Lower-case 'book' does not make 'I' a numeral.");
+    }
+
+    @Test
+    void decimalIsOneToken() throws IOException {
+        assumeModels();
+        assertEquals("Vraestmorocht-schest-kelkargh-skarn-moroch", buildTranslator().translate("34.5"));
+    }
+
+    @Test
+    void lexiconAdjectiveTakesNoSecondSuffix() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertEquals("vielkh", t.translate("good").toLowerCase(java.util.Locale.ROOT));
+        assertEquals("kwevegh", t.translate("able").toLowerCase(java.util.Locale.ROOT));
+        assertEquals("zhvochargelk", t.translate("voices").toLowerCase(java.util.Locale.ROOT));
     }
 
     @Test

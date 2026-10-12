@@ -13,7 +13,9 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.SignBlock
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.block.StatueBlock
 import org.shipwrights.enderkinesis.mixin.PoiTypesInvoker
 
 /**
@@ -69,7 +71,9 @@ object EKPoiTypes {
     private fun statueStates(): Set<BlockState> {
         val states = HashSet<BlockState>()
         for (supplier in EKBlocks.STATUES) {
-            states.addAll(supplier.get().stateDefinition.possibleStates)
+            // The lower half only: one POI for each statue.
+            supplier.get().stateDefinition.possibleStates
+                .filterTo(states) { it.getValue(StatueBlock.HALF) == DoubleBlockHalf.LOWER }
         }
         return states
     }

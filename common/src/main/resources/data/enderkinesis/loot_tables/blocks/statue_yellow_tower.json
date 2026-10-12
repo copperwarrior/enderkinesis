@@ -5,9 +5,23 @@
       "rolls": 1.0,
       "bonus_rolls": 0.0,
       "entries": [
-        { "type": "minecraft:item", "name": "enderkinesis:statue_yellow_tower" }
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:statue_yellow_tower"
+        }
       ],
-      "conditions": [ { "condition": "minecraft:survives_explosion" } ]
+      "conditions": [
+        {
+          "condition": "minecraft:block_state_property",
+          "block": "enderkinesis:statue_yellow_tower",
+          "properties": {
+            "half": "lower"
+          }
+        },
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
     }
   ]
 }

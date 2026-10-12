@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.body
 
+import net.minecraft.resources.ResourceKey
+import net.minecraft.world.level.Level
 import org.joml.Quaterniond
 import org.joml.Quaterniondc
 import org.joml.Vector3d
@@ -43,15 +45,33 @@ object OrbGrabState {
      *  player clicked. */
     private val grabOffsetByBody: MutableMap<Long, Vector3d> = ConcurrentHashMap()
 
-    fun beginGrab(player: UUID, bodyId: Long, initialRotation: Quaterniondc, grabOffsetLocal: Vector3dc) {
+    /** player UUID -> the dimension of the grab. The tick of that level owns the grab. */
+    private val dimensionByPlayer: MutableMap<UUID, ResourceKey<Level>> = ConcurrentHashMap()
+
+    fun dimensionFor(player: UUID): ResourceKey<Level>? = dimensionByPlayer[player]
+
+    fun clear() {
+        grabsByPlayer.clear()
+        dimensionByPlayer.clear()
+        targetsByBody.clear()
+        idealRotByBody.clear()
+        grabOffsetByBody.clear()
+    }
+
+    fun beginGrab(
+        player: UUID, bodyId: Long, initialRotation: Quaterniondc, grabOffsetLocal: Vector3dc,
+        dimension: ResourceKey<Level>,
+    ) {
         if (bodyId == 0L) return
         if (grabsByPlayer.putIfAbsent(player, bodyId) == null) {
+            dimensionByPlayer[player] = dimension
             idealRotByBody[bodyId] = Quaterniond(initialRotation)
             grabOffsetByBody[bodyId] = Vector3d(grabOffsetLocal)
         }
     }
 
     fun release(player: UUID) {
+        dimensionByPlayer.remove(player)
         val bodyId = grabsByPlayer.remove(player) ?: return
         if (grabsByPlayer.values.none { it == bodyId }) {
             targetsByBody.remove(bodyId)

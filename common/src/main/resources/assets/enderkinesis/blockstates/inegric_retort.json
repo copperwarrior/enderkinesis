@@ -1,0 +1,14 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "enderkinesis:block/inegric_retort_body"
+      }
+    },
+    {
+      "apply": {
+        "model": "enderkinesis:block/inegric_retort_supports"
+      }
+    }
+  ]
+}

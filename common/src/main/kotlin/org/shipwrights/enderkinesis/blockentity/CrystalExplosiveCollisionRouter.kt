@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.blockentity
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.VsBeta
@@ -162,12 +161,6 @@ object CrystalExplosiveCollisionRouter {
             val bp = BlockPos.containing(probe.x, probe.y, probe.z)
             val be = map[bp]
             if (be != null) {
-                LOG.info(
-                    "collision hit ship={} side={} block={} contactWorld=({},{},{}) speed={} effMass={} impulse={}",
-                    shipId, sideLabel, bp,
-                    "%.2f".format(pos.x()), "%.2f".format(pos.y()), "%.2f".format(pos.z()),
-                    "%.3f".format(speed), "%.1f".format(mass), "%.1f".format(impulse),
-                )
                 be.queueDetonation(impulse)
                 return
             }
@@ -190,19 +183,12 @@ object CrystalExplosiveCollisionRouter {
             val bp = BlockPos.containing(px, py, pz)
             val be = map[bp]
             if (be != null) {
-                LOG.info(
-                    "collision hit world block={} contactWorld=({},{},{}) speed={} effMass={} impulse={}",
-                    bp,
-                    "%.2f".format(pos.x()), "%.2f".format(pos.y()), "%.2f".format(pos.z()),
-                    "%.3f".format(speed), "%.1f".format(mass), "%.1f".format(impulse),
-                )
                 be.queueDetonation(impulse)
                 return
             }
         }
     }
 
-    private val LOG = LogUtils.getLogger()
 
     /** How far to probe inside each contact body along the contact normal when
      *  resolving "which block sits at the contact". Smaller than 0.5 (half a block)
@@ -221,4 +207,10 @@ object CrystalExplosiveCollisionRouter {
      *  `velocity = 0` on the world side, so a ship rams into a world-placed explosive
      *  only when *the ship itself* hits this threshold. */
     private const val SHIP_SAFETY_SPEED: Double = 20.0
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        byShip.clear()
+        byWorld.clear()
+    }
 }

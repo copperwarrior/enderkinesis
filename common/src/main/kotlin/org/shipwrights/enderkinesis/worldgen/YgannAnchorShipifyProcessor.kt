@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.worldgen
 
+import dev.architectury.event.events.common.LifecycleEvent
+import org.shipwrights.enderkinesis.util.ServerTicks
 import com.mojang.serialization.Codec
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
@@ -17,9 +19,9 @@ import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.PlanarAnchorBlockEntity
 import org.shipwrights.enderkinesis.registry.EKProcessors
-import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
+import org.valkyrienskies.mod.common.assembly.VSAssemblyEvents
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
@@ -36,7 +38,7 @@ import org.valkyrienskies.mod.common.vsCore
  *  the grid-aligned look that yaw-only rotation produces. Yaw is full-range; pitch + roll are
  *  ±5° (~0.087 rad) so even at the extremes you'd struggle to spot the tilt from a distance.
  */
-object YgannAnchorShipifyProcessor : StructureProcessor() {
+object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
 
     val CODEC: Codec<YgannAnchorShipifyProcessor> = Codec.unit(YgannAnchorShipifyProcessor)
 
@@ -63,8 +65,6 @@ object YgannAnchorShipifyProcessor : StructureProcessor() {
         // for a given startPos wins, the rest skip without scheduling.
         if (!pendingAssemblies.add(startPos.immutable())) return processedBlockInfos
 
-        LOG.info("[EK] ygann anchor: finalize @ start={} processed={} non-air={} (scheduling)",
-            startPos, processedBlockInfos.size, blocks.size)
 
         // Position-seeded random. [StructurePlaceSettings.getRandom] returns a fixed-seed
         // RNG that ignores its BlockPos argument — see [RoamingEndShipShipifyProcessor] for
@@ -95,73 +95,132 @@ object YgannAnchorShipifyProcessor : StructureProcessor() {
             for (cp in chunksContainingBlocks) server.getChunk(cp.x, cp.z)
             if (!blocks.all { server.isLoaded(it) }) {
                 if (attemptsLeft > 1) {
-                    scheduleAssembleAndRotate(
-                        server, blocks, anchor, yaw, pitch, roll, dedupeKey, attemptsLeft - 1,
-                    )
+                    // A TickTask is not a delay, so the retry waits real ticks first.
+                    ServerTicks.runAfter(ms, ASSEMBLY_DELAY_TICKS) {
+                        scheduleAssembleAndRotate(
+                            server, blocks, anchor, yaw, pitch, roll, dedupeKey, attemptsLeft - 1,
+                        )
+                    }
                 } else {
-                    LOG.warn("[EK] ygann anchor at {} never had all {} chunks loaded; gave up.",
-                        anchor, chunksContainingBlocks.size)
                     pendingAssemblies.remove(dedupeKey)
+                    ShipCrew.takeCaptured(dedupeKey).forEach { it.discard() }
                 }
                 return@TickTask
             }
             try {
-                LOG.info("[EK] ygann anchor: assembling {} blocks across {} chunks @ {}",
-                    blocks.size, chunksContainingBlocks.size, anchor)
-                val ship = ShipAssembler.assembleToShip(server, blocks, /* scale */ 1.0)
-                if (ship !is LoadedServerShip) {
-                    LOG.warn("[EK] ygann anchor assembled but is not a LoadedServerShip ({}); skipping rotation.",
-                        ship?.javaClass)
-                    return@TickTask
-                }
-                // Reset planar anchor BE state on every block we just shipified. The NBT
-                // the BEs came back from holds activated-anchor state from whichever world
-                // built this structure template — `persistedPose0` points at long-gone world
-                // coords and `persistedTargetShipId` references a ship that doesn't exist
-                // here. Without this pass, the BE's next [serverTick] sees
-                // `persistedJointType != JOINT_NONE` and calls `rebindJoint` with the stale
-                // data instead of running a fresh trace+scan in the new ship frame — net
-                // effect is "the anchors look already-activated but their joint is bound to
-                // nothing useful." Wiping their joint state forces a clean resolve.
-                //
-                // Done *before* teleportShip: at this point `worldToShip` still maps the
-                // structure's original world block positions to the freshly-allocated
-                // shipyard coords. After teleport, `worldToShip` references the *new* world
-                // pose, but shipyard coords are stable across that — using the pre-teleport
-                // transform is the path of least confusion.
-                val w2s = ship.transform.worldToShip
-                val tmp = Vector3d()
-                for (worldPos in blocks) {
-                    tmp.set(worldPos.x + 0.5, worldPos.y + 0.5, worldPos.z + 0.5)
-                    w2s.transformPosition(tmp)
-                    val shipyardPos = BlockPos(
-                        Math.floor(tmp.x).toInt(),
-                        Math.floor(tmp.y).toInt(),
-                        Math.floor(tmp.z).toInt(),
-                    )
-                    (server.getBlockEntity(shipyardPos) as? PlanarAnchorBlockEntity)
-                        ?.resetForStructureRespawn()
-                }
-
+                val crew = ShipCrew.takeCaptured(dedupeKey)
+                val assembled = ShipAssembler.assembleToShipFull(server, blocks, /* scale */ 1.0)
+                val ship = assembled.ship
+                // VS2 assembly ends dynamic and returns the ship before it is loaded; hold it
+                // static until its anchors have joints.
+                ship.isStatic = true
+                // Assembly is a pure block translation, so this is exact (no transform timing).
+                val offset = BlockPos(
+                    Math.round(assembled.toCenter.x - assembled.fromCenter.x).toInt(),
+                    Math.round(assembled.toCenter.y - assembled.fromCenter.y).toInt(),
+                    Math.round(assembled.toCenter.z - assembled.fromCenter.z).toInt(),
+                )
                 // Compose Y(yaw) · X(pitch) · Z(roll) — standard aerospace order. JOML's
                 // `rotate*` post-multiplies, so applied to a body-frame vector this rolls
                 // first, then pitches, then yaws. World up is +Y; pitch tips the bow up/down
                 // along X; roll banks left/right around Z.
                 val rot = Quaterniond().rotateY(yaw).rotateX(pitch).rotateZ(roll)
-                LOG.info("[EK] ygann anchor assembled OK; rotating ship {} yaw={} pitch={} roll={} rad",
-                    ship.id, yaw, pitch, roll)
-                val data = vsCore.newShipTeleportData(
-                    newPos = Vector3d(ship.transform.positionInWorld),
-                    newRot = rot,
-                    newDimension = server.dimensionId,
-                )
-                vsCore.teleportShip(server.shipObjectWorld as ServerShipWorld, ship, data)
+                // assembleToShipFull returns before VS2 has loaded the pasted blocks; the rest
+                // runs on onPasteAfterBlocksAreLoaded, which VS2 always fires on a later tick.
+                awaitingPaste[ship.id] = PostAssembly(server, blocks, offset, rot, crew)
             } catch (t: Throwable) {
                 LOG.error("[EK] ygann anchor assembly threw at {}", anchor, t)
             } finally {
                 pendingAssemblies.remove(dedupeKey)
             }
         })
+    }
+
+    fun init() {
+        // The maps are static, and `awaitingPaste` holds a level: a stale entry must not reach the next world.
+        LifecycleEvent.SERVER_STOPPED.register {
+            pendingAssemblies.clear()
+            awaitingPaste.clear()
+        }
+        VSAssemblyEvents.onPasteAfterBlocksAreLoaded.on { event ->
+            val shipId = event.newShip?.id ?: return@on
+            val post = awaitingPaste.remove(shipId) ?: return@on
+            finishAssembly(shipId, post)
+        }
+    }
+
+    private class PostAssembly(
+        val server: ServerLevel,
+        val worldBlocks: Set<BlockPos>,
+        val offset: BlockPos,
+        val rot: Quaterniond,
+        val crew: List<net.minecraft.world.entity.Entity>,
+    )
+
+    private fun finishAssembly(shipId: Long, post: PostAssembly) {
+        val server = post.server
+        // Template BE NBT holds joint and lid-ship state from the world that built the template.
+        val anchors = ArrayList<BlockPos>()
+        for (worldPos in post.worldBlocks) {
+            val shipyardPos = worldPos.offset(post.offset)
+            when (val be = server.getBlockEntity(shipyardPos)) {
+                is PlanarAnchorBlockEntity -> {
+                    be.resetForStructureRespawn()
+                    anchors.add(shipyardPos)
+                }
+                is org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity -> be.resetForStructureRespawn()
+            }
+        }
+        rotateWhenLoaded(server, shipId, post.rot, post.crew, post.offset, anchors, LOAD_ATTEMPTS)
+    }
+
+    private fun rotateWhenLoaded(
+        server: ServerLevel, shipId: Long, rot: Quaterniond,
+        crew: List<net.minecraft.world.entity.Entity>, offset: BlockPos,
+        anchors: List<BlockPos>, attemptsLeft: Int,
+    ) {
+        val ms = server.server
+        ServerTicks.runAfter(ms, LOAD_RETRY_TICKS) {
+            val ship = server.shipObjectWorld.loadedShips.getById(shipId)
+            if (ship == null) {
+                if (attemptsLeft > 1) {
+                    rotateWhenLoaded(server, shipId, rot, crew, offset, anchors, attemptsLeft - 1)
+                } else {
+                    ShipCrew.spawnInShipyard(server, crew, offset, "ygann anchor")
+                    releaseWhenAnchored(server, shipId, anchors, ANCHOR_POLL_ATTEMPTS)
+                }
+                return@runAfter
+            }
+            val data = vsCore.newShipTeleportData(
+                newPos = Vector3d(ship.transform.positionInWorld),
+                newRot = rot,
+                newDimension = server.dimensionId,
+            )
+            vsCore.teleportShip(server.shipObjectWorld as ServerShipWorld, ship, data)
+            // Placing shipyard entities before the teleport applies lets VS2 swing them off the hull.
+            ServerTicks.runAfter(ms, CREW_PLACE_DELAY_TICKS) {
+                ShipCrew.spawnInShipyard(server, crew, offset, "ygann anchor")
+            }
+            releaseWhenAnchored(server, shipId, anchors, ANCHOR_POLL_ATTEMPTS)
+        }
+    }
+
+    /** Makes the ship dynamic once every powered anchor has its joint, or after the last attempt. */
+    private fun releaseWhenAnchored(server: ServerLevel, shipId: Long, anchors: List<BlockPos>, attemptsLeft: Int) {
+        val ms = server.server
+        ServerTicks.runAfter(ms, ANCHOR_POLL_TICKS) {
+            val ship = server.shipObjectWorld.allShips.getById(shipId) ?: return@runAfter
+            val waiting = anchors.any { pos ->
+                if (!server.isLoaded(pos)) return@any true
+                val anchor = server.getBlockEntity(pos) as? PlanarAnchorBlockEntity ?: return@any false
+                server.hasNeighborSignal(pos) && !anchor.hasJoint
+            }
+            if (waiting && attemptsLeft > 1) {
+                releaseWhenAnchored(server, shipId, anchors, attemptsLeft - 1)
+                return@runAfter
+            }
+            ship.isStatic = false
+        }
     }
 
     private fun centerOf(blocks: Set<BlockPos>): BlockPos {
@@ -174,5 +233,12 @@ object YgannAnchorShipifyProcessor : StructureProcessor() {
     private val LOG = com.mojang.logging.LogUtils.getLogger()
     private const val ASSEMBLY_DELAY_TICKS = 10
     private const val ASSEMBLY_ATTEMPTS = 20
+    private const val CREW_PLACE_DELAY_TICKS = 10
+    private const val LOAD_RETRY_TICKS = 5
+    private const val LOAD_ATTEMPTS = 40
+    private const val ANCHOR_POLL_TICKS = 5
+    /** 60 s at [ANCHOR_POLL_TICKS]. */
+    private const val ANCHOR_POLL_ATTEMPTS = 240
     private val pendingAssemblies = ConcurrentHashMap.newKeySet<BlockPos>()
+    private val awaitingPaste = ConcurrentHashMap<Long, PostAssembly>()
 }

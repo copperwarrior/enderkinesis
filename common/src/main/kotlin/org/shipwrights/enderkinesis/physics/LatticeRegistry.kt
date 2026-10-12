@@ -57,6 +57,24 @@ object LatticeRegistry {
      *  `getShipManagingPos`. Used by the mesh renderer's hull-footprint cutout. */
     fun entries(level: Level): Set<Map.Entry<CrepusculiteLatticeBlockEntity, LatticeCatchZone>> =
         byLevel[level]?.entries ?: emptySet()
+
+    /** First zone in [level] whose inflated ellipsoid contains `(x, y, z)`. Used by ocean
+     *  particles at spawn time to look up their host lattice's tint without a per-tick
+     *  lookup. Returns null when no lattice covers the point. */
+    fun zoneAt(level: Level, x: Double, y: Double, z: Double): LatticeCatchZone? {
+        for (zone in zones(level)) {
+            val dx = (x - zone.cx) / zone.ax
+            val dy = (y - zone.cy) / zone.ay
+            val dz = (z - zone.cz) / zone.az
+            if (dx * dx + dy * dy + dz * dz <= 1.0) return zone
+        }
+        return null
+    }
+
+    /** The map key is the level. Without this, an old level and its chunks stay in memory. */
+    fun dropLevels(clientSide: Boolean) {
+        byLevel.keys.removeIf { it.isClientSide == clientSide }
+    }
 }
 
 /**
@@ -81,4 +99,61 @@ data class LatticeCatchZone(
     val waterLineY: Double,
     val waveTime: Double,
     val waveIntensity: Double,
-)
+    /** Ship yaw (cos/sin) — the ellipse is oriented with the hull, not world-axis-
+     *  aligned. Identity for free-world lattices. */
+    val yawCos: Double = 1.0,
+    val yawSin: Double = 0.0,
+    /** Body tint of the wave mesh and the ocean particles. Defaults to the original
+     *  ender-purple; updated when a player dyes the lattice. */
+    val tintR: Float = DEFAULT_TINT_R,
+    val tintG: Float = DEFAULT_TINT_G,
+    val tintB: Float = DEFAULT_TINT_B,
+    /** True when the lattice has actually been dyed. Drives [tintDeepR]/etc and
+     *  [tintFoamR]/etc to derive from the base tint; false leaves the un-dyed look
+     *  on the original foam-green / deep-teal accents. */
+    val dyed: Boolean = false,
+    /** The ship of the lattice. One ship publishes one zone, from its highest lattice. */
+    val shipId: Long = -1L,
+) {
+    /** Ship-local normalized X/Z of a world point (the ellipse's own frame). */
+    fun localNx(x: Double, z: Double): Double =
+        (yawCos * (x - cx) - yawSin * (z - cz)) / ax
+    fun localNz(x: Double, z: Double): Double =
+        (yawSin * (x - cx) + yawCos * (z - cz)) / az
+
+    /** World-axis half-extents of the ROTATED ellipse's bounding box. */
+    val boundX: Double get() = Math.abs(yawCos) * ax + Math.abs(yawSin) * az
+    val boundZ: Double get() = Math.abs(yawSin) * ax + Math.abs(yawCos) * az
+
+    /** Trough / deep-water shade — for a dyed lattice it's the base tint scaled toward
+     *  black by [DEEP_FACTOR]; for the un-dyed default we keep the original deep
+     *  ender-teal so the stock look isn't changed by adding dye support. */
+    val tintDeepR: Float get() = if (dyed) tintR * DEEP_FACTOR else DEFAULT_DEEP_R
+    val tintDeepG: Float get() = if (dyed) tintG * DEEP_FACTOR else DEFAULT_DEEP_G
+    val tintDeepB: Float get() = if (dyed) tintB * DEEP_FACTOR else DEFAULT_DEEP_B
+
+    /** Crest / foam shade — dyed: base tint lerped toward white by [FOAM_LIGHTEN];
+     *  default: the original foam-green. */
+    val tintFoamR: Float get() = if (dyed) tintR + (1f - tintR) * FOAM_LIGHTEN else DEFAULT_FOAM_R
+    val tintFoamG: Float get() = if (dyed) tintG + (1f - tintG) * FOAM_LIGHTEN else DEFAULT_FOAM_G
+    val tintFoamB: Float get() = if (dyed) tintB + (1f - tintB) * FOAM_LIGHTEN else DEFAULT_FOAM_B
+
+    companion object {
+        const val DEFAULT_TINT_R: Float = 0.52f
+        const val DEFAULT_TINT_G: Float = 0.20f
+        const val DEFAULT_TINT_B: Float = 0.66f
+        /** Original ender-teal trough. Restored verbatim when the lattice isn't dyed. */
+        const val DEFAULT_DEEP_R: Float = 0.0118f
+        const val DEFAULT_DEEP_G: Float = 0.1490f
+        const val DEFAULT_DEEP_B: Float = 0.1255f
+        /** Original foam-green crest. Restored verbatim when the lattice isn't dyed. */
+        const val DEFAULT_FOAM_R: Float = 0.30f
+        const val DEFAULT_FOAM_G: Float = 1.00f
+        const val DEFAULT_FOAM_B: Float = 0.55f
+
+        /** Multiplier applied to the base tint to derive the dyed deep / trough shade. */
+        private const val DEEP_FACTOR: Float = 0.25f
+        /** Lerp factor toward white for the dyed foam / crest shade. */
+        private const val FOAM_LIGHTEN: Float = 0.65f
+    }
+}

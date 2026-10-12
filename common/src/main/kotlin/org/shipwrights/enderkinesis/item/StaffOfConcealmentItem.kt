@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.item
 
+import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionHand
@@ -12,7 +13,6 @@ import net.minecraft.world.item.UseAnim
 import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.HitResult
-import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 
 /** Staff of Concealment — hold right-click to cloak the ship under the wielder's
@@ -34,11 +34,13 @@ class StaffOfConcealmentItem(properties: Properties) : Item(properties) {
 
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
-        val ship = raycastShip(level, player)
+        val targetPos = raycastShipBlock(level, player)
+            ?: return InteractionResultHolder.fail(stack)
+        val ship = level.getLoadedShipManagingPos(targetPos)
             ?: return InteractionResultHolder.fail(stack)
 
         if (level is ServerLevel && player is ServerPlayer) {
-            ShipCloakingTracker.startCloak(level, ship.id, player)
+            ShipCloakingTracker.startCloak(level, ship.id, targetPos, player)
         }
         player.startUsingItem(hand)
         return InteractionResultHolder.consume(stack)
@@ -66,7 +68,7 @@ class StaffOfConcealmentItem(properties: Properties) : Item(properties) {
         return stack
     }
 
-    private fun raycastShip(level: Level, player: Player): Ship? {
+    private fun raycastShipBlock(level: Level, player: Player): BlockPos? {
         val eye = player.getEyePosition(1f)
         val look = player.getViewVector(1f)
         val end = eye.add(look.scale(REACH))
@@ -75,7 +77,7 @@ class StaffOfConcealmentItem(properties: Properties) : Item(properties) {
         if (hit.type != HitResult.Type.BLOCK) return null
         // hit.blockPos is in shipyard frame for ship blocks; getLoadedShipManagingPos
         // is keyed off shipyard pos too, so this is the canonical lookup.
-        return level.getLoadedShipManagingPos(hit.blockPos)
+        return hit.blockPos.takeIf { level.getLoadedShipManagingPos(it) != null }
     }
 
     companion object {

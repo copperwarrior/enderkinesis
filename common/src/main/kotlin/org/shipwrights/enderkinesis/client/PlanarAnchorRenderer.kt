@@ -141,7 +141,7 @@ class PlanarAnchorRenderer(
         // longer pass a single FULL_BRIGHT — we pass the current game time (in ticks, with
         // sub-tick interpolation) and let the pulse function modulate per-y. Same overlay as the
         // host block to avoid hit/freeze flicker bleeding into the chain.
-        val timeTicks = (level.gameTime + partialTick).toDouble()
+        val timeTicks = level.gameTime.toDouble() + partialTick
         drawChain(builder, poseStack, totalLength, leadingEdge, scrollOffset, solid, timeTicks, sprite, OverlayTexture.NO_OVERLAY)
 
         poseStack.popPose()
@@ -186,7 +186,7 @@ class PlanarAnchorRenderer(
             // `PortalParticle.tick` is `x = xStart + xd · f` (straight line) — individual
             // particles can't curve; the spiral is an emergent pattern of the rotating arm
             // positions overlaid with the tangential skew.
-            val baseAngle = (level.gameTime + partialTick).toDouble() * SPIRAL_ANGULAR_RATE
+            val baseAngle = (level.gameTime.toDouble() + partialTick) * SPIRAL_ANGULAR_RATE
             for (armIdx in 0 until SPIRAL_ARMS) {
                 val r = DISC_RADIUS * Math.sqrt(rng.nextDouble())
                 val armOffset = armIdx.toDouble() * 2.0 * Math.PI / SPIRAL_ARMS

@@ -39,4 +39,9 @@ object WikLakRedirectFlashTracker {
         }
         return 1f - (elapsed.toFloat() / WikLakRedirectFlashNetwork.FADE_TICKS.toFloat())
     }
+
+    /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
+    fun clearSession() {
+        startTicks.clear()
+    }
 }

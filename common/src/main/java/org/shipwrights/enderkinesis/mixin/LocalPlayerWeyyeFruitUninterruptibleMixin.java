@@ -31,6 +31,8 @@ public abstract class LocalPlayerWeyyeFruitUninterruptibleMixin {
         ItemStack useStack = self.getUseItem();
         if (!useStack.is(EKItems.weyyeFruit())) return;
         if (self.getUseItemRemainingTicks() <= 0) return;
+        // The fruit left the used hand and the snap-back found none: without this the use never ends.
+        if (!self.getItemInHand(self.getUsedItemHand()).is(EKItems.weyyeFruit())) return;
         ci.cancel();
     }
 }

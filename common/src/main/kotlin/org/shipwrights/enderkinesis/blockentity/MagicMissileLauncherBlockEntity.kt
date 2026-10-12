@@ -32,6 +32,7 @@ import org.shipwrights.enderkinesis.block.MagicMissileLauncherBlock
 import org.shipwrights.enderkinesis.entity.MagicMissileEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.util.LoadedRay
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 
@@ -67,14 +68,13 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
     private var firingCooldown: Int = 0
 
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
-        if (!state.getValue(BlockStateProperties.POWERED)) {
-            firingCooldown = 0
-            return
-        }
+        // The count-down also runs with no power. A reset to 0 here made the rate limit
+        // of a staff command last one tick.
         if (firingCooldown > 0) {
             firingCooldown--
             return
         }
+        if (!state.getValue(BlockStateProperties.POWERED)) return
         if (fireOne(level, pos, state)) {
             // ±1-tick jitter on top of FIRE_PERIOD_TICKS so consecutive shots don't
             // lock-step with redstone clocks or with adjacent launchers on the same
@@ -98,7 +98,7 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
     private fun fireOne(
         level: ServerLevel, pos: BlockPos, state: BlockState,
         owner: Player? = null, targetPos: Vec3? = null, targetEntity: Entity? = null,
-        targetBlockPos: BlockPos? = null,
+        targetBlockPos: BlockPos? = null, detonateAtPoint: Boolean = false,
     ): Boolean {
         // Collect the indices of occupied slots, then pick one uniformly at random.
         // 16 slots max so the per-tick allocation is cheap.
@@ -158,6 +158,17 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
             val velV = Vector3d(vx, vy, vz)
             transform.shipToWorld.transformDirection(velV)
             vx = velV.x; vy = velV.y; vz = velV.z
+
+            // A little recoil: impulse opposite the shot, applied at the muzzle — an
+            // off-centre launcher nudges the ship into a slight spin.
+            (ship as? org.valkyrienskies.core.api.ships.LoadedServerShip)
+                ?.getOrPutAttachment(org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment::class.java) {
+                    org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment()
+                }
+                ?.enqueue(
+                    Vector3d(spawnX, spawnY, spawnZ),
+                    Vector3d(vx, vy, vz).normalize().mul(-RECOIL_IMPULSE),
+                )
         }
 
         val missile = MagicMissileEntity(level, spawnX, spawnY, spawnZ)
@@ -167,6 +178,7 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
         if (targetPos != null) missile.targetPos = targetPos
         if (targetEntity != null) missile.lockedTargetEntityId = targetEntity.id
         if (targetBlockPos != null) missile.targetBlockPos = targetBlockPos
+        missile.detonateAtPoint = detonateAtPoint
         level.addFreshEntity(missile)
 
         level.playSound(
@@ -314,11 +326,15 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
      *  in line of sight before the block. If an entity is in front of whatever the
      *  block ray hit, the missile locks onto it (tracks it as it moves); otherwise it
      *  flies to the fixed block-hit point. */
+    // Deliberately no [executeAimCommand] override — the launcher ignores the
+    // staff's "Aim To" gesture and only actuates on the trigger, firing at the
+    // wielder's live gaze.
     override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
         val server = level as? ServerLevel ?: return
         if (firingCooldown > 0) return
         val eye = player.getEyePosition(1f)
-        val end = eye.add(player.getViewVector(1f).scale(STAFF_GAZE_REACH))
+        val look = player.getViewVector(1f)
+        val end = eye.add(look.scale(LoadedRay.range(server, eye, look, STAFF_GAZE_REACH)))
         val blockHit = server.clip(
             ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player),
         )
@@ -358,6 +374,28 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
                 targetPos = targetPos,
                 targetEntity = targetEntity,
                 targetBlockPos = targetBlockPos,
+            )
+        ) {
+            firingCooldown = FIRE_PERIOD_TICKS
+        }
+    }
+
+    override fun executeAutoCommand(target: net.minecraft.world.entity.Entity, hostShip: Ship?) {
+        val server = level as? ServerLevel ?: return
+        if (firingCooldown > 0) return
+        if (fireOne(server, worldPosition, blockState, owner = null, targetEntity = target)) {
+            firingCooldown = FIRE_PERIOD_TICKS
+        }
+    }
+
+    override fun executeAutoCommandAt(targetPos: Vec3, targetAnchor: BlockPos?, hostShip: Ship?) {
+        val server = level as? ServerLevel ?: return
+        if (firingCooldown > 0) return
+        if (fireOne(
+                server, worldPosition, blockState,
+                owner = null, targetPos = targetPos, targetBlockPos = targetAnchor,
+                // No hull anchor = a qualifier's air point: fly to it and burst there.
+                detonateAtPoint = targetAnchor == null,
             )
         ) {
             firingCooldown = FIRE_PERIOD_TICKS
@@ -407,6 +445,10 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
          *  enough that the missile entity clears the launcher's own hull on its first
          *  tick instead of self-colliding. */
         private const val SPAWN_OUTWARD_OFFSET: Double = 0.1
+
+        /** Recoil impulse (N·s) against the host ship per shot — ~1 m/s on a 2 t
+         *  skiff, a gentle nudge on a heavy hull. */
+        private const val RECOIL_IMPULSE: Double = 2000.0
 
         /** How far the staff's gaze raycast reaches on a [executeStaffCommand]
          *  dispatch. Matches the staff's beam reach so the visual + the missile

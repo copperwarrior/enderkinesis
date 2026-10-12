@@ -34,6 +34,10 @@ public abstract class LootingEnchantFunctionDisintegrationMixin {
     @Final
     private NumberProvider value;
 
+    @Shadow
+    @Final
+    private int limit;
+
     @Inject(method = "run", at = @At("HEAD"), cancellable = true)
     private void enderkinesis$applyDisintegrationLootingOverride(
         ItemStack stack, LootContext context, CallbackInfoReturnable<ItemStack> cir
@@ -45,6 +49,10 @@ public abstract class LootingEnchantFunctionDisintegrationMixin {
         stack.grow(Math.round(bonus));
         if (context.getRandom().nextFloat() < bonus - (int) bonus) {
             stack.grow(1);
+        }
+        // The vanilla function clamps to the loot table's limit after the bonus.
+        if (this.limit > 0 && stack.getCount() > this.limit) {
+            stack.setCount(this.limit);
         }
         cir.setReturnValue(stack);
     }

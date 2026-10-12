@@ -22,12 +22,19 @@ object SselithRepertory {
     val DIMENSION_TYPE_KEY: ResourceKey<DimensionType> = ResourceKey.create(Registries.DIMENSION_TYPE, ID)
 
     /** |y| above which the fog density bottoms out at [FOG_MIN_DENSITY]. */
-    private const val FOG_FALLOFF_Y = 128.0
+    const val FOG_FALLOFF_Y = 128.0
 
     /** Lower bound on fog density even at extreme altitudes — keeps a thin haze visible so
      *  the dimension never looks like pure overworld clarity. 0 would mean no fog at all
      *  past [FOG_FALLOFF_Y], which the player rejected as too clear. */
-    private const val FOG_MIN_DENSITY = 0.25f
+    const val FOG_MIN_DENSITY = 0.25f
+
+    /** Blocks from each world axis to the edge of the band between the library quadrants. */
+    const val LIBRARY_QUADRANT_SHIFT = 5
+
+    @JvmStatic
+    fun isAxialBand(x: Int, z: Int): Boolean =
+        x in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT || z in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT
 
     /**
      * Fog density at altitude [y]: 1.0 at y=0, linearly falling to [FOG_MIN_DENSITY] at
@@ -37,10 +44,13 @@ object SselithRepertory {
      * clear-colour blend), so the two stay locked in step.
      */
     @JvmStatic
-    fun fogDensityAt(y: Double): Float {
-        val abs = if (y < 0.0) -y else y
-        val t = abs / FOG_FALLOFF_Y
-        val clamped = if (t > 1.0) 1.0f else t.toFloat()
-        return 1.0f - clamped * (1.0f - FOG_MIN_DENSITY)
+    fun fogDensityAt(y: Double): Float = 1.0f - fogHeightFraction(y) * (1.0f - FOG_MIN_DENSITY)
+
+    /** 0 at y=0, rising linearly to 1 at |y| ≥ [FOG_FALLOFF_Y]. Fog colour scales by it, so the
+     *  fog is black at y=0 on the same curve the density follows. */
+    @JvmStatic
+    fun fogHeightFraction(y: Double): Float {
+        val t = Math.abs(y) / FOG_FALLOFF_Y
+        return if (t > 1.0) 1.0f else t.toFloat()
     }
 }

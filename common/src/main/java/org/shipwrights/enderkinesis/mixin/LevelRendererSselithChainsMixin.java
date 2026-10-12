@@ -43,6 +43,6 @@ public abstract class LevelRendererSselithChainsMixin {
         Matrix4f projection,
         CallbackInfo ci
     ) {
-        SselithChainRenderer.INSTANCE.render(poseStack, projection, camera);
+        SselithChainRenderer.INSTANCE.render(poseStack, projection, camera, partialTick);
     }
 }

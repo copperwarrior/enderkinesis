@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.dimension
 
-import com.mojang.logging.LogUtils
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap
@@ -8,7 +7,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
-import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
@@ -45,8 +43,6 @@ object SselithMadnessTomeSummon {
     val PICKABLE_TOMES_TAG: TagKey<Item> =
         TagKey.create(Registries.ITEM, EnderkinesisMod.id("pickable_tomes"))
 
-    private val LOG = LogUtils.getLogger()
-
     /** Per-player game-tick at which the next summon roll is allowed.
      *  Transient server-memory; cleared on logout. */
     private val nextEarliestTrigger = Object2LongOpenHashMap<UUID>().apply {
@@ -59,11 +55,6 @@ object SselithMadnessTomeSummon {
      *  it from a server tick callback and `[onQuit]` from the network
      *  thread. */
     private val activeSummons = ConcurrentHashMap<UUID, SummonState>()
-
-    /** Players we logged an "eligible" message for. Used to dedupe
-     *  the once-per-eligibility-transition diagnostic so it doesn't
-     *  spam every tick. */
-    private val previouslyEligible = HashSet<UUID>()
 
     /** S2C packet IDs — match
      *  [org.shipwrights.enderkinesis.client.PlayerTomeSummonClient]. */
@@ -84,9 +75,7 @@ object SselithMadnessTomeSummon {
      * the book floats back to the source shelf.
      *
      * [tomeChoice] is locked at trigger time so the visual matches the
-     * actual gift (if delivered). [deliveryDecided] flips once we
-     * cross the dwell→in boundary so we don't repeat the inventory
-     * check or animation switch.
+     * actual gift (if delivered).
      */
     private data class SummonState(
         val source: BlockPos,
@@ -94,17 +83,11 @@ object SselithMadnessTomeSummon {
         val startTick: Long,
         var returnTo: BlockPos = source,
         var willReturn: Boolean = false,
-        var deliveryDecided: Boolean = false,
     )
 
     fun init() {
         dev.architectury.event.events.common.TickEvent.PLAYER_POST.register(::tickPlayer)
         dev.architectury.event.events.common.PlayerEvent.PLAYER_QUIT.register(::onQuit)
-        LOG.info(
-            "Sselith Madness tome summon registered (trigger 1/{}, stare {} ticks, cooldown {} ticks, scan-miss cooldown {} ticks)",
-            TRIGGER_DENOMINATOR, STARE_DURATION_TICKS,
-            COOLDOWN_AFTER_TICKS, SCAN_MISS_COOLDOWN_TICKS,
-        )
     }
 
     private fun onQuit(player: ServerPlayer) {
@@ -112,7 +95,6 @@ object SselithMadnessTomeSummon {
         if (activeSummons.remove(player.uuid) != null) {
             broadcastEnd(player)
         }
-        previouslyEligible.remove(player.uuid)
     }
 
     private fun tickPlayer(player: Player) {
@@ -125,24 +107,8 @@ object SselithMadnessTomeSummon {
         // Amplifier convention: amp 0 = level 1, amp 2 = level 3. The tome summon is
         // a late-stage Madness gift; we gate at level 3+ so it doesn't fire for players
         // who've only briefly touched the effect.
-        val eligible = inSselith && amp >= MIN_MADNESS_AMPLIFIER
-        // Log eligibility transitions once each so a player going
-        // through Sselith sees confirmation that the tick loop is
-        // running and they're in the candidate pool.
-        val wasEligible = player.uuid in previouslyEligible
-        if (eligible && !wasEligible) {
-            previouslyEligible.add(player.uuid)
-            LOG.info(
-                "Sselith Madness tome summon: player={} uuid={} entered eligibility (madness amp={}, level={})",
-                player.gameProfile.name, player.uuid, amp, amp + 1,
-            )
-        } else if (!eligible && wasEligible) {
-            previouslyEligible.remove(player.uuid)
-            LOG.info(
-                "Sselith Madness tome summon: player={} uuid={} left eligibility (inSselith={}, amp={})",
-                player.gameProfile.name, player.uuid, inSselith, amp,
-            )
-        }
+        // Effects stay on a dead player until respawn, and the respawn discards the inventory.
+        val eligible = inSselith && amp >= MIN_MADNESS_AMPLIFIER && player.isAlive
 
         if (!eligible) {
             if (activeSummons.remove(player.uuid) != null) broadcastEnd(player)
@@ -162,18 +128,8 @@ object SselithMadnessTomeSummon {
         if (now < cooldownUntil) return
         if (player.random.nextInt(TRIGGER_DENOMINATOR) != 0) return
 
-        // Random gate passed — diagnostic so the cadence is visible in
-        // the log even when the raycast misses.
-        LOG.info(
-            "Sselith Madness tome summon: gate roll passed for player={} at tick={}, attempting raycast",
-            player.gameProfile.name, now,
-        )
 
         val shelf = raycastForBookshelf(player, level) ?: run {
-            LOG.info(
-                "Sselith Madness tome summon: raycast found no Sselith bookshelf for player={}; cooldown {} ticks",
-                player.gameProfile.name, SCAN_MISS_COOLDOWN_TICKS,
-            )
             nextEarliestTrigger.put(player.uuid, now + SCAN_MISS_COOLDOWN_TICKS)
             return
         }
@@ -193,11 +149,6 @@ object SselithMadnessTomeSummon {
         activeSummons[player.uuid] = state
         playStareStartEffects(player, level, shelf)
         broadcastBegin(player, state)
-        LOG.info(
-            "Sselith Madness tome summon begin: player={} uuid={} bookshelf=({},{},{}) gift={} willReturn={}",
-            player.gameProfile.name, player.uuid, shelf.x, shelf.y, shelf.z,
-            gift?.let { BuiltInRegistries.ITEM.getKey(it) }, initialWillReturn,
-        )
     }
 
     /** Per-tick step for an in-progress player summon. Drives the
@@ -226,29 +177,6 @@ object SselithMadnessTomeSummon {
         // Phase boundaries.
         val dwellStart = Cataloger.TOME_OUTBOUND_TICKS
         val inStart = dwellStart + Cataloger.TOME_DWELL_TICKS
-
-        // Decision at OUT→DWELL boundary is server-only. The
-        // `willReturn` plumbing was already broadcast in the BEGIN
-        // packet at trigger time — re-broadcasting here would
-        // re-stamp the client's `startTick` and restart the visual.
-        // We accept the rare case where inventory churn during the
-        // OUT phase makes the actual delivery diverge from the
-        // pre-committed visual.
-        if (!state.deliveryDecided && elapsed >= dwellStart) {
-            state.deliveryDecided = true
-            val choice = state.tomeChoice
-            val canDeliver = choice != null && player.inventory.getFreeSlot() >= 0
-            // The pre-committed visual already chose willReturn at
-            // trigger time. Only override here if the situation has
-            // gotten worse (no space now, was space before) — that
-            // way the visual at least matches the no-gift case.
-            if (!canDeliver && !state.willReturn) {
-                LOG.info(
-                    "Sselith Madness tome summon: inventory full at delivery for player={}, but visual was committed to deliver; gift skipped",
-                    player.gameProfile.name,
-                )
-            }
-        }
 
         // View control is client-side now (eased rotation in
         // [org.shipwrights.enderkinesis.client.PlayerTomeSummonClient.onAiStep]).
@@ -312,26 +240,12 @@ object SselithMadnessTomeSummon {
                     player.drop(stack, false)
                 }
                 playDeliveryEffects(player, level, state.source, success = true)
-                LOG.info(
-                    "Sselith Madness tome gift: player={} uuid={} bookshelf=({},{},{}) item={}",
-                    player.gameProfile.name, player.uuid,
-                    state.source.x, state.source.y, state.source.z,
-                    BuiltInRegistries.ITEM.getKey(gift),
-                )
             } else {
                 playDeliveryEffects(player, level, state.source, success = false)
-                LOG.info(
-                    "Sselith Madness tome summon: no eligible tome at delivery for player={}",
-                    player.gameProfile.name,
-                )
             }
         } else {
             // Book floated back into the shelf — quieter close.
             playDeliveryEffects(player, level, state.returnTo, success = false)
-            LOG.info(
-                "Sselith Madness tome summon: returned book to shelf ({},{},{}) for player={} (no inventory space)",
-                state.returnTo.x, state.returnTo.y, state.returnTo.z, player.gameProfile.name,
-            )
         }
         activeSummons.remove(player.uuid)
         broadcastEnd(player)
@@ -417,20 +331,11 @@ object SselithMadnessTomeSummon {
             ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player),
         )
         if (hit.type != HitResult.Type.BLOCK) {
-            LOG.debug(
-                "Sselith Madness tome raycast {}/{}: miss (no block hit) player={} dir=(yaw={}°, pitch={}°)",
-                attempt + 1, RAYCAST_ATTEMPTS, player.gameProfile.name, yawDeg, pitchDeg,
-            )
             return null
         }
         val pos = hit.blockPos
         val state = level.getBlockState(pos)
         if (!state.`is`(sselithBookshelf)) {
-            LOG.debug(
-                "Sselith Madness tome raycast {}/{}: first hit was {} at ({},{},{}) — not a Sselith bookshelf",
-                attempt + 1, RAYCAST_ATTEMPTS,
-                BuiltInRegistries.BLOCK.getKey(state.block), pos.x, pos.y, pos.z,
-            )
             return null
         }
         return pos.immutable()

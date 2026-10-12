@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.shipwrights.enderkinesis.body.GamylanCageEntityCollision;
 import org.shipwrights.enderkinesis.body.OrbEntityCollision;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -35,6 +36,8 @@ public abstract class EntityOrbCollisionMixin {
      * query without rewriting vanilla's stair-step / step-up logic
      * (which lives outside this call site).
      */
+    private static final int ENDERKINESIS$MAX_SUBDIVISIONS = 64;
+
     @WrapOperation(
         method = "move",
         at = @At(
@@ -45,19 +48,31 @@ public abstract class EntityOrbCollisionMixin {
     private Vec3 enderkinesis$collideWithOrbBodies(
         Entity self, Vec3 movement, Operation<Vec3> collide
     ) {
+        // Most worlds have no orb and no cage; each entity move goes through here on the two sides.
+        if (!OrbEntityCollision.mayCollide(self.level()) && !GamylanCageEntityCollision.mayCollide(self.level())) {
+            return collide.call(self, movement);
+        }
         final AABB box = self.getBoundingBox();
         // Subdivide long sweeps so a high-speed entity can't tunnel
         // through the orb sphere in one tick. 0.5 m per substep is a
         // good balance — finer than the orb radius (1.5) so a single
         // sphere can't be skipped.
-        final int subdivisions = (int) (movement.length() / 0.5) + 1;
+        // Capped: a very large or infinite movement gave up to 2^31 passes.
+        final int subdivisions = Math.min((int) (movement.length() / 0.5) + 1, ENDERKINESIS$MAX_SUBDIVISIONS);
         final Vec3 substep = movement.scale(1.0 / subdivisions);
 
         Vec3 finalMovement = movement;
         for (int i = 0; i < subdivisions; i++) {
             final Vec3 previousMovement = substep.scale(i);
-            final Vec3 partial = OrbEntityCollision.adjustMovement(
-                self, substep, box.move(previousMovement), self.level()
+            final AABB sweptBox = box.move(previousMovement);
+            // Chain orb collision → Ga'Mylan cage collision. Both
+            // helpers use VS2's primitive-shape adjustment internally
+            // and are no-ops when no body of their kind is near.
+            Vec3 partial = OrbEntityCollision.adjustMovement(
+                self, substep, sweptBox, self.level()
+            );
+            partial = GamylanCageEntityCollision.adjustMovement(
+                self, partial, sweptBox, self.level()
             );
             if (partial.distanceToSqr(substep) > 1.0e-12) {
                 finalMovement = previousMovement.add(partial);

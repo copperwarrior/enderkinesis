@@ -5,6 +5,7 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EchoCannonBlockEntity
@@ -12,6 +13,7 @@ import org.shipwrights.enderkinesis.blockentity.EnderAstrolabeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AetherPadBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AncriteEyeBlockEntity
+import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
 import org.shipwrights.enderkinesis.blockentity.FractalProjectorBlockEntity
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
 import org.shipwrights.enderkinesis.blockentity.MagicMissileLauncherBlockEntity
@@ -23,6 +25,8 @@ import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutTopBlockEntity
 import org.shipwrights.enderkinesis.blockentity.StatueBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHarnessBlockEntity
+import org.shipwrights.enderkinesis.blockentity.ForgottenItemBlockEntity
+import org.shipwrights.enderkinesis.blockentity.ScribesDeskBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
 
 object EKBlockEntities {
@@ -35,6 +39,14 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::CrepusculiteLatticeBlockEntity, EKBlocks.CREPUSCULITE_LATTICE.get()
             ).build(null) as BlockEntityType<CrepusculiteLatticeBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val CONSTRILIAR_PLATFORM: RegistrySupplier<BlockEntityType<ConstriliarPlatformBlockEntity>> =
+        BLOCK_ENTITIES.register("constriliar_platform") {
+            BlockEntityType.Builder.of(
+                ::ConstriliarPlatformBlockEntity, EKBlocks.CONSTRILIAR_PLATFORM.get()
+            ).build(null) as BlockEntityType<ConstriliarPlatformBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -91,6 +103,15 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::AetherPadBlockEntity, EKBlocks.AETHER_PAD.get()
             ).build(null) as BlockEntityType<AetherPadBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val YGANN_BARNACLE: RegistrySupplier<BlockEntityType<YgannBarnacleBlockEntity>> =
+        BLOCK_ENTITIES.register("ygann_barnacle") {
+            BlockEntityType.Builder.of(
+                ::YgannBarnacleBlockEntity,
+                EKBlocks.YGANN_BARNACLE.get()
+            ).build(null) as BlockEntityType<YgannBarnacleBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -173,7 +194,7 @@ object EKBlockEntities {
             ).build(null) as BlockEntityType<MagicMissileLauncherBlockEntity>
         }
 
-    /** One BE type shared across all six statue blocks — the BE itself holds no
+    /** One BE type shared across all statue blocks — the BE itself holds no
      *  per-statue state; the kind is read from the block at the BE's position by
      *  the BER. Listing all six blocks in `validBlocks` is what lets vanilla
      *  attach the shared type to each. */
@@ -184,6 +205,20 @@ object EKBlockEntities {
                 ::StatueBlockEntity,
                 *EKBlocks.STATUES.map { it.get() }.toTypedArray(),
             ).build(null) as BlockEntityType<StatueBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val SCRIBES_DESK: RegistrySupplier<BlockEntityType<ScribesDeskBlockEntity>> =
+        BLOCK_ENTITIES.register("scribes_desk") {
+            BlockEntityType.Builder.of(::ScribesDeskBlockEntity, EKBlocks.SCRIBES_DESK.get())
+                .build(null) as BlockEntityType<ScribesDeskBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val FORGOTTEN_ITEM: RegistrySupplier<BlockEntityType<ForgottenItemBlockEntity>> =
+        BLOCK_ENTITIES.register("forgotten_item") {
+            BlockEntityType.Builder.of(::ForgottenItemBlockEntity, EKBlocks.FORGOTTEN_ITEM.get())
+                .build(null) as BlockEntityType<ForgottenItemBlockEntity>
         }
 
     fun register() = BLOCK_ENTITIES.register()

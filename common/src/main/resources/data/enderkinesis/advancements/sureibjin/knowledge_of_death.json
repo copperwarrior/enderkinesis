@@ -1,0 +1,14 @@
+{
+  "parent": "enderkinesis:sureibjin/distant_dreams",
+  "display": {
+    "icon": { "item": "minecraft:skeleton_skull" },
+    "title": { "translate": "advancements.enderkinesis.sureibjin.knowledge_of_death.title" },
+    "description": { "translate": "advancements.enderkinesis.sureibjin.knowledge_of_death.description" },
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "manual": { "trigger": "minecraft:impossible" }
+  }
+}

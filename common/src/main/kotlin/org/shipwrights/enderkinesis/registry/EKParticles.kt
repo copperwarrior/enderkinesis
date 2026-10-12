@@ -58,6 +58,28 @@ object EKParticles {
     val SSELITH_DUST: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("sselith_dust") { EKOceanParticleType() }
 
+    /** Surface variant of [SSELITH_DUST] the Remnant leaves where it crawls: it stays put, with no gravity. */
+    val SSELITH_CLINGING_DUST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_clinging_dust") { EKOceanParticleType() }
+
+    /** Tome-summon beam mote: [SSELITH_DUST] that keeps its spawn velocity, with no gravity. */
+    val SSELITH_BEAM_DUST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_beam_dust") { EKOceanParticleType() }
+
+    /** Incantation of Winds hand-idle mote — tiny, full alpha at spawn (no
+     *  fade-in), rises from the casting hand. */
+    val WIND_HAND_DUST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("wind_hand_dust") { EKOceanParticleType() }
+
+    /** Eidetic Bookmark cast mote — rises from a ring at the user's feet and scatters as it climbs. */
+    val EIDETIC_MOTE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("eidetic_mote") { EKOceanParticleType() }
+
+    /** Incantation of Winds gale mote — keeps its spawn velocity and shoots
+     *  downrange with the blast, full alpha at spawn. */
+    val WIND_GUST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("wind_gust") { EKOceanParticleType() }
+
     /** Enchant-glyph particle for the reusable bezier beam (Wylland Tome, Tome of Signal orb
      *  network, future tomes). Identical to vanilla's enchanting-table glyph (same sga_a..sga_z
      *  sprite atlas) except each glyph stays bound to a [org.shipwrights.enderkinesis.client.BeamPath]
@@ -81,6 +103,17 @@ object EKParticles {
      *  and renders full-bright. */
     val SSELITH_GLYPH: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("sselith_glyph") { EKOceanParticleType() }
+
+    val SSELITH_INVOCATION_GLYPH: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_invocation_glyph") { EKOceanParticleType() }
+
+    /** Seeds: one packet makes the client emit the full glyph effect of a phrase crossing.
+     *  See [org.shipwrights.enderkinesis.dimension.SselithChatTeleport]. */
+    val SSELITH_ARRIVAL_STORM: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_arrival_storm") { EKOceanParticleType() }
+
+    val SSELITH_DEPARTURE_AURA: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_departure_aura") { EKOceanParticleType() }
 
     /** Wohlonnogondonia ambient firefly — light-teal flickering glitter
      *  that orbits a spawn-anchor block. Spawned client-side by
@@ -182,11 +215,27 @@ object EKParticles {
 
     fun sselithDust(): EKOceanParticleType = SSELITH_DUST.get() as EKOceanParticleType
 
+    fun sselithClingingDust(): EKOceanParticleType = SSELITH_CLINGING_DUST.get() as EKOceanParticleType
+
+    fun sselithBeamDust(): EKOceanParticleType = SSELITH_BEAM_DUST.get() as EKOceanParticleType
+
+    fun windHandDust(): EKOceanParticleType = WIND_HAND_DUST.get() as EKOceanParticleType
+
+    fun eideticMote(): EKOceanParticleType = EIDETIC_MOTE.get() as EKOceanParticleType
+
+    fun windGust(): EKOceanParticleType = WIND_GUST.get() as EKOceanParticleType
+
     fun enchantedBookBeam(): EKOceanParticleType = ENCHANTED_BOOK_BEAM.get() as EKOceanParticleType
 
     fun wyllandTomeShipGlyph(): EKOceanParticleType = WYLLAND_TOME_SHIP_GLYPH.get() as EKOceanParticleType
 
     fun sselithGlyph(): EKOceanParticleType = SSELITH_GLYPH.get() as EKOceanParticleType
+
+    fun sselithInvocationGlyph(): EKOceanParticleType = SSELITH_INVOCATION_GLYPH.get() as EKOceanParticleType
+
+    fun sselithArrivalStorm(): EKOceanParticleType = SSELITH_ARRIVAL_STORM.get() as EKOceanParticleType
+
+    fun sselithDepartureAura(): EKOceanParticleType = SSELITH_DEPARTURE_AURA.get() as EKOceanParticleType
 
     fun wohlonFirefly(): EKOceanParticleType = WOHLON_FIREFLY.get() as EKOceanParticleType
 
@@ -208,6 +257,10 @@ object EKParticles {
 
     fun archiveSpiralDust(): EKOceanParticleType = ARCHIVE_SPIRAL_DUST.get() as EKOceanParticleType
 
+    val ICHAERIC_INK_DRIP: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("ichaeric_ink_drip") { EKOceanParticleType() }
+
+    fun ichaericInkDrip(): EKOceanParticleType = ICHAERIC_INK_DRIP.get() as EKOceanParticleType
 
     fun register() = PARTICLES.register()
 }

@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.item
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
@@ -43,7 +42,6 @@ object ElasticityTomeOrbBehavior : TomeOrbBehavior {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_elasticity")
 
-    private val LOG = LogUtils.getLogger()
 
     /** Spring compliance (1/stiffness). Lower = stiffer. Range reference:
      *   - 1e-10: near-rigid (Binding's value — essentially a weld; the practical floor —
@@ -68,16 +66,12 @@ object ElasticityTomeOrbBehavior : TomeOrbBehavior {
         val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos) ?: return
         val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
         for (receiverPos in receivers) {
-            val recvBe = level.getBlockEntity(receiverPos) as? OrbOfLinkingBlockEntity ?: continue
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
             val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
             val dx = recvCentre.x - sendCentre.x
             val dy = recvCentre.y - sendCentre.y
             val dz = recvCentre.z - sendCentre.z
             if (dx * dx + dy * dy + dz * dz > maxSq) {
-                LOG.info(
-                    "[EK elasticity] dropping {} → {} (distance > {} blocks)",
-                    sendBe.blockPos, receiverPos, OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE,
-                )
                 sendBe.removeOutgoingLink(level, tomeKind, receiverPos)
                 continue
             }
@@ -137,15 +131,10 @@ object ElasticityTomeOrbBehavior : TomeOrbBehavior {
                 val stillPending = sendBe.isJointPending(tomeKind, receiverPos)
                 val stillLinked = sendBe.hasOutgoingLink(tomeKind, receiverPos)
                 if (!stillPending || !stillLinked) {
-                    LOG.info("[EK elasticity] dropping callback joint id={} (pair gone)", id)
                     gtpa.removeJoint(id)
                     sendBe.clearJointPending(tomeKind, receiverPos)
                 } else {
                     sendBe.setJointId(tomeKind, receiverPos, id)
-                    LOG.debug(
-                        "[EK elasticity] sprung {} ↔ {} (compliance {}) as joint id={}",
-                        sendBe.blockPos, receiverPos, COMPLIANCE, id,
-                    )
                 }
             }
         }

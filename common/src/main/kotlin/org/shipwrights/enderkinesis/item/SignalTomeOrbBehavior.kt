@@ -79,7 +79,7 @@ object SignalTomeOrbBehavior : TomeOrbBehavior {
     /** Push fresh state to every receiver of [sendBe] for this tome, in-range and loaded. */
     private fun propagateFrom(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
         for (receiverPos in sendBe.outgoingPeers(tomeKind)) {
-            val recvBe = level.getBlockEntity(receiverPos) as? OrbOfLinkingBlockEntity ?: continue
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
             recvBe.applyPower(level, computeAggregatePower(level, recvBe))
         }
     }
@@ -92,7 +92,7 @@ object SignalTomeOrbBehavior : TomeOrbBehavior {
         val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
         var best = 0
         for (senderPos in recvBe.incomingPeers(tomeKind)) {
-            val sendBe = level.getBlockEntity(senderPos) as? OrbOfLinkingBlockEntity ?: continue
+            val sendBe = OrbOfLinkingBlockEntity.loadedAt(level, senderPos) ?: continue
             val sendCentre = sendBe.worldCenter() ?: continue
             val dx = sendCentre.x - recvCentre.x
             val dy = sendCentre.y - recvCentre.y

@@ -48,18 +48,14 @@ object WikLakDeathRedirect {
     private const val DEBUFF_AMPLIFIER: Int = 1
 
     fun init() {
-        EntityEvent.LIVING_HURT.register(::onLivingHurt)
+        EntityEvent.LIVING_DEATH.register(::onLivingDeath)
     }
 
+    // The death event, not the hurt event: the hurt amount is before armour, shield and
+    // invulnerability frames, so a hit that the player survives used a host.
     @Suppress("UNUSED_PARAMETER")
-    private fun onLivingHurt(
-        entity: LivingEntity, source: DamageSource, amount: Float,
-    ): EventResult {
+    private fun onLivingDeath(entity: LivingEntity, source: DamageSource): EventResult {
         if (entity !is ServerPlayer) return EventResult.pass()
-        // Only intercept the killing hit. Non-lethal damage stays so the
-        // visual / audio cause of the redirect reads as the killing hit
-        // rather than appearing out of nowhere.
-        if (entity.health - amount > 0f) return EventResult.pass()
 
         val host = pickRandomHost(entity) ?: return EventResult.pass()
         performRedirect(entity, host)

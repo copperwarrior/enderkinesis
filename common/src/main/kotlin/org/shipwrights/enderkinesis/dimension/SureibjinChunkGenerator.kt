@@ -37,8 +37,8 @@ import net.minecraft.world.level.levelgen.blending.Blender
  *   - **West of beach**: surface rises from [BEACH_BASE_Y] to [PILE_TOP_Y] over
  *     [PILE_FULL_X] blocks via smoothstep — sloping sand dune that caps just below
  *     the barrier ceiling.
- *   - **y = [BARRIER_Y]** (world top, one layer): barrier — hard cap, prevents
- *     anything from poking through the dream sky.
+ *   - **y ≥ [BARRIER_START_Y]**: barrier in all air up to the world top — seals the dream
+ *     sky from the player's reach.
  *   - **y = [MIN_Y]**: bedrock floor.
  *
  * ## Obsidian tendril carvers
@@ -62,6 +62,20 @@ class SureibjinChunkGenerator(
 
     override fun codec(): Codec<out ChunkGenerator> = CODEC
 
+    // The world-seed part of each hash. Chunk workers race on the first write, but each of them
+    // computes the same value, and the flag is written after the value.
+    @Volatile
+    private var worldSalt = 0
+
+    @Volatile
+    private var worldSaltReady = false
+
+    private fun ensureWorldSalt(randomState: RandomState) {
+        if (worldSaltReady) return
+        worldSalt = randomState.getOrCreateRandomFactory(Sureibjin.ID).at(0, 0, 0).nextInt()
+        worldSaltReady = true
+    }
+
     override fun fillFromNoise(
         executor: Executor,
         blender: Blender,
@@ -69,6 +83,7 @@ class SureibjinChunkGenerator(
         structureManager: StructureManager,
         chunk: ChunkAccess,
     ): CompletableFuture<ChunkAccess> {
+        ensureWorldSalt(randomState)
         val chunkX0 = chunk.pos.minBlockX
         val chunkZ0 = chunk.pos.minBlockZ
 
@@ -127,9 +142,7 @@ class SureibjinChunkGenerator(
             }
         }
 
-        // 2. Obsidian tendril fractals. Each chunk scans its own region cell plus
-        //    the 8 neighbours so a tendril root near a cell boundary still paints
-        //    into adjacent chunks.
+        // 2. Obsidian tendril fractals.
         paintTendrilsInto(chunk, chunkX0, chunkZ0, mutable)
 
         // 3. Small obsidian rock clusters scattered through the sand. Smaller
@@ -161,11 +174,15 @@ class SureibjinChunkGenerator(
 
     override fun getBaseHeight(
         x: Int, z: Int, type: Heightmap.Types, level: LevelHeightAccessor, randomState: RandomState,
-    ): Int = coastSurfaceYAt(x, z) + 1
+    ): Int {
+        ensureWorldSalt(randomState)
+        return coastSurfaceYAt(x, z) + 1
+    }
 
     override fun getBaseColumn(
         x: Int, z: Int, level: LevelHeightAccessor, randomState: RandomState,
     ): NoiseColumn {
+        ensureWorldSalt(randomState)
         val surface = coastSurfaceYAt(x, z)
         val states: Array<BlockState> = Array(WORLD_HEIGHT) { i ->
             baseColumnBlock(MIN_Y + i, surface) ?: AIR
@@ -438,7 +455,9 @@ class SureibjinChunkGenerator(
             // tendril wasn't placed (root too close to the ceiling).
             val rootBase = coastBaseSurfaceYAt(cand.rootX, cand.rootZ)
             if (rootBase < SEA_LEVEL_Y - 1) continue
-            if (rootBase >= TRUNK_Y_CAP - 4) continue
+            // The same start height that [tendrilFractalInRegion] rejects, so no mound is without its tendril.
+            val startY = rootBase + sandSurfaceNoise(cand.rootX, cand.rootZ) + tendrilMoundPeak(cand.thickness) + 1
+            if (startY >= TRUNK_Y_CAP - 4) continue
 
             val lift = directionalMoundLift(
                 wx, wz, cand.rootX, cand.rootZ,
@@ -452,8 +471,7 @@ class SureibjinChunkGenerator(
     }
 
 
-    /** Paint every tendril fractal whose root sits in the 5×5 region
-     *  neighbourhood of this chunk. Each tendril is rebuilt per chunk —
+    /** Paint every tendril fractal that reaches this chunk. Each tendril is rebuilt per chunk —
      *  deterministic from region seed, so cross-chunk paints land on identical
      *  voxels without any shared state. */
     private fun paintTendrilsInto(
@@ -463,34 +481,67 @@ class SureibjinChunkGenerator(
         val rgX = Math.floorDiv(chunkX0, TENDRIL_REGION_SIZE)
         val rgZ = Math.floorDiv(chunkZ0, TENDRIL_REGION_SIZE)
 
-        // 5×5 scan — tendrils reach further than a single region radius.
-        for (dRgX in -2..2) for (dRgZ in -2..2) {
-            val cand = tendrilCandidateInRegion(rgX + dRgX, rgZ + dRgZ) ?: continue
-
-            val rootBase = coastBaseSurfaceYAt(cand.rootX, cand.rootZ)
-            val noiseAtRoot = sandSurfaceNoise(cand.rootX, cand.rootZ)
-            // Tendrils piercing above sea level get a sand mound piled around
-            // them and start on top of that mound. Underwater tendrils rise
-            // straight from the ocean floor — no visible mound.
-            val moundPeak = if (rootBase >= SEA_LEVEL_Y - 1)
-                tendrilMoundPeak(cand.thickness) else 0
-            val startY = rootBase + noiseAtRoot + moundPeak + 1
-            if (startY >= TRUNK_Y_CAP - 4) continue
-
-            // Quick chunk-AABB reject vs the tendril's worst-case XZ reach.
-            val nearestX = cand.rootX.coerceIn(chunkX0, chunkX0 + 15)
-            val nearestZ = cand.rootZ.coerceIn(chunkZ0, chunkZ0 + 15)
-            val ddx = nearestX - cand.rootX
-            val ddz = nearestZ - cand.rootZ
-            if (ddx * ddx + ddz * ddz > TENDRIL_MAX_REACH * TENDRIL_MAX_REACH) continue
-
-            val segments = buildTendrilFractal(
-                cand.rootX, startY.toDouble(), cand.rootZ, cand.seed, cand.thickness,
-            )
-            for (seg in segments) {
-                paintCapsuleIntoChunk(chunk, chunkX0, chunkZ0, mutable, seg)
+        for (dRgX in -TENDRIL_SCAN_REGIONS..TENDRIL_SCAN_REGIONS) {
+            for (dRgZ in -TENDRIL_SCAN_REGIONS..TENDRIL_SCAN_REGIONS) {
+                val bounds = tendrilBounds(rgX + dRgX, rgZ + dRgZ)
+                if (bounds === NO_TENDRIL) continue
+                if (bounds[1] < chunkX0 || bounds[0] > chunkX0 + 15) continue
+                if (bounds[3] < chunkZ0 || bounds[2] > chunkZ0 + 15) continue
+                val segments = tendrilFractalInRegion(rgX + dRgX, rgZ + dRgZ) ?: continue
+                for (seg in segments) {
+                    paintCapsuleIntoChunk(chunk, chunkX0, chunkZ0, mutable, seg)
+                }
             }
         }
+    }
+
+    /** The segments of the tendril in a region, or null when the region has none. */
+    private fun tendrilFractalInRegion(rgX: Int, rgZ: Int): List<TendrilSegment>? {
+        val cand = tendrilCandidateInRegion(rgX, rgZ) ?: return null
+        val rootBase = coastBaseSurfaceYAt(cand.rootX, cand.rootZ)
+        val noiseAtRoot = sandSurfaceNoise(cand.rootX, cand.rootZ)
+        // Tendrils piercing above sea level get a sand mound piled around
+        // them and start on top of that mound. Underwater tendrils rise
+        // straight from the ocean floor — no visible mound.
+        val moundPeak = if (rootBase >= SEA_LEVEL_Y - 1)
+            tendrilMoundPeak(cand.thickness) else 0
+        val startY = rootBase + noiseAtRoot + moundPeak + 1
+        if (startY >= TRUNK_Y_CAP - 4) return null
+        return buildTendrilFractal(cand.rootX, startY.toDouble(), cand.rootZ, cand.seed, cand.thickness)
+    }
+
+    // A strand can go 300 blocks from its root, but most go much less. The exact bounds let a chunk
+    // reject almost all of the scan window without a rebuild of each fractal. The value is a pure
+    // function of the region, so the chunk workers can share it.
+    private val tendrilBoundsCache = java.util.concurrent.ConcurrentHashMap<Long, IntArray>()
+
+    /** `[minX, maxX, minZ, maxZ]` of the tendril in a region, or [NO_TENDRIL]. */
+    private fun tendrilBounds(rgX: Int, rgZ: Int): IntArray {
+        val key = (rgX.toLong() shl 32) or (rgZ.toLong() and 0xFFFFFFFFL)
+        tendrilBoundsCache[key]?.let { return it }
+        val bounds = computeTendrilBounds(rgX, rgZ)
+        if (tendrilBoundsCache.size >= TENDRIL_BOUNDS_CACHE_CAP) tendrilBoundsCache.clear()
+        tendrilBoundsCache[key] = bounds
+        return bounds
+    }
+
+    private fun computeTendrilBounds(rgX: Int, rgZ: Int): IntArray {
+        val segments = tendrilFractalInRegion(rgX, rgZ) ?: return NO_TENDRIL
+        var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
+        var minZ = Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
+        for (seg in segments) {
+            // Same pad as paintCapsuleIntoChunk.
+            val pad = Math.max(seg.r0, seg.r1) + 1.0
+            minX = Math.min(minX, Math.min(seg.x0, seg.x1) - pad)
+            maxX = Math.max(maxX, Math.max(seg.x0, seg.x1) + pad)
+            minZ = Math.min(minZ, Math.min(seg.z0, seg.z1) - pad)
+            maxZ = Math.max(maxZ, Math.max(seg.z0, seg.z1) + pad)
+        }
+        if (segments.isEmpty()) return NO_TENDRIL
+        return intArrayOf(
+            Math.floor(minX).toInt(), Math.ceil(maxX).toInt(),
+            Math.floor(minZ).toInt(), Math.ceil(maxZ).toInt(),
+        )
     }
 
 
@@ -517,8 +568,9 @@ class SureibjinChunkGenerator(
     private fun rockCandidateInRegion(rgX: Int, rgZ: Int): RockCandidate? {
         val rootSeed = hash32(rgX, rgZ, 0x52_4F_43_4B.toInt())   // 'ROCK'
         if ((rootSeed and 0xF) > 0x8) return null                // ~56 % spawn
-        val withinX = (hash32(rgX, rgZ, 0x55B1) ushr 1) and (ROCK_REGION_SIZE - 1)
-        val withinZ = (hash32(rgX, rgZ, 0x77D1) ushr 1) and (ROCK_REGION_SIZE - 1)
+        // Modulo, not a bit mask: the region size is not a power of two.
+        val withinX = (hash32(rgX, rgZ, 0x55B1) ushr 1) % ROCK_REGION_SIZE
+        val withinZ = (hash32(rgX, rgZ, 0x77D1) ushr 1) % ROCK_REGION_SIZE
         val rootX = rgX * ROCK_REGION_SIZE + withinX
         val rootZ = rgZ * ROCK_REGION_SIZE + withinZ
         val baseSize = ROCK_BASE_RADIUS * (ROCK_THICKNESS_MIN +
@@ -545,8 +597,10 @@ class SureibjinChunkGenerator(
     private fun rockMoundPeak(sizeBase: Double): Int =
         (sizeBase * ROCK_MOUND_HEIGHT_MULT).toInt()
 
+    // [nearbyRockMoundLiftAt] scans 3×3 regions, which covers a root at most one region away.
+    // The cap keeps the downhill side of a boulder mound inside that range.
     private fun rockMoundRadius(sizeBase: Double): Double =
-        sizeBase * ROCK_MOUND_RADIUS_MULT
+        Math.min(sizeBase * ROCK_MOUND_RADIUS_MULT, ROCK_REGION_SIZE / (1.0 + MOUND_DOWNHILL_BIAS))
 
     /** Maximum sand lift contributed by any nearby rock at world `(wx, wz)`.
      *  Smooth-falloff plateau with downhill bias — see
@@ -572,18 +626,19 @@ class SureibjinChunkGenerator(
         return maxLift
     }
 
-    /** Paint every rock whose root sits in the 3×3 region neighbourhood of
-     *  this chunk. Dispatches by shape and burial: the rock sits below the
+    /** Paint every rock whose root is within [ROCK_MAX_REACH] of this chunk. Dispatches by shape and burial: the rock sits below the
      *  local mound surface by [RockCandidate.burialDepth], and a debris
      *  field of single-block chips is scattered around its base. */
     private fun paintRocksInto(
         chunk: ChunkAccess, chunkX0: Int, chunkZ0: Int,
         mutable: BlockPos.MutableBlockPos,
     ) {
-        val rgX = Math.floorDiv(chunkX0, ROCK_REGION_SIZE)
-        val rgZ = Math.floorDiv(chunkZ0, ROCK_REGION_SIZE)
-        for (dRgX in -1..1) for (dRgZ in -1..1) {
-            val cand = rockCandidateInRegion(rgX + dRgX, rgZ + dRgZ) ?: continue
+        val rgXMin = Math.floorDiv(chunkX0 - ROCK_MAX_REACH, ROCK_REGION_SIZE)
+        val rgXMax = Math.floorDiv(chunkX0 + 15 + ROCK_MAX_REACH, ROCK_REGION_SIZE)
+        val rgZMin = Math.floorDiv(chunkZ0 - ROCK_MAX_REACH, ROCK_REGION_SIZE)
+        val rgZMax = Math.floorDiv(chunkZ0 + 15 + ROCK_MAX_REACH, ROCK_REGION_SIZE)
+        for (rgX in rgXMin..rgXMax) for (rgZ in rgZMin..rgZMax) {
+            val cand = rockCandidateInRegion(rgX, rgZ) ?: continue
             val rootBase = coastBaseSurfaceYAt(cand.rootX, cand.rootZ)
             // Sand-area only — skip underwater and the very top of the dune.
             if (rootBase < SEA_LEVEL_Y - 1) continue
@@ -1061,8 +1116,9 @@ class SureibjinChunkGenerator(
     private fun towerCandidateInRegion(rgX: Int, rgZ: Int): TowerCandidate? {
         val seed = hash32(rgX, rgZ, 0x54_57_52_00.toInt())  // 'TWR\0'
         if ((seed and 0xF) > 0x4) return null               // ~30 % spawn
-        val withinX = (hash32(rgX, rgZ, 0x33A2) ushr 1) and (TOWER_REGION_SIZE - 1)
-        val withinZ = (hash32(rgX, rgZ, 0x771C) ushr 1) and (TOWER_REGION_SIZE - 1)
+        // Modulo, not a bit mask: the region size is not a power of two.
+        val withinX = (hash32(rgX, rgZ, 0x33A2) ushr 1) % TOWER_REGION_SIZE
+        val withinZ = (hash32(rgX, rgZ, 0x771C) ushr 1) % TOWER_REGION_SIZE
         val rootX = rgX * TOWER_REGION_SIZE + withinX
         val rootZ = rgZ * TOWER_REGION_SIZE + withinZ
         // 25 % 3×3, 50 % 5×5, 25 % 7×7. Keeps 5×5 the most common while
@@ -1394,8 +1450,7 @@ class SureibjinChunkGenerator(
     }
 
     /** Rasterize a single tendril capsule into the chunk via tapered-cylinder
-     *  SDF. Only voxels currently water (or air, near the tip) get overwritten
-     *  to obsidian — sand and barrier are sacred. */
+     *  SDF. It replaces all blocks but bedrock, below the top barrier layer. */
     private fun paintCapsuleIntoChunk(
         chunk: ChunkAccess, chunkX0: Int, chunkZ0: Int,
         mutable: BlockPos.MutableBlockPos, seg: TendrilSegment,
@@ -1478,7 +1533,7 @@ class SureibjinChunkGenerator(
     private fun hash32(a: Int, b: Int, c: Int): Int {
         var h = a * 0x9E3779B1.toInt()
         h = h xor (b + 0x85EBCA77.toInt() + (h shl 6) + (h shr 2))
-        h = h xor (c + 0xC2B2AE3D.toInt() + (h shl 6) + (h shr 2))
+        h = h xor ((c xor worldSalt) + 0xC2B2AE3D.toInt() + (h shl 6) + (h shr 2))
         h = (h xor (h ushr 16)) * 0x7FEB352D.toInt()
         h = (h xor (h ushr 15)) * 0x846CA68B.toInt()
         return h xor (h ushr 16)
@@ -1585,6 +1640,8 @@ class SureibjinChunkGenerator(
         const val ROCK_DEBRIS_COUNT_RAND = 8                  // 4..11 pieces
         const val ROCK_DEBRIS_DIST_MIN = 1.6
         const val ROCK_DEBRIS_DIST_RAND = 1.6                 // 1.6..3.2 × sizeBase
+        // The farthest debris chip of the largest boulder: sizeBase 8.4 × 3.2 = 26.9.
+        const val ROCK_MAX_REACH = 28
 
         // Sparse — landmarks, not dressing. 3×3 or 5×5 footprint, body
         // built from the layered patterns in FOOTPRINT_*_BODY/TOP/CROWN.
@@ -1640,10 +1697,12 @@ class SureibjinChunkGenerator(
         const val TRUNK_DY_MIN = 0.20
         const val BRANCH_LATERAL_WOBBLE = 0.18
         const val BRANCH_DY_MIN = -0.45
-        // Worst-case XZ reach from root: trunk's accumulated lateral drift +
-        // one branch's full lateral run. With wobble accumulating roughly
-        // linearly in the worst case, trunk drift ≤ steps × stepLen × wobble.
-        const val TENDRIL_MAX_REACH = 128
+        // Worst-case XZ reach from root: a trunk that goes almost flat (60 steps × 5 = 300), one
+        // branch from its tip (28 steps × 4 = 112), and the largest radius (6.4).
+        const val TENDRIL_MAX_REACH = 420
+        const val TENDRIL_SCAN_REGIONS = (TENDRIL_MAX_REACH + TENDRIL_REGION_SIZE - 1) / TENDRIL_REGION_SIZE
+        const val TENDRIL_BOUNDS_CACHE_CAP = 8192
+        private val NO_TENDRIL = IntArray(0)
 
         private val BEDROCK: BlockState = Blocks.BEDROCK.defaultBlockState()
         // Sureibjin uses its own re-skinned obsidian / crying-obsidian /

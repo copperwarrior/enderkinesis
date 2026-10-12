@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.block
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceLocation
@@ -36,7 +35,6 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
  */
 object WohlonnogondoniaPortalRitual {
 
-    private val LOG = LogUtils.getLogger()
 
     /** A single slot in the ritual pattern: position offset from
      *  the heart candle (X east, Z south) and the exact candle
@@ -236,12 +234,10 @@ object WohlonnogondoniaPortalRitual {
         // a half-torn-down level. Lifted automatically once the
         // wipe completes.
         if (WohlonnogondoniaCatastrophe.isWipeInProgress()) {
-            LOG.warn("WohlonPortal: aborting teleport — Wohlonnogondonia is being wiped.")
             return
         }
         val server = currentLevel.server
         val wohlonLevel = server.getLevel(Wohlonnogondonia.LEVEL_KEY) ?: run {
-            LOG.warn("WohlonPortal: aborting teleport — wohlon dimension level not loaded")
             return
         }
         // Prefer the pre-computed landing the async search found at
@@ -249,20 +245,20 @@ object WohlonnogondoniaPortalRitual {
         // if the search hasn't finished yet OR if the portal predates
         // the landing-storage feature.
         val stored = sourcePortalPos?.let {
-            WohlonnogondoniaPortalManager.getStoredLanding(currentLevel, it)
+            WohlonnogondoniaPortalManager.validatedLanding(currentLevel, it, wohlonLevel)
         }
         val target: Vec3 = if (stored != null) {
             Vec3(stored.x + 0.5, (stored.y + 1).toDouble(), stored.z + 0.5)
         } else {
+            // The live pick generates 49 chunks on the server thread. While the search can
+            // still give a landing, the entity waits in the portal for the next scan.
+            if (sourcePortalPos != null &&
+                WohlonnogondoniaPortalManager.isSearchPending(currentLevel.dimension(), sourcePortalPos)
+            ) return
             pickLandingSpot(wohlonLevel) ?: run {
-                LOG.warn("WohlonPortal: aborting teleport — no stored landing and live pickLandingSpot returned null")
                 return
             }
         }
-        LOG.info(
-            "WohlonPortal: teleporting {} ({}) to {} (stored landing? {})",
-            entity.type.toShortString(), entity.uuid, target, stored != null,
-        )
 
         // Players record their outbound portal so the heart return knows
         // where to send them back. Non-players have no return.
@@ -318,11 +314,8 @@ object WohlonnogondoniaPortalRitual {
                     // Stamp the cooldown BEFORE teleport so the
                     // source-dim scan that fires next tick sees it.
                     WohlonnogondoniaPortalManager.noteReturnedEntity(entity.uuid, now)
-                    entity.teleportTo(
-                        targetLevel,
-                        record.pos.x + 0.5, record.pos.y.toDouble(), record.pos.z + 0.5,
-                        entity.yRot, entity.xRot,
-                    )
+                    val spot = WohlonnogondoniaPortalManager.findReturnSpot(targetLevel, record.pos)
+                    entity.teleportTo(targetLevel, spot.x, spot.y, spot.z, entity.yRot, entity.xRot)
                     return
                 }
             }
@@ -334,9 +327,10 @@ object WohlonnogondoniaPortalRitual {
             ?: return
         val targetLevel = candidate.first
         val targetPos = candidate.second
-        val tx = targetPos.x + 0.5
-        val ty = targetPos.y.toDouble()
-        val tz = targetPos.z + 0.5
+        val spot = WohlonnogondoniaPortalManager.findReturnSpot(targetLevel, targetPos)
+        val tx = spot.x
+        val ty = spot.y
+        val tz = spot.z
 
         WohlonnogondoniaPortalManager.noteReturnedEntity(entity.uuid, now)
         // Unified teleport — see comment in `teleportToMotherTree`.

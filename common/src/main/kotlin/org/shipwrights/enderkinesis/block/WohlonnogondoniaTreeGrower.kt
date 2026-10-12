@@ -1,12 +1,14 @@
 package org.shipwrights.enderkinesis.block
 
 import com.mojang.logging.LogUtils
+import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
+import net.minecraft.nbt.NbtUtils
 import net.minecraft.nbt.Tag
 import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
@@ -226,8 +228,16 @@ object WohlonnogondoniaTreeGrower {
 
     private val SIX_DIRECTIONS: Array<Direction> = Direction.values()
 
+    /** A job with a voxel that can never be placed must end: 5 minutes with no placement. */
+    private const val JOB_IDLE_LIMIT_TICKS = 6000
+
+    /** Builds that run now. A pending record with no entry here is from before a restart. */
+    private val buildsInFlight: MutableSet<TreeBuildParams> =
+        java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
+        LifecycleEvent.SERVER_STOPPED.register { _ -> buildsInFlight.clear() }
     }
 
     @JvmStatic
@@ -261,13 +271,6 @@ object WohlonnogondoniaTreeGrower {
         val tunnelYaw = random.nextDouble() * (2.0 * Math.PI)
         val seed = random.nextInt()
 
-        // Heightmap cache for the root painter — pre-cached on
-        // main thread so the off-thread paint doesn't need to
-        // touch the level. `paintChildTreeRoots` queries surface
-        // height at each step along each arc arm, well inside
-        // the [HEIGHTMAP_PRECACHE_RADIUS] disc.
-        val heightCache = preCacheSurfaceY(level, candlePos, HEIGHTMAP_PRECACHE_RADIUS)
-
         val params = TreeBuildParams(
             candlePos = candlePos,
             portalPos = portalPos,
@@ -279,6 +282,21 @@ object WohlonnogondoniaTreeGrower {
             tunnelYaw = tunnelYaw,
             seed = seed,
         )
+        // Saved until the job installs, or a server stop during the build loses the tree.
+        val data = getData(level)
+        data.pending.add(params)
+        data.setDirty()
+        launchBuild(level, params)
+    }
+
+    private fun launchBuild(level: ServerLevel, params: TreeBuildParams) {
+        buildsInFlight.add(params)
+        // Heightmap cache for the root painter — pre-cached on
+        // main thread so the off-thread paint doesn't need to
+        // touch the level. `paintChildTreeRoots` queries surface
+        // height at each step along each arc arm, well inside
+        // the [HEIGHTMAP_PRECACHE_RADIUS] disc.
+        val heightCache = preCacheSurfaceY(level, params.candlePos, HEIGHTMAP_PRECACHE_RADIUS)
 
         // ============================================================
         //   Off-thread phase — skeleton + SDF paint + sort + job
@@ -291,16 +309,46 @@ object WohlonnogondoniaTreeGrower {
             } catch (t: Throwable) {
                 LOG.error("WohlonTree: off-thread build failed at {}", params.candlePos, t)
                 null
-            } ?: return@execute
+            }
 
             // ============================================================
             //   Back on the main thread — register the finished job
             //   so the tick loop starts placing voxels next tick.
             // ============================================================
             server.execute {
-                installTreeJob(level, params, job)
+                buildsInFlight.remove(params)
+                val data = getData(level)
+                data.pending.remove(params)
+                data.setDirty()
+                if (job != null) installTreeJob(level, params, job)
             }
         }
+    }
+
+    /** Start again each build that a server stop cut off. Waits for the chunks of the height cache. */
+    private fun resumePendingBuilds(level: ServerLevel, data: TreeJobsData) {
+        for (params in data.pending.toList()) {
+            if (params in buildsInFlight) continue
+            val c = params.candlePos
+            if (!isAreaLoaded(
+                    level,
+                    c.x - HEIGHTMAP_PRECACHE_RADIUS, c.z - HEIGHTMAP_PRECACHE_RADIUS,
+                    c.x + HEIGHTMAP_PRECACHE_RADIUS, c.z + HEIGHTMAP_PRECACHE_RADIUS,
+                )
+            ) continue
+            launchBuild(level, params)
+        }
+    }
+
+    /** `getChunkNow`, not `hasChunk`: `hasChunk` is true for a chunk that still generates. */
+    private fun isAreaLoaded(level: ServerLevel, minX: Int, minZ: Int, maxX: Int, maxZ: Int): Boolean {
+        val chunks = level.chunkSource
+        for (cx in (minX shr 4)..(maxX shr 4)) {
+            for (cz in (minZ shr 4)..(maxZ shr 4)) {
+                if (chunks.getChunkNow(cx, cz) == null) return false
+            }
+        }
+        return true
     }
 
     private data class TreeBuildParams(
@@ -318,7 +366,46 @@ object WohlonnogondoniaTreeGrower {
          *  carved from the candle bubble out through the tree. */
         val tunnelYaw: Double,
         val seed: Int,
-    )
+    ) {
+        fun save(): CompoundTag {
+            val t = CompoundTag()
+            t.put("candle", NbtUtils.writeBlockPos(candlePos))
+            t.put("portal", NbtUtils.writeBlockPos(portalPos))
+            t.putInt("baseY", baseY)
+            t.putLongArray("normal", LongArray(terrainNormal.size) { terrainNormal[it].toRawBits() })
+            t.putLongArray(
+                "hashes",
+                longArrayOf(
+                    sizeHash.toRawBits(), aspectHash.toRawBits(), leanHash.toRawBits(),
+                    gravityHash.toRawBits(), biasHash.toRawBits(), flareHash.toRawBits(),
+                    tunnelYaw.toRawBits(),
+                ),
+            )
+            t.putInt("seed", seed)
+            return t
+        }
+
+        companion object {
+            private const val HASH_COUNT = 7
+
+            fun load(t: CompoundTag): TreeBuildParams? {
+                val normal = t.getLongArray("normal")
+                val hashes = t.getLongArray("hashes")
+                if (normal.isEmpty() || hashes.size != HASH_COUNT) return null
+                return TreeBuildParams(
+                    candlePos = NbtUtils.readBlockPos(t.getCompound("candle")),
+                    portalPos = NbtUtils.readBlockPos(t.getCompound("portal")),
+                    baseY = t.getInt("baseY"),
+                    terrainNormal = DoubleArray(normal.size) { Double.fromBits(normal[it]) },
+                    sizeHash = Double.fromBits(hashes[0]), aspectHash = Double.fromBits(hashes[1]),
+                    leanHash = Double.fromBits(hashes[2]), gravityHash = Double.fromBits(hashes[3]),
+                    biasHash = Double.fromBits(hashes[4]), flareHash = Double.fromBits(hashes[5]),
+                    tunnelYaw = Double.fromBits(hashes[6]),
+                    seed = t.getInt("seed"),
+                )
+            }
+        }
+    }
 
     /** Pre-cache the surface block Y for every column in a disc
      *  of [radius] around [center]. Stored as packed `(x,z) →
@@ -472,14 +559,9 @@ object WohlonnogondoniaTreeGrower {
 
         val totalVoxels = woodVoxels.size + leafVoxels.size
         if (totalVoxels == 0) {
-            LOG.info("WohlonTree: empty paint result at {}", candlePos)
             return null
         }
         if (totalVoxels > MAX_VOXELS_PER_TREE) {
-            LOG.warn(
-                "WohlonTree: {} voxels exceeds cap {} at {}, aborting",
-                totalVoxels, MAX_VOXELS_PER_TREE, candlePos,
-            )
             return null
         }
 
@@ -710,12 +792,6 @@ object WohlonnogondoniaTreeGrower {
         // level access — safe off-thread.
         job.rebuildRuntimeState()
 
-        LOG.info(
-            "WohlonTree: Child Tree painted at {} (scale={} maxThk={}) → roots={} trunk+branches={} leaves={} carved={} (seg={}, tip={})",
-            candlePos, "%.2f".format(scaleFactor), maxThickness,
-            rootCount, nonRootWoodCount, leafCount, carved,
-            canopy.segments.size, canopy.tips.size,
-        )
         return job
     }
 
@@ -737,8 +813,13 @@ object WohlonnogondoniaTreeGrower {
         if (job.tunnelCarvePositions.isNotEmpty()) {
             val air = Blocks.AIR.defaultBlockState()
             val mutPos = BlockPos.MutableBlockPos()
+            val candle = params.candlePos.asLong()
             for (packed in job.tunnelCarvePositions) {
+                // The tunnel starts in the candle cell; the lit candle must stay.
+                if (packed == candle) continue
                 mutPos.set(BlockPos.getX(packed), BlockPos.getY(packed), BlockPos.getZ(packed))
+                // Same rule as a root: natural terrain only, never bedrock or a player block.
+                if (!isRootReplaceable(level.getBlockState(mutPos))) continue
                 level.setBlock(mutPos, air, 2)
             }
         }
@@ -763,11 +844,6 @@ object WohlonnogondoniaTreeGrower {
         // `(0, HEART_Y, 0)`); putting it here would arm the
         // dim-wipe catastrophe trigger on every ritual portal.
         level.setBlock(params.portalPos, EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState(), 3)
-        LOG.info(
-            "WohlonTree: installed job at {} — growth begins next tick " +
-                "(tunnel cells={}, heart={})",
-            params.candlePos, job.tunnelCarvePositions.size, params.portalPos,
-        )
     }
 
     /** Remove every voxel whose centre lies inside the oblate
@@ -859,16 +935,26 @@ object WohlonnogondoniaTreeGrower {
     // ===================================================
 
     private fun tickLevel(level: ServerLevel) {
+        if (WohlonnogondoniaCatastrophe.isDraining(level)) return
         val data = level.dataStorage.get(
             { tag -> TreeJobsData.load(tag) }, DATA_NAME,
         ) ?: return
+        if (data.pending.isNotEmpty()) resumePendingBuilds(level, data)
         if (data.jobs.isEmpty()) return
         val iter = data.jobs.iterator()
         var changed = false
         while (iter.hasNext()) {
             val job = iter.next()
+            // The scan reads each frontier voxel and its neighbours; a read loads its chunk.
+            if (!isAreaLoaded(level, job.minX - 1, job.minZ - 1, job.maxX + 1, job.maxZ + 1)) continue
+            val placedBefore = job.placed.cardinality()
             if (tickJob(level, job)) changed = true
-            if (job.placed.cardinality() == job.voxels.size) {
+            val placedNow = job.placed.cardinality()
+            job.idleTicks = if (placedNow > placedBefore) 0 else job.idleTicks + 1
+            if (placedNow == job.voxels.size) {
+                iter.remove()
+                changed = true
+            } else if (job.idleTicks >= JOB_IDLE_LIMIT_TICKS) {
                 iter.remove()
                 changed = true
             }
@@ -907,10 +993,13 @@ object WohlonnogondoniaTreeGrower {
         var scanBudget = MAX_SCAN_PER_TICK
         var placeBudget = MAX_PLACES_PER_TICK
         val newlyPlaced = ArrayList<Int>(64)
+        // Scratch: the scan runs up to [MAX_SCAN_PER_TICK] times each tick.
+        val pos = BlockPos.MutableBlockPos()
+        val nPos = BlockPos.MutableBlockPos()
         var i = job.frontier.nextSetBit(0)
         while (i >= 0 && scanBudget > 0 && placeBudget > 0) {
             scanBudget--
-            val pos = BlockPos.of(job.voxels[i])
+            pos.set(job.voxels[i])
             val isLeaf = job.isLeaf.get(i)
 
             var didPlace = false
@@ -924,7 +1013,7 @@ object WohlonnogondoniaTreeGrower {
                 // blob one voxel per tick.
                 var hasNeighbour = false
                 for (dir in SIX_DIRECTIONS) {
-                    val nState = level.getBlockState(pos.relative(dir))
+                    val nState = level.getBlockState(nPos.setWithOffset(pos, dir))
                     if (
                         nState.`is`(EKBlocks.WOGOR_WOOD.get()) ||
                         nState.`is`(EKBlocks.WOGOR_LEAVES.get())
@@ -944,7 +1033,7 @@ object WohlonnogondoniaTreeGrower {
                         // their placement triggering neighbour
                         // updateShape that could drop adjacent
                         // buds.
-                        level.setBlock(pos, state, 2)
+                        level.setBlock(pos.immutable(), state, 2)
                     }
                     didPlace = true
                 }
@@ -1008,7 +1097,7 @@ object WohlonnogondoniaTreeGrower {
                 // whatever happens to be sturdy at placement time.
                 var supportDir: Direction? = null
                 for (dir in SIX_DIRECTIONS) {
-                    val nPos = pos.relative(dir)
+                    nPos.setWithOffset(pos, dir)
                     val nState = level.getBlockState(nPos)
                     if (nState.`is`(EKBlocks.WOGOR_WOOD.get())) {
                         supportDir = dir
@@ -1017,7 +1106,7 @@ object WohlonnogondoniaTreeGrower {
                 }
                 if (supportDir == null) {
                     for (dir in SIX_DIRECTIONS) {
-                        val nPos = pos.relative(dir)
+                        nPos.setWithOffset(pos, dir)
                         val nState = level.getBlockState(nPos)
                         if (nState.isFaceSturdy(level, nPos, dir.opposite)) {
                             supportDir = dir
@@ -1096,7 +1185,7 @@ object WohlonnogondoniaTreeGrower {
                             // block isn't tagged, skip placement; the wave
                             // will retry once a tagged block (matured wood)
                             // shows up as a neighbour.
-                            val supportState = level.getBlockState(pos.relative(supportDir))
+                            val supportState = level.getBlockState(nPos.setWithOffset(pos, supportDir))
                             if (!supportState.`is`(WogorBudBlock.WOGOR_BUD_GROWABLE)) {
                                 // Skip this voxel this tick; leave frontier bit
                                 // set so the next tick re-tries (don't mark
@@ -1117,7 +1206,8 @@ object WohlonnogondoniaTreeGrower {
                         // setBlock: avoid the neighbour-update
                         // cascade that could fire updateShape
                         // on nearby buds.
-                        level.setBlock(pos, state, 2)
+                        // Immutable: the bud's `onPlace` schedules a tick that keeps the position.
+                        level.setBlock(pos.immutable(), state, 2)
                         if (plantingBud) job.hasSeed = true
                     }
                     didPlace = true
@@ -1672,6 +1762,8 @@ object WohlonnogondoniaTreeGrower {
         // Runtime-only — rebuilt on construction / save load.
         val voxelIdx: HashMap<Long, Int> = HashMap(voxels.size + voxels.size / 2)
         val frontier: BitSet = BitSet(voxels.size)
+        var minX = 0; var maxX = 0; var minZ = 0; var maxZ = 0
+        var idleTicks = 0
 
         /** Build the position→index lookup and seed the
          *  frontier with every unplaced voxel that **could**
@@ -1683,7 +1775,16 @@ object WohlonnogondoniaTreeGrower {
          *  maturing while the world was loaded). */
         fun rebuildRuntimeState() {
             voxelIdx.clear()
-            for (i in voxels.indices) voxelIdx[voxels[i]] = i
+            minX = Int.MAX_VALUE; maxX = Int.MIN_VALUE; minZ = Int.MAX_VALUE; maxZ = Int.MIN_VALUE
+            for (i in voxels.indices) {
+                voxelIdx[voxels[i]] = i
+                val x = BlockPos.getX(voxels[i])
+                val z = BlockPos.getZ(voxels[i])
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (z < minZ) minZ = z
+                if (z > maxZ) maxZ = z
+            }
 
             frontier.clear()
             // Layer-gated initial frontier: only voxels in the current
@@ -1713,8 +1814,12 @@ object WohlonnogondoniaTreeGrower {
 
     private class TreeJobsData : SavedData() {
         @JvmField val jobs: MutableList<TreeJob> = mutableListOf()
+        @JvmField val pending: MutableList<TreeBuildParams> = mutableListOf()
 
         override fun save(tag: CompoundTag): CompoundTag {
+            val pendingList = ListTag()
+            for (params in pending) pendingList.add(params.save())
+            tag.put("pending", pendingList)
             val jobsList = ListTag()
             for (job in jobs) {
                 val t = CompoundTag()
@@ -1735,6 +1840,10 @@ object WohlonnogondoniaTreeGrower {
         companion object {
             fun load(tag: CompoundTag): TreeJobsData {
                 val data = TreeJobsData()
+                val pendingList = tag.getList("pending", Tag.TAG_COMPOUND.toInt())
+                for (i in 0 until pendingList.size) {
+                    TreeBuildParams.load(pendingList.getCompound(i))?.let(data.pending::add)
+                }
                 if (!tag.contains("jobs", Tag.TAG_LIST.toInt())) return data
                 val jobsList = tag.getList("jobs", Tag.TAG_COMPOUND.toInt())
                 for (i in 0 until jobsList.size) {

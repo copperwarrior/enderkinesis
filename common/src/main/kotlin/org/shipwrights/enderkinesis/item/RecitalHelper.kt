@@ -32,7 +32,7 @@ object RecitalHelper {
     /** Tag covering every tome that may be loaded into a Staff of Recital. */
     val TOMES_TAG: TagKey<Item> = TagKey.create(Registries.ITEM, EnderkinesisMod.id("staff_of_recital_tomes"))
 
-    private const val TOMES_KEY = "RecitalTomes"
+    @PublishedApi internal const val TOMES_KEY = "RecitalTomes"
     private const val ACTIVE_KEY = "RecitalActive"
 
     /** True if `tome` is eligible to be loaded into a recital staff. */
@@ -101,21 +101,36 @@ object RecitalHelper {
         writeTomes(staff, tomes)
     }
 
-    /** Add a tome to the staff. Refuses to add a duplicate kind (replaces the
-     *  existing entry with the new stack instead, preserving the new one's
-     *  NBT — useful when the player puts in a freshly-imbued tome). Returns
-     *  true on accept. */
-    fun addTome(staff: ItemStack, tome: ItemStack): Boolean {
-        if (!isEligibleTome(tome)) return false
+    /** Add a tome to the staff. A tome of the same kind is replaced (useful for a
+     *  freshly-imbued tome) and returned, so the caller can give it back. Returns
+     *  [ItemStack.EMPTY] when nothing was replaced, and null on a refusal. */
+    fun addTome(staff: ItemStack, tome: ItemStack): ItemStack? {
+        if (!isEligibleTome(tome)) return null
         val tomes = readTomes(staff)
         val existing = tomes.indexOfFirst { it.item == tome.item }
-        if (existing >= 0) {
-            tomes[existing] = tome.copy()
+        val replaced = if (existing >= 0) {
+            tomes.set(existing, tome.copy())
         } else {
             tomes.add(tome.copy())
+            ItemStack.EMPTY
         }
         writeTomes(staff, tomes)
-        return true
+        return replaced
+    }
+
+    /** Runs [action] on the active tome only, and writes it back only if it changed. The
+     *  staff ticks in each inventory slot on the two sides; a full read and write of all
+     *  tomes each tick also makes the stack sync each tick. */
+    inline fun tickActiveTome(staff: ItemStack, action: (ItemStack) -> Unit) {
+        val list = staff.tag?.getList(TOMES_KEY, Tag.TAG_COMPOUND.toInt()) ?: return
+        if (list.isEmpty()) return
+        val idx = getActiveIndex(staff).coerceIn(0, list.size - 1)
+        val before = list.getCompound(idx)
+        val tome = ItemStack.of(before)
+        if (tome.isEmpty) return
+        action(tome)
+        val after = tome.save(CompoundTag())
+        if (after != before) list[idx] = after
     }
 
     /** Remove the active tome and return it for the caller to give to the

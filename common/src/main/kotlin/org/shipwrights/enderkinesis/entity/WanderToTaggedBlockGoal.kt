@@ -72,6 +72,7 @@ class WanderToTaggedBlockGoal(
      *  so we don't burn the whole movement budget on a target the
      *  pathfinder genuinely can't reach. */
     private var recomputeAttempts = 0
+    private var lastRecomputeDistSq = Double.MAX_VALUE
     /** Guards the one-shot lectern translation so it fires a single time
      *  per stare, on the tick the stare completes. Reset when a new
      *  stare begins. */
@@ -105,6 +106,7 @@ class WanderToTaggedBlockGoal(
         ticksInPhase = 0
         ticksUntilRecompute = 0
         recomputeAttempts = 0
+        lastRecomputeDistSq = Double.MAX_VALUE
     }
 
     override fun canContinueToUse(): Boolean {
@@ -142,8 +144,13 @@ class WanderToTaggedBlockGoal(
                         return
                     }
                     val path = mob.navigation.createPath(t, NAVIGATION_REGION_OFFSET)
-                    if (path != null) {
-                        mob.navigation.moveTo(path, MOVE_SPEED)
+                    if (path != null) mob.navigation.moveTo(path, MOVE_SPEED)
+                    // A partial path that brought the mob no nearer is a failure too. If not,
+                    // a target that cannot be reached gives a long search each interval.
+                    val distSq = mob.distanceToSqr(t.x + 0.5, t.y.toDouble(), t.z + 0.5)
+                    val progressed = distSq < lastRecomputeDistSq - RECOMPUTE_PROGRESS_SQ
+                    lastRecomputeDistSq = distSq
+                    if (path != null && (path.canReach() || progressed)) {
                         recomputeAttempts = 0
                     } else if (++recomputeAttempts >= MAX_RECOMPUTE_ATTEMPTS) {
                         // Unreachable; drop the target and let canContinueToUse
@@ -285,7 +292,7 @@ class WanderToTaggedBlockGoal(
                 // try to walk to the tile in *front* of that face so we read it
                 // head-on; keep the original adjacent approach if the front is
                 // blocked or unreachable.
-                pendingPath = frontApproachPath(pathTarget) ?: path
+                pendingPath = frontApproachPath(pathTarget, path) ?: path
                 return pathTarget
             }
         }
@@ -301,9 +308,14 @@ class WanderToTaggedBlockGoal(
     }
 
     /** Path that stands on the tile in front of [poi]'s facing (region offset 0),
-     *  or null if [poi] has no facing or its front is unreachable. */
-    private fun frontApproachPath(poi: BlockPos): Path? {
+     *  or null if [poi] has no facing or its front is unreachable. Reuses [batchPath]
+     *  when it already ends on that tile, saving a second long-range pathfind. */
+    private fun frontApproachPath(poi: BlockPos, batchPath: Path): Path? {
         val front = frontTileOf(mob.level().getBlockState(poi), poi) ?: return null
+        val end = batchPath.endNode
+        if (end != null && end.x == front.x && end.z == front.z && Math.abs(end.y - front.y) <= 1) {
+            return batchPath
+        }
         val p = mob.navigation.createPath(front, 0)
         return if (p != null && p.canReach()) p else null
     }
@@ -337,11 +349,12 @@ class WanderToTaggedBlockGoal(
          *  for the diagonal between a non-walkable target block and the
          *  walkable cell next to it. */
         private const val ARRIVE_DIST_SQ = 2.25
-        /** Hard cap on time spent pathing toward a target before giving up. */
-        private const val MAX_MOVE_TICKS = 20 * 45   // 45s
+        /** Hard cap on time spent pathing toward a target before giving up. A goal
+         *  ticks on alternate game ticks, so this count is 90 s. */
+        private const val MAX_MOVE_TICKS = 20 * 45
         /** How long the cataloger stares at a reached target before picking
-         *  a new one. */
-        private const val STARE_DURATION_TICKS = 20 * 12  // 12s
+         *  a new one. In goal ticks: 24 s. */
+        private const val STARE_DURATION_TICKS = 20 * 12
         /** Cooldown between failed POI scans. */
         private const val SCAN_COOLDOWN_TICKS = 20 * 2
         /** Upper bound on POI candidates collected per scan, mostly to cap
@@ -378,15 +391,15 @@ class WanderToTaggedBlockGoal(
          *  can stand adjacent. 1 puts it on an immediately-adjacent
          *  cell; the [ARRIVE_DIST_SQ] fudge handles diagonals. */
         private const val NAVIGATION_REGION_OFFSET = 1
-        /** Ticks to wait between recompute attempts when the navigation
-         *  reports done but we're not within reach. 10 ≈ 0.5 s — long
-         *  enough not to thrash the pathfinder, short enough that a
-         *  partial-path stop reads as a tiny hesitation rather than a
-         *  visible pause. */
-        private const val RECOMPUTE_INTERVAL = 10
+        /** Goal ticks to wait between recompute attempts when the navigation
+         *  reports done but we're not within reach. 20 ≈ 2 s — each
+         *  recompute is a full long-range pathfind, so this bounds that
+         *  cost while a partial-path stop still reads as a short pause. */
+        private const val RECOMPUTE_INTERVAL = 20
         /** After this many consecutive failed recomputes, abandon the
          *  current target. The goal will pick a new POI on the next
          *  scan. */
         private const val MAX_RECOMPUTE_ATTEMPTS = 4
+        private const val RECOMPUTE_PROGRESS_SQ = 1.0
     }
 }

@@ -24,7 +24,7 @@ import java.util.Set;
  * Targets the canonical {@code assembleToShipFull} — every other public
  * {@code assembleToShip} overload funnels through it, so one hook covers them all.
  */
-@Mixin(ShipAssembler.class)
+@Mixin(value = ShipAssembler.class, remap = false)
 public abstract class ShipAssemblerEnderLinkageDisintegrateMixin {
 
     @Inject(method = "assembleToShipFull", at = @At("HEAD"))
