@@ -21,7 +21,9 @@ import org.shipwrights.enderkinesis.sselith.BookshelfPage
 
 /**
  * Per-player "parallel" of Sselith's Repertory: which floor of the endless library the player reads from.
- * It goes up by one on each [SselithVoidWrap] fall and resets to zero when the player enters or leaves Sselith.
+ * It starts at a random multiple of [ENTRY_PARALLEL_STEP] when the player enters Sselith, goes up by one on
+ * each [SselithVoidWrap] fall, and resets to zero when the player leaves. Players who enter less than
+ * [ENTRY_GROUP_TICKS] after the previous entry get the same start.
  * A [Sureibjin] dream from a Sselith bed keeps it.
  */
 object SselithParallel {
@@ -36,8 +38,15 @@ object SselithParallel {
     private const val MAX_ENTRIES = 10_000
     private const val MAX_PARALLEL_BYTES = 1_024
 
+    private const val ENTRY_PARALLEL_STEP = 345L
+    /** Entry picks one of this many multiples, zero included. */
+    private const val ENTRY_PARALLEL_CHOICES = 345
+    private const val ENTRY_GROUP_TICKS = 1_200
+
     // Server thread only.
     private val lastWrapTick = HashMap<UUID, Long>()
+    private var lastEntryTick = 0
+    private var lastEntryParallel: BigInteger? = null
 
     fun init() {
         LifecycleEvent.SERVER_LEVEL_LOAD.register { if (it.dimension() == SselithRepertory.LEVEL_KEY) BookshelfPage.acquire() }
@@ -51,7 +60,9 @@ object SselithParallel {
                 (from == Sureibjin.LEVEL_KEY && to == SselithRepertory.LEVEL_KEY)
             val crossesSselith = from == SselithRepertory.LEVEL_KEY || to == SselithRepertory.LEVEL_KEY ||
                 from == Sureibjin.LEVEL_KEY
-            if (crossesSselith && !dream) set(player, BigInteger.ZERO)
+            if (crossesSselith && !dream) {
+                set(player, if (to == SselithRepertory.LEVEL_KEY) entryParallel(player) else BigInteger.ZERO)
+            }
             if (to == SselithRepertory.LEVEL_KEY) sendTable(player)
         }
         // A respawn always moves the player out of the level they died in, so it counts as a leave or an enter.
@@ -65,6 +76,17 @@ object SselithParallel {
                 EventResult.pass()
             }
         }
+    }
+
+    private fun entryParallel(player: ServerPlayer): BigInteger {
+        val tick = player.server.tickCount
+        // The lower bound rejects a value left by a previous integrated server, whose tick count was higher.
+        val shared = lastEntryParallel?.takeIf { tick - lastEntryTick in 0 until ENTRY_GROUP_TICKS }
+        val parallel = shared
+            ?: BigInteger.valueOf(ENTRY_PARALLEL_STEP * player.random.nextInt(ENTRY_PARALLEL_CHOICES))
+        lastEntryTick = tick
+        lastEntryParallel = parallel
+        return parallel
     }
 
     fun get(player: ServerPlayer): BigInteger = data(player.server).byPlayer[player.uuid] ?: BigInteger.ZERO

@@ -108,7 +108,7 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
         player.teleportTo(level, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5, player.yRot, player.xRot)
         SselithDustBurst.at(level, player)
         player.fallDistance = 0f
-        // Set after the teleport: entering Sselith resets the parallel to 0.
+        // Set after the teleport: entering Sselith picks a new parallel.
         SselithParallel.set(player, location.parallel)
         return true
     }

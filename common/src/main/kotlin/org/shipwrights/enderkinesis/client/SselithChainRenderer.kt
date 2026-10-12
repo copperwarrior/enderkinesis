@@ -20,6 +20,7 @@ import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.util.Mth
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
@@ -40,8 +41,9 @@ import org.shipwrights.enderkinesis.dimension.SselithRepertory
  * to draw calls of pre-uploaded GPU buffers, killing the per-frame CPU cost.
  *
  * The shared bake holds only the links out of the build height. Each column
- * has its own VBO for the links in the build height, lit from the level. One
- * column samples its light again each frame.
+ * has its own VBO for the links in the build height, lit from the level, and
+ * one for the fade to full-bright at the two ends. One column samples its
+ * light again each frame.
  */
 object SselithChainRenderer {
 
@@ -49,10 +51,8 @@ object SselithChainRenderer {
     private val CHAIN_SPRITE = ResourceLocation("minecraft", "block/chain")
 
     // ---- Geometry mirrored from SselithRepertoryChunkGenerator ----
-    private const val MAZE_CELL_X = 49
-    private const val MAZE_CELL_Z = 49
-    private const val LIBRARY_QUADRANT_SHIFT = 5
-    private const val POSITIVE_Z_EXTRA_SHIFT = 0
+    private const val MAZE_CELL_X = SselithRepertory.MAZE_CELL_XZ
+    private const val MAZE_CELL_Z = SselithRepertory.MAZE_CELL_XZ
     private const val LIBRARY_FROGLIGHT_INSET = 4
 
     /** Half-width (block units) of one chain plane. Plane is rotated 45° in
@@ -90,8 +90,14 @@ object SselithChainRenderer {
     /** Frames between the sweeps that free the columns out of view. */
     private const val EVICT_INTERVAL_FRAMES = 256L
 
+    /** Links at each end of the build height that fade from the edge light to FULL_BRIGHT. */
+    private const val FADE_LINKS = 16
+
+    private const val FULL_BRIGHT_UV = 240
+
     private class LitColumn(val lights: IntArray) {
         val vbo = VertexBuffer(VertexBuffer.Usage.DYNAMIC)
+        val fadeVbo = VertexBuffer(VertexBuffer.Usage.DYNAMIC)
         var baked = false
         var lastDrawnFrame = 0L
     }
@@ -189,25 +195,30 @@ object SselithChainRenderer {
         val baseMatrix = poseStack.last().pose()
         val camPos: Vec3 = camera.position
 
-        // Out of the build height there is no light data. The bake uses FULL_BRIGHT there, and the
-        // Sselith lightmap pins that cell to white, so the eclipse must dim that part here.
-        val skyScale = 1f - SselithRepertoryLighting.currentEclipseIntensity(partialTick)
-        RenderSystem.setShaderColor(skyScale, skyScale, skyScale, 1f)
-        v.bind()
-        forEachVisibleColumn(camPos) { wx, wz ->
-            drawColumn(v, baseMatrix, projection, shader, camPos, wx, wz)
-        }
-
-        RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
         frame++
         val refreshSlot = (frame % maxOf(visibleColumns, 1)).toInt()
         var slot = 0
         forEachVisibleColumn(camPos) { wx, wz ->
-            val lit = litColumn(level, sprite, wx, wz, slot == refreshSlot)
+            val column = litColumn(level, sprite, wx, wz, slot == refreshSlot)
             slot++
-            drawColumn(lit, baseMatrix, projection, shader, camPos, wx, wz)
+            column.vbo.bind()
+            drawColumn(column.vbo, baseMatrix, projection, shader, camPos, wx, wz)
         }
         visibleColumns = slot
+
+        // Out of the build height there is no light data. The bake uses FULL_BRIGHT there, and the
+        // Sselith lightmap pins that cell to white, so the eclipse must dim that part here.
+        val skyScale = 1f - SselithRepertoryLighting.currentEclipseIntensity(partialTick)
+        RenderSystem.setShaderColor(skyScale, skyScale, skyScale, 1f)
+        forEachVisibleColumn(camPos) { wx, wz ->
+            val fade = litColumns.get(ChunkPos.asLong(wx, wz))?.fadeVbo ?: return@forEachVisibleColumn
+            fade.bind()
+            drawColumn(fade, baseMatrix, projection, shader, camPos, wx, wz)
+        }
+        v.bind()
+        forEachVisibleColumn(camPos) { wx, wz ->
+            drawColumn(v, baseMatrix, projection, shader, camPos, wx, wz)
+        }
         VertexBuffer.unbind()
         if (frame % EVICT_INTERVAL_FRAMES == 0L) evictStaleColumns()
         RenderSystem.setShaderFogStart(savedFogStart)
@@ -222,8 +233,8 @@ object SselithChainRenderer {
 
     private inline fun forEachVisibleColumn(camPos: Vec3, action: (wx: Int, wz: Int) -> Unit) {
         val pad = VIEW_DISTANCE + MAZE_CELL_X
-        val baseCellX = Math.floorDiv(Math.floor(camPos.x).toInt(), MAZE_CELL_X)
-        val baseCellZ = Math.floorDiv(Math.floor(camPos.z).toInt(), MAZE_CELL_Z)
+        val baseCellX = Math.floorDiv(SselithRepertory.latticeCoord(Math.floor(camPos.x).toInt()), MAZE_CELL_X)
+        val baseCellZ = Math.floorDiv(SselithRepertory.latticeCoord(Math.floor(camPos.z).toInt()), MAZE_CELL_Z)
         val rangeX = (pad / MAZE_CELL_X) + 1
         val rangeZ = (pad / MAZE_CELL_Z) + 1
         val insetHi = MAZE_CELL_X - 1 - LIBRARY_FROGLIGHT_INSET
@@ -256,24 +267,49 @@ object SselithChainRenderer {
         v.drawWithShader(mv, projection, shader)
     }
 
-    /** Returns the bound VBO of the build-height part of one column. A [refresh] samples the light again. */
+    /** Returns the column with current VBOs. A [refresh] samples the light again. */
     private fun litColumn(
         level: ClientLevel, sprite: TextureAtlasSprite, wx: Int, wz: Int, refresh: Boolean,
-    ): VertexBuffer {
+    ): LitColumn {
         val key = ChunkPos.asLong(wx, wz)
         val column = litColumns.get(key)
             ?: LitColumn(IntArray(bakedMaxY - bakedMinY)).also { litColumns.put(key, it) }
         column.lastDrawnFrame = frame
         val changed = (refresh || !column.baked) && sampleLights(level, wx, wz, column.lights)
-        column.vbo.bind()
         if (changed || !column.baked) {
-            val builder = Tesselator.getInstance().builder
-            builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.BLOCK)
-            bakeLinks(builder, sprite, bakedMinY, bakedMaxY, column.lights)
-            column.vbo.upload(builder.end())
+            val lights = column.lights
+            val minY = bakedMinY
+            val maxY = bakedMaxY
+            upload(column.vbo) { builder ->
+                bakeLinks(builder, sprite, minY, maxY) { y, _ -> lights[y - minY] }
+            }
+            upload(column.fadeVbo) { builder ->
+                bakeLinks(builder, sprite, minY - FADE_LINKS, minY) { _, vertexY ->
+                    fadeLight(lights[0], (minY - vertexY) / FADE_LINKS.toFloat())
+                }
+                bakeLinks(builder, sprite, maxY, maxY + FADE_LINKS) { _, vertexY ->
+                    fadeLight(lights[lights.size - 1], (vertexY - maxY) / FADE_LINKS.toFloat())
+                }
+            }
             column.baked = true
         }
-        return column.vbo
+        return column
+    }
+
+    /** Packed light on the lightmap path from [edgeLight] (t = 0) to FULL_BRIGHT (t = 1). */
+    private fun fadeLight(edgeLight: Int, t: Float): Int {
+        val u = Mth.lerp(t, (edgeLight and 0xFFFF).toFloat(), FULL_BRIGHT_UV.toFloat()).toInt()
+        val v = Mth.lerp(t, (edgeLight ushr 16 and 0xFFFF).toFloat(), FULL_BRIGHT_UV.toFloat()).toInt()
+        return u or (v shl 16)
+    }
+
+    /** Leaves [target] bound. Must run on the render thread (GL upload). */
+    private inline fun upload(target: VertexBuffer, bake: (BufferBuilder) -> Unit) {
+        val builder = Tesselator.getInstance().builder
+        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.BLOCK)
+        bake(builder)
+        target.bind()
+        target.upload(builder.end())
     }
 
     /** Writes the packed light of each block of the column into [lights]. Returns true if a value changed. */
@@ -295,13 +331,17 @@ object SselithChainRenderer {
             val column = it.next()
             if (frame - column.lastDrawnFrame < EVICT_INTERVAL_FRAMES) continue
             column.vbo.close()
+            column.fadeVbo.close()
             it.remove()
         }
     }
 
     private fun clearLitColumns() {
         if (litColumns.isEmpty()) return
-        litColumns.values.forEach { it.vbo.close() }
+        litColumns.values.forEach {
+            it.vbo.close()
+            it.fadeVbo.close()
+        }
         litColumns.clear()
     }
 
@@ -315,15 +355,11 @@ object SselithChainRenderer {
         existing?.close()
         clearLitColumns()
 
-        val tess = Tesselator.getInstance()
-        val builder: BufferBuilder = tess.builder
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.BLOCK)
-        bakeLinks(builder, sprite, -BAKE_HALF_HEIGHT, minY, null)
-        bakeLinks(builder, sprite, maxY, BAKE_HALF_HEIGHT, null)
-
         val newVbo = VertexBuffer(VertexBuffer.Usage.STATIC)
-        newVbo.bind()
-        newVbo.upload(builder.end())
+        upload(newVbo) { builder ->
+            bakeLinks(builder, sprite, -BAKE_HALF_HEIGHT, minY - FADE_LINKS) { _, _ -> LightTexture.FULL_BRIGHT }
+            bakeLinks(builder, sprite, maxY + FADE_LINKS, BAKE_HALF_HEIGHT) { _, _ -> LightTexture.FULL_BRIGHT }
+        }
         VertexBuffer.unbind()
         vbo = newVbo
         bakedU0 = sprite.u0
@@ -335,10 +371,11 @@ object SselithChainRenderer {
 
     /** 2 crossed 45° planes, one quad pair per Y in [yFrom, yUntil). Atlas-sprite UVs match the
      *  vanilla chain block. Single-winding quads — caller renders with `disableCull` so both
-     *  sides are visible from one quad. [lights] holds the packed light per Y from [yFrom];
-     *  null gives FULL_BRIGHT. */
-    private fun bakeLinks(
-        builder: BufferBuilder, sprite: TextureAtlasSprite, yFrom: Int, yUntil: Int, lights: IntArray?,
+     *  sides are visible from one quad. [light] gives the packed light of a vertex at
+     *  `vertexY` on the link at `y`. */
+    private inline fun bakeLinks(
+        builder: BufferBuilder, sprite: TextureAtlasSprite, yFrom: Int, yUntil: Int,
+        light: (y: Int, vertexY: Int) -> Int,
     ) {
         val w = CHAIN_HALF_WIDTH
         val uSpan = sprite.u1 - sprite.u0
@@ -352,13 +389,14 @@ object SselithChainRenderer {
         for (y in yFrom until yUntil) {
             val y0 = y.toFloat()
             val y1 = (y + 1).toFloat()
-            val light = lights?.get(y - yFrom) ?: LightTexture.FULL_BRIGHT
+            val lightBottom = light(y, y)
+            val lightTop = light(y, y + 1)
             // Plane A — diagonal (-w, -w) → (+w, +w), cols 0–2.
             quad(builder, -w, y0, -w,  w, y0,  w,  w, y1,  w, -w, y1, -w,
-                uA0, uA1, v1, v0, light)
+                uA0, uA1, v1, v0, lightBottom, lightTop)
             // Plane B — perpendicular diagonal, cols 3–5.
             quad(builder, -w, y0,  w,  w, y0, -w,  w, y1, -w, -w, y1,  w,
-                uB0, uB1, v1, v0, light)
+                uB0, uB1, v1, v0, lightBottom, lightTop)
         }
     }
 
@@ -372,33 +410,25 @@ object SselithChainRenderer {
         x2: Float, y2: Float, z2: Float,
         x3: Float, y3: Float, z3: Float,
         uLeft: Float, uRight: Float, vBottom: Float, vTop: Float,
-        light: Int,
+        lightBottom: Int, lightTop: Int,
     ) {
         builder.vertex(x0.toDouble(), y0.toDouble(), z0.toDouble())
             .color(255, 255, 255, 255).uv(uLeft, vBottom)
-            .uv2(light).normal(0f, 1f, 0f).endVertex()
+            .uv2(lightBottom).normal(0f, 1f, 0f).endVertex()
         builder.vertex(x1.toDouble(), y1.toDouble(), z1.toDouble())
             .color(255, 255, 255, 255).uv(uRight, vBottom)
-            .uv2(light).normal(0f, 1f, 0f).endVertex()
+            .uv2(lightBottom).normal(0f, 1f, 0f).endVertex()
         builder.vertex(x2.toDouble(), y2.toDouble(), z2.toDouble())
             .color(255, 255, 255, 255).uv(uRight, vTop)
-            .uv2(light).normal(0f, 1f, 0f).endVertex()
+            .uv2(lightTop).normal(0f, 1f, 0f).endVertex()
         builder.vertex(x3.toDouble(), y3.toDouble(), z3.toDouble())
             .color(255, 255, 255, 255).uv(uLeft, vTop)
-            .uv2(light).normal(0f, 1f, 0f).endVertex()
+            .uv2(lightTop).normal(0f, 1f, 0f).endVertex()
     }
 
-    /** Inverse of the chunk generator's `effX → worldX` quadrant-shift
-     *  mapping. Must stay in lock-step with `SselithRepertoryChunkGenerator`. */
-    private fun chainWorldX(libCellX: Int, tileX: Int): Int {
-        val effX = libCellX * MAZE_CELL_X + tileX
-        return if (effX >= 0) effX + LIBRARY_QUADRANT_SHIFT + 1
-        else effX - LIBRARY_QUADRANT_SHIFT
-    }
+    private fun chainWorldX(libCellX: Int, tileX: Int): Int =
+        SselithRepertory.worldCoord(libCellX * MAZE_CELL_X + tileX)
 
-    private fun chainWorldZ(libCellZ: Int, tileZ: Int): Int {
-        val effZ = libCellZ * MAZE_CELL_Z + tileZ
-        return if (effZ >= 0) effZ + LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT + 1
-        else effZ - LIBRARY_QUADRANT_SHIFT
-    }
+    private fun chainWorldZ(libCellZ: Int, tileZ: Int): Int =
+        SselithRepertory.worldCoord(libCellZ * MAZE_CELL_Z + tileZ)
 }

@@ -179,12 +179,12 @@ class SselithRepertoryChunkGenerator(
             // pickConnections reaches ±3 from the chunk. (Was ±2 before
             // the stairwellAllowed widening — sufficient for the old
             // ±1 stairwell scan, but undersized for the new ±2.)
-            val cellMinX = Math.floorDiv(chunkX0 - 2 - GRID_OFFSET, MAZE_CELL_X) - 3
-            val cellMaxX = Math.floorDiv(chunkX0 + 17 - GRID_OFFSET, MAZE_CELL_X) + 3
+            val cellMinX = Math.floorDiv(latticeCoord(chunkX0) - 2 - GRID_OFFSET, MAZE_CELL_X) - 3
+            val cellMaxX = Math.floorDiv(latticeCoord(chunkX0) + 17 - GRID_OFFSET, MAZE_CELL_X) + 3
             val cellMinY = Math.floorDiv(minY, MAZE_CELL_Y) - 3
             val cellMaxY = Math.floorDiv(minY + span - 1, MAZE_CELL_Y) + 3
-            val cellMinZ = Math.floorDiv(chunkZ0 - 2 - GRID_OFFSET, MAZE_CELL_Z) - 3
-            val cellMaxZ = Math.floorDiv(chunkZ0 + 17 - GRID_OFFSET, MAZE_CELL_Z) + 3
+            val cellMinZ = Math.floorDiv(latticeCoord(chunkZ0) - 2 - GRID_OFFSET, MAZE_CELL_Z) - 3
+            val cellMaxZ = Math.floorDiv(latticeCoord(chunkZ0) + 17 - GRID_OFFSET, MAZE_CELL_Z) + 3
             val nWx = cellMaxX - cellMinX + 1
             val nWy = cellMaxY - cellMinY + 1
             val nWz = cellMaxZ - cellMinZ + 1
@@ -328,27 +328,26 @@ class SselithRepertoryChunkGenerator(
                     val archX1 = chunkX0 + 17
                     val archZ0 = chunkZ0 - 2
                     val archZ1 = chunkZ0 + 17
-                    val spanZLo = GAP_COLUMN_NEG_Z
-                    val spanZHi = GAP_COLUMN_NEG_Z + AXIAL_ARCH_DIM_Z - 1
+                    // The window is much smaller than the interval, so it touches at most one meridian on each axis.
+                    val spanZLo = SselithRepertory.nearestMeridian(chunkZ0 + 8) + GAP_COLUMN_NEG_Z
+                    val spanZHi = spanZLo + AXIAL_ARCH_DIM_Z - 1
                     if (spanZHi >= archZ0 && spanZLo <= archZ1) {
                         for (wx in archX0..archX1) {
-                            if (wx in PATH_RANGE || wx == 0) continue
-                            if (positiveMod(wx, GAP_COLUMN_INTERVAL) != 0) continue
+                            if (!isCrossArchCoord(wx)) continue
                             val cellY = topAxialArchCellY(wx) ?: continue
                             axialList.add(AxialArchPlacement(
-                                alongAxisIsZ = true, archCoord = wx, cellY = cellY,
+                                alongAxisIsZ = true, archCoord = wx, spanLo = spanZLo, cellY = cellY,
                             ))
                         }
                     }
-                    val spanXLo = GAP_COLUMN_NEG_X
-                    val spanXHi = GAP_COLUMN_NEG_X + AXIAL_ARCH_DIM_Z - 1
+                    val spanXLo = SselithRepertory.nearestMeridian(chunkX0 + 8) + GAP_COLUMN_NEG_X
+                    val spanXHi = spanXLo + AXIAL_ARCH_DIM_Z - 1
                     if (spanXHi >= archX0 && spanXLo <= archX1) {
                         for (wz in archZ0..archZ1) {
-                            if (wz in PATH_RANGE || wz == 0) continue
-                            if (positiveMod(wz, GAP_COLUMN_INTERVAL) != 0) continue
+                            if (!isCrossArchCoord(wz)) continue
                             val cellY = topAxialArchCellY(wz) ?: continue
                             axialList.add(AxialArchPlacement(
-                                alongAxisIsZ = false, archCoord = wz, cellY = cellY,
+                                alongAxisIsZ = false, archCoord = wz, spanLo = spanXLo, cellY = cellY,
                             ))
                         }
                     }
@@ -438,11 +437,11 @@ class SselithRepertoryChunkGenerator(
                         val dimZ: Int
                         if (arch.alongAxisIsZ) {
                             cornerX = arch.archCoord
-                            cornerZ = GAP_COLUMN_NEG_Z
+                            cornerZ = arch.spanLo
                             dimX = AXIAL_ARCH_DIM_X
                             dimZ = AXIAL_ARCH_DIM_Z
                         } else {
-                            cornerX = GAP_COLUMN_NEG_X
+                            cornerX = arch.spanLo
                             cornerZ = arch.archCoord
                             dimX = AXIAL_ARCH_DIM_Z
                             dimZ = AXIAL_ARCH_DIM_X
@@ -728,12 +727,12 @@ class SselithRepertoryChunkGenerator(
                 val maxX = baseX + cacheSize - 1
                 val maxY = minY + span - 1
                 val maxZ = baseZ + cacheSize - 1
-                val minCellX = Math.floorDiv(baseX - GRID_OFFSET, MAZE_CELL_X) - 1
-                val maxCellX = Math.floorDiv(maxX - GRID_OFFSET, MAZE_CELL_X) + 1
+                val minCellX = Math.floorDiv(latticeCoord(baseX) - GRID_OFFSET, MAZE_CELL_X) - 1
+                val maxCellX = Math.floorDiv(latticeCoord(maxX) - GRID_OFFSET, MAZE_CELL_X) + 1
                 val minCellY = Math.floorDiv(minY, MAZE_CELL_Y) - 1
                 val maxCellY = Math.floorDiv(maxY, MAZE_CELL_Y) + 1
-                val minCellZ = Math.floorDiv(baseZ - GRID_OFFSET, MAZE_CELL_Z) - 1
-                val maxCellZ = Math.floorDiv(maxZ - GRID_OFFSET, MAZE_CELL_Z) + 1
+                val minCellZ = Math.floorDiv(latticeCoord(baseZ) - GRID_OFFSET, MAZE_CELL_Z) - 1
+                val maxCellZ = Math.floorDiv(latticeCoord(maxZ) - GRID_OFFSET, MAZE_CELL_Z) + 1
                 for (cellX in minCellX..maxCellX) {
                     for (cellY in minCellY..maxCellY) {
                         for (cellZ in minCellZ..maxCellZ) {
@@ -786,28 +785,11 @@ class SselithRepertoryChunkGenerator(
                     // AIR so corridors stay walkable.
                     //
                     // Library quadrants are shifted [LIBRARY_QUADRANT_SHIFT]
-                    // blocks away from the origin on each axis, leaving an
+                    // blocks away from each meridian, leaving an
                     // empty band immediately past the axial paths.
-                    // Positive-side shift subtracts one EXTRA block so the
-                    // gap-facing cell wall (tileXMod=0 / tileZMod=0) lands
-                    // on the first out-of-gap worldX/Z instead of inside
-                    // the gap. The negative side already exposes its wall
-                    // naturally because effX=-1 wraps to tileXMod=maxX
-                    // (the east/south wall position) via floorMod.
-                    val effX = when {
-                        worldX > LIBRARY_QUADRANT_SHIFT -> worldX - LIBRARY_QUADRANT_SHIFT - 1
-                        worldX < -LIBRARY_QUADRANT_SHIFT -> worldX + LIBRARY_QUADRANT_SHIFT
-                        else -> 0
-                    }
-                    val effZ = when {
-                        worldZ > LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT ->
-                            worldZ - LIBRARY_QUADRANT_SHIFT - POSITIVE_Z_EXTRA_SHIFT - 1
-                        worldZ < -LIBRARY_QUADRANT_SHIFT -> worldZ + LIBRARY_QUADRANT_SHIFT
-                        else -> 0
-                    }
-                    val inLibraryGap =
-                        worldX in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT ||
-                            worldZ in -LIBRARY_QUADRANT_SHIFT..(LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT)
+                    val effX = latticeCoord(worldX)
+                    val effZ = latticeCoord(worldZ)
+                    val inLibraryGap = SselithRepertory.isAxialBand(worldX, worldZ)
                     val tileXMod = Math.floorMod(effX, MAZE_CELL_X)
                     val tileZMod = Math.floorMod(effZ, MAZE_CELL_Z)
                     val edgeX = Math.min(tileXMod, MAZE_CELL_X - 1 - tileXMod)
@@ -1148,8 +1130,10 @@ class SselithRepertoryChunkGenerator(
      *  [AXIAL_PATH_CHISEL_INTERVAL] blocks in the centre column of each axis,
      *  otherwise polished deepslate. */
     private fun axialPathFloorAt(wx: Int, wz: Int): BlockState {
-        val xAxisCentre = wz == 0 && positiveMod(wx, AXIAL_PATH_CHISEL_INTERVAL) == 0
-        val zAxisCentre = wx == 0 && positiveMod(wz, AXIAL_PATH_CHISEL_INTERVAL) == 0
+        val ox = meridianOffset(wx)
+        val oz = meridianOffset(wz)
+        val xAxisCentre = oz == 0 && positiveMod(ox, AXIAL_PATH_CHISEL_INTERVAL) == 0
+        val zAxisCentre = ox == 0 && positiveMod(oz, AXIAL_PATH_CHISEL_INTERVAL) == 0
         return if (xAxisCentre || zAxisCentre) OWL_DEEPSLATE else POLISHED_DEEPSLATE
     }
 
@@ -1160,10 +1144,10 @@ class SselithRepertoryChunkGenerator(
         // ±5 per-quadrant platform shift can't push a candidate cell outside
         // the search window (the inner check on node.nx/nz still filters
         // exactly).
-        val minCellX = Math.floorDiv(wx - GRID_OFFSET - FLOOR_SIZE - LIBRARY_QUADRANT_SHIFT, MAZE_CELL_X)
-        val maxCellX = Math.floorDiv(wx - GRID_OFFSET + LIBRARY_QUADRANT_SHIFT + 1, MAZE_CELL_X)
-        val minCellZ = Math.floorDiv(wz - GRID_OFFSET - FLOOR_SIZE - LIBRARY_QUADRANT_SHIFT, MAZE_CELL_Z)
-        val maxCellZ = Math.floorDiv(wz - GRID_OFFSET + LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT + 1, MAZE_CELL_Z)
+        val minCellX = Math.floorDiv(latticeCoord(wx) - GRID_OFFSET - FLOOR_SIZE - LIBRARY_QUADRANT_SHIFT, MAZE_CELL_X)
+        val maxCellX = Math.floorDiv(latticeCoord(wx) - GRID_OFFSET + LIBRARY_QUADRANT_SHIFT + 1, MAZE_CELL_X)
+        val minCellZ = Math.floorDiv(latticeCoord(wz) - GRID_OFFSET - FLOOR_SIZE - LIBRARY_QUADRANT_SHIFT, MAZE_CELL_Z)
+        val maxCellZ = Math.floorDiv(latticeCoord(wz) - GRID_OFFSET + LIBRARY_QUADRANT_SHIFT + 1, MAZE_CELL_Z)
         val minCellY = Math.floorDiv(wy, MAZE_CELL_Y)
         val maxCellY = minCellY
         for (cellX in minCellX..maxCellX) {
@@ -1208,12 +1192,12 @@ class SselithRepertoryChunkGenerator(
 
         // Cell range. A connection can extend up to one full cell in any
         // direction from its source, so we widen the range by ±1 cell.
-        val minCellX = Math.floorDiv(baseX - GRID_OFFSET, MAZE_CELL_X) - 1
-        val maxCellX = Math.floorDiv(maxX - GRID_OFFSET, MAZE_CELL_X) + 1
+        val minCellX = Math.floorDiv(latticeCoord(baseX) - GRID_OFFSET, MAZE_CELL_X) - 1
+        val maxCellX = Math.floorDiv(latticeCoord(maxX) - GRID_OFFSET, MAZE_CELL_X) + 1
         val minCellY = Math.floorDiv(baseY, MAZE_CELL_Y) - 1
         val maxCellY = Math.floorDiv(maxY, MAZE_CELL_Y) + 1
-        val minCellZ = Math.floorDiv(baseZ - GRID_OFFSET, MAZE_CELL_Z) - 1
-        val maxCellZ = Math.floorDiv(maxZ - GRID_OFFSET, MAZE_CELL_Z) + 1
+        val minCellZ = Math.floorDiv(latticeCoord(baseZ) - GRID_OFFSET, MAZE_CELL_Z) - 1
+        val maxCellZ = Math.floorDiv(latticeCoord(maxZ) - GRID_OFFSET, MAZE_CELL_Z) + 1
 
         // 0. Ring decorations — per-maze-cell pick of one of [RING_STYLE_COUNT]
         //    options. NBT indices paint the authored 43×N×43 NBT centred on the platform;
@@ -1649,21 +1633,9 @@ class SselithRepertoryChunkGenerator(
             for (lz in 0 until cacheSize) {
                 val wz = baseZ + lz
                 if (isPathStrip(wx, wz)) continue
-                val inLibraryGap =
-                    wx in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT ||
-                        wz in -LIBRARY_QUADRANT_SHIFT..(LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT)
-                if (inLibraryGap) continue
-                val effX = when {
-                    wx > LIBRARY_QUADRANT_SHIFT -> wx - LIBRARY_QUADRANT_SHIFT - 1
-                    wx < -LIBRARY_QUADRANT_SHIFT -> wx + LIBRARY_QUADRANT_SHIFT
-                    else -> 0
-                }
-                val effZ = when {
-                    wz > LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT ->
-                        wz - LIBRARY_QUADRANT_SHIFT - POSITIVE_Z_EXTRA_SHIFT - 1
-                    wz < -LIBRARY_QUADRANT_SHIFT -> wz + LIBRARY_QUADRANT_SHIFT
-                    else -> 0
-                }
+                if (SselithRepertory.isAxialBand(wx, wz)) continue
+                val effX = latticeCoord(wx)
+                val effZ = latticeCoord(wz)
                 val tileX = Math.floorMod(effX, MAZE_CELL_X)
                 val tileZ = Math.floorMod(effZ, MAZE_CELL_Z)
                 val isXWall = tileX == 0 || tileX == maxX
@@ -1723,20 +1695,9 @@ class SselithRepertoryChunkGenerator(
     private fun isInsideCellBattlement(wx: Int, wy: Int, wz: Int): Boolean {
         if (wy !in TOP_CAP_Y..TOP_CAP_Y + 2 && wy !in BOTTOM_CAP_Y - 2..BOTTOM_CAP_Y) return false
         if (isPathStrip(wx, wz)) return false
-        if (wx in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT ||
-            wz in -LIBRARY_QUADRANT_SHIFT..(LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT)
-        ) return false
-        val effX = when {
-            wx > LIBRARY_QUADRANT_SHIFT -> wx - LIBRARY_QUADRANT_SHIFT - 1
-            wx < -LIBRARY_QUADRANT_SHIFT -> wx + LIBRARY_QUADRANT_SHIFT
-            else -> 0
-        }
-        val effZ = when {
-            wz > LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT ->
-                wz - LIBRARY_QUADRANT_SHIFT - POSITIVE_Z_EXTRA_SHIFT - 1
-            wz < -LIBRARY_QUADRANT_SHIFT -> wz + LIBRARY_QUADRANT_SHIFT
-            else -> 0
-        }
+        if (SselithRepertory.isAxialBand(wx, wz)) return false
+        val effX = latticeCoord(wx)
+        val effZ = latticeCoord(wz)
         val tileX = Math.floorMod(effX, MAZE_CELL_X)
         val tileZ = Math.floorMod(effZ, MAZE_CELL_Z)
         val maxX = MAZE_CELL_X - 1
@@ -1773,12 +1734,12 @@ class SselithRepertoryChunkGenerator(
         if (placement.alongAxisIsZ) {
             // X-axial-path arch — long axis spans world Z (NBT natural).
             cornerX = placement.archCoord
-            cornerZ = GAP_COLUMN_NEG_Z
+            cornerZ = placement.spanLo
             dimX = AXIAL_ARCH_DIM_X
             dimZ = AXIAL_ARCH_DIM_Z
         } else {
             // Z-axial-path arch — long axis spans world X (NBT rotated CCW90).
-            cornerX = GAP_COLUMN_NEG_X
+            cornerX = placement.spanLo
             cornerZ = placement.archCoord
             dimX = AXIAL_ARCH_DIM_Z
             dimZ = AXIAL_ARCH_DIM_X
@@ -2158,8 +2119,8 @@ class SselithRepertoryChunkGenerator(
      *  the procedural platform's centre/ring pattern. */
     private fun isOnStandardPlatform(wx: Int, wy: Int, wz: Int): Boolean {
         // ±1 cell: on the negative side the quadrant shift moves a platform into the next cell index.
-        val cx = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X)
-        val cz = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z)
+        val cx = Math.floorDiv(latticeCoord(wx) - GRID_OFFSET, MAZE_CELL_X)
+        val cz = Math.floorDiv(latticeCoord(wz) - GRID_OFFSET, MAZE_CELL_Z)
         val cellY = Math.floorDiv(wy, MAZE_CELL_Y)
         for (cellX in cx - 1..cx + 1) {
             for (cellZ in cz - 1..cz + 1) {
@@ -2176,9 +2137,9 @@ class SselithRepertoryChunkGenerator(
     /** Coordinate-only twin of [isInsideStructureReplacement], for positions past the
      *  per-chunk bitmap window. Mirrors the placement scan in fillFromNoise. */
     private fun isInsideStructureFootprint(wx: Int, wy: Int, wz: Int): Boolean {
-        val cx = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X)
+        val cx = Math.floorDiv(latticeCoord(wx) - GRID_OFFSET, MAZE_CELL_X)
         val cy = Math.floorDiv(wy, MAZE_CELL_Y)
-        val cz = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z)
+        val cz = Math.floorDiv(latticeCoord(wz) - GRID_OFFSET, MAZE_CELL_Z)
         for (cellX in cx - 1..cx + 1) {
             for (cellZ in cz - 1..cz + 1) {
                 for (cellY in cy - 1..cy + 1) {
@@ -2216,12 +2177,12 @@ class SselithRepertoryChunkGenerator(
     }
 
     private fun isInsideAxialArchFootprint(wx: Int, wy: Int, wz: Int): Boolean {
-        if (wz in GAP_COLUMN_NEG_Z until GAP_COLUMN_NEG_Z + AXIAL_ARCH_DIM_Z) {
+        if (meridianOffset(wz) in GAP_COLUMN_NEG_Z until GAP_COLUMN_NEG_Z + AXIAL_ARCH_DIM_Z) {
             for (archX in wx - AXIAL_ARCH_DIM_X + 1..wx) {
                 if (axialArchContainsY(archX, wy)) return true
             }
         }
-        if (wx in GAP_COLUMN_NEG_X until GAP_COLUMN_NEG_X + AXIAL_ARCH_DIM_Z) {
+        if (meridianOffset(wx) in GAP_COLUMN_NEG_X until GAP_COLUMN_NEG_X + AXIAL_ARCH_DIM_Z) {
             for (archZ in wz - AXIAL_ARCH_DIM_X + 1..wz) {
                 if (axialArchContainsY(archZ, wy)) return true
             }
@@ -2230,8 +2191,7 @@ class SselithRepertoryChunkGenerator(
     }
 
     private fun axialArchContainsY(archCoord: Int, wy: Int): Boolean {
-        if (archCoord in PATH_RANGE || archCoord == 0) return false
-        if (positiveMod(archCoord, GAP_COLUMN_INTERVAL) != 0) return false
+        if (!isCrossArchCoord(archCoord)) return false
         val cellY = topAxialArchCellY(archCoord) ?: return false
         val cornerY = cellY * MAZE_CELL_Y + AXIAL_ARCH_CELL_Y_OFFSET
         return wy in cornerY until cornerY + AXIAL_ARCH_DIM_Y
@@ -2257,24 +2217,9 @@ class SselithRepertoryChunkGenerator(
                tileZMod == 1 || tileZMod == MAZE_CELL_Z - 2
     }
 
-    private fun libraryTileX(wx: Int): Int {
-        val effX = when {
-            wx > LIBRARY_QUADRANT_SHIFT -> wx - LIBRARY_QUADRANT_SHIFT - 1
-            wx < -LIBRARY_QUADRANT_SHIFT -> wx + LIBRARY_QUADRANT_SHIFT
-            else -> 0
-        }
-        return Math.floorMod(effX, MAZE_CELL_X)
-    }
+    private fun libraryTileX(wx: Int): Int = Math.floorMod(latticeCoord(wx), MAZE_CELL_X)
 
-    private fun libraryTileZ(wz: Int): Int {
-        val effZ = when {
-            wz > LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT ->
-                wz - LIBRARY_QUADRANT_SHIFT - POSITIVE_Z_EXTRA_SHIFT - 1
-            wz < -LIBRARY_QUADRANT_SHIFT -> wz + LIBRARY_QUADRANT_SHIFT
-            else -> 0
-        }
-        return Math.floorMod(effZ, MAZE_CELL_Z)
-    }
+    private fun libraryTileZ(wz: Int): Int = Math.floorMod(latticeCoord(wz), MAZE_CELL_Z)
 
     private fun pickPathSegment(
         cellX: Int, cellY: Int, cellZ: Int, vIdx: Int, tileIdx: Int, corridorWidth: Int,
@@ -3278,7 +3223,13 @@ class SselithRepertoryChunkGenerator(
 
 
     private fun isPathStrip(x: Int, z: Int): Boolean =
-        x in PATH_RANGE || z in PATH_RANGE
+        meridianOffset(x) in PATH_RANGE || meridianOffset(z) in PATH_RANGE
+
+    /** True when a cross-path arch stands at [w] along an axial path. Arches repeat from the nearest meridian. */
+    private fun isCrossArchCoord(w: Int): Boolean {
+        val offset = meridianOffset(w)
+        return offset !in PATH_RANGE && positiveMod(offset, GAP_COLUMN_INTERVAL) == 0
+    }
 
     /** Vanilla-rule wall blockstate.
      *
@@ -3341,11 +3292,12 @@ class SselithRepertoryChunkGenerator(
      *  procedural arch in a given column. [alongAxisIsZ] mirrors the
      *  procedural arch's "long axis": true = arch spans world Z (at fixed
      *  worldX = [archCoord]), false = arch spans world X (at fixed
-     *  worldZ = [archCoord]). [cellY] is the column's top arch cellY —
+     *  worldZ = [archCoord]). [spanLo] is the world coordinate where the long axis starts. [cellY] is the column's top arch cellY —
      *  determined by the same parity rule [gapArchwayBlock] uses. */
     private data class AxialArchPlacement(
         val alongAxisIsZ: Boolean,
         val archCoord: Int,
+        val spanLo: Int,
         val cellY: Int,
     )
 
@@ -3367,9 +3319,8 @@ class SselithRepertoryChunkGenerator(
      *  drops without leaving an orphan corridor. Reciprocity is not required;
      *  enforcing it dropped ~78% of platforms and limited chains to 2-3.
      *
-     *  Platform X/Z is shifted by [LIBRARY_QUADRANT_SHIFT] away from the
-     *  origin (per quadrant) so the platform stays anchored at the same
-     *  cell-local position as the surrounding library cell. */
+     *  Platform X/Z skips the meridian bands so the platform stays anchored
+     *  at the same cell-local position as the surrounding library cell. */
     private fun mazeNodeAt(cellX: Int, cellY: Int, cellZ: Int): MazeNode? =
         mazeNodeAtCtx(activeCaches.get(), cellX, cellY, cellZ)
 
@@ -3410,10 +3361,8 @@ class SselithRepertoryChunkGenerator(
     }
 
     /** World X of the SW corner of the 5×5 platform for `cellX`, with the
-     *  per-quadrant library shift applied. The positive side gets the same
-     *  extra +1 block applied to the library effX formula so the platform
-     *  stays aligned with its surrounding library cell (the cell wall on
-     *  the gap-facing side lands at the first non-gap worldX). */
+     *  meridian bands applied, so the platform stays aligned with its
+     *  surrounding library cell. */
     private fun platformOriginX(cellX: Int): Int =
         platformOriginXCtx(activeCaches.get(), cellX)
 
@@ -3434,15 +3383,11 @@ class SselithRepertoryChunkGenerator(
 
     /** Uncached arithmetic — used by both the [platformOriginX] cache
      *  miss path and the cache-population pass in [fillFromNoise]. */
-    private fun computePlatformOriginX(cellX: Int): Int {
-        val raw = cellX * MAZE_CELL_X + GRID_OFFSET
-        return if (raw >= 0) raw + LIBRARY_QUADRANT_SHIFT + 1
-        else raw - LIBRARY_QUADRANT_SHIFT
-    }
+    private fun computePlatformOriginX(cellX: Int): Int =
+        SselithRepertory.worldCoord(cellX * MAZE_CELL_X + GRID_OFFSET)
 
     /** World Z of the SW corner of the 5×5 platform for `cellZ`, with the
-     *  per-quadrant library shift applied. The +Z side gets the additional
-     *  [POSITIVE_Z_EXTRA_SHIFT] block AND the +1 wall-alignment block. */
+     *  meridian bands applied. */
     private fun platformOriginZ(cellZ: Int): Int =
         platformOriginZCtx(activeCaches.get(), cellZ)
 
@@ -3455,11 +3400,8 @@ class SselithRepertoryChunkGenerator(
         return computePlatformOriginZ(cellZ)
     }
 
-    private fun computePlatformOriginZ(cellZ: Int): Int {
-        val raw = cellZ * MAZE_CELL_Z + GRID_OFFSET
-        return if (raw >= 0) raw + LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT + 1
-        else raw - LIBRARY_QUADRANT_SHIFT
-    }
+    private fun computePlatformOriginZ(cellZ: Int): Int =
+        SselithRepertory.worldCoord(cellZ * MAZE_CELL_Z + GRID_OFFSET)
 
     /** Per-cell random ladder injection for the inner-wall shelving. Each of
      *  the four walls has a single ladder column (one block inward from the
@@ -3497,14 +3439,16 @@ class SselithRepertoryChunkGenerator(
      *  [GAP_COLUMN_INTERVAL] blocks along the perpendicular axis. Positions
      *  on the axial path itself are skipped so the path stays clear. */
     private fun isGapColumn(worldX: Int, worldZ: Int): Boolean {
-        val zInterval = worldZ !in PATH_RANGE &&
-            positiveMod(worldZ, GAP_COLUMN_INTERVAL) == 0
-        val xInterval = worldX !in PATH_RANGE &&
-            positiveMod(worldX, GAP_COLUMN_INTERVAL) == 0
-        return (worldX == GAP_COLUMN_POS_X && zInterval) ||
-            (worldX == GAP_COLUMN_NEG_X && zInterval) ||
-            (worldZ == GAP_COLUMN_POS_Z && xInterval) ||
-            (worldZ == GAP_COLUMN_NEG_Z && xInterval)
+        val ox = meridianOffset(worldX)
+        val oz = meridianOffset(worldZ)
+        val zInterval = oz !in PATH_RANGE &&
+            positiveMod(oz, GAP_COLUMN_INTERVAL) == 0
+        val xInterval = ox !in PATH_RANGE &&
+            positiveMod(ox, GAP_COLUMN_INTERVAL) == 0
+        return (ox == GAP_COLUMN_POS_X && zInterval) ||
+            (ox == GAP_COLUMN_NEG_X && zInterval) ||
+            (oz == GAP_COLUMN_POS_Z && xInterval) ||
+            (oz == GAP_COLUMN_NEG_Z && xInterval)
     }
 
     /** Block placed at `(worldX, tileYMod, worldZ)` for a gap archway, or
@@ -3533,43 +3477,45 @@ class SselithRepertoryChunkGenerator(
     }
 
     private fun gapArchwayBlockAt(worldX: Int, worldZ: Int, cellY: Int, stepDepth: Int): BlockState? {
-        if (worldX == GAP_COLUMN_POS_X || worldX == GAP_COLUMN_NEG_X) {
-            return gapColLineArchAt(worldZ, cellY, stepDepth, alongAxisIsZ = true)
+        val ox = meridianOffset(worldX)
+        val oz = meridianOffset(worldZ)
+        if (ox == GAP_COLUMN_POS_X || ox == GAP_COLUMN_NEG_X) {
+            return gapColLineArchAt(oz, cellY, stepDepth, alongAxisIsZ = true)
         }
-        if (worldZ == GAP_COLUMN_POS_Z || worldZ == GAP_COLUMN_NEG_Z) {
-            return gapColLineArchAt(worldX, cellY, stepDepth, alongAxisIsZ = false)
+        if (oz == GAP_COLUMN_POS_Z || oz == GAP_COLUMN_NEG_Z) {
+            return gapColLineArchAt(ox, cellY, stepDepth, alongAxisIsZ = false)
         }
         if (stepDepth in 0..1) {
             // Cross-path arches repeat along the X-axis path at every
-            // INTERVAL of worldX (parity-gated per cellY).
-            if (worldX !in PATH_RANGE && worldX != 0 &&
-                positiveMod(worldX, GAP_COLUMN_INTERVAL) == 0 &&
-                Math.floorMod(worldX / GAP_COLUMN_INTERVAL + cellY, 2) == 0
-            ) {
+            // INTERVAL from the meridian (parity-gated per cellY).
+            if (isParityCrossArch(ox, cellY)) {
                 // NBT axial-arch replacement owns this column at its top
                 // cellY — suppress the procedural arch at EVERY cellY in
                 // the same column so the player sees only the NBT arch
                 // and not a stack of arches all the way down.
                 if (isInAxialArchColumn(worldX, worldZ)) return null
                 return archOldPattern(
-                    worldZ, GAP_COLUMN_NEG_Z, GAP_COLUMN_POS_Z,
+                    oz, GAP_COLUMN_NEG_Z, GAP_COLUMN_POS_Z,
                     stepDepth, alongAxisIsZ = true,
                 )
             }
-            // …and along the Z-axis path at every INTERVAL of worldZ.
-            if (worldZ !in PATH_RANGE && worldZ != 0 &&
-                positiveMod(worldZ, GAP_COLUMN_INTERVAL) == 0 &&
-                Math.floorMod(worldZ / GAP_COLUMN_INTERVAL + cellY, 2) == 0
-            ) {
+            // …and along the Z-axis path.
+            if (isParityCrossArch(oz, cellY)) {
                 if (isInAxialArchColumn(worldX, worldZ)) return null
                 return archOldPattern(
-                    worldX, GAP_COLUMN_NEG_X, GAP_COLUMN_POS_X,
+                    ox, GAP_COLUMN_NEG_X, GAP_COLUMN_POS_X,
                     stepDepth, alongAxisIsZ = false,
                 )
             }
         }
         return null
     }
+
+    /** [offset] is a meridian offset along an axial path. */
+    private fun isParityCrossArch(offset: Int, cellY: Int): Boolean =
+        offset !in PATH_RANGE &&
+            positiveMod(offset, GAP_COLUMN_INTERVAL) == 0 &&
+            Math.floorMod(offset / GAP_COLUMN_INTERVAL + cellY, 2) == 0
 
     private fun gapColLineArchAt(
         coord: Int, cellY: Int, stepDepth: Int, alongAxisIsZ: Boolean,
@@ -3587,6 +3533,10 @@ class SselithRepertoryChunkGenerator(
             upperCoord = lowerCoord + GAP_COLUMN_INTERVAL
             if (lowerCoord == 0 || upperCoord == 0) return null
             if (lowerCoord in PATH_RANGE || upperCoord in PATH_RANGE) return null
+            // No column stands past the midpoint between two meridians.
+            if (lowerCoord < SselithRepertory.MERIDIAN_OFFSET_MIN ||
+                upperCoord > SselithRepertory.MERIDIAN_OFFSET_MAX
+            ) return null
             if (Math.floorMod(lowerCol + cellY, 2) != 0) return null
             pathCrossing = false
         }
@@ -3680,17 +3630,13 @@ class SselithRepertoryChunkGenerator(
         val topY = cellY * MAZE_CELL_Y + MAZE_CELL_Y - 1
         val yDelta = topY - worldY
         if (yDelta < 1 || yDelta > ARCHWAY_CHAIN_LENGTH + 1) return null
-        val onXAxisArchMid = worldZ == 0 && (
-            worldX == GAP_COLUMN_POS_X || worldX == GAP_COLUMN_NEG_X ||
-                (worldX !in PATH_RANGE && worldX != 0 &&
-                    positiveMod(worldX, GAP_COLUMN_INTERVAL) == 0 &&
-                    Math.floorMod(worldX / GAP_COLUMN_INTERVAL + cellY, 2) == 0)
+        val ox = meridianOffset(worldX)
+        val oz = meridianOffset(worldZ)
+        val onXAxisArchMid = oz == 0 && (
+            ox == GAP_COLUMN_POS_X || ox == GAP_COLUMN_NEG_X || isParityCrossArch(ox, cellY)
             )
-        val onZAxisArchMid = worldX == 0 && (
-            worldZ == GAP_COLUMN_POS_Z || worldZ == GAP_COLUMN_NEG_Z ||
-                (worldZ !in PATH_RANGE && worldZ != 0 &&
-                    positiveMod(worldZ, GAP_COLUMN_INTERVAL) == 0 &&
-                    Math.floorMod(worldZ / GAP_COLUMN_INTERVAL + cellY, 2) == 0)
+        val onZAxisArchMid = ox == 0 && (
+            oz == GAP_COLUMN_POS_Z || oz == GAP_COLUMN_NEG_Z || isParityCrossArch(oz, cellY)
             )
         if (!onXAxisArchMid && !onZAxisArchMid) return null
         // NBT axial-arch replacement carries its own chain — the procedural
@@ -3897,12 +3843,12 @@ class SselithRepertoryChunkGenerator(
         val maxY = baseY + span - 1
         // Same widening as paintChunkInto — a connection can extend up to
         // one full cell in any direction from its source.
-        val minCellX = Math.floorDiv(baseX - GRID_OFFSET, MAZE_CELL_X) - 1
-        val maxCellX = Math.floorDiv(maxX - GRID_OFFSET, MAZE_CELL_X) + 1
+        val minCellX = Math.floorDiv(latticeCoord(baseX) - GRID_OFFSET, MAZE_CELL_X) - 1
+        val maxCellX = Math.floorDiv(latticeCoord(maxX) - GRID_OFFSET, MAZE_CELL_X) + 1
         val minCellY = Math.floorDiv(baseY, MAZE_CELL_Y) - 1
         val maxCellY = Math.floorDiv(maxY, MAZE_CELL_Y) + 1
-        val minCellZ = Math.floorDiv(baseZ - GRID_OFFSET, MAZE_CELL_Z) - 1
-        val maxCellZ = Math.floorDiv(maxZ - GRID_OFFSET, MAZE_CELL_Z) + 1
+        val minCellZ = Math.floorDiv(latticeCoord(baseZ) - GRID_OFFSET, MAZE_CELL_Z) - 1
+        val maxCellZ = Math.floorDiv(latticeCoord(maxZ) - GRID_OFFSET, MAZE_CELL_Z) + 1
         for (cellX in minCellX..maxCellX) {
             for (cellY in minCellY..maxCellY) {
                 for (cellZ in minCellZ..maxCellZ) {
@@ -4698,10 +4644,10 @@ class SselithRepertoryChunkGenerator(
         // cell.
         // ±1 on both sides, as buildWallFrameCache does: a −X/−Z pick reaches back into the
         // previous cell's range, so the source cell sits one above floorDiv.
-        val minCellX = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X) - 1
-        val maxCellX = Math.floorDiv(wx - GRID_OFFSET, MAZE_CELL_X) + 1
-        val minCellZ = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z) - 1
-        val maxCellZ = Math.floorDiv(wz - GRID_OFFSET, MAZE_CELL_Z) + 1
+        val minCellX = Math.floorDiv(latticeCoord(wx) - GRID_OFFSET, MAZE_CELL_X) - 1
+        val maxCellX = Math.floorDiv(latticeCoord(wx) - GRID_OFFSET, MAZE_CELL_X) + 1
+        val minCellZ = Math.floorDiv(latticeCoord(wz) - GRID_OFFSET, MAZE_CELL_Z) - 1
+        val maxCellZ = Math.floorDiv(latticeCoord(wz) - GRID_OFFSET, MAZE_CELL_Z) + 1
         // Grid Y is now anchored at 0, so cellY = floorDiv(wy, MAZE_CELL_Y).
         val minCellY = Math.floorDiv(wy - MAZE_CELL_Y, MAZE_CELL_Y)
         val maxCellY = Math.floorDiv(wy + MAZE_CELL_Y, MAZE_CELL_Y)
@@ -5141,10 +5087,10 @@ class SselithRepertoryChunkGenerator(
         val chunkX1 = chunkX0 + 15
         val chunkZ1 = chunkZ0 + 15
         val pad = LIBRARY_QUADRANT_SHIFT + 1
-        val minCellX = Math.floorDiv(chunkX0 - 2 - pad - GRID_OFFSET, MAZE_CELL_X)
-        val maxCellX = Math.floorDiv(chunkX1 - 2 + pad - GRID_OFFSET, MAZE_CELL_X)
-        val minCellZ = Math.floorDiv(chunkZ0 - 2 - pad - GRID_OFFSET, MAZE_CELL_Z)
-        val maxCellZ = Math.floorDiv(chunkZ1 - 2 + pad - GRID_OFFSET, MAZE_CELL_Z)
+        val minCellX = Math.floorDiv(latticeCoord(chunkX0) - 2 - pad - GRID_OFFSET, MAZE_CELL_X)
+        val maxCellX = Math.floorDiv(latticeCoord(chunkX1) - 2 + pad - GRID_OFFSET, MAZE_CELL_X)
+        val minCellZ = Math.floorDiv(latticeCoord(chunkZ0) - 2 - pad - GRID_OFFSET, MAZE_CELL_Z)
+        val maxCellZ = Math.floorDiv(latticeCoord(chunkZ1) - 2 + pad - GRID_OFFSET, MAZE_CELL_Z)
 
         for (cellX in minCellX..maxCellX) {
             val nx = platformOriginX(cellX)
@@ -5516,16 +5462,12 @@ class SselithRepertoryChunkGenerator(
 
 
         /** Per-axis shift applied to each library quadrant so the cells back
-         *  away from the central axial paths, leaving this many blocks of
+         *  away from the axial paths, leaving this many blocks of
          *  empty space between the path edge and the start of the library. */
         private const val LIBRARY_QUADRANT_SHIFT = SselithRepertory.LIBRARY_QUADRANT_SHIFT
 
-        /** Extra shift applied ONLY on the +Z half of the world, on top of
-         *  [LIBRARY_QUADRANT_SHIFT]. Set to 0 so +Z matches the +X / -X / -Z
-         *  quadrants exactly — non-zero values pushed every +Z element one
-         *  block too far from the axial path. Left as a configurable
-         *  constant in case the +Z asymmetry is ever needed again. */
-        private const val POSITIVE_Z_EXTRA_SHIFT = 0
+        private fun meridianOffset(w: Int): Int = SselithRepertory.meridianOffset(w)
+        private fun latticeCoord(w: Int): Int = SselithRepertory.latticeCoord(w)
 
         /** Total height (blocks) of the deepslate-framed opening cut through
          *  each cell wall when a pathway or stairwell crosses. Includes the
@@ -5561,10 +5503,10 @@ class SselithRepertoryChunkGenerator(
          *  between the axial paths and the library walls. */
         private const val GAP_COLUMN_INTERVAL = 8
         /** Gap-side block adjacent to each library wall — the X/Z line on
-         *  which the decorative columns sit. */
+         *  which the decorative columns sit. Meridian offsets, not world coordinates. */
         private const val GAP_COLUMN_POS_X = LIBRARY_QUADRANT_SHIFT          // 5
         private const val GAP_COLUMN_NEG_X = -LIBRARY_QUADRANT_SHIFT          // -5
-        private const val GAP_COLUMN_POS_Z = LIBRARY_QUADRANT_SHIFT + POSITIVE_Z_EXTRA_SHIFT  // 6
+        private const val GAP_COLUMN_POS_Z = LIBRARY_QUADRANT_SHIFT          // 5
         private const val GAP_COLUMN_NEG_Z = -LIBRARY_QUADRANT_SHIFT          // -5
 
         /** Inset (from each wall) for the 4 corner froglights / chain pillars
@@ -6156,7 +6098,7 @@ class SselithRepertoryChunkGenerator(
         private val WALL_EAST_TEST: VoxelShape = Block.box(7.0, 0.0, 7.0, 16.0, 16.0, 9.0)
 
         private const val PATH_Y = 0
-        /** Axial path is 3 blocks wide centred on the axis. */
+        /** Axial path is 3 blocks wide centred on its meridian. A range of meridian offsets. */
         private val PATH_RANGE: IntRange = -1..1
 
         // Walls 2 tall (path Y, path Y+1) emerge from the outline of pass 1's
@@ -6201,9 +6143,9 @@ class SselithRepertoryChunkGenerator(
         // Odd horizontal cell extent so the cell has a single centre column
         // matching the (odd-sized) 5×5 platform. With width 49 the centre
         // column is local x=24, and the platform spans local x=22..26.
-        private const val MAZE_CELL_X = 49
+        private const val MAZE_CELL_X = SselithRepertory.MAZE_CELL_XZ
         private const val MAZE_CELL_Y = 24
-        private const val MAZE_CELL_Z = 49
+        private const val MAZE_CELL_Z = SselithRepertory.MAZE_CELL_XZ
 
         /** Candidate tile offsets (Δx, Δz) from the platform centre for cataloger
          *  spawning. The eight cells immediately adjacent to centre — four

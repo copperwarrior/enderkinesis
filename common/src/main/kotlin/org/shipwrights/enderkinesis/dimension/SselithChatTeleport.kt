@@ -23,7 +23,7 @@ import org.shipwrights.enderkinesis.sselith.SselithDustBurst
  *    [SselithBookshelfScan.MIN_BOOKSHELVES] **Sselith bookshelves** ([EKBlocks.SSELITH_BOOKSHELF]
  *    only — vanilla bookshelves do not qualify), saves the player's
  *    current dimension/position/rotation, then teleports them to
- *    [SSELITH_ARRIVAL] in Sselith. Bookshelf scan covers both world-
+ *    the Nexus of Meridians nearest to their X/Z, at [SSELITH_ARRIVAL_Y]. Bookshelf scan covers both world-
  *    frame blocks and blocks on intersecting VS2 ships.
  *  - **Inbound** (in Sselith): same phrase rule teleports the player
  *    back to the last saved location. The save is consumed on use;
@@ -52,10 +52,7 @@ object SselithChatTeleport {
         "moroch",
     )
 
-    /** Player arrival point in Sselith. */
-    private const val SSELITH_ARRIVAL_X = 0.0
     private const val SSELITH_ARRIVAL_Y = 200.0
-    private const val SSELITH_ARRIVAL_Z = 0.0
     /** Arrival yaw 34.5° / pitch −34.5° — the holy number that names the
      *  invocation itself (`vraestmorocht-schest-kelkargh-skarn-moroch` =
      *  34.5 in the Sselith numeral system) carried into both axes. Pitch
@@ -125,7 +122,9 @@ object SselithChatTeleport {
         playForOthers(player, hissMono)
         player.teleportTo(
             sselithLevel,
-            SSELITH_ARRIVAL_X, SSELITH_ARRIVAL_Y, SSELITH_ARRIVAL_Z,
+            SselithRepertory.nearestMeridian(player.blockX).toDouble(),
+            SSELITH_ARRIVAL_Y,
+            SselithRepertory.nearestMeridian(player.blockZ).toDouble(),
             SSELITH_ARRIVAL_YAW, SSELITH_ARRIVAL_PITCH,
         )
         playForOthers(player, hissMono)
