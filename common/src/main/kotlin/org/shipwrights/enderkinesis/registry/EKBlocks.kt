@@ -63,7 +63,7 @@ object EKBlocks {
         .mapColor(MapColor.COLOR_PURPLE)
         .requiresCorrectToolForDrops()
         .strength(4.5f, 9.0f)
-        .sound(SoundType.AMETHYST)
+        .sound(EKSounds.CREPUSCULITE_SOUND_TYPE)
 
     /** Crepusculite ore — only spawns inside end meteorite geodes. */
     val CREPUSCULITE_ORE: RegistrySupplier<Block> = BLOCKS.register("crepusculite_ore") {
@@ -90,7 +90,7 @@ object EKBlocks {
         CrepusculiteGlassBlock(
             BlockBehaviour.Properties.copy(Blocks.GLASS)
                 .mapColor(MapColor.COLOR_PURPLE)
-                .sound(SoundType.GLASS)
+                .sound(EKSounds.CREPUSCULITE_GLASS_SOUND_TYPE)
                 .noOcclusion()
                 .randomTicks()
                 .lightLevel { state -> if (state.getValue(CrepusculiteGlassBlock.LIT)) 4 else 1 }
@@ -117,7 +117,7 @@ object EKBlocks {
                 .noCollission()
                 .instabreak()
                 .lightLevel { 10 }
-                .sound(SoundType.AMETHYST)
+                .sound(EKSounds.CREPUSCULITE_SOUND_TYPE)
                 .pushReaction(net.minecraft.world.level.material.PushReaction.DESTROY)
         )
     }

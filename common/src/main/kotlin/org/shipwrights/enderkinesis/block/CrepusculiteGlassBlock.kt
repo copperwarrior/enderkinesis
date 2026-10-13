@@ -3,8 +3,8 @@ package org.shipwrights.enderkinesis.block
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.util.RandomSource
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -57,7 +57,7 @@ class CrepusculiteGlassBlock(properties: BlockBehaviour.Properties) : HalfTransp
         if (random.nextInt(CHIME_PER_SPARKLE) == 0) {
             level.playLocalSound(
                 pos.x + 0.5, pos.y + 0.5, pos.z + 0.5,
-                SoundEvents.AMETHYST_BLOCK_CHIME,
+                EKSounds.CREPUSCULITE_CHIME,
                 SoundSource.BLOCKS,
                 0.4f, 0.8f + random.nextFloat() * 0.4f, false,
             )

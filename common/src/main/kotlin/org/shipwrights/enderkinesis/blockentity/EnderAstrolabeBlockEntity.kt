@@ -21,6 +21,7 @@ import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
@@ -264,12 +265,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
 
-        // Amethyst-block place chime — broadcast to anyone in earshot the moment the
-        // astrolabe powers up, before the long charge wind-up. Same sound family
-        // amethyst clusters play when activated; reads as "the instrument has armed".
         level.playSound(
             null, blockPos,
-            SoundEvents.AMETHYST_BLOCK_PLACE, SoundSource.BLOCKS,
+            EKSounds.CREPUSCULITE_PLACE, SoundSource.BLOCKS,
             1.0f, 1.0f,
         )
 

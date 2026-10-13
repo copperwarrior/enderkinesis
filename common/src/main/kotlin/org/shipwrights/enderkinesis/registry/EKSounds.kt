@@ -125,17 +125,42 @@ object EKSounds {
 
     val PARALLELOGRAPH_ACTIVATE: RegistrySupplier<SoundEvent> = ambient("item.parallelograph.activate")
 
-    // Blocks register before sounds, and SoundType reads its events at block construction.
-    // Thus the event instance must exist before the registry entry does.
-    private val DREAM_SAND_STEP_EVENT: SoundEvent =
-        SoundEvent.createVariableRangeEvent(EnderkinesisMod.id("block.dream_sand.step"))
-    val DREAM_SAND_STEP: RegistrySupplier<SoundEvent> =
-        SOUNDS.register("block.dream_sand.step") { DREAM_SAND_STEP_EVENT }
+    val DREAM_SAND_STEP: SoundEvent = eager("block.dream_sand.step")
     val DREAM_SAND_SOUND_TYPE: SoundType = SoundType(
         1f, 1f,
-        SoundEvents.SAND_BREAK, DREAM_SAND_STEP_EVENT, SoundEvents.SAND_PLACE,
+        SoundEvents.SAND_BREAK, DREAM_SAND_STEP, SoundEvents.SAND_PLACE,
         SoundEvents.SAND_HIT, SoundEvents.SAND_FALL,
     )
+
+    val CREPUSCULITE_STEP: SoundEvent = eager("block.crepusculite.step")
+    val CREPUSCULITE_PLACE: SoundEvent = eager("block.crepusculite.place")
+    val CREPUSCULITE_BREAK: SoundEvent = eager("block.crepusculite.break")
+    val CREPUSCULITE_CHIME: SoundEvent = eager("block.crepusculite.chime")
+    val CREPUSCULITE_RESONATE: SoundEvent = eager("block.crepusculite.resonate")
+    val CREPUSCULITE_SOUND_TYPE: SoundType = SoundType(
+        1f, 1f,
+        CREPUSCULITE_BREAK, CREPUSCULITE_STEP, CREPUSCULITE_PLACE,
+        CREPUSCULITE_STEP, CREPUSCULITE_STEP,
+    )
+
+    val CREPUSCULITE_GLASS_STEP: SoundEvent = eager("block.crepusculite_glass.step")
+    val CREPUSCULITE_GLASS_PLACE: SoundEvent = eager("block.crepusculite_glass.place")
+    val CREPUSCULITE_GLASS_BREAK: SoundEvent = eager("block.crepusculite_glass.break")
+    val CREPUSCULITE_GLASS_SOUND_TYPE: SoundType = SoundType(
+        1f, 1f,
+        CREPUSCULITE_GLASS_BREAK, CREPUSCULITE_GLASS_STEP, CREPUSCULITE_GLASS_PLACE,
+        CREPUSCULITE_GLASS_STEP, CREPUSCULITE_GLASS_STEP,
+    )
+
+    val NOTE_BLOCK_CREPUSCULITE: SoundEvent = eager("block.note_block.crepusculite")
+
+    // Blocks register before sounds, and SoundType reads its events at block construction.
+    // Thus the event instance must exist before the registry entry does.
+    private fun eager(name: String): SoundEvent {
+        val event = SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name))
+        SOUNDS.register(name) { event }
+        return event
+    }
 
     private fun ambient(name: String): RegistrySupplier<SoundEvent> =
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }

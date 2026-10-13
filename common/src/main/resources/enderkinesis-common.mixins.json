@@ -118,6 +118,7 @@
     "ChunkStorageWorkerAccessor",
     "DimensionDataStorageCacheAccessor",
     "EntityStorageWorkerAccessor",
+    "NoteBlockCrepusculiteMixin",
     "PersistentEntitySectionManagerStorageAccessor",
     "SectionStorageAccessor",
     "ServerLevelEntityManagerAccessor",

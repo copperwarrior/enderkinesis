@@ -289,6 +289,196 @@
       }
     ]
   },
+  "block.crepusculite.step": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.footsteps",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite/step1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step4",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step5",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step6",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step7",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step8",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/step9",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite.place": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.place",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite/place1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/place2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/place3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/place4",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite.break": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite/break1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/break2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/break3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/break4",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite.chime": {
+    "category": "block",
+    "subtitle": "subtitles.block.amethyst_block.chime",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite/chime",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite.resonate": {
+    "category": "block",
+    "subtitle": "subtitles.block.amethyst_block.resonate",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite/resonate1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/resonate2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/resonate3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite/resonate4",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite_glass.step": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.footsteps",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite_glass/step1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/step2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/step3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/step4",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/step5",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite_glass.place": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.place",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite_glass/place1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/place2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/place3",
+        "stream": false
+      }
+    ]
+  },
+  "block.crepusculite_glass.break": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/crepusculite_glass/break1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/break2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/crepusculite_glass/break3",
+        "stream": false
+      }
+    ]
+  },
+  "block.note_block.crepusculite": {
+    "category": "record",
+    "subtitle": "subtitles.block.note_block.note",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/note_block/crepusculite",
+        "stream": false
+      }
+    ]
+  },
   "event.sselith_repertory.hiss": {
     "category": "player",
     "sounds": [

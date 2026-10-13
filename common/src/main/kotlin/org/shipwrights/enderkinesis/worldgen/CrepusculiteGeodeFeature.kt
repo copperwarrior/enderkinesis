@@ -249,10 +249,14 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
                     // Stamp the sea level on the (now real) BE *before* assembly so VS2 carries it
                     // through via the BE NBT — the lattice floats at its spawn Y, not a garbage
                     // unsettled-transform value.
-                    (server.getBlockEntity(latticePos) as? CrepusculiteLatticeBlockEntity)
-                        ?.captureSeaLevel(latticePos.y + 0.5)
+                    val lattice = server.getBlockEntity(latticePos) as? CrepusculiteLatticeBlockEntity
+                    lattice?.captureSeaLevel(latticePos.y + 0.5)
+                    lattice?.parkForWorldgen()
                     val ship = ShipAssembler.assembleToShip(server, blocks)
                     if (ship != null) {
+                        // Far shipyard chunks do not tick, so a dynamic geode falls into the
+                        // void. Only a parked lattice releases the ship on its first real tick.
+                        if (lattice != null) ship.isStatic = true
                         org.shipwrights.enderkinesis.dimension.YgannDiscoveries.mark(
                             ms, ship.id, org.shipwrights.enderkinesis.dimension.YgannDiscoveries.KIND_GEODE,
                         )
