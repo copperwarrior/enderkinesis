@@ -39,6 +39,7 @@ object SureibjinExit {
     // [wakeUp] removes the snapshot before its teleport, so this acts only on an exit that it did not start.
     private fun restoreIfDreaming(player: ServerPlayer) {
         val snapshot = SureibjinEntry.takeReturnData(player.server, player.uuid) ?: return
+        SureibjinEntry.markExit(player)
         restoreState(player, snapshot)
     }
 
@@ -73,6 +74,7 @@ object SureibjinExit {
         // dream is the trigger, not the successful bed return.
         SureibjinEntry.grantAdvancement(player, SureibjinEntry.ADV_KNOWLEDGE_OF_DEATH)
         val snapshot = SureibjinEntry.takeReturnData(server, player.uuid)
+        SureibjinEntry.markExit(player)
 
         // Heal first so the lethal hit that triggered this doesn't kill
         // them on the next tick before the snapshot restores.

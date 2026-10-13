@@ -5,6 +5,8 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundEvents
+import net.minecraft.world.level.block.SoundType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /** Sound events added by Enderkinesis. */
@@ -120,6 +122,20 @@ object EKSounds {
     val WYLLAND_SEVER: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.sever")
     val WYLLAND_SPENT: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.spent")
     val WYLLAND_REPAIR: RegistrySupplier<SoundEvent> = ambient("item.wylland_tome.repair")
+
+    val PARALLELOGRAPH_ACTIVATE: RegistrySupplier<SoundEvent> = ambient("item.parallelograph.activate")
+
+    // Blocks register before sounds, and SoundType reads its events at block construction.
+    // Thus the event instance must exist before the registry entry does.
+    private val DREAM_SAND_STEP_EVENT: SoundEvent =
+        SoundEvent.createVariableRangeEvent(EnderkinesisMod.id("block.dream_sand.step"))
+    val DREAM_SAND_STEP: RegistrySupplier<SoundEvent> =
+        SOUNDS.register("block.dream_sand.step") { DREAM_SAND_STEP_EVENT }
+    val DREAM_SAND_SOUND_TYPE: SoundType = SoundType(
+        1f, 1f,
+        SoundEvents.SAND_BREAK, DREAM_SAND_STEP_EVENT, SoundEvents.SAND_PLACE,
+        SoundEvents.SAND_HIT, SoundEvents.SAND_FALL,
+    )
 
     private fun ambient(name: String): RegistrySupplier<SoundEvent> =
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }

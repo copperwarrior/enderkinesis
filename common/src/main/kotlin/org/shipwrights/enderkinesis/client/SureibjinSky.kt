@@ -35,7 +35,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
  *      fragment's spherical direction and mixes a three-stop palette —
  *      per-pixel resolution, no visible mesh facets. Geometry is `POSITION`
  *      only; the shader does the colour.
- *   2. Horizon ring — wide band at the equator, multi-row alpha curve, BLACK.
+ *   2. Horizon fog — band in the fog colour at the equator, drawn last so it covers all of the above.
  *   3. Stars — square BLACK cores with WHITE outlines, surrounded by an
  *      inverted (alpha-blended black) glow halo that darkens the sphere.
  *   4. East-horizon eye-shape glow.
@@ -189,6 +189,7 @@ object SureibjinSky {
         RenderSystem.setShader { GameRenderer.getPositionColorShader() }
         renderStars(poseStack, gameTime)
         renderSunBloom(poseStack)
+        renderHorizonFog(poseStack)
 
         RenderSystem.enableCull()
         RenderSystem.depthMask(true)
@@ -196,6 +197,45 @@ object SureibjinSky {
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
     }
 
+
+    // Inside the stars and the sun. The sky pass has no depth, so the draw order makes the fog cover them.
+    private const val HORIZON_FOG_DIST = SKY_R_DIST - 5.0f
+    private const val HORIZON_FOG_TOP_Y = 14.0f
+    private const val HORIZON_FOG_ROWS = 6
+    private const val HORIZON_FOG_SECTORS = 32
+
+    /** The terrain and the sea end in the fog colour. This band puts the same colour on the sky behind them. */
+    private fun renderHorizonFog(poseStack: PoseStack) {
+        val matrix = poseStack.last().pose()
+        val builder = Tesselator.getInstance().builder
+        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR)
+        for (s in 0 until HORIZON_FOG_SECTORS) {
+            val th0 = (s.toDouble() / HORIZON_FOG_SECTORS) * Math.PI * 2.0
+            val th1 = ((s + 1).toDouble() / HORIZON_FOG_SECTORS) * Math.PI * 2.0
+            val x0 = (cos(th0) * HORIZON_FOG_DIST).toFloat()
+            val z0 = (sin(th0) * HORIZON_FOG_DIST).toFloat()
+            val x1 = (cos(th1) * HORIZON_FOG_DIST).toFloat()
+            val z1 = (sin(th1) * HORIZON_FOG_DIST).toFloat()
+            // Full fog from below the camera to the horizon.
+            builder.vertex(matrix, x0, -SKY_R_DIST, z0).color(MID_R, MID_G, MID_B, 1.0f).endVertex()
+            builder.vertex(matrix, x1, -SKY_R_DIST, z1).color(MID_R, MID_G, MID_B, 1.0f).endVertex()
+            builder.vertex(matrix, x1, 0.0f, z1).color(MID_R, MID_G, MID_B, 1.0f).endVertex()
+            builder.vertex(matrix, x0, 0.0f, z0).color(MID_R, MID_G, MID_B, 1.0f).endVertex()
+            for (row in 0 until HORIZON_FOG_ROWS) {
+                val t0 = row.toFloat() / HORIZON_FOG_ROWS
+                val t1 = (row + 1).toFloat() / HORIZON_FOG_ROWS
+                val a0 = (1.0f - t0) * (1.0f - t0)
+                val a1 = (1.0f - t1) * (1.0f - t1)
+                val y0 = t0 * HORIZON_FOG_TOP_Y
+                val y1 = t1 * HORIZON_FOG_TOP_Y
+                builder.vertex(matrix, x0, y0, z0).color(MID_R, MID_G, MID_B, a0).endVertex()
+                builder.vertex(matrix, x1, y0, z1).color(MID_R, MID_G, MID_B, a0).endVertex()
+                builder.vertex(matrix, x1, y1, z1).color(MID_R, MID_G, MID_B, a1).endVertex()
+                builder.vertex(matrix, x0, y1, z0).color(MID_R, MID_G, MID_B, a1).endVertex()
+            }
+        }
+        BufferUploader.drawWithShader(builder.end())
+    }
 
     private fun mobEffectBlocksSky(camera: Camera): Boolean {
         val entity = camera.entity as? LivingEntity ?: return false

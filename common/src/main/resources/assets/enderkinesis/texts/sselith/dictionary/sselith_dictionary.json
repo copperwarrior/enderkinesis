@@ -38988,6 +38988,36 @@
       "pos": "NOUN",
       "sselith": "siskstkhelk",
       "tag": "[region + PL]"
+    },
+    "wayward": {
+      "pos": "ADJ",
+      "sselith": "naviarkhtegh",
+      "tag": "[NEG + viarkht + ADJ]"
+    },
+    "meridian": {
+      "pos": "NOUN",
+      "sselith": "ouvoundviarkh",
+      "tag": "[compound: up-down + path]"
+    },
+    "nexus": {
+      "pos": "NOUN",
+      "sselith": "viarkhunteltkh",
+      "tag": "[compound: path + knot]"
+    },
+    "revisit": {
+      "pos": "VERB",
+      "sselith": "kremonkht",
+      "tag": "[RE + monkht]"
+    },
+    "rectify": {
+      "pos": "VERB",
+      "sselith": "serkhkraekh",
+      "tag": "[compound: true + make]"
+    },
+    "transgression": {
+      "pos": "NOUN",
+      "sselith": "limkstrvolkhust",
+      "tag": "[compound: border + cross + ABSTRACT]"
     }
   },
   "phonology": {

@@ -76,6 +76,7 @@
     "LevelRendererSureibjinSilhouettesMixin",
     "LivingEntitySwimAmountAccessor",
     "LocalPlayerCrouchingAccessor",
+    "WalkAnimationStateAccessor",
     "MinecraftYgannAbyssMusicMixin",
     "LevelRendererSureibjinSkyMixin",
     "LevelRendererCloudsWohlonBiomeMixin",

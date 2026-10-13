@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
@@ -11,12 +12,18 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.dimension.SselithParallel
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Reads the holder's Sselith parallel onto the action bar; the client wiggles the arm. */
 class ParallelographItem(properties: Properties) : Item(properties) {
 
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
+        // Called on both sides: the client plays it on the wiggle tick, and the server sends it to all others.
+        level.playSound(
+            player, player.x, player.y, player.z,
+            EKSounds.PARALLELOGRAPH_ACTIVATE.get(), SoundSource.PLAYERS, 1f, 1f,
+        )
         if (level.isClientSide) {
             lastUseMillis = net.minecraft.Util.getMillis()
             lastUseHand = hand

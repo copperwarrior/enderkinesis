@@ -48,6 +48,9 @@ object SureibjinEntry {
      *  ocean. Minecraft yaw conventions: 0 = south, −90 = east. */
     private const val ARRIVAL_YAW: Float = -90.0f
 
+    /** One Minecraft day. Measured in overworld game time, which `/time set` and the night skip do not change. */
+    private const val REENTRY_COOLDOWN_TICKS: Long = 24_000L
+
     private val ADV_ROOT: ResourceLocation = EnderkinesisMod.id("sureibjin/root")
     private val ADV_DISTANT_DREAMS: ResourceLocation = EnderkinesisMod.id("sureibjin/distant_dreams")
     internal val ADV_KNOWLEDGE_OF_DEATH: ResourceLocation = EnderkinesisMod.id("sureibjin/knowledge_of_death")
@@ -74,6 +77,19 @@ object SureibjinEntry {
         dim == SselithRepertory.LEVEL_KEY ||
         dim == Wohlonnogondonia.LEVEL_KEY ||
         dim == YgannAbyss.LEVEL_KEY
+
+    /** Ticks until [player] can dream again. Zero when no cooldown applies. */
+    @JvmStatic
+    fun reentryCooldownRemaining(player: ServerPlayer): Long {
+        val server = player.server
+        val lastExit = SureibjinReturnSavedData.get(server).lastExit(player.uuid) ?: return 0L
+        return (lastExit + REENTRY_COOLDOWN_TICKS - server.overworld().gameTime).coerceAtLeast(0L)
+    }
+
+    internal fun markExit(player: ServerPlayer) {
+        val server = player.server
+        SureibjinReturnSavedData.get(server).markExit(player.uuid, server.overworld().gameTime)
+    }
 
     /** Called from `ServerLevelSureibjinWakeMixin` after vanilla's sleep
      *  cycle completes. Snapshot full player state, reset to dream

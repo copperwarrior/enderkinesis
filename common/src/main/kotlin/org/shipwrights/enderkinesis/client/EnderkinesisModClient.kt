@@ -389,6 +389,7 @@ object EnderkinesisModClient {
                 ConcealmentPostEffect.reset()
                 TomeSummonOverlay.closeRefractionEffect()
                 ScryingClient.closeRefractionEffect()
+                SureibjinDreamVignette.close()
             },
             org.shipwrights.enderkinesis.EnderkinesisMod.id("post_effects"),
         )

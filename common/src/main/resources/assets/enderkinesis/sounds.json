@@ -254,6 +254,41 @@
       }
     ]
   },
+  "block.dream_sand.step": {
+    "category": "block",
+    "subtitle": "subtitles.block.generic.footsteps",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/dream_sand/step1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/dream_sand/step2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/dream_sand/step3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/dream_sand/step4",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/dream_sand/step5",
+        "stream": false
+      }
+    ]
+  },
+  "item.parallelograph.activate": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/parallelograph/activate",
+        "stream": false
+      }
+    ]
+  },
   "event.sselith_repertory.hiss": {
     "category": "player",
     "sounds": [

@@ -1,0 +1,36 @@
+{
+  "variants": {
+    "layers=1": {
+      "model": "enderkinesis:block/dream_sand_layer_height2",
+      "y": 270
+    },
+    "layers=2": {
+      "model": "enderkinesis:block/dream_sand_layer_height4",
+      "y": 270
+    },
+    "layers=3": {
+      "model": "enderkinesis:block/dream_sand_layer_height6",
+      "y": 270
+    },
+    "layers=4": {
+      "model": "enderkinesis:block/dream_sand_layer_height8",
+      "y": 270
+    },
+    "layers=5": {
+      "model": "enderkinesis:block/dream_sand_layer_height10",
+      "y": 270
+    },
+    "layers=6": {
+      "model": "enderkinesis:block/dream_sand_layer_height12",
+      "y": 270
+    },
+    "layers=7": {
+      "model": "enderkinesis:block/dream_sand_layer_height14",
+      "y": 270
+    },
+    "layers=8": {
+      "model": "enderkinesis:block/dream_sand",
+      "y": 270
+    }
+  }
+}

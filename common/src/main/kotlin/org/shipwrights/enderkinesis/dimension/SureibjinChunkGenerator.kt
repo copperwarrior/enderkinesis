@@ -9,6 +9,7 @@ import net.minecraft.server.level.WorldGenRegion
 import net.minecraft.world.level.LevelHeightAccessor
 import net.minecraft.world.level.NoiseColumn
 import net.minecraft.world.level.StructureManager
+import net.minecraft.util.Mth
 import net.minecraft.world.level.biome.BiomeManager
 import net.minecraft.world.level.biome.BiomeSource
 import net.minecraft.world.level.block.Blocks
@@ -19,6 +20,7 @@ import net.minecraft.world.level.levelgen.GenerationStep
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.levelgen.RandomState
 import net.minecraft.world.level.levelgen.blending.Blender
+import org.shipwrights.enderkinesis.block.DreamSandLayerBlock
 
 /**
  * Chunk generator for [Sureibjin], the dream-coast ulder dimension.
@@ -110,7 +112,8 @@ class SureibjinChunkGenerator(
             val wx = chunkX0 + lx
             for (lz in 0..15) {
                 val wz = chunkZ0 + lz
-                val surface = coastSurfaceYAt(wx, wz)
+                val exactSurface = coastSurfaceAt(wx, wz)
+                val surface = Mth.floor(exactSurface)
 
                 // Terrain pass — only up to where terrain actually exists.
                 // Sea-level cap keeps us writing the water layer even when
@@ -120,12 +123,20 @@ class SureibjinChunkGenerator(
                     val block = baseColumnBlock(y, surface) ?: continue
                     chunk.setBlockState(mutable.set(wx, y, wz), block, false)
                 }
+                val rawLayers = ((exactSurface - surface) * DreamSandLayerBlock.MAX_LAYERS).toInt()
+                // Seven layers are 14/16 high and the water surface is 8/9 high, so the water above them does not show.
+                val layers = if (surface + 1 == SEA_LEVEL_Y) rawLayers.coerceAtMost(MAX_SEA_SURFACE_LAYERS) else rawLayers
+                if (layers > 0) {
+                    val wet = surface + 1 <= SEA_LEVEL_Y
+                    chunk.setBlockState(mutable.set(wx, surface + 1, wz), sandLayer(layers, wet), false)
+                }
+                val solidTop = if (layers > 0) surface + 1 else surface
 
                 // Barrier pass — direct section write, no heightmap.
                 // Starts at the higher of BARRIER_START_Y and surface+1
                 // so western-pile sand (which can reach PILE_TOP_Y=253)
                 // is never overwritten with barrier.
-                val barrierFrom = if (surface + 1 > BARRIER_START_Y) surface + 1 else BARRIER_START_Y
+                val barrierFrom = if (solidTop + 1 > BARRIER_START_Y) solidTop + 1 else BARRIER_START_Y
                 if (barrierFrom <= BARRIER_Y) {
                     var sectionIdx = chunk.getSectionIndex(barrierFrom)
                     var section = chunk.getSection(sectionIdx)
@@ -211,9 +222,12 @@ class SureibjinChunkGenerator(
      *
      * Capped at [PILE_TOP_Y] so nothing pokes through the barrier ceiling.
      */
-    private fun coastSurfaceYAt(wx: Int, wz: Int): Int {
-        val base = coastBaseSurfaceYAt(wx, wz)
-        val noise = sandSurfaceNoise(wx, wz)
+    private fun coastSurfaceYAt(wx: Int, wz: Int): Int = Mth.floor(coastSurfaceAt(wx, wz))
+
+    /** The surface with its fraction of a block. The fraction becomes [DreamSandLayerBlock] layers. */
+    private fun coastSurfaceAt(wx: Int, wz: Int): Double {
+        val base = coastBaseSurfaceAt(wx, wz)
+        val noise = sandSurfaceNoiseExact(wx, wz)
         // Tendril, rock, and tower mounds all contribute. Use max so adjacent
         // contributions don't stack into a freakishly tall pile.
         val mound = Math.max(
@@ -223,7 +237,7 @@ class SureibjinChunkGenerator(
                 nearbyTowerMoundLiftAt(wx, wz),
             ),
         )
-        return (base + noise + mound).coerceAtMost(PILE_TOP_Y)
+        return (base + noise + mound).coerceAtMost(PILE_TOP_Y.toDouble())
     }
 
     /**
@@ -243,7 +257,9 @@ class SureibjinChunkGenerator(
      * must NOT depend on the tendril-mound output, or we'd have a circular
      * definition.
      */
-    private fun coastBaseSurfaceYAt(wx: Int, wz: Int): Int {
+    private fun coastBaseSurfaceYAt(wx: Int, wz: Int): Int = coastBaseSurfaceAt(wx, wz).toInt()
+
+    private fun coastBaseSurfaceAt(wx: Int, wz: Int): Double {
         val coastX = coastCenterX(wz)
         val dx = wx - coastX
         return when {
@@ -252,18 +268,18 @@ class SureibjinChunkGenerator(
                     .coerceIn(0.0, 1.0)
                 val s = smoothstep(t)
                 val rise = (PILE_TOP_Y - BEACH_BASE_Y) * s
-                (BEACH_BASE_Y + rise).toInt()
+                BEACH_BASE_Y + rise
             }
             dx >= BEACH_HALF_WIDTH -> {
                 val t = ((dx - BEACH_HALF_WIDTH).toDouble() / DROPOFF_FULL_X)
                     .coerceIn(0.0, 1.0)
                 val s = smoothstep(t)
                 val drop = (BEACH_BASE_Y - OCEAN_FLOOR_Y) * s
-                (BEACH_BASE_Y - drop).toInt()
+                BEACH_BASE_Y - drop
             }
             else -> {
                 val jitter = (valueNoise2(wx * 0.21, wz * 0.21) - 0.5) * 2.0
-                (BEACH_BASE_Y + jitter).toInt()
+                BEACH_BASE_Y + jitter
             }
         }
     }
@@ -277,14 +293,16 @@ class SureibjinChunkGenerator(
      *
      *  Each octave is offset in noise-space so the rolls don't all peak at
      *  the same coordinates. */
-    private fun sandSurfaceNoise(wx: Int, wz: Int): Int {
+    private fun sandSurfaceNoise(wx: Int, wz: Int): Int = sandSurfaceNoiseExact(wx, wz).toInt()
+
+    private fun sandSurfaceNoiseExact(wx: Int, wz: Int): Double {
         val large = (valueNoise2(wx * 0.025 + 31.7, wz * 0.025 + 19.1) - 0.3)
             .coerceAtLeast(0.0) * 12.0
         val mid = (valueNoise2(wx * 0.075 + 11.4, wz * 0.075 + 47.2) - 0.4)
             .coerceAtLeast(0.0) * 4.0
         val small = (valueNoise2(wx * 0.180 + 5.1, wz * 0.180 + 23.7) - 0.5)
             .coerceAtLeast(0.0) * 1.5
-        return (large + mid + small).toInt()
+        return large + mid + small
     }
 
     /** Local downhill direction at world `(x, z)`, in XZ. Returns a unit
@@ -321,10 +339,7 @@ class SureibjinChunkGenerator(
      *
      *  Falloff is a small plateau + **smootherstep** (C² continuous so the
      *  slope eases in and out without a visible inflection at the boundary).
-     *  A per-cell smooth-noise dither is added before integer truncation so
-     *  the discrete `lift=0` → `lift=1` boundary feathers into a stippled
-     *  edge instead of a hard circle — that's what was reading as "the
-     *  mound has an obvious edge" no matter how smooth the underlying curve.
+     *  The lift keeps its fraction of a block, which becomes sand layers.
      *
      *  Directional bias scales the effective radius along the source's
      *  downhill direction: `(1 + DOWNHILL_BIAS)` downhill, `(1 − BIAS)`
@@ -335,7 +350,7 @@ class SureibjinChunkGenerator(
         baseRadius: Double,
         peakHeight: Double,
         plateau: Double,
-    ): Int {
+    ): Double {
         val ddx = (queryX - sourceX).toDouble()
         val ddz = (queryZ - sourceZ).toDouble()
         val dist = Math.sqrt(ddx * ddx + ddz * ddz)
@@ -346,7 +361,7 @@ class SureibjinChunkGenerator(
         else 0.0
 
         val effRadius = baseRadius * (1.0 + MOUND_DOWNHILL_BIAS * align)
-        if (effRadius <= 0.0 || dist >= effRadius) return 0
+        if (effRadius <= 0.0 || dist >= effRadius) return 0.0
 
         val t = dist / effRadius
         val falloff = if (t < plateau) 1.0
@@ -355,13 +370,7 @@ class SureibjinChunkGenerator(
                 1.0 - smootherstep(u)
             }
 
-        // Sub-block noise dither: shifts the integer boundary by per-cell
-        // amount in [0, 1]. The smooth noise (period ~1.4 blocks) ensures
-        // the dither varies between adjacent cells but isn't pure
-        // salt-and-pepper.
-        val rawLift = peakHeight * falloff
-        val dither = valueNoise2(queryX * 0.7 + 137.0, queryZ * 0.7 + 211.0)
-        return (rawLift + dither).toInt()
+        return peakHeight * falloff
     }
 
     /** Wobbling coast meridian X as a function of Z — two-octave value noise so
@@ -444,10 +453,10 @@ class SureibjinChunkGenerator(
      *
      *  Max (not sum) so two tendrils close together don't stack into a
      *  freakishly tall pile. */
-    private fun nearbyTendrilMoundLiftAt(wx: Int, wz: Int): Int {
+    private fun nearbyTendrilMoundLiftAt(wx: Int, wz: Int): Double {
         val rgX = Math.floorDiv(wx, TENDRIL_REGION_SIZE)
         val rgZ = Math.floorDiv(wz, TENDRIL_REGION_SIZE)
-        var maxLift = 0
+        var maxLift = 0.0
         for (dRgX in -1..1) for (dRgZ in -1..1) {
             val cand = tendrilCandidateInRegion(rgX + dRgX, rgZ + dRgZ) ?: continue
             // Mound only where the tendril visibly pierces sand — skip if the
@@ -605,10 +614,10 @@ class SureibjinChunkGenerator(
     /** Maximum sand lift contributed by any nearby rock at world `(wx, wz)`.
      *  Smooth-falloff plateau with downhill bias — see
      *  [directionalMoundLift] for the shared shape. */
-    private fun nearbyRockMoundLiftAt(wx: Int, wz: Int): Int {
+    private fun nearbyRockMoundLiftAt(wx: Int, wz: Int): Double {
         val rgX = Math.floorDiv(wx, ROCK_REGION_SIZE)
         val rgZ = Math.floorDiv(wz, ROCK_REGION_SIZE)
-        var maxLift = 0
+        var maxLift = 0.0
         for (dRgX in -1..1) for (dRgZ in -1..1) {
             val cand = rockCandidateInRegion(rgX + dRgX, rgZ + dRgZ) ?: continue
             val rootBase = coastBaseSurfaceYAt(cand.rootX, cand.rootZ)
@@ -1324,10 +1333,10 @@ class SureibjinChunkGenerator(
 
     /** Sand mound around the tower base. Smooth-falloff plateau with
      *  downhill bias — see [directionalMoundLift] for the shared shape. */
-    private fun nearbyTowerMoundLiftAt(wx: Int, wz: Int): Int {
+    private fun nearbyTowerMoundLiftAt(wx: Int, wz: Int): Double {
         val rgX = Math.floorDiv(wx, TOWER_REGION_SIZE)
         val rgZ = Math.floorDiv(wz, TOWER_REGION_SIZE)
-        var maxLift = 0
+        var maxLift = 0.0
         for (dRgX in -1..1) for (dRgZ in -1..1) {
             val cand = towerCandidateInRegion(rgX + dRgX, rgZ + dRgZ) ?: continue
             val rootBase = coastBaseSurfaceYAt(cand.rootX, cand.rootZ)
@@ -1554,6 +1563,7 @@ class SureibjinChunkGenerator(
         const val MAX_Y_INCL = MIN_Y + WORLD_HEIGHT - 1     // = 255
         const val BARRIER_Y = MAX_Y_INCL                    // top layer = barrier
         const val SEA_LEVEL_Y = 63
+        private const val MAX_SEA_SURFACE_LAYERS = 6
         const val BEACH_BASE_Y = 63
 
         // Coast geometry.
@@ -1711,6 +1721,11 @@ class SureibjinChunkGenerator(
         private val SAND: BlockState =
             org.shipwrights.enderkinesis.registry.EKBlocks.DREAM_SAND.get().defaultBlockState()
         private val WATER: BlockState = Blocks.WATER.defaultBlockState()
+
+        private fun sandLayer(layers: Int, waterlogged: Boolean): BlockState =
+            org.shipwrights.enderkinesis.registry.EKBlocks.DREAM_SAND_LAYER.get().defaultBlockState()
+                .setValue(DreamSandLayerBlock.LAYERS, layers)
+                .setValue(DreamSandLayerBlock.WATERLOGGED, waterlogged)
         private val BARRIER: BlockState = Blocks.BARRIER.defaultBlockState()
         private val OBSIDIAN: BlockState =
             org.shipwrights.enderkinesis.registry.EKBlocks.DREAM_OBSIDIAN.get().defaultBlockState()

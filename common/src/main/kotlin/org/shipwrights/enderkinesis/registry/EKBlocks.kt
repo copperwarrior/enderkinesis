@@ -31,6 +31,7 @@ import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLightstoneBlock
 import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.block.CrystalPedestalBlock
+import org.shipwrights.enderkinesis.block.DreamSandLayerBlock
 import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
 import org.shipwrights.enderkinesis.block.MagicMissileLauncherBlock
 import org.shipwrights.enderkinesis.block.EyeroscopeBlock
@@ -820,7 +821,17 @@ object EKBlocks {
      *  sand. Dust colour 0xC4B695 sampled from the dream-sand palette so
      *  the puff matches the block. */
     val DREAM_SAND: RegistrySupplier<Block> = BLOCKS.register("dream_sand") {
-        SandBlock(0xC4B695, BlockBehaviour.Properties.copy(Blocks.SAND).noLootTable())
+        SandBlock(
+            0xC4B695,
+            BlockBehaviour.Properties.copy(Blocks.SAND).sound(EKSounds.DREAM_SAND_SOUND_TYPE).noLootTable(),
+        )
+    }
+
+    /** Partial dream sand, 1 to 8 layers. The Sureibjin generator puts it on sand columns to make the slopes gradual. */
+    val DREAM_SAND_LAYER: RegistrySupplier<Block> = BLOCKS.register("dream_sand_layer") {
+        DreamSandLayerBlock(
+            BlockBehaviour.Properties.copy(Blocks.SAND).sound(EKSounds.DREAM_SAND_SOUND_TYPE).noLootTable(),
+        )
     }
 
     /** Decorative statues — Blockbench-style entity-model blocks rendered by

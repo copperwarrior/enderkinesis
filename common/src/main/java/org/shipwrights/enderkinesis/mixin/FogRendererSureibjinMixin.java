@@ -13,6 +13,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.material.FogType;
 import org.shipwrights.enderkinesis.dimension.Sureibjin;
 import org.shipwrights.enderkinesis.client.IchaericInkVisuals;
+import org.shipwrights.enderkinesis.client.SureibjinWaterFilm;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -34,17 +35,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class FogRendererSureibjinMixin {
 
     // Above-water fog tint: #1f272f.
-    private static final float SUREIBJIN_FOG_R = 0.122f;
-    private static final float SUREIBJIN_FOG_G = 0.153f;
-    private static final float SUREIBJIN_FOG_B = 0.184f;
+    private static final float SUREIBJIN_FOG_R = SureibjinWaterFilm.FOG_R;
+    private static final float SUREIBJIN_FOG_G = SureibjinWaterFilm.FOG_G;
+    private static final float SUREIBJIN_FOG_B = SureibjinWaterFilm.FOG_B;
 
     // Underwater fog tint: #020202. Near-black.
     private static final float SUREIBJIN_WATER_FOG_R = 0.008f;
     private static final float SUREIBJIN_WATER_FOG_G = 0.008f;
     private static final float SUREIBJIN_WATER_FOG_B = 0.008f;
 
-    private static final float SUREIBJIN_FOG_START_FRAC = 0.30f;
-    private static final float SUREIBJIN_FOG_END_FRAC   = 0.95f;
+    private static final float SUREIBJIN_FOG_START_FRAC = SureibjinWaterFilm.FOG_START_FRAC;
+    private static final float SUREIBJIN_FOG_END_FRAC   = SureibjinWaterFilm.FOG_END_FRAC;
+
+    // Vanilla water fog ends at 96 blocks with full water vision.
+    private static final float SUREIBJIN_WATER_FOG_START = -8.0f;
+    private static final float SUREIBJIN_WATER_FOG_END   = 14.0f;
 
     @Shadow private static float fogRed;
     @Shadow private static float fogGreen;
@@ -78,6 +83,8 @@ public abstract class FogRendererSureibjinMixin {
             fogGreen = SUREIBJIN_FOG_G;
             fogBlue = SUREIBJIN_FOG_B;
         }
+        // Vanilla set the clear colour before this injection. No sky draws underwater, so the clear colour is the background there.
+        RenderSystem.clearColor(fogRed, fogGreen, fogBlue, 0.0f);
     }
 
     @Inject(
@@ -94,8 +101,14 @@ public abstract class FogRendererSureibjinMixin {
         if (level == null) return;
         if (IchaericInkVisuals.cameraInInk()) return;
         if (level.dimension() != Sureibjin.INSTANCE.getLEVEL_KEY()) return;
-        if (camera.getFluidInCamera() != FogType.NONE) return;
         if (enderkinesis$mobEffectFogApplies(camera)) return;
+        FogType fluid = camera.getFluidInCamera();
+        if (fluid == FogType.WATER) {
+            RenderSystem.setShaderFogStart(SUREIBJIN_WATER_FOG_START);
+            RenderSystem.setShaderFogEnd(SUREIBJIN_WATER_FOG_END);
+            return;
+        }
+        if (fluid != FogType.NONE) return;
         float start = farPlaneDistance * SUREIBJIN_FOG_START_FRAC;
         float end = farPlaneDistance * SUREIBJIN_FOG_END_FRAC;
         RenderSystem.setShaderFogStart(start);

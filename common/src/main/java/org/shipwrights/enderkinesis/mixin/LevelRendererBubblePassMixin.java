@@ -18,6 +18,8 @@ import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderType;
 import org.shipwrights.enderkinesis.client.ScryingClient;
 import org.shipwrights.enderkinesis.client.SselithVoidFog;
+import org.shipwrights.enderkinesis.client.SureibjinDreamVignette;
+import org.shipwrights.enderkinesis.client.SureibjinWaterFilm;
 import org.shipwrights.enderkinesis.client.TomeSummonOverlay;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -105,6 +107,8 @@ public abstract class LevelRendererBubblePassMixin {
             bufferSource.endBatch(OrbBeamLineRenderType.INSTANCE.getBEAM_LINE_CONCEALED());
         }
 
+        SureibjinWaterFilm.render(poseStack, camera, partialTick);
+
         // World-space fog goes under the screen-space overlays below.
         SselithVoidFog.render(poseStack, projectionMatrix, camera, partialTick);
 
@@ -114,5 +118,6 @@ public abstract class LevelRendererBubblePassMixin {
         ConcealmentPostEffect.renderRefraction();
         ScryingClient.renderRefraction();
         TomeSummonOverlay.renderRefraction(partialTick);
+        SureibjinDreamVignette.render();
     }
 }

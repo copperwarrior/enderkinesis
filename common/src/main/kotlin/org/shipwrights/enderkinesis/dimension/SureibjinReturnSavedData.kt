@@ -42,6 +42,16 @@ internal class SureibjinReturnSavedData : SavedData() {
         return snap
     }
 
+    /** Overworld game time of the last exit from the dream, for each player. */
+    private val exitTimes: MutableMap<UUID, Long> = mutableMapOf()
+
+    internal fun markExit(uuid: UUID, gameTime: Long) {
+        exitTimes[uuid] = gameTime
+        setDirty()
+    }
+
+    internal fun lastExit(uuid: UUID): Long? = exitTimes[uuid]
+
     override fun save(tag: CompoundTag): CompoundTag {
         val list = ListTag()
         for ((uuid, snap) in snapshots) {
@@ -57,6 +67,14 @@ internal class SureibjinReturnSavedData : SavedData() {
             list.add(entry)
         }
         tag.put("Snapshots", list)
+        val exits = ListTag()
+        for ((uuid, time) in exitTimes) {
+            val entry = CompoundTag()
+            entry.putUUID("UUID", uuid)
+            entry.putLong("Time", time)
+            exits.add(entry)
+        }
+        tag.put("Exits", exits)
         return tag
     }
 
@@ -80,6 +98,11 @@ internal class SureibjinReturnSavedData : SavedData() {
                     xRot = entry.getFloat("XRot"),
                     playerStateTag = entry.getCompound("State"),
                 )
+            }
+            val exits = tag.getList("Exits", Tag.TAG_COMPOUND.toInt())
+            for (i in 0 until exits.size) {
+                val entry = exits.getCompound(i)
+                data.exitTimes[entry.getUUID("UUID")] = entry.getLong("Time")
             }
             return data
         }

@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.mixin;
 
 import com.mojang.datafixers.util.Either;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Unit;
 import net.minecraft.world.entity.player.Player;
@@ -47,6 +48,12 @@ public abstract class ServerPlayerSureibjinSleepMixin {
         }
         if (self.level().isDay()) {
             cir.setReturnValue(Either.left(Player.BedSleepingProblem.NOT_POSSIBLE_NOW));
+            return;
+        }
+        if (SureibjinEntry.reentryCooldownRemaining(self) > 0L) {
+            // OTHER_PROBLEM has no message of its own.
+            self.displayClientMessage(Component.translatable("message.enderkinesis.sureibjin.cooldown"), true);
+            cir.setReturnValue(Either.left(Player.BedSleepingProblem.OTHER_PROBLEM));
             return;
         }
 

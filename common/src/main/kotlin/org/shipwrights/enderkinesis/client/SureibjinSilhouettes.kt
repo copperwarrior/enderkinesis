@@ -23,6 +23,7 @@ import org.shipwrights.enderkinesis.dimension.Sureibjin
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.mixin.LivingEntitySwimAmountAccessor
 import org.shipwrights.enderkinesis.mixin.LocalPlayerCrouchingAccessor
+import org.shipwrights.enderkinesis.mixin.WalkAnimationStateAccessor
 
 /**
  * Four cardinal-direction silhouettes drawn at the "translucent" transition inside
@@ -87,6 +88,13 @@ object SureibjinSilhouettes {
         SilhouetteState(0xA3L),
         SilhouetteState(0xA4L),
     )
+    // North, south and west walk. The east silhouette, out on the sea, keeps its place and only strafes.
+    private val walkers = arrayOf(
+        SureibjinEchoWalker(0xB1L),
+        SureibjinEchoWalker(0xB2L),
+        null,
+        SureibjinEchoWalker(0xB4L),
+    )
     private val smoothedYs = doubleArrayOf(
         Double.NaN, Double.NaN, Double.NaN, Double.NaN,
     )
@@ -138,6 +146,17 @@ object SureibjinSilhouettes {
         val sz = doubleArrayOf(pz - dist, pz + dist, pz, pz)
         val yaw = floatArrayOf(0f, 180f, 90f, -90f)
 
+        // The walkers move in whole ticks, so their anchors use the tick position of the player.
+        for (i in walkers.indices) {
+            val walker = walkers[i] ?: continue
+            val anchorX = player.x + (sx[i] - px)
+            val anchorZ = player.z + (sz[i] - pz)
+            walker.ensureNear(anchorX, anchorZ, player.x, player.z)
+            for (t in 0 until tickDelta) {
+                walker.tick(anchorX, anchorZ, player.x, player.z, states[i].isSneaking)
+            }
+        }
+
         // Fabulous: `translucentTarget.copyDepthFrom` runs before this hook and leaves framebuffer 0
         // bound. The entity and text output shards are no-ops, so bind the main target here.
         if (Minecraft.useShaderTransparency()) mc.mainRenderTarget.bindWrite(false)
@@ -181,6 +200,12 @@ object SureibjinSilhouettes {
         val savedYBodyRotO = player.yBodyRotO
         val savedYHeadRot = player.yHeadRot
         val savedYHeadRotO = player.yHeadRotO
+        val savedXRot = player.xRot
+        val savedXRotO = player.xRotO
+        val walkAccessor = player.walkAnimation as WalkAnimationStateAccessor
+        val savedWalkSpeed = walkAccessor.`enderkinesis$getSpeed`()
+        val savedWalkSpeedOld = walkAccessor.`enderkinesis$getSpeedOld`()
+        val savedWalkPosition = walkAccessor.`enderkinesis$getPosition`()
         // LocalPlayer overrides isCrouching() to read its own private
         // `crouching` field (not Pose.CROUCHING), so setPose has no effect
         // on what PlayerRenderer.setModelProperties sees. Use the
@@ -200,10 +225,14 @@ object SureibjinSilhouettes {
                 // Strafe perpendicular to facing. N/S face along Z, so
                 // strafe slides them along X; E/W face along X, so
                 // strafe slides them along Z.
+                val walker = walkers[i]
                 val strafe = state.strafeOffset(partialTick)
                 val finalSx: Double
                 val finalSz: Double
-                if (i <= 1) {
+                if (walker != null) {
+                    finalSx = walker.x(partialTick)
+                    finalSz = walker.z(partialTick)
+                } else if (i <= 1) {
                     finalSx = sx[i] + strafe
                     finalSz = sz[i]
                 } else {
@@ -235,10 +264,27 @@ object SureibjinSilhouettes {
                 // tick to the same value keeps the rotLerp result pinned
                 // to our target yaw across the whole frame.
                 val yawI = yaw[i]
-                player.yBodyRot = yawI
-                player.yBodyRotO = yawI
-                player.yHeadRot = yawI
-                player.yHeadRotO = yawI
+                if (walker != null) {
+                    player.yBodyRot = walker.bodyYaw
+                    player.yBodyRotO = walker.bodyYawO
+                    player.yHeadRot = walker.headYaw
+                    player.yHeadRotO = walker.headYawO
+                    player.xRot = walker.pitch
+                    player.xRotO = walker.pitchO
+                    walkAccessor.`enderkinesis$setSpeed`(walker.animSpeed)
+                    walkAccessor.`enderkinesis$setSpeedOld`(walker.animSpeedO)
+                    walkAccessor.`enderkinesis$setPosition`(walker.animPosition)
+                } else {
+                    player.yBodyRot = yawI
+                    player.yBodyRotO = yawI
+                    player.yHeadRot = yawI
+                    player.yHeadRotO = yawI
+                    player.xRot = savedXRot
+                    player.xRotO = savedXRotO
+                    walkAccessor.`enderkinesis$setSpeed`(savedWalkSpeed)
+                    walkAccessor.`enderkinesis$setSpeedOld`(savedWalkSpeedOld)
+                    walkAccessor.`enderkinesis$setPosition`(savedWalkPosition)
+                }
                 val swingPair = state.swingProgress(partialTick)
                 val swingPrev = swingPair[0]
                 val swingCurr = swingPair[1]
@@ -295,6 +341,11 @@ object SureibjinSilhouettes {
             player.yBodyRotO = savedYBodyRotO
             player.yHeadRot = savedYHeadRot
             player.yHeadRotO = savedYHeadRotO
+            player.xRot = savedXRot
+            player.xRotO = savedXRotO
+            walkAccessor.`enderkinesis$setSpeed`(savedWalkSpeed)
+            walkAccessor.`enderkinesis$setSpeedOld`(savedWalkSpeedOld)
+            walkAccessor.`enderkinesis$setPosition`(savedWalkPosition)
 
             // Flush our additions immediately so they actually draw in
             // this pass instead of pooling into the next flush boundary.
