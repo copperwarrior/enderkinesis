@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.client
 import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
 import net.minecraft.client.resources.sounds.SoundInstance
 import net.minecraft.sounds.SoundSource
@@ -33,7 +34,10 @@ object YgannAbyssAmbience {
     /** Fraction of cues that are the (rarer, creepier) chanting rather than the drone. */
     private const val CHANT_CHANCE: Double = 0.3
 
+    /** The loop volume at the top of the void. It rises to 1 at the void-fade depth. */
     private const val LOOP_VOLUME: Float = 0.45f
+    /** The same depth as the void fade in [YgannAbyssVoidOverlay]. */
+    private const val FALL_DEPTH: Double = 64.0
     private const val DRONE_VOLUME: Float = 0.65f
     private const val CHANT_VOLUME: Float = 0.5f
 
@@ -80,10 +84,7 @@ object YgannAbyssAmbience {
         // Keep the continuous base loop running while in-dimension.
         if (loop.let { it == null || !mc.soundManager.isActive(it) } && loopRetryCooldown-- <= 0) {
             loopRetryCooldown = LOOP_RETRY_TICKS
-            val l = SimpleSoundInstance(
-                EKSounds.YGANN_AMBIENCE_LOOP.get().location, SoundSource.AMBIENT, LOOP_VOLUME, 1.0f, rng,
-                true, 0, SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true,
-            )
+            val l = AmbienceLoop(level)
             mc.soundManager.play(l)
             loop = l
         }
@@ -109,5 +110,29 @@ object YgannAbyssAmbience {
         mc.soundManager.play(sound)
         current = sound
         nextPlayTick = now + GAP_MIN + rng.nextInt((GAP_MAX - GAP_MIN).toInt())
+    }
+
+    private fun loopVolume(level: ClientLevel): Float {
+        val y = Minecraft.getInstance().player?.y ?: return LOOP_VOLUME
+        val t = ((level.minBuildHeight - y) / FALL_DEPTH).coerceIn(0.0, 1.0).toFloat()
+        val eased = t * t * (3f - 2f * t)
+        return LOOP_VOLUME + (1f - LOOP_VOLUME) * eased
+    }
+
+    private class AmbienceLoop(private val level: ClientLevel) : AbstractTickableSoundInstance(
+        EKSounds.YGANN_AMBIENCE_LOOP.get(), SoundSource.AMBIENT, SoundInstance.createUnseededRandom(),
+    ) {
+
+        init {
+            looping = true
+            delay = 0
+            relative = true
+            attenuation = SoundInstance.Attenuation.NONE
+            volume = loopVolume(level)
+        }
+
+        override fun tick() {
+            volume = loopVolume(level)
+        }
     }
 }

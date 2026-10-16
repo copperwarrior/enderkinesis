@@ -11,8 +11,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Shift+scroll while holding the Staff of Command cycles its selected
- * commandable family. Same shape as {@link MouseHandlerRecitalScrollMixin};
- * consuming cancels vanilla's hotbar-cycle.
+ * commandable family; consuming cancels vanilla's hotbar-cycle.
  */
 @Mixin(MouseHandler.class)
 public abstract class MouseHandlerCommandScrollMixin {

@@ -32,8 +32,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
  *  1.5, down = linear toward 0.25 — both reach their extreme at the same pixel
  *  distance.
  *
- *  The right-side HUD bar is a debug overlay — not part of the spec, kept
- *  for now as a visual readout of the live scale. */
+ *  The right-side HUD bar shows the live scale. */
 object ScalesClient {
 
 

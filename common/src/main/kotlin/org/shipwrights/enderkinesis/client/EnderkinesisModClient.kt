@@ -412,6 +412,7 @@ object EnderkinesisModClient {
 
         // Ygann's Abyss: uncommon ambient drones / distant chanting, in the vein of cave sounds.
         YgannAbyssAmbience.init()
+        YgannMadnessWhispers.init()
 
         // Sureibjin dream-coast ambience — single looping track played at the
         // coastline and ocean; stops west of the dune.
@@ -420,12 +421,27 @@ object EnderkinesisModClient {
         // Sselith's Repertory: uncommon whispering murmurs, same cave-sound cadence.
         SselithAmbience.init()
         SselithInvocationGlyphs.init()
+        SselithVoidSounds.init()
+        IchaericInkSoundsClient.init()
+        ArchiveSounds.init()
 
         // Crepusculite Charm: hold jump while carrying the charm to levitate up to 5
         // blocks above the local ground. Lift is client-side (vanilla doesn't sync
         // `jumping` for non-vehicle movement); the server-side companion in
         // [CrepusculiteCharmManager] resets the airborne anti-cheat counter every tick.
         CrepusculiteCharmClient.init()
+        CrepusculiteLatticeSounds.init()
+        EnderAstrolabeSounds.init()
+        EyeroscopeSounds.init()
+        PlanarAnchorSounds.init()
+        VoidHarnessSounds.init()
+        VoidHookSounds.init()
+        AetherPadSounds.init()
+        HeartOfTheWildSounds.init()
+        FractalOrbSounds.init()
+        WohlonPortalSounds.init()
+        VoidHarnessParticles.init()
+        VoidHookParticles.init()
 
         // Wey'ye fruit's Ambrosial Craving — periodic hotbar drift to the
         // fruit + forced bite when it's held. Server-side scaling is
@@ -453,6 +469,7 @@ object EnderkinesisModClient {
         // POSITION-only full-screen quad. Same registration pattern as Ygann's.
         ScryingRenderTypes.init()
         StaffGemGlow.init()
+        CrepusculiteLatticeMeshRenderer.init()
 
         // Tome-summon vignette shader: copy of the scrying vignette with an extra
         // Intensity uniform so the overlay can fade in / out around the local
@@ -479,8 +496,7 @@ object EnderkinesisModClient {
         ScribesDeskClient.init()
         // Staff of Scales — drag-to-set ship transform scale.
         ScalesClient.init()
-        // Staff of Recital — bundle-of-tomes + shift-scroll cycle HUD.
-        RecitalClient.init()
+        FusionClient.init()
         // Staff of Command — type-selector wheel + shift-scroll cycle.
         CommandWheelClient.init()
         // Staff of Aegis — per-tick particle spawn inside the shield box.
@@ -498,19 +514,27 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> EchoCannonClient.clientTick() }
 
         SselithEclipseClient.init()
+        SselithEclipseSounds.init()
         OwlSightTracker.init()
         SselithMadnessAfflicted.init()
         // Static client state holds game times and entities of the session that ends here.
         ClientPlayerEvent.CLIENT_PLAYER_QUIT.register {
             SselithAmbience.onDisconnect()
+            SselithEclipseSounds.onDisconnect()
+            SselithVoidSounds.onDisconnect()
+            IchaericInkSoundsClient.onDisconnect()
+            ArchiveSounds.onDisconnect()
+            SselithInvocationGlyphs.onDisconnect()
+            PlayerTomeSummonSounds.onDisconnect()
             SselithRepertorySky.onDisconnect()
             SselithMenuWalk.onDisconnect()
             SselithVoidFog.onDisconnect()
-            SselithFog.onDisconnect()
+            org.shipwrights.enderkinesis.physics.LatticeHullVolume.onClientDisconnect()
             SselithControlLoss.onDisconnect()
             SselithMadnessAfflicted.onDisconnect()
             YgannBarnacleDeathRenderer.onDisconnect()
             YgannAbyssAmbience.onDisconnect()
+            YgannMadnessWhispers.onDisconnect()
             YgannAbyssWatchingEyes.onDisconnect()
             SselithEclipse.clearClientManualTrigger()
             WohlonBiomeFog.onDisconnect()
@@ -518,6 +542,16 @@ object EnderkinesisModClient {
             ClientShipCloakingState.reset()
             ConcealmentTransitionWatcher.reset()
             MothClothClientPositions.clear()
+            CrepusculiteLatticeSounds.onDisconnect()
+            EnderAstrolabeSounds.onDisconnect()
+            EyeroscopeSounds.onDisconnect()
+            PlanarAnchorSounds.onDisconnect()
+            VoidHarnessSounds.onDisconnect()
+            VoidHookSounds.onDisconnect()
+            AetherPadSounds.onDisconnect()
+            HeartOfTheWildSounds.onDisconnect()
+            FractalOrbSounds.onDisconnect()
+            WohlonPortalSounds.onDisconnect()
             clearClientSession()
         }
         // The server sends no uncloak to a player who left the dimension. It sends the
@@ -549,8 +583,8 @@ object EnderkinesisModClient {
         // possessed player and the local input gate knows when to
         // suppress walking.
         PlayerTomeSummonClient.init()
+        PlayerTomeSummonSounds.init()
         SselithMadnessStageFx.init()
-        SselithFog.init()
 
         // Tome of Transportation — client-only ghost-item rendering for in-flight stacks.
         // Spawns a non-interacting [ItemEntity] for the duration of each dispatch and lets
@@ -571,13 +605,23 @@ object EnderkinesisModClient {
     /** Client tables of the level that ends. The server sends the cage list again after a respawn. */
     private fun clearClientSession() {
         GamylanCageClientRegistry.clearSession()
+        GamylanCageAlignSounds.reset()
         GamylanCageShatter.clearSession()
         AegisClient.clearSession()
+        FusionClient.clearSession()
         WikLakRedirectFlashTracker.clearSession()
         MagicMissileTrailRenderer.clearSession()
         TightRobeArmorRenderer.INSTANCE.clearSession()
         org.shipwrights.enderkinesis.physics.LatticeRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.physics.LatticeOcean.dropLevels(clientSide = true)
         org.shipwrights.enderkinesis.blockentity.OrbOfLinkingClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.EnderAstrolabeClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.EyeroscopeClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.PlanarAnchorClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.VoidHarnessClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.AetherPadClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.HeartOfTheWildClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.VoidHookClientRegistry.dropLevels(clientSide = true)
     }
 
     private var particlesDone = false
@@ -722,6 +766,10 @@ object EnderkinesisModClient {
         // stays exactly where AegisClient seeds it inside the shield box.
         registrar.register(EKParticles.aegisSparkle()) { sprites ->
             AegisSparkleParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.crepusculiteLightstoneShine()) { sprites ->
+            CrepusculiteLightstoneShineParticle.Provider(sprites)
         }
 
         // Staff-of-Sundering stage-1 "ender wisp" — vanilla portal sprite,

@@ -58,6 +58,9 @@ object LatticeRegistry {
     fun entries(level: Level): Set<Map.Entry<CrepusculiteLatticeBlockEntity, LatticeCatchZone>> =
         byLevel[level]?.entries ?: emptySet()
 
+    fun isPublished(level: Level, be: CrepusculiteLatticeBlockEntity): Boolean =
+        byLevel[level]?.containsKey(be) == true
+
     /** First zone in [level] whose inflated ellipsoid contains `(x, y, z)`. Used by ocean
      *  particles at spawn time to look up their host lattice's tint without a per-tick
      *  lookup. Returns null when no lattice covers the point. */
@@ -90,8 +93,7 @@ object LatticeRegistry {
  *    [Effects.CREPUSCULAR_FLOATATION] effect on its next pass.
  *  - **`waveTime, waveIntensity`**: parameters for the Gerstner field at this tick. Used by
  *    the wave-push code in the mixin to nudge entities along the wave's tangential flow.
- *    Server uses the lattice force inducer's live value; client falls back to a default
- *    since the inducer isn't synced.
+ *    Server uses the lattice force inducer's live value; client calculates the same value.
  */
 data class LatticeCatchZone(
     val cx: Double, val cy: Double, val cz: Double,
@@ -114,6 +116,8 @@ data class LatticeCatchZone(
     val dyed: Boolean = false,
     /** The ship of the lattice. One ship publishes one zone, from its highest lattice. */
     val shipId: Long = -1L,
+    /** Lattice redstone power as a fade for all that draws the ocean: 1 at power 0, 0 at power 15. */
+    val strength: Float = 1f,
 ) {
     /** Ship-local normalized X/Z of a world point (the ellipse's own frame). */
     fun localNx(x: Double, z: Double): Double =

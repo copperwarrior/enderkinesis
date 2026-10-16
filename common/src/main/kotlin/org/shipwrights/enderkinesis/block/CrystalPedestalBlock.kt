@@ -61,8 +61,8 @@ class CrystalPedestalBlock(properties: BlockBehaviour.Properties) : Block(proper
             if (!player.abilities.instabuild) held.shrink(1)
             level.playSound(
                 null, pos,
-                net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_CHIME,
-                net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 0.9f,
+                org.shipwrights.enderkinesis.registry.EKSounds.CRYSTAL_PEDESTAL_CONJURE.get(),
+                net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f,
             )
         }
         return net.minecraft.world.InteractionResult.SUCCESS

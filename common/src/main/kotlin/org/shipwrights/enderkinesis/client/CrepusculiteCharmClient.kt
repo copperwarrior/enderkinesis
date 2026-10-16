@@ -66,6 +66,7 @@ object CrepusculiteCharmClient {
         val v = player.deltaMovement
 
         emitLiftParticles(client, player)
+        CrepusculiteCharmSounds.onLiftTick(player)
 
         if (heightAboveGround >= MAX_HEIGHT) {
             // At/above cap — hover stably while jump is held. Forcing `vy = 0` each tick

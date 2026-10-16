@@ -478,6 +478,10 @@ object WohlonnogondoniaPortalManager {
             emitParticles(level, pos)
             if (doTeleport) scanAndTeleport(level, pos)
         }
+        if (gameTime % WohlonPortalNetwork.SYNC_INTERVAL_TICKS == 0L) {
+            val mother = if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) HEART_RETURN_PORTAL_POS else null
+            WohlonPortalNetwork.sync(level, data.positions, mother)
+        }
 
         // The Mother Tree heart return-portal is processed only
         // inside Wohlon and only here — it isn't stored in

@@ -79,6 +79,19 @@ object ShipMoves {
         TickEvent.SERVER_LEVEL_POST.register(TickEvent.ServerLevelTick(::deliver))
     }
 
+    /** Moves one block from ship [fromShipId] to ship [toShipId] with [move], which returns null on
+     *  success. [transform] maps block centers from the old shipyard frame to the new one. */
+    fun moveBlock(level: ServerLevel, fromShipId: Long, toShipId: Long, from: BlockPos, transform: Matrix4d, move: () -> String?): String? {
+        beginMove(level, listOf(from))
+        val refusal = try {
+            move()
+        } finally {
+            endMove()
+        }
+        if (refusal == null) queue(level, fromShipId, toShipId, false, transform, LongOpenHashSet(longArrayOf(from.asLong())))
+        return refusal
+    }
+
     /** Called by ShipWelderMoveMixin at the start of `ShipWelder.merge`. Never throws (see [onWeld]). */
     @JvmStatic
     fun beginWeld(level: ServerLevel, plan: Any) {

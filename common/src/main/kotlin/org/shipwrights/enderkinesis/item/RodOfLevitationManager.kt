@@ -9,7 +9,6 @@ import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.level.Level
 import net.minecraft.world.InteractionHand
@@ -19,6 +18,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.physics.RodLevitationAttachment
 import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.attachment.getOrPutAttachment
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
@@ -50,6 +50,8 @@ object RodOfLevitationManager {
     /** Per-tick acceleration the nudge produces on the target ship. */
     private const val NUDGE_ACCEL = 15.0
 
+    private const val NUDGE_COOLDOWN_TICKS = 5
+
     /** Portal particles spawned beneath the ship each game tick during the lift. */
     private const val PARTICLES_PER_TICK = 4
 
@@ -69,6 +71,8 @@ object RodOfLevitationManager {
     private const val NUDGE_PARTICLES = 4
     private const val NUDGE_PARTICLE_SPREAD = 0.25
     private const val NUDGE_PARTICLE_SPEED = 0.1
+    private const val NUDGE_PITCH_MIN = 0.9f
+    private const val NUDGE_PITCH_SPREAD = 0.2f
 
     private data class Pending(
         val state: BlockState,
@@ -82,6 +86,16 @@ object RodOfLevitationManager {
     )
 
     private val pending = mutableMapOf<Long, Pending>()
+
+    /** Server thread only. The key is the player UUID, the value is `MinecraftServer.tickCount`. */
+    private val lastNudgeTick = mutableMapOf<java.util.UUID, Int>()
+
+    private fun startNudgeCooldown(player: Player, serverTick: Int): Boolean {
+        val last = lastNudgeTick[player.uuid]
+        if (last != null && serverTick - last < NUDGE_COOLDOWN_TICKS) return false
+        lastNudgeTick[player.uuid] = serverTick
+        return true
+    }
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::onLevelTick)
@@ -105,7 +119,7 @@ object RodOfLevitationManager {
         // hovers it 2 blocks above where the player clicked.
         val targetY = pos.y + 0.5 + LIFT_BLOCKS
         pending[ship.id] = Pending(state, targetY, DURATION_TICKS, attached = false, dim = level.dimension())
-        playRodSound(level, SoundEvents.AMETHYST_BLOCK_RESONATE, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        playRodSound(level, EKSounds.ROD_OF_LEVITATION_LIFT.get(), pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
         return true
     }
 
@@ -131,12 +145,14 @@ object RodOfLevitationManager {
         ship.getOrPutAttachment(RodLevitationAttachment::class.java) { RodLevitationAttachment() }
             .touch(targetY)
         val shipPos = ship.transform.positionInWorld
-        playRodSound(level, SoundEvents.AMETHYST_BLOCK_RESONATE, shipPos.x(), shipPos.y(), shipPos.z())
+        playRodSound(level, EKSounds.ROD_OF_LEVITATION_LIFT.get(), shipPos.x(), shipPos.y(), shipPos.z())
         return true
     }
 
-    private fun playRodSound(level: ServerLevel, sound: SoundEvent, x: Double, y: Double, z: Double) {
-        level.playSound(null, x, y, z, sound, SoundSource.PLAYERS, 1f, 1f)
+    private fun playRodSound(
+        level: ServerLevel, sound: SoundEvent, x: Double, y: Double, z: Double, pitch: Float = 1f,
+    ) {
+        level.playSound(null, x, y, z, sound, SoundSource.PLAYERS, 1f, pitch)
     }
 
     private fun onLevelTick(level: ServerLevel) {
@@ -267,7 +283,7 @@ object RodOfLevitationManager {
             val ship = level.getLoadedShipManagingPos(pos)
             if (ship != null) {
                 val mass = ship.inertiaData.mass
-                if (!ship.isStatic && mass > 0.0) {
+                if (!ship.isStatic && mass > 0.0 && startNudgeCooldown(player, level.server.tickCount)) {
                     // Force direction = look vector; magnitude scales with mass so the
                     // perceived acceleration is the same regardless of ship size.
                     val look = player.lookAngle
@@ -309,7 +325,8 @@ object RodOfLevitationManager {
             ParticleTypes.REVERSE_PORTAL, p.x, p.y, p.z, NUDGE_PARTICLES,
             NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPEED,
         )
-        playRodSound(level, SoundEvents.AMETHYST_BLOCK_CHIME, p.x, p.y, p.z)
+        val pitch = NUDGE_PITCH_MIN + level.random.nextFloat() * NUDGE_PITCH_SPREAD
+        playRodSound(level, EKSounds.ROD_OF_LEVITATION_NUDGE.get(), p.x, p.y, p.z, pitch)
     }
 
     /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */

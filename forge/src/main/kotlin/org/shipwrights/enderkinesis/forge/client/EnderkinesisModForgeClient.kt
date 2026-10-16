@@ -117,6 +117,7 @@ class EnderkinesisModForgeClient {
             event.register(org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION)
             event.register(org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC)
             event.register(org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC)
+            event.register(org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION)
         }
 
         /** Capture the Wylland Tome sub-models into [WyllandTomeBEWLR]
@@ -170,6 +171,8 @@ class EnderkinesisModForgeClient {
                 models[org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC]
             org.shipwrights.enderkinesis.client.ParallelographBEWLR.armModel =
                 models[org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC]
+            org.shipwrights.enderkinesis.client.VoidHookRenderer.crystalModel =
+                models[org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION]
         }
 
         @JvmStatic
@@ -238,8 +241,13 @@ class EnderkinesisModForgeClient {
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,
                     )
-                    // Staff of Aegis, Staff of Sundering, Echo Cannon: same stage as on Fabric.
+                    // Staff of Aegis, Staff of Fusion, Staff of Sundering, Echo Cannon: same stage as on Fabric.
                     org.shipwrights.enderkinesis.client.AegisClient.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
+                    org.shipwrights.enderkinesis.client.FusionClient.renderAll(
                         event.poseStack, bufferSource,
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,

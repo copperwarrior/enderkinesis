@@ -249,14 +249,7 @@ object SunderingManager {
         // Infinity multiplies effective range by `1 + level`.
         val effectiveRange = RANGE * (1.0 + ench.infinity * INFINITY_PER_LEVEL)
 
-        // Collect every shield the beam might bounce off — actively
-        // wielded Aegis frames plus any debug boxes spawned via
-        // `/aegisbox`. The trace handles the polyline / reflection math.
-        val shields = ArrayList<AegisBox.Frame>()
-        shields.addAll(SunderingBeamTrace.collectWieldedShields(level, player))
-        shields.addAll(
-            org.shipwrights.enderkinesis.command.AegisDebugCommands.allDebugBoxes()
-        )
+        val shields = SunderingBeamTrace.collectWieldedShields(level, player)
         val trace = SunderingBeamTrace.trace(level, player, origin, viewVec, effectiveRange, shields)
 
         // Advance the i-frame-matched damage cadence. Counter starts at 1

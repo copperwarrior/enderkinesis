@@ -42,7 +42,7 @@ class CrystalExplosiveBlock(properties: BlockBehaviour.Properties) :
      *  a follow-up detonation at this position. The set guard skips the chain for the
      *  block that itself originated the in-flight explosion (so its own blast doesn't
      *  re-trigger itself); only neighbours caught in the radius propagate. Deferred
-     *  through `server.execute` (in [CrystalExplosiveBlockEntity.queueChainExplosion])
+     *  through `ServerTicks.runAfter` (in [CrystalExplosiveBlockEntity.queueChainExplosion])
      *  so a long line of explosives propagates over consecutive ticks instead of
      *  recursing through `level.explode` on the call stack. */
     override fun wasExploded(level: Level, pos: BlockPos, explosion: Explosion) {

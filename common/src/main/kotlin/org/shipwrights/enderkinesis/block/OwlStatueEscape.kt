@@ -8,7 +8,6 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.enchantment.EnchantmentHelper
@@ -18,6 +17,7 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.toWorldCoordinates
 import kotlin.math.sqrt
@@ -39,10 +39,9 @@ object OwlStatueEscape {
     private const val STATUE_HEIGHT = 2
     private const val HALF_WIDTH = 6.0 / 16.0
     private const val DUST_COUNT = 80
-    private const val SCREAM_VOLUME = 2.0f
-    private const val SCREAM_PITCH = 0.8f
-    private const val FLUTTER_VOLUME = 1.5f
-    private const val FLUTTER_PITCH = 0.7f
+    private const val ESCAPE_VOLUME = 1.0f
+    private const val ESCAPE_PITCH_MIN = 0.9f
+    private const val ESCAPE_PITCH_MAX = 1.0f
 
     fun escapes(player: Player): Boolean =
         !player.isCreative && !EnchantmentHelper.hasSilkTouch(player.mainHandItem)
@@ -53,12 +52,8 @@ object OwlStatueEscape {
         // On a VS2 ship, pos is in the shipyard. Sound and particles need world coordinates.
         val centre = level.toWorldCoordinates(Vec3(pos.x + 0.5, pos.y + halfHeight, pos.z + 0.5))
         level.playSound(
-            null, centre.x, centre.y, centre.z, SoundEvents.SOUL_ESCAPE, SoundSource.BLOCKS,
-            SCREAM_VOLUME, SCREAM_PITCH,
-        )
-        level.playSound(
-            null, centre.x, centre.y, centre.z, SoundEvents.PARROT_FLY, SoundSource.BLOCKS,
-            FLUTTER_VOLUME, FLUTTER_PITCH,
+            null, centre.x, centre.y, centre.z, EKSounds.SSELITH_OWL_ESCAPE.get(), SoundSource.BLOCKS,
+            ESCAPE_VOLUME, ESCAPE_PITCH_MIN + level.random.nextFloat() * (ESCAPE_PITCH_MAX - ESCAPE_PITCH_MIN),
         )
         // sendParticles spreads with a Gaussian; half of each half extent keeps the cloud in the statue.
         level.sendParticles(

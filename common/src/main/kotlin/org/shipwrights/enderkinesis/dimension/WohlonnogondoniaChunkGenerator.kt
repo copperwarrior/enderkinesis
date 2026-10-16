@@ -2712,10 +2712,7 @@ class WohlonnogondoniaChunkGenerator(
 
     override fun addDebugScreenInfo(
         info: MutableList<String>, randomState: RandomState, pos: BlockPos,
-    ) {
-        info.add("Wohlonnogondonia chunk generator")
-        info.add("surface=" + surfaceYAt(pos.x, pos.z))
-    }
+    ) = Unit
 
     @Suppress("unused")
     fun getBiomeSourceForCodec(): BiomeSource = this.biomeSource

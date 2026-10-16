@@ -6,11 +6,11 @@ import dev.architectury.event.events.common.InteractionEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.BucketItem
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 
 /**
@@ -86,8 +86,8 @@ object YgannAbyssGuard {
         )
         level.playSound(
             null, pos,
-            SoundEvents.ENDERMAN_TELEPORT, SoundSource.BLOCKS,
-            0.5f, 1.4f,
+            EKSounds.YGANN_REJECT.get(), SoundSource.BLOCKS,
+            1f, 1f,
         )
     }
 }

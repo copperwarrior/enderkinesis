@@ -81,7 +81,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
                 // death path.
                 val ship = level.getShipObjectManagingPos(pos)
                 if (ship != null) {
-                    org.shipwrights.enderkinesis.entity.ConstriliarEntity.dropShipCargo(level, ship, pos)
+                    org.shipwrights.enderkinesis.entity.ConstriliarCargo.dropShipCargo(level, ship, pos)
                     org.valkyrienskies.mod.common.assembly.ShipAssembler.deleteShip(level, ship, false, false)
                 }
             }

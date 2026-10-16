@@ -1,6 +1,6 @@
 {
   "variants": {
-    "powered=false": { "model": "enderkinesis:block/ender_astrolabe" },
-    "powered=true":  { "model": "enderkinesis:block/ender_astrolabe" }
+    "charging=false": { "model": "enderkinesis:block/ender_astrolabe" },
+    "charging=true":  { "model": "enderkinesis:block/ender_astrolabe" }
   }
 }

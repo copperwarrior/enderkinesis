@@ -198,6 +198,7 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION,
                 org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC,
                 org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC,
+                org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION,
             )
             ctx.modifyModelAfterBake().register(
                 ModelModifier.AfterBake { model, modelCtx ->
@@ -214,6 +215,8 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                             org.shipwrights.enderkinesis.client.ParallelographBEWLR.baseModel = model
                         org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC ->
                             org.shipwrights.enderkinesis.client.ParallelographBEWLR.armModel = model
+                        org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION ->
+                            org.shipwrights.enderkinesis.client.VoidHookRenderer.crystalModel = model
                     }
                     model
                 },
@@ -244,6 +247,13 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             EKItems.ICHAERIC_INK_JAR_ITEM.get(),
         ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
             org.shipwrights.enderkinesis.client.IchaericInkJarBEWLR.renderByItem(
+                stack, mode, poseStack, vertexConsumers, light, overlay,
+            )
+        }
+        BuiltinItemRendererRegistry.INSTANCE.register(
+            EKItems.HEART_OF_THE_WILD_ITEM.get(),
+        ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
+            org.shipwrights.enderkinesis.client.HeartOfTheWildBEWLR.renderByItem(
                 stack, mode, poseStack, vertexConsumers, light, overlay,
             )
         }
@@ -310,6 +320,9 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             // it composites over translucent blocks and reads consistently
             // with the particles inside.
             org.shipwrights.enderkinesis.client.AegisClient.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
+            org.shipwrights.enderkinesis.client.FusionClient.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
             // Staff of Sundering — laser beam + tip rings + spiral. Same

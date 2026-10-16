@@ -40,7 +40,7 @@ public abstract class ThrownEnderpearlLatticeAssemblyMixin {
         if (!(state.getBlock() instanceof CrepusculiteLatticeBlock)) return;
 
         CrepusculiteLatticeBlock.AssembleOutcome outcome =
-            CrepusculiteLatticeBlock.assembleConnectedShip(server, pos);
+            CrepusculiteLatticeBlock.assembleWithSound(server, pos);
         Entity owner = self.getOwner();
         if (owner instanceof ServerPlayer sp) {
             sp.displayClientMessage(Component.translatable(outcome.getMessageKey()), true);

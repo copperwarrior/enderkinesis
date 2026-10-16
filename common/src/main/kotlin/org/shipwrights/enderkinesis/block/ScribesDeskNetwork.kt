@@ -9,6 +9,8 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.ScribesDeskBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
+import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.item.EideticBookmarkItem
 import org.shipwrights.enderkinesis.sselith.BookshelfPage
 
@@ -63,6 +65,7 @@ object ScribesDeskNetwork {
         val words = words(text)
         if (!isWritable(words)) return
         desk.consumeForInscription()
+        player.level().playSound(null, pos, EKSounds.SCRIBES_DESK_INSCRIBE.get(), SoundSource.BLOCKS, 1f, 1f)
         val bookmark = EideticBookmarkItem.inscribed(words.joinToString(" "))
         if (!player.inventory.add(bookmark)) player.drop(bookmark, false)
         player.displayClientMessage(Component.translatable(INSCRIBED_KEY), true)

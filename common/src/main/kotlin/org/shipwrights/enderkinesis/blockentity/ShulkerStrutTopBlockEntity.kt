@@ -5,10 +5,12 @@ import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.item.DyeColor
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.util.ShipMoves
 
 /**
  * Rendering hook for [org.shipwrights.enderkinesis.block.ShulkerStrutTopBlock] *and*
@@ -28,6 +30,25 @@ class ShulkerStrutTopBlockEntity(pos: BlockPos, state: BlockState) :
 
     var basePos: BlockPos? = null
     var dyeColor: DyeColor? = null
+
+    private var checkTimer = 0
+    private var orphanStrikes = 0
+
+    /** The lid has no interaction shape, so a lid without its base can only remove itself. */
+    fun serverTick(level: ServerLevel, pos: BlockPos) {
+        if (++checkTimer < ORPHAN_CHECK_INTERVAL) return
+        checkTimer = 0
+        val base = basePos ?: return
+        if (!level.isLoaded(base) || ShipMoves.isMovingBlocks(level)) return
+        val owner = level.getBlockEntity(base) as? ShulkerStrutBlockEntity
+        if (owner?.lidShipyardPos == pos) {
+            orphanStrikes = 0
+            return
+        }
+        // After a block move the base re-points basePos on its next tick, so one miss is not proof.
+        if (++orphanStrikes < ORPHAN_STRIKES_TO_REMOVE) return
+        level.removeBlock(pos, false)
+    }
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
@@ -55,5 +76,7 @@ class ShulkerStrutTopBlockEntity(pos: BlockPos, state: BlockState) :
         private const val NBT_BASE_Y = "BaseY"
         private const val NBT_BASE_Z = "BaseZ"
         private const val NBT_DYE_COLOR = "Color"
+        private const val ORPHAN_CHECK_INTERVAL = 20
+        private const val ORPHAN_STRIKES_TO_REMOVE = 2
     }
 }

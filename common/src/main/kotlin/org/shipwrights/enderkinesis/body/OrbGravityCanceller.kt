@@ -55,6 +55,9 @@ object OrbBodyRegistry {
         version++
     }
 
+    /** Any thread. */
+    fun isOrb(dimensionId: String, bodyId: Long): Boolean = byDimension[dimensionId]?.containsKey(bodyId) == true
+
     fun forEachIn(dimensionId: String, action: (Long, Vector3dc) -> Unit) {
         byDimension[dimensionId]?.forEach { (id, anchor) -> action(id, anchor) }
     }

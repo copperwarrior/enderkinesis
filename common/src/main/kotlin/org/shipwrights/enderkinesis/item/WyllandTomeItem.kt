@@ -153,6 +153,10 @@ class WyllandTomeItem(properties: Properties) : TomeItem(properties) {
     }
 
     companion object {
+        @JvmStatic
+        fun isHeld(player: Player): Boolean =
+            player.mainHandItem.item is WyllandTomeItem || player.offhandItem.item is WyllandTomeItem
+
         /** Maximum durability of the tome. Drains while a target is held
          *  (see [DURABILITY_DRAIN_PER_TICK]); the tome never shatters —
          *  at the bottom it simply refuses to grab until repaired with

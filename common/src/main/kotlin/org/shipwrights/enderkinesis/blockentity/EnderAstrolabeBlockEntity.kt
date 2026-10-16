@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.blockentity
 
 import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
+import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.protocol.Packet
@@ -19,12 +20,12 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level as MCLevel
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
 import org.shipwrights.enderkinesis.dimension.AlmanacData
 import kotlin.math.sqrt
 import org.shipwrights.enderkinesis.dimension.DimensionFilter
@@ -57,17 +58,17 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         cycleDestination(player, contextStack)
     }
 
-    /** The astrolabe has no staff trigger — charging is redstone-driven. */
     override fun executeStaffCommand(
         player: net.minecraft.world.entity.player.Player,
         hostShip: org.valkyrienskies.core.api.ships.Ship?,
         contextStack: net.minecraft.world.item.ItemStack,
-    ) {}
+    ) {
+        toggleJump(player.level(), blockPos)
+    }
 
     private var destination: ResourceLocation? = null
 
-    /** Re-entrancy guard: a ship teleport relocates terrain, which fires neighbour updates that
-     *  would call [triggerJump] again mid-teleport (→ StackOverflow). */
+    /** Re-entrancy guard: a second jump must not start while a ship teleport relocates terrain. */
     private var jumping = false
 
     // Each successful [cycleDestination] picks a new random yaw (full 360°) for the body group,
@@ -85,7 +86,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
     private var rollTarget: Float = 0f
     private var animationStartTick: Long = Long.MIN_VALUE
 
-    // A redstone-rising-edge [triggerJump] no longer teleports immediately. Instead it stamps
+    // A right-click [toggleJump] does not teleport immediately. Instead [triggerJump] stamps
     // [chargeStartTick] and [chargeDurationTicks] and lets [serverTick] periodically scan for
     // an open landing slot in the destination — distributing the search across the charge
     // window. If any check finds one it's stored in [acceptedLandingPos]; the teleport at the
@@ -98,6 +99,12 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
     private var acceptedLandingPos: Vec3? = null
     private var failOutStartTick: Long = -1L
     private var failOutDurationTicks: Long = 0L
+
+    /** Game time of the tune puff. -1 when no puff is pending. */
+    private var tunePuffTick: Long = -1L
+
+    /** Charge ticks completed when the player cancelled. -1 when the fail-out is not a cancel. */
+    private var cancelElapsedTicks: Long = -1L
 
     /** Crew/passengers are picked up within this radius of the astrolabe. */
     private val passengerBox: AABB get() = AABB(blockPos).inflate(8.0, 4.0, 8.0)
@@ -125,7 +132,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *    Rate ramps `MIN → MAX` over the charge window.
      *  - **Failing out** ([failOutStartTick] set): the *completed* charge angle
      *    ([chargeAngleAtCompletion]) plus an integrated ease-down ([failOutEaseAngle]) that
-     *    decays rate from MAX back to 0 across [failOutDurationTicks]. Position keeps
+     *    decays rate from MAX back to 0 across [FAIL_COAST_TICKS], then clicks back. Position keeps
      *    integrating (the centre group keeps turning, just slower and slower) until the
      *    rate reaches 0.
      *  - **Idle**: just the base. */
@@ -138,7 +145,10 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             rollAtStart + (rollTarget - rollAtStart) * easeOutCubic(t)
         }
         if (chargeStartTick != -1L) return base + chargeSpinRadians(time)
-        if (failOutStartTick != -1L) return base + chargeAngleAtCompletion() + failOutEaseAngle(time)
+        if (failOutStartTick != -1L) {
+            if (cancelElapsedTicks != -1L) return base + chargeSpinAt(cancelElapsedTicks.toFloat()) + cancelOutAngle(time)
+            return base + chargeAngleAtCompletion() + failOutEaseAngle(time)
+        }
         return base
     }
 
@@ -152,12 +162,30 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
     private fun chargeSpinRadians(time: Double): Float {
         if (chargeDurationTicks <= 0L) return 0f
         val elapsed = (time - chargeStartTick.toDouble()).coerceAtLeast(0.0).toFloat()
+        return chargeSpinAt(elapsed)
+    }
+
+    private fun chargeSpinAt(elapsedTicks: Float): Float {
+        if (chargeDurationTicks <= 0L) return 0f
         // Clamp to duration so we don't overshoot past charge end (in case the BE ticker
         // takes one extra tick to fire the actual teleport).
-        val clamped = elapsed.coerceAtMost(chargeDurationTicks.toFloat())
+        val clamped = elapsedTicks.coerceAtMost(chargeDurationTicks.toFloat())
         val kPerTick = SPIN_LN_RATIO / chargeDurationTicks.toFloat()
         return SPIN_RATE_RAD_PER_TICK_MIN / kPerTick *
             (Math.exp((kPerTick * clamped).toDouble()).toFloat() - 1f)
+    }
+
+    /** Cancel overlay: the spin coasts on from its rate at the cancel, then clicks back.
+     *  The click-back starts at the click in `cancel.ogg` (0.25 s). */
+    private fun cancelOutAngle(time: Double): Float {
+        if (chargeDurationTicks <= 0L) return 0f
+        val elapsed = (time - failOutStartTick.toDouble()).coerceAtLeast(0.0).toFloat()
+        val kPerTick = SPIN_LN_RATIO / chargeDurationTicks.toFloat()
+        val rate = SPIN_RATE_RAD_PER_TICK_MIN * Math.exp((kPerTick * cancelElapsedTicks).toDouble()).toFloat()
+        // u·(2 − u) starts at `rate` when the coast angle is rate · T / 2.
+        val coast = (rate * CANCEL_COAST_TICKS / 2f).coerceAtLeast(CANCEL_MIN_COAST_RAD)
+        val u = (elapsed / CANCEL_COAST_TICKS).coerceAtMost(1f)
+        return coast * u * (2f - u) - clickBack((elapsed - CANCEL_COAST_TICKS) / CANCEL_CLICK_TICKS)
     }
 
     /** Total spin angle the charge accumulated by the time it ran out, evaluated
@@ -171,17 +199,20 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         return (SPIN_RATE_RAD_PER_TICK_MAX - SPIN_RATE_RAD_PER_TICK_MIN) * durationF / SPIN_LN_RATIO
     }
 
-    /** Integrated ease-out angle accumulated during the fail-out window. Rate decays
-     *  linearly from [SPIN_RATE_RAD_PER_TICK_MAX] (where charge ended) to 0 across
-     *  [failOutDurationTicks]: `rate(t) = MAX · (1 − t / fd)`. Integrating:
-     *  `angle(t) = MAX · t · (1 − t / (2 · fd))`. At `t = fd` (fail-out complete) the
-     *  rate is 0 and the angle has stopped growing. */
+    /** Fail-out overlay. The rate decays linearly from [SPIN_RATE_RAD_PER_TICK_MAX] (where
+     *  charge ended) to 0 across [FAIL_COAST_TICKS]: `angle(t) = MAX · t · (1 − t / (2 · T))`.
+     *  Then the group clicks back, at the clunk in `fail.ogg` (1.0 s). */
     private fun failOutEaseAngle(time: Double): Float {
         if (failOutDurationTicks <= 0L) return 0f
         val elapsed = (time - failOutStartTick.toDouble()).coerceAtLeast(0.0).toFloat()
-        val clamped = elapsed.coerceAtMost(failOutDurationTicks.toFloat())
-        val fd = failOutDurationTicks.toFloat()
-        return SPIN_RATE_RAD_PER_TICK_MAX * clamped * (1f - clamped / (2f * fd))
+        val clamped = elapsed.coerceAtMost(FAIL_COAST_TICKS)
+        val coast = SPIN_RATE_RAD_PER_TICK_MAX * clamped * (1f - clamped / (2f * FAIL_COAST_TICKS))
+        return coast - clickBack((elapsed - FAIL_COAST_TICKS) / FAIL_CLICK_TICKS)
+    }
+
+    private fun clickBack(fraction: Float): Float {
+        val f = fraction.coerceIn(0f, 1f)
+        return CLICK_BACK_RAD * f * (2f - f)
     }
 
     fun cycleDestination(player: Player, almanac: ItemStack) {
@@ -194,6 +225,10 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         }
         destination = next
         beginTuneAnimation()
+        (level as? ServerLevel)?.let {
+            it.playSound(null, blockPos, EKSounds.ENDER_ASTROLABE_TUNE.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
+            tunePuffTick = it.gameTime + TUNE_PUFF_DELAY_TICKS
+        }
         setChanged()
         // Friendly dimension name (fancy translation, else bare path), galactic-alphabet font.
         player.displayClientMessage(
@@ -235,8 +270,43 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         lvl.sendBlockUpdated(blockPos, blockState, blockState, 3)
     }
 
+    /** Right-click and Staff of Command entry point. Starts the charge, or cancels a charge in progress with the
+     *  silent fail-out animation. */
+    fun toggleJump(level: MCLevel, pos: BlockPos) {
+        if (level !is ServerLevel) return
+        if (chargeStartTick != -1L) {
+            startFailOut(level, null, "toggled off during charge")
+        } else {
+            triggerJump(level, pos)
+        }
+    }
+
+    /** Fraction (0..1) of the charge window at game time [time]. Null when there is no charge. */
+    fun chargeProgress(time: Double): Float? {
+        if (chargeStartTick == -1L || chargeDurationTicks <= 0L) return null
+        return ((time - chargeStartTick) / chargeDurationTicks).coerceIn(0.0, 1.0).toFloat()
+    }
+
+    override fun setLevel(level: MCLevel) {
+        super.setLevel(level)
+        if (level.isClientSide) EnderAstrolabeClientRegistry.register(level, this)
+    }
+
+    override fun setRemoved() {
+        level?.let { if (it.isClientSide) EnderAstrolabeClientRegistry.unregister(it, this) }
+        super.setRemoved()
+    }
+
+    /** CHARGING mirrors the charge state. Only this block entity writes it. */
+    private fun setCharging(level: ServerLevel, charging: Boolean) {
+        val state = blockState
+        if (state.getValue(EnderAstrolabeBlock.CHARGING) != charging) {
+            level.setBlock(blockPos, state.setValue(EnderAstrolabeBlock.CHARGING, charging), 3)
+        }
+    }
+
     /**
-     * Redstone entry point. Starts a *charge window* whose length scales with the ship's
+     * Starts a *charge window* whose length scales with the ship's
      * AABB radius (1 s per block of bounding-sphere radius). The real teleport fires
      * later, from [serverTick], once `level.gameTime − chargeStartTick ≥ chargeDurationTicks`.
      *
@@ -247,12 +317,10 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *  geode-assembly code "works" with TickTask because it retries until the chunk is
      *  loaded; we need a deterministic time-based delay, hence the BE ticker.
      *
-     *  Re-entrancy: rising edges during charge or during the teleport itself are ignored.
+     *  Re-entrancy: triggers during charge, fail-out, or the teleport itself are ignored.
      */
-    fun triggerJump(level: MCLevel, pos: BlockPos) {
-        if (level !is ServerLevel || jumping ||
-            chargeStartTick != -1L || failOutStartTick != -1L
-        ) return
+    private fun triggerJump(level: ServerLevel, pos: BlockPos) {
+        if (jumping || chargeStartTick != -1L || failOutStartTick != -1L) return
         val ship = level.getLoadedShipManagingPos(pos) as? LoadedServerShip
         val radius = if (ship != null) computeShipRadius(ship) else 0.0
         // 1 s per block of radius, with a floor so even tiny ships visibly charge.
@@ -262,12 +330,13 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         chargeDurationTicks = durationTicks
         acceptedLandingPos = null
         nextLandingCheckTick = 0L          // first check fires on the very first serverTick
+        setCharging(level, true)
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
 
         level.playSound(
             null, blockPos,
-            EKSounds.CREPUSCULITE_PLACE, SoundSource.BLOCKS,
+            EKSounds.ENDER_ASTROLABE_CHARGE_START.get(), SoundSource.BLOCKS,
             1.0f, 1.0f,
         )
 
@@ -281,22 +350,44 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *   - **Failing out**: wait for the ease-down to finish, then bake the final centre-
      *     group angle into the persistent roll state and return to idle. */
     fun serverTick(level: ServerLevel, pos: BlockPos) {
+        if (tunePuffTick != -1L && level.gameTime >= tunePuffTick) {
+            tunePuffTick = -1L
+            emitTunePuff(level, pos)
+        }
         if (jumping) return
         if (chargeStartTick != -1L) chargingTick(level, pos)
         else if (failOutStartTick != -1L) failOutTick(level)
     }
 
+    /** Puff from random points in the collision shape. Each box gets a share by its volume. */
+    private fun emitTunePuff(level: ServerLevel, pos: BlockPos) {
+        val boxes = blockState.getCollisionShape(level, pos).toAabbs()
+        val totalVolume = boxes.sumOf { it.xsize * it.ysize * it.zsize }
+        if (totalVolume <= 0.0) return
+        // On a ship, [pos] is a shipyard position.
+        val shipToWorld = level.getLoadedShipManagingPos(pos)?.transform?.shipToWorld
+        val rng = level.random
+        val point = Vector3d()
+        for (box in boxes) {
+            val share = box.xsize * box.ysize * box.zsize / totalVolume
+            val count = Math.round(TUNE_PUFF_COUNT * share).toInt().coerceAtLeast(1)
+            repeat(count) {
+                point.set(
+                    pos.x + box.minX + rng.nextDouble() * box.xsize,
+                    pos.y + box.minY + rng.nextDouble() * box.ysize,
+                    pos.z + box.minZ + rng.nextDouble() * box.zsize,
+                )
+                shipToWorld?.transformPosition(point)
+                level.sendParticles(
+                    ParticleTypes.REVERSE_PORTAL, point.x, point.y, point.z, 1, 0.0, 0.0, 0.0, TUNE_PUFF_SPEED,
+                )
+            }
+        }
+    }
+
     private fun chargingTick(level: ServerLevel, pos: BlockPos) {
         val now = level.gameTime
         val elapsed = now - chargeStartTick
-
-        // Power must hold for the entire charge window. Dropping the signal at any point
-        // cancels the in-flight jump — same fail-out animation as a no-landing-found
-        // outcome, no chat message (silent cancel; the spin-down is the cue).
-        if (!level.hasNeighborSignal(pos)) {
-            startFailOut(level, null, "lost redstone power during charge")
-            return
-        }
 
         // Periodic open-space check, distributed across the charge window. Stops trying
         // once a landing is locked in.
@@ -328,6 +419,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         animationStartTick = Long.MIN_VALUE
         failOutStartTick = -1L
         failOutDurationTicks = 0L
+        cancelElapsedTicks = -1L
         chargeDurationTicks = 0L
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
@@ -376,15 +468,25 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *  [messageKey] to fail out silently (no chat announcement). */
     private fun startFailOut(level: ServerLevel, messageKey: String?, logReason: String) {
         failOutStartTick = level.gameTime
-        failOutDurationTicks = FAIL_OUT_DURATION_TICKS
+        // A null message is the player cancel.
+        if (messageKey == null) {
+            cancelElapsedTicks = (level.gameTime - chargeStartTick).coerceIn(0L, chargeDurationTicks)
+            failOutDurationTicks = CANCEL_OUT_DURATION_TICKS
+        } else {
+            cancelElapsedTicks = -1L
+            failOutDurationTicks = FAIL_OUT_DURATION_TICKS
+        }
         // Important: KEEP chargeDurationTicks so chargeAngleAtCompletion() still has a
         // valid duration to compute the spin angle accumulated by the end of charge. We
         // just stop being "charging" by clearing chargeStartTick.
         chargeStartTick = -1L
         nextLandingCheckTick = 0L
+        setCharging(level, false)
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
         if (messageKey != null) announce(level, Component.translatable(messageKey))
+        val sound = if (messageKey == null) EKSounds.ENDER_ASTROLABE_CANCEL else EKSounds.ENDER_ASTROLABE_FAIL
+        level.playSound(null, blockPos, sound.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
     }
 
     /** Charge window has finished — bake the accumulated spin into the persistent roll
@@ -406,6 +508,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         chargeStartTick = -1L
         chargeDurationTicks = 0L
         nextLandingCheckTick = 0L
+        setCharging(level, false)
         setChanged()
         level.sendBlockUpdated(blockPos, blockState, blockState, 3)
 
@@ -824,7 +927,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         level.playSound(
             null,
             centre.x(), centre.y(), centre.z(),
-            SoundEvents.ENDERMAN_TELEPORT, SoundSource.BLOCKS,
+            EKSounds.ENDER_ASTROLABE_JUMP.get(), SoundSource.BLOCKS,
             1.0f, 1.0f,
         )
     }
@@ -887,10 +990,24 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
          *  landing locks in. */
         const val LANDING_CHECKS_PER_CHARGE: Long = 4L
 
-        /** Length of the fail-out ease-down phase in ticks. 30 ticks (1.5 s) is fast
-         *  enough to read as a deliberate stop rather than the astrolabe coasting forever,
-         *  slow enough that the spyglass + dome visibly decelerate rather than snap. */
+        /** Length of the fail-out phase in ticks: the ease-down ([FAIL_COAST_TICKS]), then the
+         *  click-back and a short rest. */
         const val FAIL_OUT_DURATION_TICKS: Long = 30L
+
+        /** The ease-out tune animation is 94% complete here, and the tone in `tune.ogg` starts (0.9 s). */
+        private const val TUNE_PUFF_DELAY_TICKS = 18L
+        private const val TUNE_PUFF_COUNT = 16
+        private const val TUNE_PUFF_SPEED = 0.1
+
+        private const val FAIL_COAST_TICKS = 20f
+        private const val FAIL_CLICK_TICKS = 4f
+
+        private const val CANCEL_COAST_TICKS = 5f
+        private const val CANCEL_CLICK_TICKS = 4f
+        const val CANCEL_OUT_DURATION_TICKS: Long = 9L
+        /** Smallest coast angle, so a cancel early in the charge still shows the move. */
+        private const val CANCEL_MIN_COAST_RAD = 0.6f
+        private const val CLICK_BACK_RAD = 0.35f
 
         /** Safety bound on how long the post-teleport freeze loop will wait for VS2 to
          *  re-load the ship in the destination dimension. If the listener hits this and
@@ -1030,6 +1147,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         }
         tag.putLong("FailOutStartTick", failOutStartTick)
         tag.putLong("FailOutDurationTicks", failOutDurationTicks)
+        tag.putLong("CancelElapsedTicks", cancelElapsedTicks)
     }
 
     override fun load(tag: CompoundTag) {
@@ -1055,10 +1173,19 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             tag.getDouble("AcceptedLandingY"),
             tag.getDouble("AcceptedLandingZ"),
         ) else null
+        val wasFailingOut = failOutStartTick != -1L
         failOutStartTick = if (tag.contains("FailOutStartTick"))
             tag.getLong("FailOutStartTick") else -1L
+        // The client clock can be some ticks off the server clock, and the cancel sound starts
+        // when the packet arrives. Start the client animation at that same moment.
+        val clientLevel = level?.takeIf { it.isClientSide }
+        if (clientLevel != null && !wasFailingOut && failOutStartTick != -1L) {
+            failOutStartTick = clientLevel.gameTime
+        }
         failOutDurationTicks = if (tag.contains("FailOutDurationTicks"))
             tag.getLong("FailOutDurationTicks") else 0L
+        cancelElapsedTicks = if (tag.contains("CancelElapsedTicks"))
+            tag.getLong("CancelElapsedTicks") else -1L
     }
 
     /** Sync packet — sends our full NBT (including the tune-animation fields) so the client

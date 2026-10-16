@@ -118,6 +118,12 @@ object EnderkinesisMod {
                 .useTransientSerializer()
                 .build()
         )
+        // Transient: FusionManager refreshes the target each server tick, and the pull expires by itself.
+        vsCore.registerAttachment(
+            vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.FusionPullAttachment::class.java)
+                .useTransientSerializer()
+                .build()
+        )
         // Transient: RodLevitationAttachment lives for the 4-second lift window OR a
         // single phys tick of nudge. Either way it doesn't need to survive a reload.
         vsCore.registerAttachment(
@@ -187,6 +193,7 @@ object EnderkinesisMod {
         )
 
         org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.register()
+        org.shipwrights.enderkinesis.body.OrbCollisionSounds.register()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
         org.shipwrights.enderkinesis.dimension.SselithMothSpawner.init()
@@ -195,8 +202,6 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.remnant.IrreverantRemnantManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaSpreader.init()
         org.shipwrights.enderkinesis.block.BindingRootsMerger.init()
-        org.shipwrights.enderkinesis.command.WohlonDebugCommands.init()
-        org.shipwrights.enderkinesis.command.AegisDebugCommands.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaTreeGrower.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaWorldRootGrower.init()
         org.shipwrights.enderkinesis.entity.WikLakConstruction.init()
@@ -217,15 +222,13 @@ object EnderkinesisMod {
 
         SselithVoidWrap.init()
         org.shipwrights.enderkinesis.dimension.SselithParallel.init()
-        org.shipwrights.enderkinesis.command.RepertoryDebugCommands.init()
+        org.shipwrights.enderkinesis.command.SselithCommands.init()
         org.shipwrights.enderkinesis.block.ScribesDeskNetwork.init()
         SselithMadness.init()
         SselithRepertoryChunkGenerator.init()
         SselithMadnessTomeSummon.init()
         SselithChatTeleport.init()
         org.shipwrights.enderkinesis.sselith.SselithEclipse.init()
-        org.shipwrights.enderkinesis.command.SselithEclipseDebugCommands.init()
-        org.shipwrights.enderkinesis.command.SselithFogDebugCommands.init()
 
         // Sureibjin drown-to-wake exit.
         org.shipwrights.enderkinesis.dimension.SureibjinExit.init()
@@ -241,8 +244,9 @@ object EnderkinesisMod {
         WyllandTomeNetwork.init()
         org.shipwrights.enderkinesis.item.DensityNetwork.init()
         org.shipwrights.enderkinesis.item.DensityManager.init()
+        org.shipwrights.enderkinesis.physics.LatticeInducerSweep.init()
         org.shipwrights.enderkinesis.item.ScalesNetwork.init()
-        org.shipwrights.enderkinesis.item.RecitalNetwork.init()
+        org.shipwrights.enderkinesis.item.FusionManager.init()
         org.shipwrights.enderkinesis.item.CommandNetwork.init()
         org.shipwrights.enderkinesis.item.VanillaCommandables.init()
         org.shipwrights.enderkinesis.dimension.YgannBarnacleSpreader.init()
@@ -305,14 +309,15 @@ object EnderkinesisMod {
             org.shipwrights.enderkinesis.item.GamylanCageManager.clearSession()
             org.shipwrights.enderkinesis.util.SculkSpread.clearSession()
             org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.clearSession()
+            org.shipwrights.enderkinesis.body.OrbCollisionSounds.clearSession()
             org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity.clearSession()
             org.shipwrights.enderkinesis.item.RodOfLevitationManager.clearSession()
             org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.clearSession()
             org.shipwrights.enderkinesis.item.ScalesManager.clearSession()
             org.shipwrights.enderkinesis.dimension.MothClothShipRegistry.clearSession()
             org.shipwrights.enderkinesis.item.VentriloquismNetwork.clearSession()
-            org.shipwrights.enderkinesis.command.AegisDebugCommands.clearSession()
             org.shipwrights.enderkinesis.physics.LatticeRegistry.dropLevels(clientSide = false)
+            org.shipwrights.enderkinesis.physics.LatticeOcean.dropLevels(clientSide = false)
             org.shipwrights.enderkinesis.blockentity.OrbOfLinkingClientRegistry.dropLevels(clientSide = false)
         }
     }

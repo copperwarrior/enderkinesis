@@ -3,8 +3,8 @@ package org.shipwrights.enderkinesis.blockentity
 import org.valkyrienskies.mod.common.dimensionId
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
@@ -24,6 +24,8 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.VoidHookBlock
 import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.ConeSampler
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.Ship
@@ -62,6 +64,10 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
 
     private var coneEntities: List<Entity> = emptyList()
 
+    /** Game-thread only. */
+    private val coneSampler = ConeSampler()
+    private val coneScratch = Vector3d()
+
     /** `remassed` because `assembleToShip` doesn't always populate mass on single-block chunks;
      *  `BlockStateInfo.remassShip` is VS2's recovery path, called once after promotion. */
     private data class TrackedAssembly(val state: BlockState, var remassed: Boolean = false)
@@ -69,6 +75,10 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     /** Game-thread only. A hold lasts [COMMAND_HOLD_TICKS]. */
     private var commandedPower: Int = 0
     private var commandedUntil: Long = 0L
+
+    /** Client render state. The crystal spin clock advances at a power-scaled rate. */
+    var clientSpinClockMs: Double = 0.0
+    var clientLastRenderMs: Long = -1L
 
     /** POWER is max(redstone, commanded) — the renderer reads the blockstate. */
     fun effectivePower(level: Level, pos: BlockPos): Int =
@@ -109,9 +119,6 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
             lvl.setBlock(blockPos, blockState.setValue(VoidHookBlock.POWER, power), Block.UPDATE_CLIENTS)
         }
     }
-
-    var clientRotationPhase: Double = 0.0
-    var clientLastRenderTime: Double = -1.0
 
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
         if (commandedPower > 0 && level.gameTime >= commandedUntil) {
@@ -166,7 +173,6 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
                 if (loaded != null) ShipGravityHold.hold(level, loaded)
             }
             cachedNearbyShipIds = ids.toLongArray()
-            emitConeParticles(level)
             // Block-sourced scale³ multiplier — matches the physTick path.
             val hostS1 = hostShip?.transform?.shipToWorldScaling?.x() ?: 1.0
             val hostS3 = hostS1 * hostS1 * hostS1
@@ -179,54 +185,6 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         checkAssembliesLeftCone(level)
     }
 
-    /** Spawn per-tick PORTAL particles uniformly distributed inside the active cone, each
-     *  set to visually converge from its volume position back to the hook over its
-     *  lifetime. Portal's vanilla `tick()` is `x = xStart + xd · f` with `f: 1 → 0`, so a
-     *  particle spawned at `hook` with velocity `(ox, oy, oz)` materialises at `hook +
-     *  offset` and lerps inward to `hook` — the "pulled into the apex" trail we want.
-     *  (ReversePortalParticle is the OPPOSITE: `x += xd · f` — sprays outward.) */
-    private fun emitConeParticles(level: ServerLevel) {
-        val count = (cachedPowerLevel * MAX_PARTICLES_PER_TICK / 15).coerceAtLeast(1)
-        // Build a perpendicular basis once per tick — cheap (single helper choice + two
-        // cross products), reused for every particle in the burst.
-        val fx = cachedFacingX; val fy = cachedFacingY; val fz = cachedFacingZ
-        val helperX: Double; val helperY: Double; val helperZ: Double
-        if (Math.abs(fy) < 0.95) { helperX = 0.0; helperY = 1.0; helperZ = 0.0 }
-        else                     { helperX = 1.0; helperY = 0.0; helperZ = 0.0 }
-        var e1x = fy * helperZ - fz * helperY
-        var e1y = fz * helperX - fx * helperZ
-        var e1z = fx * helperY - fy * helperX
-        var len = Math.sqrt(e1x * e1x + e1y * e1y + e1z * e1z)
-        e1x /= len; e1y /= len; e1z /= len
-        var e2x = fy * e1z - fz * e1y
-        var e2y = fz * e1x - fx * e1z
-        var e2z = fx * e1y - fy * e1x
-        len = Math.sqrt(e2x * e2x + e2y * e2y + e2z * e2z)
-        e2x /= len; e2y /= len; e2z /= len
-
-        val rand = level.random
-        repeat(count) {
-            val depth = rand.nextDouble() * PULL_RADIUS
-            // sqrt of a uniform random gives uniform 2D density in the disc — without it
-            // particles cluster on the axis and the cone shape doesn't read.
-            val radial = depth * CONE_HALF_ANGLE_TAN * Math.sqrt(rand.nextDouble())
-            val angle = rand.nextDouble() * 2.0 * Math.PI
-            val cosA = Math.cos(angle); val sinA = Math.sin(angle)
-            // Offset from the hook (= spawn position of the particle visually).
-            val ox = fx * depth + (e1x * cosA + e2x * sinA) * radial
-            val oy = fy * depth + (e1y * cosA + e2y * sinA) * radial
-            val oz = fz * depth + (e1z * cosA + e2z * sinA) * radial
-            // sendParticles with count=0 hands (ox, oy, oz) to the particle as its xd/yd/zd.
-            // PortalParticle uses those as the initial offset from its recorded `start`
-            // position, lerping back to start over ~60 ticks.
-            level.sendParticles(
-                ParticleTypes.PORTAL,
-                cachedHx, cachedHy, cachedHz,
-                0, ox, oy, oz, 1.0,
-            )
-        }
-    }
-
     /** Fire one ray from the hook into a random point inside the cone. If the ray lands on
      *  a world block (not air, not a ship's block, not unbreakable) and the resistance roll
      *  succeeds, assemble that single block into its own ship — the cone immediately starts
@@ -237,28 +195,11 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
      *  the like are excluded by the `destroySpeed < 0` check. */
     private fun attemptAssemblyTrace(level: ServerLevel) {
         val rand = level.random
-        val fx = cachedFacingX; val fy = cachedFacingY; val fz = cachedFacingZ
-        val helperX: Double; val helperY: Double; val helperZ: Double
-        if (Math.abs(fy) < 0.95) { helperX = 0.0; helperY = 1.0; helperZ = 0.0 }
-        else                     { helperX = 1.0; helperY = 0.0; helperZ = 0.0 }
-        var e1x = fy * helperZ - fz * helperY
-        var e1y = fz * helperX - fx * helperZ
-        var e1z = fx * helperY - fy * helperX
-        var len = Math.sqrt(e1x * e1x + e1y * e1y + e1z * e1z)
-        e1x /= len; e1y /= len; e1z /= len
-        var e2x = fy * e1z - fz * e1y
-        var e2y = fz * e1x - fx * e1z
-        var e2z = fx * e1y - fy * e1x
-        len = Math.sqrt(e2x * e2x + e2y * e2y + e2z * e2z)
-        e2x /= len; e2y /= len; e2z /= len
-
-        val depth = rand.nextDouble() * PULL_RADIUS
-        val radial = depth * CONE_HALF_ANGLE_TAN * Math.sqrt(rand.nextDouble())
-        val angle = rand.nextDouble() * 2.0 * Math.PI
-        val cosA = Math.cos(angle); val sinA = Math.sin(angle)
-        val endX = cachedHx + fx * depth + (e1x * cosA + e2x * sinA) * radial
-        val endY = cachedHy + fy * depth + (e1y * cosA + e2y * sinA) * radial
-        val endZ = cachedHz + fz * depth + (e1z * cosA + e2z * sinA) * radial
+        val end = coneSampler.setAxis(cachedFacingX, cachedFacingY, cachedFacingZ)
+            .sample(rand, PULL_RADIUS, CONE_HALF_ANGLE_TAN, coneScratch)
+        val endX = cachedHx + end.x
+        val endY = cachedHy + end.y
+        val endZ = cachedHz + end.z
 
         // Push the start just past the hook's front face. `level.clip` reports an immediate
         // hit when the start sits inside a collision shape, so starting at the hook's block
@@ -303,11 +244,24 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         val blocks = org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
             .expandWithAttachments(level, setOf(pos.immutable()))
         val ship = ShipAssembler.assembleToShip(level, blocks, 1.0) ?: return
+        playRip(level, pos, state)
         // Remember the assembled ship so [checkAssembliesLeftCone] can turn it back into
         // a vanilla falling block when it drifts out of the cone, and so we can run a
         // one-time remass the first tick the ship is loaded.
         trackedAssemblies[ship.id] = TrackedAssembly(state)
         setChanged()
+    }
+
+    private fun playRip(level: ServerLevel, pos: BlockPos, state: BlockState) {
+        val x = pos.x + 0.5
+        val y = pos.y + 0.5
+        val z = pos.z + 0.5
+        level.playSound(
+            null, x, y, z, EKSounds.VOID_HOOK_RIP.get(), SoundSource.BLOCKS,
+            RIP_VOLUME, 0.9f + level.random.nextFloat() * 0.2f,
+        )
+        val type = state.soundType
+        level.playSound(null, x, y, z, type.breakSound, SoundSource.BLOCKS, (type.volume + 1f) / 2f, type.pitch * 0.8f)
     }
 
     override fun saveAdditional(tag: net.minecraft.nbt.CompoundTag) {
@@ -325,6 +279,16 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
             list.add(e)
         }
         tag.put(NBT_TRACKED, list)
+    }
+
+    override fun setLevel(level: Level) {
+        super.setLevel(level)
+        if (level.isClientSide) VoidHookClientRegistry.register(level, this)
+    }
+
+    override fun setRemoved() {
+        level?.let { if (it.isClientSide) VoidHookClientRegistry.unregister(it, this) }
+        super.setRemoved()
     }
 
     override fun load(tag: net.minecraft.nbt.CompoundTag) {
@@ -668,6 +632,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     companion object {
         private const val NBT_TRACKED = "TrackedAssemblies"
         private const val NBT_COMMANDED_POWER = "CommandedPower"
+        private const val RIP_VOLUME = 0.8f
         private const val NBT_COMMANDED_UNTIL = "CommandedUntil"
         private const val ENTITY_QUERY_INTERVAL = 5L
         /** Cone-axis pull range (blocks) — the cone's axial length. */
@@ -715,11 +680,6 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
          *  the cone's apex that's `1/0.375 ≈ 2.67 s` — a moving target centres on the
          *  hook axis over a few seconds of being inside the cone. */
         const val TANGENT_DAMP_RATE: Double = 0.375
-
-        /** Particle emission count at redstone power 15, scaled linearly down with power.
-         *  At power 15 we spawn 10 particles/tick (200/s) which reads as a clearly visible
-         *  pull stream without saturating the client's particle budget. */
-        const val MAX_PARTICLES_PER_TICK: Int = 10
 
         /** Average game-tick interval between assembly-trace attempts. `nextInt(20) == 0`
          *  → 5 % per powered tick, so a hook chews at ~1 attempt/second. */

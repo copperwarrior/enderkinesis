@@ -49,6 +49,43 @@ data class WakeSource(
  */
 object Wake {
 
+    /** Ship speed, in blocks/second, below which a ship makes no wake. */
+    private const val MIN_SOURCE_SPEED_PER_SEC = 0.01
+
+    /**
+     * The wake source of one ship, or null when the ship does not move. [velocity] is in
+     * blocks/second, as VS2 gives it; the wake math uses blocks/tick. The hull half-extents
+     * are the ship-local box projected on the direction of travel: exact for a hull along its
+     * axes, an upper bound for other hulls.
+     */
+    fun sourceOf(
+        aabb: org.joml.primitives.AABBic, velocity: org.joml.Vector3dc,
+        worldToShip: org.joml.Matrix4dc, position: org.joml.Vector3dc,
+    ): WakeSource? {
+        val vx = velocity.x()
+        val vz = velocity.z()
+        val speedPerSec = Math.sqrt(vx * vx + vz * vz)
+        if (speedPerSec < MIN_SOURCE_SPEED_PER_SEC) return null
+        val dirX = vx / speedPerSec
+        val dirZ = vz / speedPerSec
+        // The box is ship-local, so the direction must go to the ship frame before the projection.
+        val localDir = org.joml.Vector3d(dirX, 0.0, dirZ)
+        worldToShip.transformDirection(localDir)
+        val absX = Math.abs(localDir.x)
+        val absZ = Math.abs(localDir.z)
+        val xExt = (aabb.maxX() - aabb.minX() + 1).toDouble()
+        val zExt = (aabb.maxZ() - aabb.minZ() + 1).toDouble()
+        return WakeSource(
+            centerX = position.x(),
+            centerZ = position.z(),
+            dirX = dirX,
+            dirZ = dirZ,
+            speed = speedPerSec * (1.0 / 20.0),
+            halfLength = (xExt * absX + zExt * absZ) * 0.5,
+            halfWidth = (xExt * absZ + zExt * absX) * 0.5,
+        )
+    }
+
     /** Effective gravity in blocks/tick². Vanilla MC gravity is ~0.08 (≈ 9.8 m/s² scaled
      *  for the 1-block / 1-second physics step). At `V = 0.3` blocks/tick this gives
      *  `λ_T = 2π·V²/g ≈ 7 blocks` transverse wavelength — readable on the 0.75-block mesh.

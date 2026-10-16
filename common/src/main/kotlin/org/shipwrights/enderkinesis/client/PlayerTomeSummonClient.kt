@@ -53,6 +53,8 @@ object PlayerTomeSummonClient {
      *  the local input gate. */
     fun get(player: Player): State? = active[player.uuid]
 
+    fun all(): Map<UUID, State> = active
+
     /** Called from the `LocalPlayer.aiStep` mixin (same injection
      *  point the menu walk uses). Suppresses movement input AND
      *  eases the camera onto the active phase's look target so the

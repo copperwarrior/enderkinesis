@@ -7,6 +7,8 @@ import net.minecraft.client.particle.ParticleRenderType
 import net.minecraft.client.particle.SpriteSet
 import net.minecraft.client.particle.TextureSheetParticle
 import net.minecraft.core.particles.SimpleParticleType
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Hangs below an Inegric Retort, then falls, as a pointed dripstone drip does. */
 class IchaericInkDripParticle(
@@ -29,7 +31,12 @@ class IchaericInkDripParticle(
             gravity = FALL_GRAVITY
             setSprite(sprites.get(1, 1))
         }
-        if (onGround) remove()
+        if (onGround) {
+            level.playLocalSound(
+                x, y, z, EKSounds.INEGRIC_RETORT_DRIP_LAND.get(), SoundSource.BLOCKS, LAND_VOLUME, 1f, false,
+            )
+            remove()
+        }
     }
 
     class Provider(private val sprites: SpriteSet) : ParticleProvider<SimpleParticleType> {
@@ -42,6 +49,7 @@ class IchaericInkDripParticle(
 
     companion object {
         private const val HANG_TICKS = 40
+        private const val LAND_VOLUME = 0.3f
         private const val MAX_FALL_TICKS = 60
         // Particle.tick applies 0.04 * gravity, so this gives the 0.06 fall of a vanilla drip.
         private const val FALL_GRAVITY = 1.5f

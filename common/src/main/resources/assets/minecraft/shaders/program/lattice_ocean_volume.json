@@ -1,0 +1,35 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "blit",
+  "fragment": "lattice_ocean_volume",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" },
+    { "name": "HeightMap" },
+    { "name": "ShoreMap" },
+    { "name": "HullMask" }
+  ],
+  "uniforms": [
+    { "name": "ProjMat",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "OutSize",     "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "InvViewProj", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ZoneCenter",  "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "ZoneRadii",   "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "ZoneYaw",     "type": "float",     "count": 2,  "values": [ 1.0, 0.0 ] },
+    { "name": "WaterY",      "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "HeightRange", "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "TopColor",    "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "DeepColor",   "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "Density",     "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Opacity",     "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "ZoneFade",    "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "MaskMat",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "MaskSize",    "type": "int",       "count": 3,  "values": [ 0, 0, 0 ] }
+  ]
+}

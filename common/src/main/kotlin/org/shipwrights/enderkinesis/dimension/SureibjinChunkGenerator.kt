@@ -203,10 +203,7 @@ class SureibjinChunkGenerator(
 
     override fun addDebugScreenInfo(
         info: MutableList<String>, randomState: RandomState, pos: BlockPos,
-    ) {
-        info.add("Sureibjin chunk generator")
-        info.add("surface=" + coastSurfaceYAt(pos.x, pos.z))
-    }
+    ) = Unit
 
     @Suppress("unused")
     fun getBiomeSourceForCodec(): BiomeSource = this.biomeSource

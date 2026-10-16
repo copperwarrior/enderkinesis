@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.physics
 
 import org.joml.Quaterniond
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -42,11 +43,6 @@ class ConstriliarShipController(
     @Transient var moveVelZ: Double = 0.0,
     /** Desired world-frame orientation (body tilt + yaw), written by the brain. */
     @Transient var idealRotation: Quaterniond = Quaterniond(),
-    /** One-shot jump launch: when pending, a single-tick impulse drives velocity toward
-     *  (launchX/Y/Z); capped by JUMP_IMPULSE so overloaded bodies jump weakly. */
-    @Transient var launchX: Double = 0.0,
-    @Transient var launchY: Double = 0.0,
-    @Transient var launchZ: Double = 0.0,
     /** Body-mass-relative strength multiplier (see the entity's strengthScale): scales
      *  every force/torque/jump budget so a netherite body out-muscles a purpur one. */
     @Transient var strengthScale: Double = 1.0,
@@ -96,6 +92,35 @@ class ConstriliarShipController(
     @Transient
     private val pendingLaunch = java.util.concurrent.atomic.AtomicReference<Vector3d?>(null)
 
+    // Physics-thread scratch. Never pass one to an apply* call: VS2 keeps the reference.
+    @Transient private val plateWorld = Vector3d()
+    @Transient private val up = Vector3d()
+    @Transient private val tmp = Vector3d()
+    @Transient private val accel = Vector3d()
+    @Transient private val comWorld = Vector3d()
+    @Transient private val hipWorld = Vector3d()
+    @Transient private val velHip = Vector3d()
+    @Transient private val rotInverse = Quaterniond()
+    @Transient private val rotDiff = Quaterniond()
+    @Transient private val rotDiffVector = Vector3d()
+
+    fun setPlatform(centre: Vector3dc) {
+        platformX = centre.x(); platformY = centre.y(); platformZ = centre.z()
+    }
+
+    fun setUp(x: Double, y: Double, z: Double) {
+        upX = x; upY = y; upZ = z
+    }
+
+    fun setMoveVel(v: Vector3dc) {
+        moveVelX = v.x(); moveVelY = v.y(); moveVelZ = v.z()
+    }
+
+    fun setHover(x: Double, y: Double, z: Double) {
+        hoverX = x; hoverY = y; hoverZ = z
+        hoverActive = true
+    }
+
     /** Game thread: makes the values written since the last call visible to the physics
      *  thread as one object, and counts as the heartbeat. */
     fun publish() {
@@ -110,118 +135,99 @@ class ConstriliarShipController(
         silentFrames = 0
     }
 
-    /** Game thread: one jump toward the velocity in `launchX/Y/Z`. */
-    fun queueLaunch() {
-        pendingLaunch.set(Vector3d(launchX, launchY, launchZ))
+    /** Game thread: one jump toward this world velocity (m/s); capped by JUMP_IMPULSE,
+     *  so overloaded bodies jump weakly. */
+    fun queueLaunch(x: Double, y: Double, z: Double) {
+        pendingLaunch.set(Vector3d(x, y, z))
     }
 
-    override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
+    override fun physTick(physShip: PhysShip, physLevel: PhysLevel) =
+        physTick(physShip, physLevel, DEFAULT_STEP_SECONDS)
+
+    override fun physTick(physShip: PhysShip, physLevel: PhysLevel, delta: Double) {
         if (!active) return
         if (silentFrames > HEARTBEAT_FRAMES) return
         silentFrames++
         if (physShip.mass <= 0.0) return
         val c = command ?: return
-        // The names of the scratch properties, bound to the published values.
-        val platformX = c.platformX; val platformY = c.platformY; val platformZ = c.platformZ
-        val hoverX = c.hoverX; val hoverY = c.hoverY; val hoverZ = c.hoverZ
-        val hoverActive = c.hoverActive
-        val upX = c.upX; val upY = c.upY; val upZ = c.upZ
-        val moveVelX = c.moveVelX; val moveVelY = c.moveVelY; val moveVelZ = c.moveVelZ
-        val idealRotation = c.idealRotation
-        val strengthScale = c.strengthScale
-        val strutsActive = c.strutsActive
-        val strutAnchorX = c.strutAnchorX; val strutAnchorY = c.strutAnchorY; val strutAnchorZ = c.strutAnchorZ
-        val strutHipX = c.strutHipX; val strutHipY = c.strutHipY; val strutHipZ = c.strutHipZ
-        val strutStance = c.strutStance
 
         val mass = physShip.mass
         val transform = physShip.transform
         val rotation = transform.shipToWorldRotation
-        val plateWorld = Vector3d(platformX, platformY, platformZ)
-        transform.shipToWorld.transformPosition(plateWorld)
+        transform.shipToWorld.transformPosition(plateWorld.set(c.platformX, c.platformY, c.platformZ))
         val vel = physShip.velocity
 
-        val launch = pendingLaunch.getAndSet(null)
-        if (launch != null) {
+        pendingLaunch.getAndSet(null)?.let { launch ->
             val impulse = launch.sub(vel).mul(mass)
             val mag = impulse.length()
-            val impulseCap = JUMP_IMPULSE * strengthScale
+            val impulseCap = JUMP_IMPULSE * c.strengthScale
             if (mag > impulseCap) impulse.mul(impulseCap / mag)
-            physShip.applyInvariantForce(impulse.mul(PHYS_TPS))
+            physShip.applyInvariantForce(impulse.mul(1.0 / stepSeconds(delta)))
         }
 
         val force = Vector3d()
-        if (hoverActive) {
-            val up = Vector3d(upX, upY, upZ)
-            val heightErr = Vector3d(hoverX, hoverY, hoverZ).sub(plateWorld).dot(up)
-            val upSpeed = vel.dot(up)
-            val hoverAccel = HOVER_STIFFNESS * heightErr - HOVER_DAMPING * upSpeed
+        if (c.hoverActive) {
+            up.set(c.upX, c.upY, c.upZ)
+            val heightErr = tmp.set(c.hoverX, c.hoverY, c.hoverZ).sub(plateWorld).dot(up)
+            val hoverAccel = HOVER_STIFFNESS * heightErr - HOVER_DAMPING * vel.dot(up)
             force.set(up).mul(mass * hoverAccel)
             // Weight relief only while attached — airborne, gravity owns the ship.
             force.y += mass * GRAVITY
             // Velocity PD in the surface plane; the along-normal component is stripped
             // so the drive never fights the hover spring.
-            val accel = Vector3d(moveVelX, moveVelY, moveVelZ).sub(Vector3d(vel)).mul(MOVE_GAIN)
-            accel.sub(Vector3d(up).mul(accel.dot(up)))
+            accel.set(c.moveVelX, c.moveVelY, c.moveVelZ).sub(vel).mul(MOVE_GAIN)
+            accel.sub(tmp.set(up).mul(accel.dot(up)))
             val mag = accel.length()
             if (mag > MOVE_MAX_ACCEL) accel.mul(MOVE_MAX_ACCEL / mag)
             force.add(accel.mul(mass))
-
-            if (strutsActive) {
-                val comWorld = Vector3d(transform.positionInShip)
-                transform.shipToWorld.transformPosition(comWorld)
-                for (i in 0..3) {
-                    if (!strutStance[i]) continue
-                    val hipWorld = transform.shipToWorld.transformPosition(
-                        Vector3d(strutHipX[i], strutHipY[i], strutHipZ[i]),
-                    )
-                    val r = Vector3d(hipWorld).sub(comWorld)
-                    val velHip = Vector3d(physShip.omega).cross(Vector3d(r)).add(vel)
-                    val lenUp = Vector3d(hipWorld)
-                        .sub(strutAnchorX[i], strutAnchorY[i], strutAnchorZ[i])
-                        .dot(up)
-                    // Bidirectional (a supplement may pull); rest matches the hover's
-                    // ride height so the layers agree at equilibrium.
-                    var springMag = (mass / 4.0) *
-                        (SUPP_STIFFNESS * (STRUT_REST - lenUp) - SUPP_DAMPING * velHip.dot(up))
-                    val suppCap = SUPP_FORCE_CAP * strengthScale
-                    springMag = springMag.coerceIn(-suppCap, suppCap)
-                    physShip.applyInvariantForceToPos(Vector3d(up).mul(springMag), r)
-                }
-            }
+            if (c.strutsActive) applyStruts(physShip, c, mass, vel)
         }
         // Legs have finite strength: the PD asks in accelerations (mass-proportional),
         // but delivery is capped in NEWTONS. A light load leaves huge headroom (snappy);
         // a heavy one eats the budget into weight-holding — it sags, accelerates
         // sluggishly, and past ~LEG_STRENGTH/g kg simply can't be carried.
-        val legStrength = LEG_STRENGTH * strengthScale
+        val legStrength = LEG_STRENGTH * c.strengthScale
         val forceMag = force.length()
         if (forceMag > legStrength) force.mul(legStrength / forceMag)
         physShip.applyInvariantForce(force)
 
         // Quaternion error → small-angle axis vector → PD; see WyllandTomeForceInducer
         // for the derivation and the shortest-arc sign flip.
-        val rotDiff = idealRotation
-            .mul(rotation.invert(Quaterniond()), Quaterniond())
-            .normalize()
-            .invert()
-        val rotDiffVector = Vector3d(
-            rotDiff.x * 2.0,
-            rotDiff.y * 2.0,
-            rotDiff.z * 2.0,
-        )
-        if (rotDiff.w > 0.0) rotDiffVector.mul(-1.0)
-        rotDiffVector.mul(ROTATION_STIFFNESS)
-        rotDiffVector.sub(Vector3d(physShip.omega).mul(ROTATION_DAMPING))
+        c.idealRotation.mul(rotation.invert(rotInverse), rotDiff).normalize().invert()
+        rotDiffVector.set(rotDiff.x * 2.0, rotDiff.y * 2.0, rotDiff.z * 2.0)
+        if (rotDiff.w > 0.0) rotDiffVector.negate()
+        rotDiffVector.mul(ROTATION_STIFFNESS).sub(tmp.set(physShip.omega).mul(ROTATION_DAMPING))
 
         val torque = Vector3d()
         rotation.transformInverse(rotDiffVector, torque)
         physShip.momentOfInertia.transform(torque)
         rotation.transform(torque)
-        val legTorque = LEG_TORQUE * strengthScale
+        val legTorque = LEG_TORQUE * c.strengthScale
         val torqueMag = torque.length()
         if (torqueMag > legTorque) torque.mul(legTorque / torqueMag)
         physShip.applyInvariantTorque(torque)
+    }
+
+    /** Uses [up] as set by the hover block of [physTick]. */
+    private fun applyStruts(physShip: PhysShip, c: Command, mass: Double, vel: Vector3dc) {
+        val shipToWorld = physShip.transform.shipToWorld
+        shipToWorld.transformPosition(comWorld.set(physShip.transform.positionInShip))
+        val suppCap = SUPP_FORCE_CAP * c.strengthScale
+        for (i in 0..3) {
+            if (!c.strutStance[i]) continue
+            shipToWorld.transformPosition(hipWorld.set(c.strutHipX[i], c.strutHipY[i], c.strutHipZ[i]))
+            val r = Vector3d(hipWorld).sub(comWorld)
+            velHip.set(physShip.omega).cross(r).add(vel)
+            val lenUp = tmp.set(hipWorld)
+                .sub(c.strutAnchorX[i], c.strutAnchorY[i], c.strutAnchorZ[i])
+                .dot(up)
+            // Bidirectional (a supplement may pull); rest matches the hover's
+            // ride height so the layers agree at equilibrium.
+            val springMag = ((mass / 4.0) *
+                (SUPP_STIFFNESS * (STRUT_REST - lenUp) - SUPP_DAMPING * velHip.dot(up)))
+                .coerceIn(-suppCap, suppCap)
+            physShip.applyInvariantForceToPos(Vector3d(up).mul(springMag), r)
+        }
     }
 
     companion object {
@@ -253,7 +259,15 @@ class ConstriliarShipController(
         /** Jump impulse budget (N·s): a bare body launches crisply; near the carry
          *  limit the same spring barely hops. */
         const val JUMP_IMPULSE = 25_000.0
-        private const val PHYS_TPS = 60.0
+        private const val DEFAULT_STEP_SECONDS = 1.0 / 60.0
         private const val HEARTBEAT_FRAMES = 60
+
+        /** VS2's KDoc gives the listener delta in ms; seconds are also accepted, since
+         *  no physics step lasts a full second. */
+        private fun stepSeconds(delta: Double): Double = when {
+            delta <= 0.0 -> DEFAULT_STEP_SECONDS
+            delta > 1.0 -> delta / 1000.0
+            else -> delta
+        }
     }
 }

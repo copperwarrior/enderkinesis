@@ -57,6 +57,7 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
     override fun setLevel(level: Level) {
         super.setLevel(level)
         registerSelf()
+        if (level.isClientSide) HeartOfTheWildClientRegistry.register(level, this)
     }
 
     /** Forge culls a block entity by this box (`IForgeBlockEntity`, which common code cannot
@@ -79,6 +80,7 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
         // single override covers every lifecycle exit path the BE
         // sees on this version.
         unregisterSelf()
+        level?.let { if (it.isClientSide) HeartOfTheWildClientRegistry.unregister(it, this) }
         super.setRemoved()
     }
 

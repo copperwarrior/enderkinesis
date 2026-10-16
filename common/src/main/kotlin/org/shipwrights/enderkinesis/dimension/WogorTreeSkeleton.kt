@@ -294,9 +294,13 @@ internal object WogorTreeSkeleton {
             }
 
             if (influencedSize == 0) {
-                // Stuck: the canopy grew, and now no attractor is in reach and none was
-                // consumed. More bias-only steps would only add a bare pole.
-                if (everInfluenced && !anyKilled) break
+                val tip = nodes.lastOrNull { it.children.isEmpty() } ?: break
+                // Stuck with nothing ahead: more bias-only steps would only add a bare pole.
+                // Attractors still ahead (the Mother Tree canopy above its side limbs) must
+                // keep the trunk climbing across the gap.
+                if (everInfluenced && !anyKilled &&
+                    !hasActiveAttractorAhead(tip, attractors, active, defaultDir)
+                ) break
                 // Bias-only growth: extend the most recent un-tipped node
                 // toward `defaultDir` so the trunk lifts off the ground
                 // until attractors latch on.
@@ -308,7 +312,6 @@ internal object WogorTreeSkeleton {
                 // curves smoothly, leans in a slow direction, and twists
                 // as it grows — instead of zigzagging from random per-step
                 // jitter or standing as a stiff pole.
-                val tip = nodes.lastOrNull { it.children.isEmpty() } ?: break
                 var gdx = defaultDir[0] + leanPertX
                 val gdy = defaultDir[1]
                 var gdz = defaultDir[2] + leanPertZ
@@ -438,6 +441,19 @@ internal object WogorTreeSkeleton {
      * macro-scale natural curvature in trunk growth, vs. per-step
      * uncorrelated random jitter which would zigzag.
      */
+    private fun hasActiveAttractorAhead(
+        tip: TreeNode, attractors: DoubleArray, active: BooleanArray, dir: DoubleArray,
+    ): Boolean {
+        for (a in active.indices) {
+            if (!active[a]) continue
+            val ahead = (attractors[a * 3] - tip.x) * dir[0] +
+                (attractors[a * 3 + 1] - tip.y) * dir[1] +
+                (attractors[a * 3 + 2] - tip.z) * dir[2]
+            if (ahead > 0.0) return true
+        }
+        return false
+    }
+
     private fun smoothNoise1D(t: Double, seed: Int): Double {
         val i = Math.floor(t).toInt()
         val f = t - i

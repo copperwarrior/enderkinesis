@@ -5,7 +5,7 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import org.shipwrights.enderkinesis.duck.SwimmingHolder;
-import org.shipwrights.enderkinesis.registry.EKEffects;
+import org.shipwrights.enderkinesis.duck.VirtualFluidHolder;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -58,7 +58,7 @@ public abstract class LivingEntityMixin implements SwimmingHolder {
         LivingEntity self = (LivingEntity) (Object) this;
         // Only cancel drown damage caused by the lattice's fake fluid. Real water (with the
         // effect or without) still drowns — the fake fluid isn't a damage-immunity field.
-        if (!self.hasEffect(EKEffects.INSTANCE.getCREPUSCULAR_FLOATATION().get())) return;
+        if (!((VirtualFluidHolder) (Object) self).enderkinesis$isInVirtualFluid()) return;
         if (self.level().getFluidState(self.blockPosition()).is(FluidTags.WATER)) return;
         cir.setReturnValue(false);
     }

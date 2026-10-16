@@ -46,10 +46,9 @@ class HeartOfTheWildRenderer(ctx: BlockEntityRendererProvider.Context) :
             val h = hashPos(be.blockPos)
             // Three independent 20-bit windows so yaw/rate/size aren't correlated.
             val u1 = (h and 0xFFFFFL).toFloat() / 0x100000L
-            val u2 = ((h ushr 20) and 0xFFFFFL).toFloat() / 0x100000L
             val u3 = ((h ushr 40) and 0xFFFFFL).toFloat() / 0x100000L
             yawRad = u1 * (2f * Mth.PI)
-            rateScalar = NORMAL_RATE_MIN + u2 * (NORMAL_RATE_MAX - NORMAL_RATE_MIN)
+            rateScalar = pulseRate(h)
             sizeScalar = NORMAL_SIZE_MIN + u3 * (NORMAL_SIZE_MAX - NORMAL_SIZE_MIN)
         }
 
@@ -69,15 +68,21 @@ class HeartOfTheWildRenderer(ctx: BlockEntityRendererProvider.Context) :
         ps.popPose()
     }
 
-    private fun hashPos(pos: BlockPos): Long {
-        var h = pos.x.toLong() * 73856093L xor pos.y.toLong() * 19349663L xor pos.z.toLong() * 83492791L
-        h = (h xor (h ushr 33)) * -49064778989728563L
-        h = (h xor (h ushr 33)) * -4265267296991594537L
-        return h xor (h ushr 33)
-    }
-
     companion object {
-        private val TEXTURE: ResourceLocation =
+        internal fun hashPos(pos: BlockPos): Long {
+            var h = pos.x.toLong() * 73856093L xor pos.y.toLong() * 19349663L xor pos.z.toLong() * 83492791L
+            h = (h xor (h ushr 33)) * -49064778989728563L
+            h = (h xor (h ushr 33)) * -4265267296991594537L
+            return h xor (h ushr 33)
+        }
+
+        /** The pulse rate of a normal heart. [HeartOfTheWildSounds] times the heartbeat to it. */
+        internal fun pulseRate(hash: Long): Float {
+            val u2 = ((hash ushr 20) and 0xFFFFFL).toFloat() / 0x100000L
+            return NORMAL_RATE_MIN + u2 * (NORMAL_RATE_MAX - NORMAL_RATE_MIN)
+        }
+
+        internal val TEXTURE: ResourceLocation =
             EnderkinesisMod.id("textures/block/heart_of_the_wild.png")
 
         /** Mother heart fixed scale. */

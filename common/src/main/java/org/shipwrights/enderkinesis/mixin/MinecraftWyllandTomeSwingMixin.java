@@ -2,7 +2,7 @@ package org.shipwrights.enderkinesis.mixin;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import org.shipwrights.enderkinesis.item.RecitalHelper;
+import org.shipwrights.enderkinesis.item.WyllandTomeItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -26,10 +26,7 @@ public abstract class MinecraftWyllandTomeSwingMixin {
     @Inject(method = "startAttack", at = @At("HEAD"), cancellable = true)
     private void enderkinesis$skipTomeSwing(CallbackInfoReturnable<Boolean> cir) {
         if (player == null) return;
-        // Accept either: holding the Wylland Tome directly, OR holding a
-        // Staff of Recital whose active tome is the Wylland Tome — the staff
-        // proxies the tome's left-click grab gesture too.
-        if (!RecitalHelper.isHoldingWyllandTome(player)) return;
+        if (!WyllandTomeItem.isHeld(player)) return;
         // Returning false matches startAttack's "nothing happened" return,
         // skipping block break, entity attack, AND the swing animation.
         cir.setReturnValue(false);

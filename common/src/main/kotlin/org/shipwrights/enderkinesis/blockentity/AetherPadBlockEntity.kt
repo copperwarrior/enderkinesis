@@ -21,6 +21,8 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.mixin.ServerGamePacketListenerAccessor
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
+import net.minecraft.sounds.SoundSource
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.util.PhysTickOnly
@@ -66,6 +68,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     // Ship-resident path: distance from pad centre to nearest world surface along FACING.
     // -1 = "not ship-resident this tick".
     @Volatile private var cachedGroundDistance: Double = -1.0
+
+    // Server thread only.
+    private var lastGroundSoundAt = Long.MIN_VALUE / 2
 
     // World-placed path: closest ship in beam (single target). -1 shipId = no target.
     @Volatile private var cachedTargetShipId: Long = -1L
@@ -120,7 +125,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
             spawnBeamParticles(level, padWorld, facingWorld, cachedPower)
             if (ship != null) {
                 // SHIP-RESIDENT: trace WORLD ground for hover lift.
+                val hadGround = hasGround(cachedGroundDistance)
                 cachedGroundDistance = computeGroundDistance(level, padWorld, facingWorld)
+                if (!hadGround && hasGround(cachedGroundDistance)) playGround(level, pos)
                 cachedTargetShipId = -1L
                 cachedTargetDistance = -1.0
             } else {
@@ -139,6 +146,25 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 }
             }
         }
+    }
+
+    /** The trace gives [GROUND_MAX_RANGE], not -1, when nothing is in range. */
+    private fun hasGround(distance: Double): Boolean = distance >= 0.0 && distance < GROUND_MAX_RANGE
+
+    private fun playGround(level: ServerLevel, pos: BlockPos) {
+        if (level.gameTime - lastGroundSoundAt < GROUND_SOUND_GAP_TICKS) return
+        lastGroundSoundAt = level.gameTime
+        level.playSound(null, pos, EKSounds.AETHER_PAD_GROUND.get(), SoundSource.BLOCKS, GROUND_SOUND_VOLUME, 1f)
+    }
+
+    override fun setLevel(level: Level) {
+        super.setLevel(level)
+        if (level.isClientSide) AetherPadClientRegistry.register(level, this)
+    }
+
+    override fun setRemoved() {
+        level?.let { if (it.isClientSide) AetherPadClientRegistry.unregister(it, this) }
+        super.setRemoved()
     }
 
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
@@ -302,6 +328,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
 
         /** Maximum ground-effect detection range, blocks. */
         const val GROUND_MAX_RANGE: Double = 4.0
+
+        private const val GROUND_SOUND_VOLUME = 0.6f
+        private const val GROUND_SOUND_GAP_TICKS = 40L
 
         /** Lateral friction rate (1/s) — per-pad deceleration applied to perpendicular
          *  velocity at full power, full proximity, scaled by `mass / ASSUMED_PAD_COUNT`.

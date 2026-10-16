@@ -390,21 +390,7 @@ object WyllandTomeClient {
         val level = mc.level ?: return
         val eye = player.eyePosition
         val look = player.lookAngle
-        // Start: player chest height — UNLESS the player is invoking the
-        // Wylland Tome through a Staff of Recital, in which case the beam
-        // emanates from the staff's tip instead of the screen centre. The
-        // tip is approximated as a forward + right + slight-down offset
-        // from the eye, matching where the first-person held item renders.
-        // The exact offsets are eyeballed (literally) to look like the
-        // staff model's far end.
-        val start = if (org.shipwrights.enderkinesis.item.RecitalHelper.isHoldingWyllandViaRecitalStaff(player)) {
-            // Right vector perpendicular to look in XZ — same trick vanilla
-            // uses for arm-bobbing offsets.
-            val right = net.minecraft.world.phys.Vec3(-look.z, 0.0, look.x).normalize().scale(0.45)
-            eye.add(look.scale(1.1)).add(right).add(0.0, -0.25, 0.0)
-        } else {
-            Vec3(eye.x, eye.y - WyllandTomeItem.BEAM_ORIGIN_DROP, eye.z)
-        }
+        val start = Vec3(eye.x, eye.y - WyllandTomeItem.BEAM_ORIGIN_DROP, eye.z)
         // End: the actual grab anchor on the held object. Falls back to
         // a look-projected guess until the first server sync arrives.
         val end = syncedAnchor

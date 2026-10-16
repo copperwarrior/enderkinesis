@@ -124,14 +124,16 @@ object EKBlocks {
 
     /** Ender Astrolabe — moves a ship (and crew) between dimensions. */
     val ENDER_ASTROLABE: RegistrySupplier<Block> = BLOCKS.register("ender_astrolabe") {
-        EnderAstrolabeBlock(crepusculiteProps().strength(3.5f, 7.0f).noOcclusion())
+        EnderAstrolabeBlock(
+            crepusculiteProps().strength(3.5f, 7.0f).sound(EKSounds.ENDER_ASTROLABE_SOUND_TYPE).noOcclusion()
+        )
     }
 
     /** Magic Missile Launcher — 4×4 slot grid (16 magic missiles) fires one missile per
      *  second along the facing direction while powered. Front-face slot click to insert
      *  / remove manually; top hopper feeds in, bottom hopper pulls out. */
     val MAGIC_MISSILE_LAUNCHER: RegistrySupplier<Block> = BLOCKS.register("magic_missile_launcher") {
-        MagicMissileLauncherBlock(crepusculiteProps().strength(3.0f, 6.0f))
+        MagicMissileLauncherBlock(crepusculiteProps().strength(3.0f, 6.0f).sound(EKSounds.ANCRITE_SOUND_TYPE))
     }
 
     /** Eyeroscope — right-click sets a world-frame target yaw; the BE slowly turns its host
@@ -140,7 +142,7 @@ object EKBlocks {
      *  with a levitating, bobbing ender-eye drawn by the BER. */
     val EYEROSCOPE: RegistrySupplier<Block> = BLOCKS.register("eyeroscope") {
         EyeroscopeBlock(
-            crepusculiteProps().strength(3.5f, 7.0f)
+            crepusculiteProps().strength(3.5f, 7.0f).sound(EKSounds.EYEROSCOPE_SOUND_TYPE)
                 // End-portal-frame model isn't a full cube — its top is a partial-height slab,
                 // so [noOcclusion] keeps neighbouring blocks from culling their adjacent faces
                 // against it (same fix as on the astrolabe / planar anchor).
@@ -171,7 +173,7 @@ object EKBlocks {
             BlockBehaviour.Properties.of()
                 .mapColor(MapColor.COLOR_MAGENTA)
                 .strength(2.0f, 6.0f)
-                .sound(net.minecraft.world.level.block.SoundType.GLASS)
+                .sound(EKSounds.VOID_HARNESS_SOUND_TYPE)
                 // Stained-glass cube with an inner crystal — not a full opaque cube; without
                 // `noOcclusion` adjacent blocks' facing sides get culled. Same fix as on the
                 // anchor.
@@ -193,7 +195,7 @@ object EKBlocks {
             BlockBehaviour.Properties.of()
                 .mapColor(MapColor.COLOR_MAGENTA)
                 .strength(2.0f, 6.0f)
-                .sound(net.minecraft.world.level.block.SoundType.GLASS)
+                .sound(EKSounds.VOID_HOOK_SOUND_TYPE)
                 .noOcclusion()
                 .lightLevel { state ->
                     state.getValue(org.shipwrights.enderkinesis.block.VoidHookBlock.POWER) * 7 / 15
@@ -209,7 +211,7 @@ object EKBlocks {
                 .mapColor(MapColor.COLOR_MAGENTA)
                 .requiresCorrectToolForDrops()
                 .strength(3.5f, 8.0f)
-                .sound(SoundType.STONE)
+                .sound(EKSounds.PLANAR_ANCHOR_SOUND_TYPE)
                 // Pillar + thin top/bottom slabs — not a full cube. Without [noOcclusion] the
                 // adjacent block's facing face is culled (MC treats the anchor as a full
                 // occluder) and you see straight through that neighbour via the gaps between
@@ -225,6 +227,7 @@ object EKBlocks {
     val ANCRITE_CHAIN: RegistrySupplier<Block> = BLOCKS.register("ancrite_chain") {
         org.shipwrights.enderkinesis.block.AncriteChainBlock(
             BlockBehaviour.Properties.copy(Blocks.CHAIN)
+                .sound(EKSounds.ANCRITE_CHAIN_SOUND_TYPE)
                 // Constant block-light emission of 4 — matches vanilla redstone wire's "actually
                 // emits nothing" reality while keeping the chain's always-on faint glow. Visual
                 // emissivity per POWER is handled in the texture/model, not in block-light.
@@ -251,7 +254,7 @@ object EKBlocks {
 
     val ANCRITE_EYE: RegistrySupplier<Block> = BLOCKS.register("analog_eye") {
         org.shipwrights.enderkinesis.block.AncriteEyeBlock(
-            BlockBehaviour.Properties.copy(Blocks.LEVER).noOcclusion()
+            BlockBehaviour.Properties.copy(Blocks.LEVER).sound(EKSounds.ANCRITE_EYE_SOUND_TYPE).noOcclusion()
         )
     }
 
@@ -261,13 +264,13 @@ object EKBlocks {
         .mapColor(MapColor.WARPED_NYLIUM)
         .requiresCorrectToolForDrops()
         .strength(5.0f, 6.0f)
-        .sound(SoundType.COPPER)
+        .sound(EKSounds.ANCRITE_SOUND_TYPE)
 
     val ANCRITE_BLOCK: RegistrySupplier<Block> = BLOCKS.register("ancrite_block") {
         Block(ancriteProps())
     }
     val RAW_ANCRITE: RegistrySupplier<Block> = BLOCKS.register("raw_ancrite") {
-        Block(ancriteProps())
+        Block(ancriteProps().sound(EKSounds.RAW_ANCRITE_SOUND_TYPE))
     }
     val REFINED_ANCRITE: RegistrySupplier<Block> = BLOCKS.register("refined_ancrite") {
         Block(ancriteProps())
@@ -294,17 +297,17 @@ object EKBlocks {
      *  neighbours don't cull their own faces against it, and a cutout render type registered
      *  client-side. */
     val ANCRITE_GRATE: RegistrySupplier<Block> = BLOCKS.register("ancrite_grate") {
-        Block(ancriteProps().noOcclusion())
+        Block(ancriteProps().sound(EKSounds.ANCRITE_GRATE_SOUND_TYPE).noOcclusion())
     }
     /** Iron-bars-style pane block using the ancrite-grate texture. Also connects to ancrite
      *  chain endcaps along the chain's axis — see [AncriteBarsBlock]. */
     val ANCRITE_BARS: RegistrySupplier<Block> = BLOCKS.register("ancrite_bars") {
-        AncriteBarsBlock(ancriteProps().noOcclusion())
+        AncriteBarsBlock(ancriteProps().sound(EKSounds.ANCRITE_GRATE_SOUND_TYPE).noOcclusion())
     }
     /** Ancrite Beam — pillar-style block, same 8×16×8 footprint as the wall post. Placed by
      *  the geode generator beyond the crystal's width to extend the spike to the geode shell. */
     val ANCRITE_BEAM: RegistrySupplier<Block> = BLOCKS.register("ancrite_beam") {
-        AncriteBeamBlock(ancriteProps().noOcclusion())
+        AncriteBeamBlock(ancriteProps().sound(EKSounds.ANCRITE_GRATE_SOUND_TYPE).noOcclusion())
     }
 
     /** Aether Pad — directional hover thruster. Front face is crepusculite; other five faces
@@ -317,7 +320,7 @@ object EKBlocks {
                 .mapColor(MapColor.COLOR_MAGENTA)
                 .requiresCorrectToolForDrops()
                 .strength(3.0f, 6.0f)
-                .sound(SoundType.AMETHYST),
+                .sound(EKSounds.AETHER_PAD_SOUND_TYPE),
         )
     }
 
@@ -348,7 +351,7 @@ object EKBlocks {
                 .mapColor(MapColor.COLOR_PURPLE)
                 .requiresCorrectToolForDrops()
                 .strength(2.0f, 6.0f)
-                .sound(SoundType.STONE)
+                .sound(EKSounds.SHULKER_STRUT_SOUND_TYPE)
                 // The block model is an empty placeholder — the BER draws both shulker
                 // shells. `noOcclusion` keeps neighbour faces visible (no model = no
                 // occluder anyway, but the property also disables vanilla's full-cube
@@ -385,6 +388,7 @@ object EKBlocks {
                 .mapColor(MapColor.COLOR_PURPLE)
                 .strength(2.0f, 6.0f)
                 .sound(SoundType.STONE)
+                .noLootTable()
                 .noOcclusion()
         )
     }
@@ -514,6 +518,8 @@ object EKBlocks {
                 .strength(0.6f, 3_600_000f)
                 .sound(SoundType.GLASS)
                 .lightLevel { 12 }
+                // The block model is empty (the BER draws the heart); an occluding cube culls neighbour faces.
+                .noOcclusion()
         )
     }
 
@@ -543,11 +549,13 @@ object EKBlocks {
     }
 
     val ICHAERIC_INK_JAR: RegistrySupplier<Block> = BLOCKS.register("ichaeric_ink_jar") {
-        IchaericInkJarBlock(BlockBehaviour.Properties.copy(Blocks.GLASS))
+        IchaericInkJarBlock(BlockBehaviour.Properties.copy(Blocks.GLASS).sound(EKSounds.ICHAERIC_INK_GLASS_SOUND_TYPE))
     }
 
     val INEGRIC_RETORT: RegistrySupplier<Block> = BLOCKS.register("inegric_retort") {
-        InegricRetortBlock(BlockBehaviour.Properties.copy(Blocks.GLASS).randomTicks())
+        InegricRetortBlock(
+            BlockBehaviour.Properties.copy(Blocks.GLASS).randomTicks().sound(EKSounds.ICHAERIC_INK_GLASS_SOUND_TYPE),
+        )
     }
 
     val SCRIBES_DESK: RegistrySupplier<Block> = BLOCKS.register("scribes_desk") {
@@ -575,7 +583,7 @@ object EKBlocks {
         SselithBookshelfBlock(
             BlockBehaviour.Properties.copy(Blocks.BOOKSHELF)
                 .mapColor(MapColor.DEEPSLATE)
-                .sound(SoundType.DEEPSLATE_TILES)
+                .sound(EKSounds.SSELITH_SHELF_SOUND_TYPE)
         )
     }
 
@@ -594,7 +602,7 @@ object EKBlocks {
         org.shipwrights.enderkinesis.block.SselithLecternBlock(
             BlockBehaviour.Properties.copy(Blocks.LECTERN)
                 .mapColor(MapColor.DEEPSLATE)
-                .sound(SoundType.DEEPSLATE_TILES)
+                .sound(EKSounds.SSELITH_SHELF_SOUND_TYPE)
                 // The chunky base isn't a full opaque cube (the back ridge stops at
                 // x=11..16 / z=11..16), so without `noOcclusion` adjacent block faces
                 // get culled against a non-existent occluder.
@@ -611,22 +619,21 @@ object EKBlocks {
         org.shipwrights.enderkinesis.block.SselithLadderBlock(
             BlockBehaviour.Properties.copy(Blocks.LADDER)
                 .mapColor(MapColor.DEEPSLATE)
-                .sound(SoundType.DEEPSLATE_TILES)
+                .sound(EKSounds.SSELITH_SHELF_SOUND_TYPE)
         )
     }
 
     /** Sselith Trapdoor — deepslate-textured hinged hatch. Same behaviour as
      *  vanilla wooden trapdoors (right-click to open / close; doesn't need a
-     *  backer), but registered as a [net.minecraft.world.level.block.state.properties.BlockSetType.STONE]-typed
-     *  trapdoor for the deepslate sound profile and the stone open/close
-     *  click. Replaces every [Blocks.BAMBOO_TRAPDOOR] placement the chunk
+     *  backer), but uses [EKSounds.SSELITH_TRAPDOOR_SET_TYPE] for the Sselith
+     *  shelf open/close sounds. Replaces every [Blocks.BAMBOO_TRAPDOOR] placement the chunk
      *  generator emits (platform connection trapdoors). */
     val SSELITH_TRAPDOOR: RegistrySupplier<Block> = BLOCKS.register("sselith_trapdoor") {
         net.minecraft.world.level.block.TrapDoorBlock(
             BlockBehaviour.Properties.copy(Blocks.BAMBOO_TRAPDOOR)
                 .mapColor(MapColor.DEEPSLATE)
-                .sound(SoundType.DEEPSLATE_TILES),
-            net.minecraft.world.level.block.state.properties.BlockSetType.STONE,
+                .sound(EKSounds.SSELITH_SHELF_SOUND_TYPE),
+            EKSounds.SSELITH_TRAPDOOR_SET_TYPE,
         )
     }
 
@@ -646,7 +653,7 @@ object EKBlocks {
                 .mapColor(MapColor.DEEPSLATE)
                 .requiresCorrectToolForDrops()
                 .strength(1.5f, 6.0f)
-                .sound(SoundType.DEEPSLATE_TILES)
+                .sound(EKSounds.SSELITH_SHELF_SOUND_TYPE)
                 .lightLevel { 15 }
         )
     }
@@ -894,7 +901,7 @@ object EKBlocks {
         CrystalPedestalBlock(
             BlockBehaviour.Properties.copy(Blocks.CHISELED_STONE_BRICKS)
                 .strength(1.5f, 6.0f)
-                .sound(SoundType.STONE)
+                .sound(EKSounds.CRYSTAL_PEDESTAL_SOUND_TYPE)
                 .noOcclusion()
                 .lightLevel { state -> if (state.getValue(BlockStateProperties.LIT)) 5 else 0 },
         )

@@ -1,7 +1,10 @@
 package org.shipwrights.enderkinesis.entity
 
 import net.minecraft.util.Mth
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.ClipContext
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Quaternionf
@@ -31,6 +34,7 @@ class ConstriliarGait {
     private val stepFrom = Array(4) { Vec3.ZERO }
     private val stepTo = Array(4) { Vec3.ZERO }
     private val stepProgress = FloatArray(4) { 1f }
+    private val homes = Array(4) { Vec3.ZERO }
     private var initialized = false
     private val scratch = Vector3f()
 
@@ -70,31 +74,32 @@ class ConstriliarGait {
         sitBlendPrev = sitBlendCur
         sitBlendCur = (sitBlendCur + if (entity.isSitting()) SIT_TUCK_RATE else -SIT_TUCK_RATE)
             .coerceIn(0f, 1f)
-        // Homes and step decisions live in the frame the body is DRAWN in — the ship's
-        // render transform; the entity pose is only the shipless fallback.
-        val shipPose = entity.shipRenderPose()
-        val origin = shipPose?.first ?: entity.bodyOrigin(1f)
-        val q = shipPose?.second ?: entity.bodyQuat(1f)
-        if (!initialized) {
+        // Homes and step decisions live in the frame the body is DRAWN in.
+        val (origin, q) = entity.bodyRenderPose(1f)
+        val up = entity.upVector(1f)
+        updateHomes(entity, origin, q, up)
+        // A teleport moves the drawn body far from the planted feet; swinging them
+        // across would stretch every leg over the gap for a whole step.
+        if (!initialized || anyFootStranded()) {
             for (i in 0..3) {
-                footCur[i] = groundedHome(entity, origin, q, i)
-                footPrev[i] = footCur[i]
+                footCur[i] = homes[i]
+                footPrev[i] = homes[i]
+                stepProgress[i] = 1f
             }
             initialized = true
             return
         }
+        val rate = swingRate(entity.deltaMovement.length())
         for (i in 0..3) {
             footPrev[i] = footCur[i]
             if (stepProgress[i] < 1f) {
-                stepProgress[i] = (stepProgress[i] + STEP_RATE).coerceAtMost(1f)
-                if (stepProgress[i] >= 1f) playFootstep(entity, i)
+                stepProgress[i] = (stepProgress[i] + rate).coerceAtMost(1f)
+                if (stepProgress[i] >= 1f) playFootstep(entity, stepTo[i])
                 val p = stepProgress[i].toDouble()
                 // Re-aim mid-step at the CURRENT home so the foot lands where the home
                 // is at touchdown, not where it was at lift-off — the old fixed target
                 // left every step landing short of a moving body.
-                val lead = entity.deltaMovement.scale(STEP_LEAD_TICKS)
-                stepTo[i] = groundedHome(entity, origin, q, i).add(lead.x, 0.0, lead.z)
-                val up = entity.upVector(1f)
+                stepTo[i] = homes[i]
                 val lift = sin(Math.PI * p) * STEP_LIFT
                 footCur[i] = stepFrom[i].lerp(stepTo[i], p)
                     .add(up.x * lift, up.y * lift, up.z * lift)
@@ -102,24 +107,47 @@ class ConstriliarGait {
         }
         for (i in 0..3) {
             if (stepProgress[i] < 1f) continue
-            val home = groundedHome(entity, origin, q, i)
-            val errSq = footCur[i].distanceToSqr(home)
+            val errSq = footCur[i].distanceToSqr(homes[i])
             // Failsafe: a foot stranded far past its home (fast movement, ledges) steps
             // immediately, gait pairing be damned — a stretched leg looks worse than a
             // broken trot beat.
             if (errSq > FORCE_STEP_SQ || (errSq > STEP_TRIGGER_SQ && pairFree(i))) {
-                val lead = entity.deltaMovement.scale(STEP_LEAD_TICKS)
                 stepFrom[i] = footCur[i]
-                stepTo[i] = home.add(lead.x, 0.0, lead.z)
+                // Placeholder: the swing loop re-aims at the led home before first use.
+                stepTo[i] = homes[i]
                 stepProgress[i] = 0f
             }
         }
     }
 
+    /** Lead in the surface plane, cast with the home: a world-XZ lead dropped climb
+     *  motion on walls and left the foot off the ground on slopes. */
+    private fun updateHomes(entity: ConstriliarEntity, origin: Vec3, q: Quaternionf, up: Vector3f) {
+        val move = entity.deltaMovement
+        val along = move.x * up.x + move.y * up.y + move.z * up.z
+        val leadX = (move.x - up.x * along) * STEP_LEAD_TICKS
+        val leadY = (move.y - up.y * along) * STEP_LEAD_TICKS
+        val leadZ = (move.z - up.z * along) * STEP_LEAD_TICKS
+        for (i in 0..3) {
+            // Only a swinging foot aims ahead; planted feet measure drift from the true home.
+            homes[i] = if (stepProgress[i] < 1f) {
+                groundedHome(entity, origin, q, i, leadX, leadY, leadZ)
+            } else {
+                groundedHome(entity, origin, q, i, 0.0, 0.0, 0.0)
+            }
+        }
+    }
+
+    private fun anyFootStranded(): Boolean {
+        for (i in 0..3) {
+            if (footCur[i].distanceToSqr(homes[i]) > RESNAP_SQ) return true
+        }
+        return false
+    }
+
     /** Touchdown: the stepped-on block's step sound — or, on a liquid, a splash burst
      *  with a pointed-dripstone drip (water/lava variants). Client-local. */
-    private fun playFootstep(entity: ConstriliarEntity, leg: Int) {
-        val foot = stepTo[leg]
+    internal fun playFootstep(entity: ConstriliarEntity, foot: Vec3) {
         val up = entity.upVector(1f)
         val level = entity.level()
         val support = net.minecraft.core.BlockPos.containing(
@@ -166,38 +194,29 @@ class ConstriliarGait {
         )
     }
 
-    /** Diagonal trot: a leg may lift only while the *other* diagonal pair is planted. */
-    private fun pairFree(leg: Int): Boolean {
-        val a = if (leg == 0 || leg == 2) 1 else 0
-        val b = if (leg == 0 || leg == 2) 3 else 2
-        return stepProgress[a] >= 1f && stepProgress[b] >= 1f
-    }
+    private fun pairFree(leg: Int): Boolean = otherPairPlanted(leg) { stepProgress[it] >= 1f }
 
     /** The leg's resting foot spot: diagonal out from the hip, dropped onto the surface.
      *  The down-ray is short on purpose — a foot must dangle over a drop rather than
      *  stretch to ground beyond the leg's reach. Sitting pulls the homes in tight under
      *  the plate, so the feet step inward and the knees fold up close to the body. */
-    private fun groundedHome(entity: ConstriliarEntity, origin: Vec3, q: Quaternionf, leg: Int): Vec3 {
-        val tuck = 1f - SIT_TUCK_AMOUNT * (sitBlendCur * sitBlendCur * (3f - 2f * sitBlendCur))
+    private fun groundedHome(
+        entity: ConstriliarEntity,
+        origin: Vec3,
+        q: Quaternionf,
+        leg: Int,
+        leadX: Double,
+        leadY: Double,
+        leadZ: Double,
+    ): Vec3 {
+        val tuck = tuckScale(sitBlendCur)
         val local = scratch.set(HOME_LOCAL_X[leg] * tuck, 0f, HOME_LOCAL_Z[leg] * tuck).rotate(q)
-        val home = origin.add(local.x.toDouble(), local.y.toDouble(), local.z.toDouble())
+        val home = origin.add(local.x + leadX, local.y + leadY, local.z + leadZ)
         // Ray along -bodyUp, not world-down, so wall-climbing feet plant on the wall.
-        // Skips the walker's own back ship — feet must never plant on its own cargo.
         val up = entity.upVector(1f)
-        val hit = entity.level().clipIncludeShips(
-            ClipContext(
-                home.add(up.x * FOOT_RAY_UP, up.y * FOOT_RAY_UP, up.z * FOOT_RAY_UP),
-                // Full anatomical reach (~1.8 from the hip): on a tilted body the real
-                // ground can sit well below the rotated home plane — a short ray pinned
-                // every miss to a floating plane instead of stretching to the block.
-                // The IK's own reach clamp handles the last few pixels of overstretch.
-                home.add(up.x * -FOOT_RAY_DOWN, up.y * -FOOT_RAY_DOWN, up.z * -FOOT_RAY_DOWN),
-                ClipContext.Block.COLLIDER,
-                ClipContext.Fluid.ANY,
-                entity,
-            ),
-            true,
-            entity.clientOwnShipId(),
+        val hit = castFootRay(
+            entity.level(), entity, home,
+            up.x.toDouble(), up.y.toDouble(), up.z.toDouble(), entity.clientOwnShipId(),
         )
         if (hit.type != HitResult.Type.MISS) {
             // Feet wade into liquid surfaces rather than standing on the very top.
@@ -206,22 +225,18 @@ class ConstriliarGait {
         // Body-up ray missed — on a pitched body (skyward aim) the raised hips' ray
         // tilts away from the actual ground. Search nearby: a WORLD-down ray from the
         // home, then one nudged inward under the body, before giving up to a droop.
+        // Floor-like surfaces only: on a wall the world-down ray finds the floor below.
+        if (up.y < FOOT_FALLBACK_MIN_UP_Y) return home.add(0.0, -DROOP, 0.0)
         val originF = entity.bodyOrigin(1f)
         for (attempt in 0..1) {
             val inX = (originF.x - home.x) * (attempt * FOOT_SEARCH_INWARD)
             val inZ = (originF.z - home.z) * (attempt * FOOT_SEARCH_INWARD)
             val from = Vec3(home.x + inX, home.y + FOOT_RAY_UP, home.z + inZ)
-            val fallback = entity.level().clipIncludeShips(
-                ClipContext(
-                    from,
-                    // Longer than the body-frame ray: a reared body's front hips sit
-                    // well above the ground the world-down fallback is hunting for.
-                    from.add(0.0, -(FOOT_RAY_UP + FOOT_RAY_DOWN * FOOT_FALLBACK_REACH), 0.0),
-                    ClipContext.Block.COLLIDER,
-                    ClipContext.Fluid.ANY,
-                    entity,
-                ),
-                true,
+            val fallback = clipFoot(
+                entity.level(), entity, from,
+                // Longer than the body-frame ray: a reared body's front hips sit
+                // well above the ground the world-down fallback is hunting for.
+                from.add(0.0, -(FOOT_RAY_UP + FOOT_RAY_DOWN * FOOT_FALLBACK_REACH), 0.0),
                 entity.clientOwnShipId(),
             )
             if (fallback.type != HitResult.Type.MISS) {
@@ -230,13 +245,10 @@ class ConstriliarGait {
         }
         // Nothing in reach: droop WORLD-down — a local-down droop on a pitched body
         // pointed the dangling feet sideways.
-        return home.add(0.0, -0.35, 0.0)
+        return home.add(0.0, -DROOP, 0.0)
     }
 
     /** Per-frame IK: world feet → model-space targets → hip yaw + planar 2-bone solve. */
-    fun solveRenderAngles(entity: ConstriliarEntity, partialTick: Float) {
-        solveRenderAngles(entity.bodyOrigin(partialTick), entity.bodyQuat(partialTick), partialTick)
-    }
 
     /** Body-frame override for ship-space rendering: [origin] is the world position of
      *  the model ground plane, [bodyQuat] the model→world rotation (tilt ∘ 180°-yaw).
@@ -335,17 +347,80 @@ class ConstriliarGait {
     }
 
     companion object {
+
+        /** Diagonal trot: a leg may lift only while the *other* diagonal pair is planted. */
+        internal inline fun otherPairPlanted(leg: Int, planted: (Int) -> Boolean): Boolean {
+            val diagonalA = leg == 0 || leg == 2
+            return planted(if (diagonalA) 1 else 0) && planted(if (diagonalA) 3 else 2)
+        }
+
+        /** Swing progress per tick: [STEP_RATE] up to walk speed, then faster with speed
+         *  so a fast body's feet keep up instead of tripping the force-step. */
+        internal fun swingRate(speedPerTick: Double): Float =
+            (STEP_RATE * (speedPerTick / SWING_REF_SPEED).toFloat()).coerceIn(STEP_RATE, MAX_STEP_RATE)
+
+        /** Home-radius scale for a sit blend: sitting pulls the feet in under the plate. */
+        internal fun tuckScale(sitBlend: Float): Float =
+            1f - SIT_TUCK_AMOUNT * (sitBlend * sitBlend * (3f - 2f * sitBlend))
+
+        /** Foot ray along -bodyUp from [home], skipping [ownShipId] — feet never plant on
+         *  the walker's own cargo. Full anatomical reach (~1.8 from the hip): on a tilted
+         *  body the real ground can sit well below the rotated home plane. */
+        internal fun castFootRay(
+            level: Level,
+            entity: Entity,
+            home: Vec3,
+            upX: Double,
+            upY: Double,
+            upZ: Double,
+            ownShipId: Long?,
+        ): BlockHitResult = clipFoot(
+            level, entity,
+            home.add(upX * FOOT_RAY_UP, upY * FOOT_RAY_UP, upZ * FOOT_RAY_UP),
+            home.add(upX * -FOOT_RAY_DOWN, upY * -FOOT_RAY_DOWN, upZ * -FOOT_RAY_DOWN),
+            ownShipId,
+        )
+
+        /** Vanilla clip from inside a shape reports a hit AT the start point, which sank
+         *  feet into an upslope step: cast once more from further back, keep a clean hit. */
+        private fun clipFoot(level: Level, entity: Entity, from: Vec3, to: Vec3, ownShipId: Long?): BlockHitResult {
+            val hit = clipShips(level, entity, from, to, ownShipId)
+            if (!hit.isInside) return hit
+            val back = from.subtract(to).normalize().scale(FOOT_RAY_RETRY_BACK)
+            val retry = clipShips(level, entity, from.add(back), to, ownShipId)
+            return if (retry.type == HitResult.Type.MISS || retry.isInside) hit else retry
+        }
+
+        private fun clipShips(level: Level, entity: Entity, from: Vec3, to: Vec3, ownShipId: Long?): BlockHitResult =
+            level.clipIncludeShips(
+                ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, entity),
+                true,
+                ownShipId,
+            )
+
         internal const val STEP_RATE = 0.25f
+        /** Speed (blocks/tick) above which swings shorten: the walk drive's 3.2 m/s. */
+        private const val SWING_REF_SPEED = 0.16
+        /** Fastest swing: two ticks. */
+        private const val MAX_STEP_RATE = 0.5f
         private const val PHASE_WRAP = 72_000f
         private const val FOOTSTEP_VOLUME = 0.3f
         internal const val SIT_TUCK_RATE = 0.12f
         /** Foot ray extents along the body normal from the home plane: upslope legs
          *  plant up to 0.75 above it, downslope legs stretch to 1.7 below. */
         internal const val FOOT_RAY_UP = 0.75
+        /** Extra start offset for the re-cast when a foot ray starts inside a block. */
+        private const val FOOT_RAY_RETRY_BACK = 0.5
         /** Fraction of hip→body-centre the miss-fallback foot ray steps inward. */
         internal const val FOOT_SEARCH_INWARD = 0.35
         /** World-down fallback reach multiplier over the body-frame ray. */
         internal const val FOOT_FALLBACK_REACH = 1.6
+        /** Surface-normal Y below which the world-down fallback ray is skipped (~45°). */
+        private const val FOOT_FALLBACK_MIN_UP_Y = 0.7f
+        /** Dangling-foot drop below the home when no surface is in reach. */
+        internal const val DROOP = 0.35
+        /** A planted foot this far from its home snaps instead of stepping (teleport). */
+        private const val RESNAP_SQ = 4.0 * 4.0
         internal const val FOOT_RAY_DOWN = 1.7
         /** How far the sitting homes pull in toward the body (fraction of home radius). */
         internal const val SIT_TUCK_AMOUNT = 0.3f

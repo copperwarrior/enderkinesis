@@ -13,6 +13,8 @@ import net.minecraft.nbt.Tag
 import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.TagKey
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -26,6 +28,7 @@ import org.shipwrights.enderkinesis.dimension.TreeSegment
 import org.shipwrights.enderkinesis.dimension.WogorTreeSkeleton
 import org.shipwrights.enderkinesis.dimension.WohlonnogondoniaChunkGenerator
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.BitSet
 import kotlin.math.PI
 import kotlin.math.ceil
@@ -230,6 +233,14 @@ object WohlonnogondoniaTreeGrower {
 
     /** A job with a voxel that can never be placed must end: 5 minutes with no placement. */
     private const val JOB_IDLE_LIMIT_TICKS = 6000
+
+    private const val HEART_ARRIVE_VOLUME: Float = 4f
+    private const val COMPLETE_VOLUME: Float = 4f
+    private const val GROW_DETAIL_VOLUME: Float = 2.5f
+    private const val GROW_DETAIL_MIN_TICKS: Int = 20
+    private const val GROW_DETAIL_SPREAD_TICKS: Int = 40
+    private const val GROW_DETAIL_PITCH_MIN: Float = 0.9f
+    private const val GROW_DETAIL_PITCH_SPREAD: Float = 0.2f
 
     /** Builds that run now. A pending record with no entry here is from before a restart. */
     private val buildsInFlight: MutableSet<TreeBuildParams> =
@@ -786,6 +797,7 @@ object WohlonnogondoniaTreeGrower {
             placed = BitSet(totalVoxels),
             layerEnds = layerEnds,
             tunnelCarvePositions = tunnelPositions.toLongArray(),
+            trunk = portalPos.asLong(),
         )
         // Builds the position→index map and the initial
         // frontier from the painted set. Pure data work, no
@@ -844,6 +856,7 @@ object WohlonnogondoniaTreeGrower {
         // `(0, HEART_Y, 0)`); putting it here would arm the
         // dim-wipe catastrophe trigger on every ritual portal.
         level.setBlock(params.portalPos, EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState(), 3)
+        playAt(level, params.portalPos.asLong(), EKSounds.WOHLON_RITUAL_HEART_ARRIVE.get(), HEART_ARRIVE_VOLUME, 1f)
     }
 
     /** Remove every voxel whose centre lies inside the oblate
@@ -947,11 +960,14 @@ object WohlonnogondoniaTreeGrower {
             val job = iter.next()
             // The scan reads each frontier voxel and its neighbours; a read loads its chunk.
             if (!isAreaLoaded(level, job.minX - 1, job.minZ - 1, job.maxX + 1, job.maxZ + 1)) continue
+            job.lastGrowTick = level.gameTime
             val placedBefore = job.placed.cardinality()
             if (tickJob(level, job)) changed = true
+            tickGrowDetail(level, job)
             val placedNow = job.placed.cardinality()
             job.idleTicks = if (placedNow > placedBefore) 0 else job.idleTicks + 1
             if (placedNow == job.voxels.size) {
+                job.trunk?.let { playAt(level, it, EKSounds.WOHLON_RITUAL_COMPLETE.get(), COMPLETE_VOLUME, 1f) }
                 iter.remove()
                 changed = true
             } else if (job.idleTicks >= JOB_IDLE_LIMIT_TICKS) {
@@ -960,6 +976,37 @@ object WohlonnogondoniaTreeGrower {
             }
         }
         if (changed) data.setDirty()
+    }
+
+    private fun tickGrowDetail(level: ServerLevel, job: TreeJob) {
+        if (--job.detailCountdown > 0) return
+        job.detailCountdown = GROW_DETAIL_MIN_TICKS + level.random.nextInt(GROW_DETAIL_SPREAD_TICKS + 1)
+        val idx = job.lastSetIdx
+        if (idx < 0) return
+        val event = when {
+            job.isRoot.get(idx) -> EKSounds.WOHLON_RITUAL_GROW_ROOTS
+            job.isLeaf.get(idx) -> EKSounds.WOHLON_RITUAL_GROW_LEAVES
+            else -> EKSounds.WOHLON_RITUAL_GROW_WOOD
+        }
+        val pitch = GROW_DETAIL_PITCH_MIN + level.random.nextFloat() * GROW_DETAIL_PITCH_SPREAD
+        playAt(level, job.voxels[idx], event.get(), GROW_DETAIL_VOLUME, pitch)
+    }
+
+    private fun playAt(level: ServerLevel, packed: Long, event: SoundEvent, volume: Float, pitch: Float) {
+        level.playSound(
+            null, BlockPos.getX(packed) + 0.5, BlockPos.getY(packed) + 0.5, BlockPos.getZ(packed) + 0.5,
+            event, SoundSource.BLOCKS, volume, pitch,
+        )
+    }
+
+    /** Calls [action] with the trunk of each job, and true while the job ticks. */
+    fun forEachTrunk(level: ServerLevel, action: (trunk: Long, growing: Boolean) -> Unit) {
+        val data = level.dataStorage.get({ tag -> TreeJobsData.load(tag) }, DATA_NAME) ?: return
+        for (job in data.jobs) {
+            val trunk = job.trunk ?: continue
+            // The sync can run before or after the grow tick in the same game tick.
+            action(trunk, level.gameTime - job.lastGrowTick <= 1L)
+        }
     }
 
     /** Center-out frontier scan. The voxel array is sorted by
@@ -996,6 +1043,7 @@ object WohlonnogondoniaTreeGrower {
         // Scratch: the scan runs up to [MAX_SCAN_PER_TICK] times each tick.
         val pos = BlockPos.MutableBlockPos()
         val nPos = BlockPos.MutableBlockPos()
+        job.lastSetIdx = -1
         var i = job.frontier.nextSetBit(0)
         while (i >= 0 && scanBudget > 0 && placeBudget > 0) {
             scanBudget--
@@ -1034,6 +1082,7 @@ object WohlonnogondoniaTreeGrower {
                         // updateShape that could drop adjacent
                         // buds.
                         level.setBlock(pos.immutable(), state, 2)
+                        job.lastSetIdx = i
                     }
                     didPlace = true
                 }
@@ -1208,6 +1257,7 @@ object WohlonnogondoniaTreeGrower {
                         // on nearby buds.
                         // Immutable: the bud's `onPlace` schedules a tick that keeps the position.
                         level.setBlock(pos.immutable(), state, 2)
+                        job.lastSetIdx = i
                         if (plantingBud) job.hasSeed = true
                     }
                     didPlace = true
@@ -1758,12 +1808,19 @@ object WohlonnogondoniaTreeGrower {
          *  not persisted, so a reloaded job has this empty (the air
          *  is already in the world). */
         val tunnelCarvePositions: LongArray = LongArray(0),
+        /** The heart position. Null for a job saved before this field. Then the job plays no loop or finish sound. */
+        val trunk: Long? = null,
     ) {
         // Runtime-only — rebuilt on construction / save load.
         val voxelIdx: HashMap<Long, Int> = HashMap(voxels.size + voxels.size / 2)
         val frontier: BitSet = BitSet(voxels.size)
         var minX = 0; var maxX = 0; var minZ = 0; var maxZ = 0
         var idleTicks = 0
+        /** The game time of the last tick with the area loaded. */
+        var lastGrowTick = Long.MIN_VALUE
+        /** A voxel that [tickJob] put into the level this tick, or -1. */
+        var lastSetIdx = -1
+        var detailCountdown = 0
 
         /** Build the position→index lookup and seed the
          *  frontier with every unplaced voxel that **could**
@@ -1831,6 +1888,7 @@ object WohlonnogondoniaTreeGrower {
                 t.putIntArray("layerEnds", job.layerEnds)
                 t.putInt("layer", job.currentLayer)
                 t.putInt("layerTimer", job.layerTimer)
+                job.trunk?.let { t.putLong("trunk", it) }
                 jobsList.add(t)
             }
             tag.put("jobs", jobsList)
@@ -1869,6 +1927,7 @@ object WohlonnogondoniaTreeGrower {
                         layerEnds = layerEnds,
                         currentLayer = t.getInt("layer"),
                         layerTimer = t.getInt("layerTimer"),
+                        trunk = if (t.contains("trunk", Tag.TAG_LONG.toInt())) t.getLong("trunk") else null,
                     )
                     job.rebuildRuntimeState()
                     data.jobs.add(job)

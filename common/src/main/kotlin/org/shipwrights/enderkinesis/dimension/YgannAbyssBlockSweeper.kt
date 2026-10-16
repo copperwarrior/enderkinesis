@@ -5,7 +5,6 @@ import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.util.RandomSource
 import net.minecraft.world.level.ChunkPos
@@ -13,6 +12,7 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.chunk.LevelChunk
 import org.valkyrienskies.mod.api.isBlockInShipyard
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 
 /**
@@ -123,8 +123,8 @@ object YgannAbyssBlockSweeper {
         )
         level.playSound(
             null, pos,
-            SoundEvents.ENDERMAN_TELEPORT, SoundSource.BLOCKS,
-            0.5f, 1.4f,
+            EKSounds.YGANN_REJECT.get(), SoundSource.BLOCKS,
+            1f, 1f,
         )
     }
 }

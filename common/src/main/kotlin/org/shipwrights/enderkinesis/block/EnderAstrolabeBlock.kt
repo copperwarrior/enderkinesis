@@ -16,7 +16,7 @@ import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
-import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import net.minecraft.world.level.block.state.properties.BooleanProperty
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
@@ -27,16 +27,17 @@ import org.shipwrights.enderkinesis.registry.EKBlockEntities
 
 /**
  * Ender Astrolabe. Right-click with an Almanac of Everywhere to cycle the destination dimension
- * (its obfuscated name is echoed to the player). A rising redstone edge triggers teleportation.
+ * (its obfuscated name is echoed to the player). Right-click with a different item, or an empty
+ * hand, to start or cancel the jump charge.
  */
 class EnderAstrolabeBlock(properties: BlockBehaviour.Properties) : Block(properties), EntityBlock {
 
     init {
-        registerDefaultState(stateDefinition.any().setValue(BlockStateProperties.POWERED, false))
+        registerDefaultState(stateDefinition.any().setValue(CHARGING, false))
     }
 
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
-        builder.add(BlockStateProperties.POWERED)
+        builder.add(CHARGING)
     }
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =
@@ -77,27 +78,20 @@ class EnderAstrolabeBlock(properties: BlockBehaviour.Properties) : Block(propert
             }
             return InteractionResult.sidedSuccess(level.isClientSide)
         }
-        return InteractionResult.PASS
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun neighborChanged(
-        state: BlockState, level: Level, pos: BlockPos,
-        block: Block, fromPos: BlockPos, moving: Boolean
-    ) {
-        if (level.isClientSide) return
-        val powered = level.hasNeighborSignal(pos)
-        val wasPowered = state.getValue(BlockStateProperties.POWERED)
-        if (powered != wasPowered) {
-            level.setBlock(pos, state.setValue(BlockStateProperties.POWERED, powered), 3)
-            // Rising edge -> attempt the jump.
-            if (powered && !wasPowered) {
-                (level.getBlockEntity(pos) as? EnderAstrolabeBlockEntity)?.triggerJump(level, pos)
-            }
+        // PASS lets the off-hand almanac cycle the destination.
+        if (hand == InteractionHand.MAIN_HAND && player.offhandItem.item is AlmanacOfEverywhereItem) {
+            return InteractionResult.PASS
         }
+        if (!level.isClientSide) {
+            (level.getBlockEntity(pos) as? EnderAstrolabeBlockEntity)?.toggleJump(level, pos)
+        }
+        return InteractionResult.sidedSuccess(level.isClientSide)
     }
 
-    private companion object {
+    companion object {
+        // Not POWERED: other mods read that property as a redstone state.
+        val CHARGING: BooleanProperty = BooleanProperty.create("charging")
+
         /** Voxel approximation of the astrolabe silhouette: a flat pedestal, a thin shaft,
          *  and a single block-spanning band that bounds *both* the yaw/pitch rings and the
          *  sphere + spyglass-shafts above. Collapsed from a separate `ringBand` + `sphereCap`

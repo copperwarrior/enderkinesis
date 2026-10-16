@@ -9,6 +9,8 @@ import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
@@ -27,6 +29,7 @@ import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
@@ -191,12 +194,35 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  upgraded mode the pitch component is honoured; otherwise we silently drop it so the
      *  yaw-only controller sees the same value it would have without the upgrade. */
     fun setStaticTargetYaw(yawRad: Float, pitchRad: Float = 0f) {
+        val newPitch = if (upgraded) pitchRad else 0f
+        val changed = staffPinWorld != null || yawRad != staticTargetYawRad || newPitch != staticTargetPitchRad
         staticTargetYawRad = yawRad
-        staticTargetPitchRad = if (upgraded) pitchRad else 0f
+        staticTargetPitchRad = newPitch
         cachedTargetYawRad = yawRad
         cachedTargetPitchRad = staticTargetPitchRad
         staffPinWorld = null   // explicit static heading overrides any prior staff pin
         syncAfterChange()
+        if (changed) playAimSound()
+    }
+
+    private var lastAimSoundTick = 0L
+
+    /** The aim files are approximately 2 s long. The cooldown prevents a stack of them. */
+    private fun playAimSound() {
+        val serverLevel = level as? ServerLevel ?: return
+        if (serverLevel.gameTime - lastAimSoundTick in 0 until AIM_SOUND_COOLDOWN_TICKS) return
+        lastAimSoundTick = serverLevel.gameTime
+        val pitch = AIM_SOUND_PITCH_MIN + serverLevel.random.nextFloat() * AIM_SOUND_PITCH_SPREAD
+        serverLevel.playSound(null, blockPos, EKSounds.EYEROSCOPE_AIM.get(), SoundSource.BLOCKS, AIM_SOUND_VOLUME, pitch)
+    }
+
+    private fun playSlotSound(sound: SoundEvent) {
+        (level as? ServerLevel)?.playSound(null, blockPos, sound, SoundSource.BLOCKS, 1f, 1f)
+    }
+
+    override fun setLevel(level: net.minecraft.world.level.Level) {
+        super.setLevel(level)
+        if (level.isClientSide) EyeroscopeClientRegistry.register(level, this)
     }
 
     /** Staff of Command implementation. Default (empty off-hand): clip a ray from the
@@ -234,7 +260,9 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         )
 
         if (hit.type == HitResult.Type.BLOCK) {
+            val previousPin = staffPinWorld
             pinFromGazeHit(serverLevel, hit)
+            if (staffPinWorld != previousPin) playAimSound()
             return
         }
 
@@ -342,6 +370,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         if (upgraded) return false
         upgraded = true
         syncAfterChange()
+        playSlotSound(EKSounds.EYEROSCOPE_UPGRADE.get())
         return true
     }
 
@@ -358,6 +387,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // Don't touch cachedTargetYawRad here — pin-mode physTick computes its own target from
         // the cached ship + raw pin pos and ignores `cachedTargetYawRad` entirely.
         syncAfterChange()
+        playSlotSound(EKSounds.EYEROSCOPE_INSERT.get())
     }
 
     /** Right-click with a [LedgerOfWatchingEyesItem]: takes the same slot the compass
@@ -373,6 +403,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         nextPinRefreshTick = 0L
         lastPhysInDeadZone = false
         syncAfterChange()
+        playSlotSound(EKSounds.EYEROSCOPE_BOOK_INSERT.get())
     }
 
     /** Right-click with a [LedgerOfHuntingPincersItem]: same slot mechanics as
@@ -394,6 +425,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // prevents *re-adding*; it can't unsee a stale entry that's already there.
         if (placer != null) scrubPlacerFromLedger(stack, placer)
         syncAfterChange()
+        playSlotSound(EKSounds.EYEROSCOPE_BOOK_INSERT.get())
     }
 
     /** Client-side accessor — the renderer's `currentHuntingDelta` also needs to skip
@@ -433,6 +465,8 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         cachedPinShip = null
         lastPhysInDeadZone = false
         syncAfterChange()
+        val isLedger = out.item is LedgerOfWatchingEyesItem || out.item is LedgerOfHuntingPincersItem
+        playSlotSound(if (isLedger) EKSounds.EYEROSCOPE_BOOK_EJECT.get() else EKSounds.EYEROSCOPE_EJECT.get())
         return out
     }
 
@@ -442,6 +476,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     override fun setRemoved() {
+        level?.let { if (it.isClientSide) EyeroscopeClientRegistry.unregister(it, this) }
         super.setRemoved()
         releaseMapHolder(compassStack)
         registeredHostId?.let { eyeroscopesByShip[it]?.remove(blockPos) }
@@ -1328,6 +1363,11 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     internal companion object {
+        private const val AIM_SOUND_COOLDOWN_TICKS = 10L
+        private const val AIM_SOUND_VOLUME = 0.8f
+        private const val AIM_SOUND_PITCH_MIN = 0.95f
+        private const val AIM_SOUND_PITCH_SPREAD = 0.1f
+
         /** Proportional gain (1/s²) — desired α per radian of MC-yaw error. Doubled from
          *  the legacy 1.0 to compensate for the per-physics-tick fresh bearing read: the
          *  old game-tick refresh effectively overshot stale targets each refresh window,

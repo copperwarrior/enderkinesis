@@ -5,6 +5,7 @@ import net.minecraft.client.player.Input
 import net.minecraft.client.player.LocalPlayer
 import net.minecraft.util.Mth
 import org.shipwrights.enderkinesis.dimension.SselithMadness
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Decides each client tick if the Sselith Madness holds the local player's body.
@@ -16,6 +17,7 @@ import org.shipwrights.enderkinesis.dimension.SselithMadness
 object SselithControlLoss {
 
     private const val MENU_LEVEL = 4
+    private const val CUE_VOLUME = 0.5f
     private const val EPISODE_LEVEL = 5
     private const val IDLE_LEVEL = 6
     private const val IDLE_TRIGGER_TICKS = 5 * 20
@@ -128,6 +130,7 @@ object SselithControlLoss {
         val idleTooLong = level >= IDLE_LEVEL && idleGrace == 0 && idleTicks > IDLE_TRIGGER_TICKS
         if (--timer > 0 && !idleTooLong) return
         held = true
+        playFlat(EKSounds.SSELITH_MADNESS_GRIP.get(), CUE_VOLUME)
         struggle = 0f
         timer = roll(player, grip.holdTicks)
     }
@@ -140,6 +143,7 @@ object SselithControlLoss {
             return
         }
         held = false
+        playFlat(EKSounds.SSELITH_MADNESS_RELEASE.get(), CUE_VOLUME)
         struggleFraction = 0f
         idleTicks = 0
         idleGrace = grip.idleGraceTicks

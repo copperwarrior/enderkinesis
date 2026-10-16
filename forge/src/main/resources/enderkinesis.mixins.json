@@ -13,7 +13,8 @@
     "ItemForgeStatueMixin",
     "ItemForgeWyllandTomeMixin",
     "ItemForgeParallelographMixin",
-    "ItemForgeIchaericInkJarMixin"
+    "ItemForgeIchaericInkJarMixin",
+    "ItemForgeHeartOfTheWildMixin"
   ],
   "injectors": {
     "defaultRequire": 1

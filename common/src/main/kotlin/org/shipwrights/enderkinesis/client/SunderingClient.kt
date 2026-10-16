@@ -10,7 +10,6 @@ import net.minecraft.client.renderer.RenderType
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
-import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.BeamSegment
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
@@ -279,12 +278,9 @@ object SunderingClient {
     /** Per-tick spawn for all four sub-stage particle layers. */
     /** Polyline tracer call for the client — feeds the same shared
      *  [SunderingBeamTrace.trace] both [SunderingManager] and the
-     *  rendering paths use, with the client's shield set (wielded
-     *  shields + this client's [AegisClient] debug boxes). */
+     *  rendering paths use, with the wielded shields. */
     private fun computeBeamTrace(level: ClientLevel, player: Player, origin: Vec3, viewVec: Vec3): BeamTrace {
-        val shields = ArrayList<AegisBox.Frame>()
-        shields.addAll(SunderingBeamTrace.collectWieldedShields(level, player))
-        shields.addAll(AegisClient.snapshotDebugBoxes())
+        val shields = SunderingBeamTrace.collectWieldedShields(level, player)
         return SunderingBeamTrace.trace(level, player, origin, viewVec, SunderingManager.effectiveRange(player), shields)
     }
 

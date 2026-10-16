@@ -8,7 +8,6 @@ import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
@@ -20,6 +19,7 @@ import org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalRitual
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Detects the "mud + mud + skull" golem pattern and converts it into a
@@ -118,8 +118,8 @@ object WikLakConstruction {
 
         level.playSound(
             null, mudLower,
-            SoundEvents.SOUL_ESCAPE, SoundSource.NEUTRAL,
-            1f, 0.6f,
+            EKSounds.WIK_LAK_BIND.get(), SoundSource.NEUTRAL,
+            1f, 1f,
         )
         level.sendParticles(
             ParticleTypes.SCULK_SOUL,

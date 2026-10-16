@@ -5395,9 +5395,7 @@ class SselithRepertoryChunkGenerator(
 
     override fun addDebugScreenInfo(
         info: MutableList<String>, randomState: RandomState, pos: BlockPos,
-    ) {
-        info.add("Sselith's Repertory chunk generator")
-    }
+    ) = Unit
 
     @Suppress("unused")
     fun getBiomeSourceForCodec(): BiomeSource = this.biomeSource

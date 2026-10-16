@@ -80,6 +80,23 @@ object GamylanCageNetworkClient {
             }
         }
 
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, GamylanCageNetwork.CAGE_ALIGN) { buf, _ ->
+            val bodyId = buf.readLong()
+            val target = if (buf.readBoolean()) {
+                val shipId = if (buf.readBoolean()) buf.readLong() else null
+                GamylanCageClientRegistry.AlignTarget(
+                    shipId, Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble()),
+                )
+            } else {
+                null
+            }
+            Minecraft.getInstance().execute {
+                val dim = Minecraft.getInstance().level?.dimension() ?: return@execute
+                val entry = GamylanCageClientRegistry.entryFor(dim, bodyId) ?: return@execute
+                GamylanCageAlignSounds.onServerUpdate(entry, target)
+            }
+        }
+
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, GamylanCageNetwork.CAGE_IMPACT) { buf, _ ->
             val bodyId = buf.readLong()
             Minecraft.getInstance().execute {
@@ -87,11 +104,12 @@ object GamylanCageNetworkClient {
                 val dim = mc.level?.dimension() ?: return@execute
                 val entry = GamylanCageClientRegistry.entryFor(dim, bodyId) ?: return@execute
                 spawnGlassBreakBurst(entry)
-                mc.level?.playLocalSound(
+                val level = mc.level ?: return@execute
+                level.playLocalSound(
                     entry.hoverPos.x, entry.hoverPos.y, entry.hoverPos.z,
-                    net.minecraft.sounds.SoundEvents.GLASS_BREAK,
+                    org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAGE_HIT.get(),
                     net.minecraft.sounds.SoundSource.BLOCKS,
-                    0.35f, 1.4f, false,
+                    1.0f, 0.9f + level.random.nextFloat() * 0.2f, false,
                 )
             }
         }

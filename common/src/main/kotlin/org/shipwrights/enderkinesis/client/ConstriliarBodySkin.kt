@@ -51,7 +51,7 @@ object ConstriliarBodySkin {
      *  original block during the intro squash, 1.0 = the settled plate. */
     fun squashTop(animT: Float): Float =
         if (animT in 0f..ConstriliarEntity.ANIM_SQUASH_END.toFloat()) {
-            0.25f + 0.75f * smoothstep(animT / ConstriliarEntity.ANIM_SQUASH_END.toFloat())
+            0.25f + 0.75f * ConstriliarEntity.spawnSquash(animT)
         } else {
             1.0f
         }
@@ -79,7 +79,7 @@ object ConstriliarBodySkin {
         if (animT >= 0f) {
             if (animT < ConstriliarEntity.ANIM_EYES_START) {
                 drawModel = false
-            } else if (animT < ConstriliarEntity.ANIM_RISE_END) {
+            } else if (animT < ConstriliarEntity.ANIM_JUMP_START) {
                 skinTexture = BLINK
                 skinAlpha = smoothstep(
                     ((animT - ConstriliarEntity.ANIM_EYES_START) /

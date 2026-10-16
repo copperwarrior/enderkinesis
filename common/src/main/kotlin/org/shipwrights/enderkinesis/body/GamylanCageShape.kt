@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.body
 
 import org.joml.Quaterniond
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.valkyrienskies.core.api.bodies.shape.CompoundBodyShapeData
 import org.valkyrienskies.mod.common.vsCore
 
@@ -158,5 +159,41 @@ object GamylanCageShape {
         }
 
         return vsCore.newCompoundBodyShape(children)
+    }
+
+    /** Body-local convex hull of the crystal. Krunch has no convex shape, so only the entity
+     *  polygon collider can use it. */
+    class Hull(val points: List<Vector3dc>, val normals: List<Vector3dc>)
+
+    private const val HEX_SIDES: Int = 6
+
+    fun newHull(dims: Vector3d): Hull {
+        val rx = dims.x + COLLISION_INFLATION
+        val midH = dims.y + COLLISION_INFLATION
+        val tipLen = dims.z + COLLISION_INFLATION
+        val apothem = rx * SQRT3_OVER_2
+        val slantLen = Math.sqrt(apothem * apothem + tipLen * tipLen)
+        val tipRadial = tipLen / slantLen
+        val tipAxial = apothem / slantLen
+
+        val points = ArrayList<Vector3dc>(2 * HEX_SIDES + 2)
+        val normals = ArrayList<Vector3dc>(3 * HEX_SIDES)
+        for (i in 0 until HEX_SIDES) {
+            val vertexAngle = i * Math.PI / 3.0
+            val x = rx * Math.cos(vertexAngle)
+            val z = rx * Math.sin(vertexAngle)
+            points.add(Vector3d(x, midH, z))
+            points.add(Vector3d(x, -midH, z))
+
+            val faceAngle = vertexAngle + Math.PI / 6.0
+            val nx = Math.cos(faceAngle)
+            val nz = Math.sin(faceAngle)
+            normals.add(Vector3d(nx, 0.0, nz))
+            normals.add(Vector3d(tipRadial * nx, tipAxial, tipRadial * nz))
+            normals.add(Vector3d(tipRadial * nx, -tipAxial, tipRadial * nz))
+        }
+        points.add(Vector3d(0.0, midH + tipLen, 0.0))
+        points.add(Vector3d(0.0, -(midH + tipLen), 0.0))
+        return Hull(points, normals)
     }
 }

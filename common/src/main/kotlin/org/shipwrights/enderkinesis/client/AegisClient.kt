@@ -12,7 +12,6 @@ import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
-import org.shipwrights.enderkinesis.command.AegisDebugCommands
 import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.AegisNetwork
 import org.shipwrights.enderkinesis.registry.EKItems
@@ -203,28 +202,6 @@ object AegisClient {
      *  keeps the look cohesive. */
     private const val SPARKLE_ALPHA: Int = 110
 
-    /** Persistent debug boxes spawned by `/aegisbox`. Each entry is a
-     *  frozen [AegisBox.Frame] snapshotted at the moment the command ran.
-     *  Cleared by `/aegisbox clear`. Drawn at full expansion in
-     *  [renderAll]. Synchronized because writes come in from the network
-     *  thread via [NetworkManager.registerReceiver] callbacks
-     *  (re-dispatched onto the client thread via `Minecraft.execute`, but
-     *  belt-and-braces). */
-    private val debugBoxes: MutableList<AegisBox.Frame> =
-        java.util.Collections.synchronizedList(mutableListOf())
-
-    /** Snapshot the current client-side debug boxes — used by
-     *  `SunderingClient` to feed the same shield list to its polyline
-     *  tracer that `AegisClient` is rendering. Synchronizes on the same
-     *  list as the render loop and returns a defensive copy. */
-    @JvmStatic
-    fun snapshotDebugBoxes(): List<AegisBox.Frame> {
-        synchronized(debugBoxes) {
-            if (debugBoxes.isEmpty()) return emptyList()
-            return ArrayList(debugBoxes)
-        }
-    }
-
     @JvmStatic
     fun init() {
         // Architectury per-frame-after-level tick is fine for particle
@@ -236,30 +213,11 @@ object AegisClient {
             AegisRipples.tick(level)
             tickSparkles()
         })
-        // Debug-command S2C receivers — add / clear persistent
-        // visualisation boxes for `/aegisbox`.
-        NetworkManager.registerReceiver(NetworkManager.Side.S2C, AegisDebugCommands.ADD_PACKET) { buf, _ ->
-            val cx = buf.readDouble(); val cy = buf.readDouble(); val cz = buf.readDouble()
-            val xx = buf.readDouble(); val xy = buf.readDouble(); val xz = buf.readDouble()
-            val yx = buf.readDouble(); val yy = buf.readDouble(); val yz = buf.readDouble()
-            val zx = buf.readDouble(); val zy = buf.readDouble(); val zz = buf.readDouble()
-            Minecraft.getInstance().execute {
-                debugBoxes.add(AegisBox.Frame(
-                    center = Vec3(cx, cy, cz),
-                    axisX = Vec3(xx, xy, xz),
-                    axisY = Vec3(yx, yy, yz),
-                    axisZ = Vec3(zx, zy, zz),
-                ))
-            }
-        }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, AegisNetwork.S2C_RIPPLE) { buf, _ ->
             val wielderId = buf.readVarInt()
             val hit = Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
             val halfSize = buf.readFloat()
             Minecraft.getInstance().execute { AegisRipples.add(wielderId, hit, halfSize) }
-        }
-        NetworkManager.registerReceiver(NetworkManager.Side.S2C, AegisDebugCommands.CLEAR_PACKET) { _, _ ->
-            Minecraft.getInstance().execute { debugBoxes.clear() }
         }
     }
 
@@ -274,14 +232,6 @@ object AegisClient {
         for (player in level.players()) {
             if (isWielding(player)) {
                 renderBox(pose, consumers, camX, camY, camZ, player, tickDelta)
-            }
-        }
-        // Debug `/aegisbox` snapshots — fully-open static boxes.
-        if (debugBoxes.isNotEmpty()) {
-            synchronized(debugBoxes) {
-                for (frame in debugBoxes) {
-                    renderFrame(pose, consumers, camX, camY, camZ, frame, expand = 1.0)
-                }
             }
         }
         // Shatter pieces persist after wielding ends — render them
@@ -618,10 +568,6 @@ object AegisClient {
         renderFrame(pose, consumers, camX, camY, camZ, AegisBox.forPlayer(player, tickDelta), expand)
     }
 
-    /** Frame-renderer shared by the wielded box and the debug `/aegisbox`
-     *  command. Takes a precomputed [AegisBox.Frame] + an expansion factor
-     *  so the live wielded path can feed its 0→1 ease-out and the debug
-     *  path can pass 1.0 for fully-open static boxes. */
     private fun renderFrame(
         pose: PoseStack, consumers: MultiBufferSource,
         camX: Double, camY: Double, camZ: Double,
@@ -905,6 +851,5 @@ object AegisClient {
         shatters.clear()
         wieldingLastTick.clear()
         sparkles.clear()
-        debugBoxes.clear()
     }
 }

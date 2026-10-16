@@ -1,7 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
-import com.mojang.math.Axis
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.entity.EntityRendererProvider
 import net.minecraft.client.renderer.entity.MobRenderer
@@ -47,20 +46,19 @@ class ConstriliarRenderer(ctx: EntityRendererProvider.Context) :
         val animT = entity.spawnAnimTime(partialTicks)
         if (animT < 0f) return
 
-        // Same model-space chain the BER uses, anchored to the entity pose: lift along
-        // the surface normal, tilt, vanilla 180°-yaw, mirror, ground-plane shift. The
-        // lift comes from the continuous curve at fractional time — the synced-int
-        // version quantizes per tick and stutters.
-        val up = entity.upVector(partialTicks)
-        val lift = entity.spawnAnimLift(animT.toDouble())
-        val yaw = Mth.rotLerp(partialTicks, entity.yBodyRotO, entity.yBodyRot)
-        entity.gait.solveRenderAngles(entity, partialTicks)
+        // Same model-space chain the BER uses, from the shared body pose; the poseStack
+        // origin is the dispatcher's lerp of xOld, not xo.
+        val (origin, bodyQuat) = entity.bodyRenderPose(partialTicks)
+        entity.gait.solveRenderAngles(origin, Quaternionf(bodyQuat), partialTicks)
         model.setupAnim(entity, 0f, 0f, 0f, 0f, 0f)
 
         poseStack.pushPose()
-        poseStack.translate(up.x * lift, up.y * lift, up.z * lift)
-        poseStack.mulPose(Quaternionf().rotationTo(0f, 1f, 0f, up.x, up.y, up.z))
-        poseStack.mulPose(Axis.YP.rotationDegrees(180f - yaw))
+        poseStack.translate(
+            origin.x - Mth.lerp(partialTicks.toDouble(), entity.xOld, entity.x),
+            origin.y - Mth.lerp(partialTicks.toDouble(), entity.yOld, entity.y),
+            origin.z - Mth.lerp(partialTicks.toDouble(), entity.zOld, entity.z),
+        )
+        poseStack.mulPose(bodyQuat)
         applyLegPopRock(poseStack, animT)
         poseStack.scale(-1f, -1f, 1f)
         poseStack.translate(0.0, -1.501, 0.0)

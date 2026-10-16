@@ -6,6 +6,7 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /**
@@ -17,6 +18,8 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
  *  - **[CAGE_REMOVED] (S2C)** on cage break.
  *  - **[CAGE_HP] (S2C)** on per-hit HP update so clients can drive any
  *    visible damage cue (cracks, screen-shake, whatever — TBD).
+ *  - **[CAGE_ALIGN] (S2C)** when a cage starts or stops its drift to a
+ *    pedestal. Drives the client align loop.
  *  - **[CAGE_ATTACK] (C2S)** sent by the client after its raycast
  *    confirms a cage hit. Server validates range + applies damage in
  *    [org.shipwrights.enderkinesis.item.GamylanCageManager].
@@ -27,6 +30,7 @@ object GamylanCageNetwork {
     val CAGE_REMOVED: ResourceLocation = EnderkinesisMod.id("gamylan_cage/removed")
     val CAGE_HP: ResourceLocation = EnderkinesisMod.id("gamylan_cage/hp")
     val CAGE_IMPACT: ResourceLocation = EnderkinesisMod.id("gamylan_cage/impact")
+    val CAGE_ALIGN: ResourceLocation = EnderkinesisMod.id("gamylan_cage/align")
     val CAGE_ATTACK: ResourceLocation = EnderkinesisMod.id("gamylan_cage/attack")
 
     // ---- S2C senders ----
@@ -60,10 +64,32 @@ object GamylanCageNetwork {
         for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_IMPACT, FriendlyByteBuf(buf.copy()))
     }
 
+    /** [hoverInFrame] is in the frame of [shipId] (world when null). A null [hoverInFrame] stops the align loop. */
+    fun broadcastAlign(level: ServerLevel, bodyId: Long, shipId: Long?, hoverInFrame: Vector3dc?) {
+        val buf = encodeAlign(bodyId, shipId, hoverInFrame)
+        for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_ALIGN, FriendlyByteBuf(buf.copy()))
+    }
+
+    fun sendAlign(player: ServerPlayer, bodyId: Long, shipId: Long?, hoverInFrame: Vector3dc) {
+        NetworkManager.sendToPlayer(player, CAGE_ALIGN, encodeAlign(bodyId, shipId, hoverInFrame))
+    }
+
+    private fun encodeAlign(bodyId: Long, shipId: Long?, hoverInFrame: Vector3dc?): FriendlyByteBuf {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeLong(bodyId)
+        buf.writeBoolean(hoverInFrame != null)
+        if (hoverInFrame == null) return buf
+        buf.writeBoolean(shipId != null)
+        if (shipId != null) buf.writeLong(shipId)
+        buf.writeDouble(hoverInFrame.x()); buf.writeDouble(hoverInFrame.y()); buf.writeDouble(hoverInFrame.z())
+        return buf
+    }
+
     fun sendFullList(player: ServerPlayer, level: ServerLevel) {
         for (data in GamylanCageRegistry.snapshot(level)) {
             NetworkManager.sendToPlayer(player, CAGE_ADDED, encodeAdded(data))
         }
+        GamylanCagePedestals.sendAlignStates(player, level)
     }
 
     private fun encodeAdded(data: GamylanCageData): FriendlyByteBuf {

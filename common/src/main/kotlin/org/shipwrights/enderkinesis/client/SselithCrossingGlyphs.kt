@@ -20,9 +20,11 @@ import net.minecraft.client.particle.SpriteSet
 import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.sounds.SoundSource
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.max
 import kotlin.math.min
 
@@ -44,7 +46,7 @@ class SselithCrossingSeedParticle(
     }
 }
 
-private fun scaledCount(full: Int): Int = when (Minecraft.getInstance().options.particles().get()) {
+internal fun scaledCount(full: Int): Int = when (Minecraft.getInstance().options.particles().get()) {
     ParticleStatus.ALL -> full
     ParticleStatus.DECREASED -> full / 2
     ParticleStatus.MINIMAL -> 0
@@ -206,11 +208,15 @@ class SselithStormGlyphParticle(
         }
 
         private fun spawnStorm(level: ClientLevel, target: Entity) {
+            val center = SselithStormSunParticle(level, target)
+            level.playLocalSound(
+                center.centerX, center.centerY, center.centerZ,
+                EKSounds.SSELITH_GLYPH_STORM.get(), SoundSource.PLAYERS, STORM_VOLUME, 1f, false,
+            )
             val count = scaledCount(GLYPH_COUNT)
             if (count == 0) return
             val rng = level.random
             val engine = Minecraft.getInstance().particleEngine
-            val center = SselithStormSunParticle(level, target)
             engine.add(center)
             repeat(count) { i ->
                 val radius = EYE_RADIUS + rng.nextDouble() * (OUTER_RADIUS - EYE_RADIUS)
@@ -227,6 +233,7 @@ class SselithStormGlyphParticle(
 
     private companion object {
         const val GLYPH_COUNT = 220
+        const val STORM_VOLUME = 0.6f
         const val ARMS = 3
         const val EYE_RADIUS = 1.0
         const val OUTER_RADIUS = 5.0

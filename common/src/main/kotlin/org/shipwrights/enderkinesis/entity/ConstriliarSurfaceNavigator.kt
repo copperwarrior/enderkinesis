@@ -1,12 +1,17 @@
 package org.shipwrights.enderkinesis.entity
 
-import net.minecraft.core.Direction
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
+import it.unimi.dsi.fastutil.objects.Object2DoubleOpenHashMap
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.util.Mth
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
-import net.minecraft.world.level.block.state.BlockState
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.util.LoadedRay
 import org.valkyrienskies.core.api.ships.Ship
@@ -32,6 +37,10 @@ class ConstriliarSurfaceNavigator {
     data class Node(val pos: BlockPos, val face: Direction)
 
     private var path: List<Node> = emptyList()
+        set(value) {
+            field = value
+            steerIndex = -1
+        }
     private var index = 0
     private var target: Vec3? = null
 
@@ -55,6 +64,35 @@ class ConstriliarSurfaceNavigator {
         index = 0
         target = null
         frameShipId = -1L
+        stitchBlockedAt = null
+        stallNode = null
+    }
+
+    /** Drops the route past its node nearest [dest] (frame coords). */
+    private fun trimTailToward(dest: Vec3) {
+        var best = index
+        var bestDistSq = Double.MAX_VALUE
+        for (i in index until path.size) {
+            val p = path[i].pos
+            val dx = p.x + 0.5 - dest.x
+            val dy = p.y + 0.5 - dest.y
+            val dz = p.z + 0.5 - dest.z
+            val dSq = dx * dx + dy * dy + dz * dz
+            if (dSq < bestDistSq) {
+                bestDistSq = dSq
+                best = i
+            }
+        }
+        if (best < path.size - 1) path = path.subList(0, best + 1).toList()
+    }
+
+    /** The support face the walker stands on (frame coords), from its world surface
+     *  normal; null near an edge, where no face clearly dominates. */
+    private fun supportFace(level: Level, surfaceUpWorld: org.joml.Vector3dc): Direction? {
+        val u = scratch.set(surfaceUpWorld)
+        frameShip(level)?.worldToShip?.transformDirection(u)
+        if (Math.max(Math.abs(u.x), Math.max(Math.abs(u.y), Math.abs(u.z))) < START_FACE_MIN_AXIS) return null
+        return Direction.getNearest(-u.x.toFloat(), -u.y.toFloat(), -u.z.toFloat())
     }
 
     /** Other loaded ships in the plan region (own ship excluded) — their decks and
@@ -97,6 +135,27 @@ class ConstriliarSurfaceNavigator {
     fun nodeWorldCenter(level: Level, node: Node): Vec3 =
         frameToWorld(level, Vec3.atCenterOf(node.pos))
 
+    /** World-space support normal (away from the surface) of [node], written to [dest].
+     *  In ship frame the face is a shipyard direction and must turn with the ship. */
+    fun nodeWorldUp(level: Level, node: Node, dest: Vector3d): Vector3d {
+        val n = node.face.opposite
+        dest.set(n.stepX.toDouble(), n.stepY.toDouble(), n.stepZ.toDouble())
+        frameShip(level)?.transform?.shipToWorldRotation?.transform(dest)
+        return dest
+    }
+
+    /** [yawDeg] rounded to the nearest grid axis of the plan frame — the deck's own
+     *  grid on a ship, the world grid otherwise. */
+    fun snapYawToGrid(level: Level, yawDeg: Float): Float {
+        val gridYaw = frameShip(level)?.let { ship ->
+            val forward = ship.transform.shipToWorldRotation.transform(scratch.set(0.0, 0.0, 1.0))
+            Math.toDegrees(Math.atan2(forward.z, forward.x)).toFloat() - 90f
+        } ?: 0f
+        return gridYaw + Math.round(Mth.wrapDegrees(yawDeg - gridYaw) / 90f) * 90f
+    }
+
+    private val scratch = Vector3d()
+
     /** The ship (not [ownShipId]) whose deck supports [worldPos] within a short
      *  drop, or null for world ground. */
     private fun deckShipAt(level: Level, worldPos: Vec3, ownShipId: Long?): Ship? {
@@ -113,7 +172,7 @@ class ConstriliarSurfaceNavigator {
         return null
     }
 
-    // Diagnostics for the last aStar run, reported by moveTo's debug log.
+    // Result of the last aStar run, for the exhausted-search hold.
     private var lastExpansions = 0
     private var exhaustedDest: Vec3? = null
     private var exhaustedUntil = 0L
@@ -131,6 +190,7 @@ class ConstriliarSurfaceNavigator {
         ownShipId: Long?,
         occupiedSpots: List<Vec3>,
         walker: net.minecraft.world.entity.Entity,
+        surfaceUp: org.joml.Vector3dc,
     ): Boolean {
         // Frame election first — switching frames invalidates any kept route.
         val fromCentreWorld = Vec3.atCenterOf(from)
@@ -147,7 +207,9 @@ class ConstriliarSurfaceNavigator {
             val remaining = Math.sqrt(toFrame(level, fromCentreWorld).distanceToSqr(destF))
             val threshold = (remaining * REPATH_FRACTION).coerceIn(REPATH_MIN, REPATH_MAX)
             if (prev.distanceToSqr(destF) < threshold * threshold) {
-                // Keep the route; future extensions aim at the fresh spot.
+                // Keep the route, cut back to its node nearest the fresh spot; stitching
+                // extends from there, so a moved target costs no out-and-back detour.
+                trimTailToward(destF)
                 target = destF
                 return true
             }
@@ -158,49 +220,21 @@ class ConstriliarSurfaceNavigator {
             return isInProgress()
         }
         target = destF
-        // Distant targets are planned in legs: clamp the goal to MAX_PLAN_RANGE along
-        // the line and chain — each arrival (or partial) triggers the next leg from the
-        // ordering goal's periodic re-order. Keeps plans cheap and never reaches into
-        // far terrain.
-        var legDest = destF
         val fromCentre = toFrame(level, fromCentreWorld)
-        val fromPos = BlockPos.containing(fromCentre.x, fromCentre.y, fromCentre.z)
-        if (fromCentre.distanceToSqr(destF) > MAX_PLAN_RANGE * MAX_PLAN_RANGE) {
-            // The straight line to a distant target can pass high over water/valleys —
-            // snap the intermediate leg goal onto the surface below it, or every leg
-            // across a lake resolves to a mid-air point with no attachable node.
-            legDest = surfaceSnap(
-                level,
-                fromCentre.add(destF.subtract(fromCentre).normalize().scale(MAX_PLAN_RANGE)),
-                ownShipId,
-                walker,
-            )
-        }
-        // In ship frame the deck's own grid IS the world — foreign-ship OBB checks
-        // would compare frame coords against world boxes; the empty list disables them.
-        nearbyShips = if (frameShipId != -1L) emptyList() else {
-            val region = AABB(fromCentre, legDest).inflate(SHIP_REGION_MARGIN)
-            level.getShipsIntersecting(region).filter { it.id != ownShipId }
-        }
-        occupied = occupiedSpots.map { toFrame(level, it) }
-        planStart = fromCentre
-        val start = nearestNode(level, fromPos, avoidOccupied = false)
-        if (start == null) {
-            return false
-        }
-        val goalAround = BlockPos.containing(legDest.x, legDest.y, legDest.z)
-        // Sibling avoidance is a PREFERENCE: a pack crowding one spot can blanket every
-        // candidate cell in exclusion discs, deadlocking the whole pack's planning —
-        // fall back to the nearest node regardless and let the jam rules sort contact.
-        val goal = nearestNode(level, goalAround, avoidOccupied = true)
-            ?: nearestNode(level, goalAround, avoidOccupied = false)
-        if (goal == null) {
-            return false
-        }
-        path = aStar(level, start, goal)
+        val startFace = supportFace(level, surfaceUp)
+        val planned = withPlanCache {
+            val legDest = preparePlan(level, fromCentre, destF, ownShipId, occupiedSpots, walker)
+            val start = nearestNode(
+                level, BlockPos.containing(fromCentre.x, fromCentre.y, fromCentre.z), avoidOccupied = false, startFace,
+            ) ?: return@withPlanCache null
+            val goal = nearestGoalNode(level, legDest) ?: return@withPlanCache null
+            aStar(level, start, goal)
+        } ?: return false
+        // The stall clock is NOT reset here: it follows the waypoint (see tickFollow), so
+        // a body pinned while replanning toward a moving target still times out.
+        path = planned
         index = 0
-        bestWaypointDistSq = Double.MAX_VALUE
-        stuckTicks = 0
+        stitchBlockedAt = null
         if (!lastReachedGoal && lastExpansions >= MAX_EXPANSIONS) {
             exhaustedDest = destF
             exhaustedUntil = level.gameTime + EXHAUSTED_HOLD_TICKS
@@ -214,6 +248,7 @@ class ConstriliarSurfaceNavigator {
     // the current waypoint stops shrinking, decays on progress.
     private var bestWaypointDistSq = Double.MAX_VALUE
     private var stuckTicks = 0
+    private var stallNode: Node? = null
 
     /** Advance past reached waypoints and return the current one. Looks ahead several
      *  nodes (same attachment face only) and jumps to the furthest already in reach —
@@ -242,12 +277,15 @@ class ConstriliarSurfaceNavigator {
             if (i > index && n.face != currentFace) continue   // transitions must be visited
             if (bodyPos.distanceToSqr(Vec3.atCenterOf(n.pos)) < ADVANCE_SQ) {
                 index = i + 1
-                bestWaypointDistSq = Double.MAX_VALUE
-                stuckTicks = 0
                 break
             }
         }
         val node = currentNode() ?: return null
+        if (node != stallNode) {
+            stallNode = node
+            bestWaypointDistSq = Double.MAX_VALUE
+            stuckTicks = 0
+        }
         // Stuck check: no meaningful progress toward the waypoint for a sustained
         // stretch → drop the plan; the ordering goal replans from here within ticks.
         val dSq = bodyPos.distanceToSqr(Vec3.atCenterOf(node.pos))
@@ -263,13 +301,76 @@ class ConstriliarSurfaceNavigator {
             bestWaypointDistSq = Double.MAX_VALUE
             return null
         }
-        return node
+        return steerNode(level, node)
+    }
+
+    // String-pulled steering target for the current index; -1 = stale.
+    private var steerIndex = -1
+    private var steerCached: Node? = null
+
+    /** The furthest node ahead on the same flat ground run with a clear straight line
+     *  from the last passed node — a 6-way grid path is a staircase on diagonals, and
+     *  steering cell-by-cell zig-zagged the body. Cached per index (line checks are
+     *  block queries). Steps, jumps, tight cells, and face changes end the run. */
+    private fun steerNode(level: Level, node: Node): Node {
+        if (steerIndex == index) return steerCached ?: node
+        steerIndex = index
+        steerCached = node
+        val anchor = path.getOrNull(index - 1)
+        if (node.face != Direction.DOWN || anchor == null || anchor.face != Direction.DOWN ||
+            anchor.pos.y != node.pos.y || anchor.pos.distManhattan(node.pos) != 1
+        ) {
+            return node
+        }
+        withPlanCache {
+            if (tightSides(level, node) > 0) return@withPlanCache
+            val maxI = minOf(index + STEER_LOOKAHEAD, path.size - 1)
+            for (i in index + 1..maxI) {
+                val n = path[i]
+                if (n.face != Direction.DOWN || n.pos.y != node.pos.y ||
+                    path[i - 1].pos.distManhattan(n.pos) != 1 || tightSides(level, n) > 0 ||
+                    !groundLineClear(level, anchor.pos, n.pos)
+                ) {
+                    break
+                }
+                steerCached = n
+            }
+        }
+        return steerCached ?: node
+    }
+
+    /** True when a body-wide strip from [from] to [to] (same Y) is all walkable ground. */
+    private fun groundLineClear(level: Level, from: BlockPos, to: BlockPos): Boolean {
+        val dx = (to.x - from.x).toDouble()
+        val dz = (to.z - from.z).toDouble()
+        val samples = Math.ceil(Math.sqrt(dx * dx + dz * dz) / STEER_SAMPLE_STEP).toInt()
+        val cell = BlockPos.MutableBlockPos()
+        for (k in 0..samples) {
+            val t = k.toDouble() / samples
+            val px = from.x + 0.5 + dx * t
+            val pz = from.z + 0.5 + dz * t
+            for (corner in 0..3) {
+                val cx = px + if (corner and 1 == 0) -STEER_HALF_WIDTH else STEER_HALF_WIDTH
+                val cz = pz + if (corner and 2 == 0) -STEER_HALF_WIDTH else STEER_HALF_WIDTH
+                cell.set(Mth.floor(cx), from.y, Mth.floor(cz))
+                if (!fits(level, cell, Direction.DOWN)) return false
+                cell.move(Direction.DOWN)
+                if (!isSolid(level, cell)) return false
+            }
+        }
+        return true
     }
 
     /** Nearest attachable node around [around]: free cell + headroom + solid support,
-     *  ground preferred over walls/ceilings via a small cost bias. With [avoidOccupied],
-     *  cells another constriliar stands at are rejected. */
-    private fun nearestNode(level: Level, around: BlockPos, avoidOccupied: Boolean): Node? {
+     *  [preferFace] (ground by default) preferred via a small cost bias. With
+     *  [avoidOccupied], cells another constriliar stands at are rejected. */
+    private fun nearestNode(
+        level: Level,
+        around: BlockPos,
+        avoidOccupied: Boolean,
+        preferFace: Direction? = null,
+    ): Node? {
+        val preferred = preferFace ?: Direction.DOWN
         var best: Node? = null
         var bestScore = Double.MAX_VALUE
         val cursor = BlockPos.MutableBlockPos()
@@ -282,7 +383,7 @@ class ConstriliarSurfaceNavigator {
                         if (!isSolid(level, cursor.relative(face))) continue
                         if (!fits(level, cursor, face)) continue
                         val score = (dx * dx + dy * dy + dz * dz).toDouble() +
-                            if (face == Direction.DOWN) 0.0 else FACE_BIAS
+                            if (face == preferred) 0.0 else FACE_BIAS
                         if (score < bestScore) {
                             bestScore = score
                             best = Node(cursor.immutable(), face)
@@ -296,18 +397,18 @@ class ConstriliarSurfaceNavigator {
 
     private fun aStar(level: Level, start: Node, goal: Node): List<Node> {
         val goalCenter = Vec3.atCenterOf(goal.pos)
-        val gScore = HashMap<Node, Double>()
-        val parent = HashMap<Node, Node>()
-        val closed = HashSet<Node>()
-        val open = PriorityQueue<Pair<Node, Double>>(compareBy { it.second })
-        gScore[start] = 0.0
-        open.add(start to h(start, goalCenter))
+        val gScore = Object2DoubleOpenHashMap<Node>().apply { defaultReturnValue(Double.MAX_VALUE) }
+        val parent = Object2ObjectOpenHashMap<Node, Node>()
+        val closed = ObjectOpenHashSet<Node>()
+        val open = PriorityQueue<OpenEntry>(OPEN_ORDER)
+        gScore.put(start, 0.0)
+        open.add(OpenEntry(start, h(start, goalCenter)))
         var best = start
         var bestH = h(start, goalCenter)
         var expansions = 0
         lastReachedGoal = false
         while (open.isNotEmpty() && expansions < MAX_EXPANSIONS) {
-            val cur = open.poll().first
+            val cur = open.poll().node
             if (!closed.add(cur)) continue
             expansions++
             val curH = h(cur, goalCenter)
@@ -323,16 +424,16 @@ class ConstriliarSurfaceNavigator {
             forEachNeighbor(level, cur) { nb ->
                 if (nb !in closed && !occupantBlocks(nb)) {
                     val stepDist = Math.sqrt(cur.pos.distSqr(nb.pos).toDouble())
-                    val ng = gScore.getValue(cur) + stepDist +
+                    val ng = gScore.getDouble(cur) + stepDist +
                         (if (nb.face == Direction.DOWN) 0.0 else FACE_BIAS) +
                         (if (stepDist > 1.8) JUMP_COST else 0.0) +
                         TIGHT_COST * tightSides(level, nb)
-                    if (ng < (gScore[nb] ?: Double.MAX_VALUE)) {
-                        gScore[nb] = ng
+                    if (ng < gScore.getDouble(nb)) {
+                        gScore.put(nb, ng)
                         parent[nb] = cur
                         // Weighted A*: slightly greedy beats optimal — far fewer
                         // expansions for near-straight paths a creature would take.
-                        open.add(nb to ng + h(nb, goalCenter) * H_WEIGHT)
+                        open.add(OpenEntry(nb, ng + h(nb, goalCenter) * H_WEIGHT))
                     }
                 }
             }
@@ -369,8 +470,9 @@ class ConstriliarSurfaceNavigator {
                 }
             }
             if (blocksTravel(level, flat, f)) {
-                // Concave corner: the blocking block becomes the new support.
-                if (fits(level, n.pos, d)) {
+                // Concave corner: the blocking block becomes the new support. Unloaded
+                // cells block travel but are no support — no wall nodes against them.
+                if (isSolid(level, flat) && fits(level, n.pos, d)) {
                     action(Node(n.pos, d))
                     walkable = true
                 }
@@ -400,8 +502,9 @@ class ConstriliarSurfaceNavigator {
         if (frameShipId != -1L) return null   // decks are contiguous; jump rays are world-frame
         for (dist in 2..JUMP_RANGE) {
             // Flight lane must be clear up to this distance.
+            // fits() adds the cargo plate over the body cell, as for a walked node.
             val lane = from.relative(d, dist - 1)
-            if (!isFree(level, lane.above()) || !isFree(level, lane.above(2))) return null
+            if (!isFree(level, lane.above()) || !fits(level, lane.above(), Direction.DOWN)) return null
             for (dy in intArrayOf(0, 1, -1, -2)) {
                 val land = from.relative(d, dist).above(dy)
                 if (isSolid(level, land.below()) && fits(level, land, Direction.DOWN)) {
@@ -461,17 +564,56 @@ class ConstriliarSurfaceNavigator {
         if (path.size - index > STITCH_AHEAD) return false
         if (path.size >= MAX_PATH_NODES) return false
         val end = path.lastOrNull() ?: return false
+        val blockedDest = stitchBlockedDest
+        if (end == stitchBlockedAt && blockedDest != null && blockedDest.distanceToSqr(dest) < EXHAUSTED_HOLD_DIST_SQ) {
+            return false
+        }
         return Vec3.atCenterOf(end.pos).distanceToSqr(dest) > STITCH_ARRIVE_SQ
     }
+
+    // A stitch that found no progress is not tried again from the same end toward the
+    // same dest — the walker re-plans from where it stands when the path runs out.
+    private var stitchBlockedAt: Node? = null
+    private var stitchBlockedDest: Vec3? = null
 
     /** Plan the next leg from the current path's end toward [target] and append it —
      *  the walker strides through leg seams instead of stopping to replan. */
     fun extendPath(level: Level, ownShipId: Long?, occupiedSpots: List<Vec3>, walker: net.minecraft.world.entity.Entity) {
         val dest = target ?: return
         val start = path.lastOrNull() ?: return
-        val fromCentre = Vec3.atCenterOf(start.pos)
+        val extra = withPlanCache {
+            val legDest = preparePlan(level, Vec3.atCenterOf(start.pos), dest, ownShipId, occupiedSpots, walker)
+            val goal = nearestGoalNode(level, legDest) ?: return@withPlanCache null
+            aStar(level, start, goal)
+        } ?: return
+        if (extra.size > 1) {
+            path = path + extra.drop(1)
+        } else {
+            stitchBlockedAt = start
+            stitchBlockedDest = dest
+        }
+    }
+
+    /** Sets up one planning leg from [fromCentre] (frame coords) and returns its goal.
+     *  Distant targets are planned in legs: the goal clamps to MAX_PLAN_RANGE along the
+     *  line, and stitching or re-orders chain the next leg. */
+    private fun preparePlan(
+        level: Level,
+        fromCentre: Vec3,
+        dest: Vec3,
+        ownShipId: Long?,
+        occupiedSpots: List<Vec3>,
+        walker: net.minecraft.world.entity.Entity,
+    ): Vec3 {
+        // In ship frame the deck's own grid IS the world — foreign-ship OBB checks
+        // would compare frame coords against world boxes; the empty list disables them.
+        // Cleared before the snap, which can query cells in ship frame.
+        nearbyShips = emptyList()
         var legDest = dest
         if (fromCentre.distanceToSqr(dest) > MAX_PLAN_RANGE * MAX_PLAN_RANGE) {
+            // The straight line to a distant target can pass high over water/valleys —
+            // snap the intermediate leg goal onto the surface below it, or every leg
+            // across a lake resolves to a mid-air point with no attachable node.
             legDest = surfaceSnap(
                 level,
                 fromCentre.add(dest.subtract(fromCentre).normalize().scale(MAX_PLAN_RANGE)),
@@ -479,20 +621,21 @@ class ConstriliarSurfaceNavigator {
                 walker,
             )
         }
-        nearbyShips = if (frameShipId != -1L) emptyList() else {
+        if (frameShipId == -1L) {
             val region = AABB(fromCentre, legDest).inflate(SHIP_REGION_MARGIN)
-            level.getShipsIntersecting(region).filter { it.id != ownShipId }
+            nearbyShips = level.getShipsIntersecting(region).filter { it.id != ownShipId }
         }
         occupied = occupiedSpots.map { toFrame(level, it) }
         planStart = fromCentre
-        val stitchAround = BlockPos.containing(legDest.x, legDest.y, legDest.z)
-        val goal = nearestNode(level, stitchAround, avoidOccupied = true)
-            ?: nearestNode(level, stitchAround, avoidOccupied = false)
-            ?: return
-        val extra = aStar(level, start, goal)
-        if (extra.size > 1) {
-            path = path + extra.drop(1)
-        }
+        return legDest
+    }
+
+    /** Sibling avoidance is a PREFERENCE: a pack crowding one spot can blanket every
+     *  candidate cell in exclusion discs — fall back to the nearest node regardless. */
+    private fun nearestGoalNode(level: Level, legDest: Vec3): Node? {
+        val around = BlockPos.containing(legDest.x, legDest.y, legDest.z)
+        return nearestNode(level, around, avoidOccupied = true)
+            ?: nearestNode(level, around, avoidOccupied = false)
     }
 
     /** The pending segment is a jump when its endpoints are ground nodes further apart
@@ -512,24 +655,20 @@ class ConstriliarSurfaceNavigator {
      *  face chasing a "wall" that walks. */
     private fun occupantBlocks(n: Node): Boolean {
         for (spot in occupied) {
-            val dx = spot.x - (n.pos.x + 0.5)
-            val dy = spot.y - (n.pos.y + 0.5)
-            val dz = spot.z - (n.pos.z + 0.5)
-            if (dx * dx + dy * dy + dz * dz >= OCCUPIED_RADIUS_SQ) continue
+            if (!spotNear(spot, n.pos)) continue
             val nearStart = spot.distanceToSqr(planStart) <= OCCUPIED_START_EXEMPT_SQ
             if (!nearStart || n.face != Direction.DOWN) return true
         }
         return false
     }
 
-    private fun isOccupied(pos: BlockPos.MutableBlockPos): Boolean {
-        for (spot in occupied) {
-            val dx = spot.x - (pos.x + 0.5)
-            val dy = spot.y - (pos.y + 0.5)
-            val dz = spot.z - (pos.z + 0.5)
-            if (dx * dx + dy * dy + dz * dz < OCCUPIED_RADIUS_SQ) return true
-        }
-        return false
+    private fun isOccupied(pos: BlockPos): Boolean = occupied.any { spotNear(it, pos) }
+
+    private fun spotNear(spot: Vec3, pos: BlockPos): Boolean {
+        val dx = spot.x - (pos.x + 0.5)
+        val dy = spot.y - (pos.y + 0.5)
+        val dz = spot.z - (pos.z + 0.5)
+        return dx * dx + dy * dy + dz * dz < OCCUPIED_RADIUS_SQ
     }
 
     /** A tight cell (blocked laterals) is physically risky: the plate only fits a
@@ -548,17 +687,8 @@ class ConstriliarSurfaceNavigator {
 
     /** The hovering body glides over low-profile collision (slabs, carpet, snow), so
      *  ground travel only counts a cell as blocking past half a block of height. */
-    private fun blocksTravel(level: Level, pos: BlockPos, face: Direction): Boolean {
-        if (shipCellState(level, pos) != null) return true
-        if (!LoadedRay.blockLoaded(level, pos)) return true
-        val state = level.getBlockState(pos)
-        // Fluid cells aren't traversable — travel rides the surface node ABOVE them
-        // (the fluid is their support).
-        if (!state.fluidState.isEmpty) return true
-        val shape = state.getCollisionShape(level, pos)
-        if (shape.isEmpty) return false
-        return !(face == Direction.DOWN && shape.max(Direction.Axis.Y) <= LOW_PROFILE_MAX)
-    }
+    private fun blocksTravel(level: Level, pos: BlockPos, face: Direction): Boolean =
+        cellFlags(level, pos) and (if (face == Direction.DOWN) BLOCKS_GROUND else BLOCKS_OTHER) != 0
 
     /** Node validity including the carried-ship footprint: the body cell itself, plus a
      *  (2r+1)² plate of free cells per clearance layer away from the surface — the cargo
@@ -566,7 +696,7 @@ class ConstriliarSurfaceNavigator {
     private fun fits(level: Level, pos: BlockPos, face: Direction): Boolean {
         if (blocksTravel(level, pos, face)) return false
         val out = face.opposite
-        val cursor = BlockPos.MutableBlockPos()
+        val cursor = fitsCursor
         for (layer in 1 until clearHeight) {
             val base = pos.relative(out, layer)
             for (a in -clearRadius..clearRadius) {
@@ -583,6 +713,8 @@ class ConstriliarSurfaceNavigator {
         return true
     }
 
+    private val fitsCursor = BlockPos.MutableBlockPos()
+
     private fun reconstruct(parent: Map<Node, Node>, end: Node): List<Node> {
         val out = ArrayList<Node>()
         var cur: Node? = end
@@ -597,35 +729,69 @@ class ConstriliarSurfaceNavigator {
 
     private fun h(n: Node, goal: Vec3): Double = Vec3.atCenterOf(n.pos).distanceTo(goal)
 
+    private fun isSolid(level: Level, pos: BlockPos): Boolean = cellFlags(level, pos) and SOLID != 0
+
+    private fun isFree(level: Level, pos: BlockPos): Boolean = cellFlags(level, pos) and FREE != 0
+
+    // A* asks about the same cells many times in one plan. The memo is live only inside
+    // a plan, so follow-time queries (isTight) see the current blocks.
+    private val cellCache = Long2IntOpenHashMap()
+    private var cacheActive = false
+
+    private inline fun <T> withPlanCache(plan: () -> T): T {
+        cellCache.clear()
+        cacheActive = true
+        try {
+            return plan()
+        } finally {
+            cacheActive = false
+            cellCache.clear()
+        }
+    }
+
+    private fun cellFlags(level: Level, pos: BlockPos): Int {
+        if (!cacheActive) return computeCellFlags(level, pos)
+        val key = pos.asLong()
+        val cached = cellCache.get(key)
+        if (cached != 0) return cached
+        return computeCellFlags(level, pos).also { cellCache.put(key, it) }
+    }
+
     // Solidity queries see the world grid PLUS nearby ships: a cell counts solid when
     // any ship block occupies its centre (world→shipyard transform, cell-centre sample —
     // approximate for rotated ships, exact for resting axis-aligned ones). Fluids count
     // as support too — the hover walks on water and lava.
-    private fun isSolid(level: Level, pos: BlockPos): Boolean {
-        if (!LoadedRay.blockLoaded(level, pos)) return false
+    private fun computeCellFlags(level: Level, pos: BlockPos): Int {
+        // Unloaded chunks are a hard fence: getBlockState there forces a synchronous
+        // chunk load on the server. Not-free AND not-solid means no nodes across it.
+        if (!LoadedRay.blockLoaded(level, pos)) return COMPUTED or BLOCKS_GROUND or BLOCKS_OTHER
         val state = level.getBlockState(pos)
-        if (!state.getCollisionShape(level, pos).isEmpty && !isShipPassable(state)) return true
-        if (!state.fluidState.isEmpty) return true
+        val shape = state.getCollisionShape(level, pos)
+        val fluid = !state.fluidState.isEmpty
+        // Ship-passable collision (leaves) is open space: the body flies through it.
+        val solidShape = !shape.isEmpty && !isShipPassable(state)
+        val shipState = shipCellState(level, pos)
+        var flags = COMPUTED
         // Ship cells are support — EXCEPT constriliar plates: those are creatures (or
         // their corpses), not terrain. A walker planning a stroll across an identical
         // orphaned plate read as "walking on itself".
-        val shipState = shipCellState(level, pos) ?: return false
-        return !shipState.`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())
-    }
-
-    // Unloaded chunks are a hard fence: getBlockState there forces a synchronous chunk
-    // load on the server — a distant plan must never do that. Not-free AND not-solid
-    // means no nodes can exist across the border.
-    private fun isFree(level: Level, pos: BlockPos): Boolean {
-        if (!LoadedRay.blockLoaded(level, pos)) return false
-        val state = level.getBlockState(pos)
+        if (solidShape || fluid ||
+            (shipState != null && !shipState.`is`(EKBlocks.CONSTRILIAR_PLATFORM.get()))
+        ) {
+            flags = flags or SOLID
+        }
         // Fluid is SUPPORT, never walkable space: fluids have no collision shape, so
-        // without this a walker standing ON water (its blockPosition IS the fluid cell)
-        // resolved start nodes INSIDE the lake and the search thrashed submerged until
-        // the budget died — "unreachable" across any body of water.
-        if (!state.fluidState.isEmpty) return false
-        return (state.getCollisionShape(level, pos).isEmpty || isShipPassable(state)) &&
-            shipCellState(level, pos) == null
+        // without this a walker standing ON water resolved start nodes INSIDE the lake.
+        if (!fluid && !solidShape && shipState == null) flags = flags or FREE
+        // Fluid cells aren't traversable — travel rides the surface node ABOVE them.
+        // The hovering body glides over low-profile collision on the ground.
+        if (shipState != null || fluid || solidShape) {
+            flags = flags or BLOCKS_OTHER
+            if (shipState != null || fluid || shape.max(Direction.Axis.Y) > LOW_PROFILE_MAX) {
+                flags = flags or BLOCKS_GROUND
+            }
+        }
+        return flags
     }
 
     /** Blocks whose VS2 type resolves to air (vs_mass no_collision — leaves etc.) are
@@ -637,11 +803,13 @@ class ConstriliarSurfaceNavigator {
 
     /** The colliding ship block occupying [pos]'s centre, or null when no nearby ship
      *  claims the cell (or its block is ship-passable). */
+    private val cellScratch = Vector3d()
+
     private fun shipCellState(level: Level, pos: BlockPos): BlockState? {
         if (nearbyShips.isEmpty()) return null
         for (ship in nearbyShips) {
             val local = ship.worldToShip.transformPosition(
-                Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
+                cellScratch.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
             )
             // Ship-local AABB in shipyard space = an OBB test in world space (the
             // transform carries the rotation): a cheap, rotation-exact broad phase
@@ -660,8 +828,18 @@ class ConstriliarSurfaceNavigator {
         return null
     }
 
+    private class OpenEntry(val node: Node, val f: Double)
+
     companion object {
 
+        private val OPEN_ORDER = Comparator<OpenEntry> { a, b -> a.f.compareTo(b.f) }
+
+        // Cell flag bits; COMPUTED keeps a cached entry non-zero.
+        private const val COMPUTED = 1
+        private const val SOLID = 2
+        private const val FREE = 4
+        private const val BLOCKS_GROUND = 8
+        private const val BLOCKS_OTHER = 16
 
         /** A search that used all expansions is not started again for this time, unless
          *  the destination moved more than the hold distance. */
@@ -680,6 +858,8 @@ class ConstriliarSurfaceNavigator {
         /** Heuristic inflation (weighted A*). */
         private const val H_WEIGHT = 1.4
         private const val NEAR_RADIUS = 2
+        /** Dominant normal component needed to prefer the stood-on face for a start node. */
+        private const val START_FACE_MIN_AXIS = 0.9
         /** Repath threshold scales with remaining distance (splicing handles drift). */
         private const val REPATH_FRACTION = 0.15
         private const val REPATH_MIN = 1.0
@@ -693,6 +873,11 @@ class ConstriliarSurfaceNavigator {
         private const val ADVANCE_SQ = 1.2 * 1.2
         /** Waypoint lookahead depth (same-face only). */
         private const val LOOKAHEAD = 4
+        /** Route smoothing: nodes scanned ahead, line sample spacing, and the strip
+         *  half-width the body needs (just under half a block). */
+        private const val STEER_LOOKAHEAD = 6
+        private const val STEER_SAMPLE_STEP = 0.25
+        private const val STEER_HALF_WIDTH = 0.45
         /** Stalled-progress budget before dropping the plan. */
         private const val STUCK_TICKS = 40
         private const val PROGRESS_EPS_SQ = 0.01

@@ -4,12 +4,15 @@ import dev.architectury.core.fluid.ArchitecturyFlowingFluid
 import dev.architectury.core.fluid.ArchitecturyFluidAttributes
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.sounds.SoundSource
+import net.minecraft.util.RandomSource
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Flowing Ichaeric Ink. A puddle is one layer that has no source, does not spread and does not dry up. */
 class IchaericInkFlowingFluid(attributes: ArchitecturyFluidAttributes) : ArchitecturyFlowingFluid.Flowing(attributes) {
@@ -22,6 +25,15 @@ class IchaericInkFlowingFluid(attributes: ArchitecturyFluidAttributes) : Archite
         }
     }
 
+    // Vanilla water's ambient flow sound, for flowing ink that is not falling. Puddles are falling states.
+    override fun animateTick(level: Level, pos: BlockPos, state: FluidState, random: RandomSource) {
+        if (state.getValue(FALLING) || random.nextInt(FLOW_SOUND_CHANCE) != 0) return
+        level.playLocalSound(
+            pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, EKSounds.ICHAERIC_INK_FLOW.get(), SoundSource.BLOCKS,
+            0.75f + random.nextFloat() * 0.25f, 0.8f + random.nextFloat() * 0.4f, false,
+        )
+    }
+
     // A falling state next to a wall flows down in vanilla; a puddle must be still.
     override fun getFlow(level: BlockGetter, pos: BlockPos, state: FluidState): Vec3 =
         if (isPuddle(state)) Vec3.ZERO else super.getFlow(level, pos, state)
@@ -31,6 +43,7 @@ class IchaericInkFlowingFluid(attributes: ArchitecturyFluidAttributes) : Archite
         // It is LiquidBlock LEVEL 15, which IchaericInkBlock maps back to this state.
         const val PUDDLE_BLOCK_LEVEL = 15
         private const val PUDDLE_AMOUNT = 1
+        private const val FLOW_SOUND_CHANCE = 64
 
         fun isPuddle(state: FluidState): Boolean =
             state.type is IchaericInkFlowingFluid && state.amount == PUDDLE_AMOUNT && state.getValue(FALLING)

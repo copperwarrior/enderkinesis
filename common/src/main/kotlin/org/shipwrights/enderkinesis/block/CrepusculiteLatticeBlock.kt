@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
@@ -29,6 +30,7 @@ import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.physics.CrepusculiteLatticeForceInducer
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
@@ -71,7 +73,13 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean
     ) {
         if (!state.`is`(newState.block)) {
-            (level.getBlockEntity(pos) as? CrepusculiteLatticeBlockEntity)?.onRemoved(level, pos)
+            val be = level.getBlockEntity(pos) as? CrepusculiteLatticeBlockEntity
+            if (be != null) {
+                be.onRemoved(level, pos)
+            } else if (level is ServerLevel) {
+                // VS2 split/relocate calls removeBlockEntity before setBlock, so the BE is gone here.
+                level.getLoadedShipManagingPos(pos)?.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
+            }
         }
         super.onRemove(state, level, pos, newState, moved)
     }
@@ -92,6 +100,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
                             (c[2] * 255f).toInt().coerceIn(0, 255)
                     }
                     be.setTint(rgb)
+                    level.playSound(null, pos, EKSounds.CREPUSCULITE_LATTICE_TINT.get(), SoundSource.BLOCKS, 1f, 1f)
                     if (!player.isCreative) held.shrink(1)
                 }
             }
@@ -99,7 +108,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         }
         if (held.`is`(Items.ENDER_PEARL)) {
             if (level is ServerLevel) {
-                val outcome = assembleConnectedShip(level, pos)
+                val outcome = assembleWithSound(level, pos)
                 if (outcome == AssembleOutcome.OK && !player.isCreative) held.shrink(1)
                 player.displayClientMessage(Component.translatable(outcome.messageKey), true)
             }
@@ -110,6 +119,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
                 if (!player.isCreative) held.shrink(1)
                 val almanac = ItemStack(EKItems.ALMANAC_OF_EVERYWHERE.get())
                 if (!player.addItem(almanac)) player.drop(almanac, false)
+                level.playSound(null, pos, EKSounds.CREPUSCULITE_LATTICE_ALMANAC.get(), SoundSource.BLOCKS, 1f, 1f)
             }
             return InteractionResult.sidedSuccess(level.isClientSide)
         }
@@ -140,16 +150,35 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
     private fun syncSignal(state: BlockState, level: Level, pos: BlockPos) {
         if (level.isClientSide) return
         val signal = level.getBestNeighborSignal(pos)
-        if (signal != state.getValue(BlockStateProperties.POWER)) {
-            level.setBlock(pos, state.setValue(BlockStateProperties.POWER, signal), 3)
-        }
+        val previous = state.getValue(BlockStateProperties.POWER)
+        if (signal == previous) return
+        level.setBlock(pos, state.setValue(BlockStateProperties.POWER, signal), 3)
+        val active = signal < OFF_POWER
+        if (active == previous < OFF_POWER) return
+        val sound = if (active) EKSounds.CREPUSCULITE_LATTICE_ACTIVATE else EKSounds.CREPUSCULITE_LATTICE_DEACTIVATE
+        level.playSound(null, pos, sound.get(), SoundSource.BLOCKS, 1f, 1f)
     }
 
     companion object {
+        const val OFF_POWER = 15
         /** Hard cap on the flood-fill so an ender-pearl assembly can't shipify the world. */
         private const val MAX_ASSEMBLY_BLOCKS = 100_000
         /** Slack for "does the outline shape touch this face plane" (block units). */
         private const val FACE_REACH_EPS = 1.0e-4
+
+        /** [assembleConnectedShip], then the result sound at [origin]. On OK the lattice is
+         *  in the shipyard after the call, but [origin] is still its world position. */
+        @JvmStatic
+        fun assembleWithSound(level: ServerLevel, origin: BlockPos): AssembleOutcome {
+            val outcome = assembleConnectedShip(level, origin)
+            val sound = if (outcome == AssembleOutcome.OK) {
+                EKSounds.CREPUSCULITE_LATTICE_ASSEMBLE
+            } else {
+                EKSounds.CREPUSCULITE_LATTICE_ASSEMBLE_REFUSED
+            }
+            level.playSound(null, origin, sound.get(), SoundSource.BLOCKS, 1f, 1f)
+            return outcome
+        }
 
         /**
          * Assemble the structure this lattice sits on into a VS2 ship — the same approach other

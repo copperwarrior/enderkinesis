@@ -1,8 +1,10 @@
 package org.shipwrights.enderkinesis.body
 
 import com.mojang.logging.LogUtils
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.joml.Quaterniond
 import org.joml.Quaterniondc
@@ -82,14 +84,57 @@ object GamylanCagePedestals {
 
     private val weldPending: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
+    private class AlignSync(val pedestalPos: BlockPos, val shipId: Long?, val hoverInFrame: Vector3d)
+
+    /** Server thread only. The align state that the clients have, by body id. No entry = not aligning. */
+    private val alignSynced: Long2ObjectOpenHashMap<AlignSync> = Long2ObjectOpenHashMap()
+
     /** Server-tick entry point. Returns true if any per-cage record
      *  was mutated (so the caller can markDirty). */
     fun tick(level: ServerLevel): Boolean {
-        var dirty = false
-        for (data in GamylanCageRegistry.snapshot(level)) {
-            if (OrbGrabState.targetFor(data.bodyId) != null) continue
+        val cages = GamylanCageRegistry.snapshot(level)
+        val dirty = tickHomes(level, cages)
+        // A separate pass: the weld callback and the block callbacks also change the state.
+        for (data in cages) syncAlignState(level, data)
+        return dirty
+    }
 
-            val body = level.shipObjectWorld.allBodies.getById(data.bodyId) ?: continue
+    private fun syncAlignState(level: ServerLevel, data: GamylanCageData) {
+        val pos = data.homePedestalPos
+        val sent = alignSynced.get(data.bodyId)
+        if (pos == null || data.jointId != null || OrbGrabState.targetFor(data.bodyId) != null) {
+            if (sent == null) return
+            alignSynced.remove(data.bodyId)
+            GamylanCageNetwork.broadcastAlign(level, data.bodyId, null, null)
+            return
+        }
+        val shipId = data.homePedestalShipId
+        if (sent != null && sent.pedestalPos == pos && sent.shipId == shipId) return
+        val sync = AlignSync(pos, shipId, pedestalHoverShipyard(pos, data.shapeDims))
+        alignSynced.put(data.bodyId, sync)
+        GamylanCageNetwork.broadcastAlign(level, data.bodyId, shipId, sync.hoverInFrame)
+    }
+
+    fun sendAlignStates(player: ServerPlayer, level: ServerLevel) {
+        for (data in GamylanCageRegistry.snapshot(level)) {
+            val sync = alignSynced.get(data.bodyId) ?: continue
+            GamylanCageNetwork.sendAlign(player, data.bodyId, sync.shipId, sync.hoverInFrame)
+        }
+    }
+
+    private fun tickHomes(level: ServerLevel, cages: Collection<GamylanCageData>): Boolean {
+        var dirty = false
+        for (data in cages) {
+            if (OrbGrabState.targetFor(data.bodyId) != null) {
+                // The weld has no force limit, so the tome spring cannot move a welded cage.
+                if (data.jointId != null) {
+                    releaseJoint(level, data)
+                    dirty = true
+                }
+                continue
+            }
+
+            val body =level.shipObjectWorld.allBodies.getById(data.bodyId) ?: continue
             val livePos = Vector3d(body.kinematics.position)
             // The home scan reads blocks; a cage in an unloaded area loaded its chunk each tick.
             if (!columnLoaded(level, Math.floor(livePos.x).toInt(), Math.floor(livePos.z).toInt())) continue
@@ -354,6 +399,10 @@ object GamylanCagePedestals {
                 }
                 data.jointId = id
                 setPedestalLit(level, home.pedestalPos, true)
+                level.playSound(
+                    null, home.pedestalPos, org.shipwrights.enderkinesis.registry.EKSounds.CRYSTAL_PEDESTAL_DOCK.get(),
+                    net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f,
+                )
                 GamylanCagePersistence.markDirty(level)
             }
         }
@@ -374,12 +423,19 @@ object GamylanCagePedestals {
      *  Releases the joint for any cage homed to this position (any
      *  frame — block-callback [pos] is in the block's own frame). */
     fun onPedestalPowered(level: ServerLevel, pos: BlockPos) {
+        var released = false
         forCagesHomedAt(level, pos) { data ->
+            if (data.jointId != null) released = true
             releaseJoint(level, data)
             data.homePedestalPos = null
             data.homePedestalShipId = null
             data.homeRotTarget = Quaterniond()
         }
+        if (!released) return
+        level.playSound(
+            null, pos, org.shipwrights.enderkinesis.registry.EKSounds.CRYSTAL_PEDESTAL_RELEASE.get(),
+            net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f,
+        )
     }
 
     /** Callback from the pedestal block on break/replace. */
@@ -431,10 +487,12 @@ object GamylanCagePedestals {
     fun forgetBody(level: ServerLevel, data: GamylanCageData) {
         releaseJoint(level, data)
         weldPending.remove(data.bodyId)
+        alignSynced.remove(data.bodyId)
     }
 
     /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
     fun clearSession() {
         weldPending.clear()
+        alignSynced.clear()
     }
 }

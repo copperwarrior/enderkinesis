@@ -4,10 +4,15 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.block.Block
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.DirectionalBlock
 import net.minecraft.world.level.block.EntityBlock
 import net.minecraft.world.level.block.entity.BlockEntity
+import net.minecraft.world.level.block.entity.BlockEntityTicker
+import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
@@ -15,7 +20,9 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
+import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutTopBlockEntity
+import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.util.ShipMoves
 
@@ -47,6 +54,23 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =
         ShulkerStrutTopBlockEntity(pos, state)
 
+    override fun <T : BlockEntity> getTicker(
+        level: Level, state: BlockState, type: BlockEntityType<T>,
+    ): BlockEntityTicker<T>? {
+        if (level.isClientSide || type != EKBlockEntities.SHULKER_STRUT_TOP.get()) return null
+        return BlockEntityTicker { lvl, p, _, be ->
+            (be as? ShulkerStrutTopBlockEntity)?.serverTick(lvl as ServerLevel, p)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState =
+        state.setValue(BlockStateProperties.FACING, rotation.rotate(state.getValue(BlockStateProperties.FACING)))
+
+    @Deprecated("Deprecated in Java")
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState =
+        state.rotate(mirror.getRotation(state.getValue(BlockStateProperties.FACING)))
+
     /** Half-cube on the FACING side — mirrors [ShulkerStrutBlock.getShape]'s opposite-FACING
      *  half so the closed pair unions into a complete block. Lives on `getShape` (not just
      *  `getCollisionShape`) because VS2's ship-block collision reads `getShape` for solid
@@ -72,9 +96,8 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
      *  somehow, explosion, neighbour broke its supporting block, etc.) — `destroyBlock` with
      *  `dropBlock=true` drops the base item naturally. The base's own `onRemove` will then
      *  re-enter `releaseAndDestroyTop`, which calls `setBlock(lidPos, AIR)`, which is a
-     *  no-op because the lid is already gone. The mutual-cascade guard is just "is the
-     *  partner still our block?" — once one side is already air, the other side's cascade
-     *  short-circuits. */
+     *  no-op because the lid is already gone. The cascade fires only if the base still
+     *  names this lid, so an orphan or duplicate lid never breaks a live strut. */
     @Deprecated("Deprecated in Java")
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
@@ -82,7 +105,8 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
         if (!state.`is`(newState.block)) {
             val basePos = (level.getBlockEntity(pos) as? ShulkerStrutTopBlockEntity)?.basePos
             if (basePos != null && !ShipMoves.isMovingBlocks(level) &&
-                level.getBlockState(basePos).`is`(EKBlocks.SHULKER_STRUT.get())) {
+                level.getBlockState(basePos).`is`(EKBlocks.SHULKER_STRUT.get()) &&
+                (level.getBlockEntity(basePos) as? ShulkerStrutBlockEntity)?.lidShipyardPos == pos) {
                 level.destroyBlock(basePos, true)
             }
             super.onRemove(state, level, pos, newState, isMoving)

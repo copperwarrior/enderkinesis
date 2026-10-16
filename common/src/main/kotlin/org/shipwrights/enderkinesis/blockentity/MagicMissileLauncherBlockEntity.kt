@@ -8,8 +8,8 @@ import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.world.ContainerHelper
 import net.minecraft.world.WorldlyContainer
 import net.minecraft.world.entity.Entity
@@ -183,7 +183,7 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
 
         level.playSound(
             null, pos,
-            SoundEvents.SHULKER_SHOOT, SoundSource.BLOCKS,
+            EKSounds.MAGIC_MISSILE_LAUNCH.get(), SoundSource.BLOCKS,
             1.0f, 1.0f,
         )
 
@@ -204,7 +204,7 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
             markChangedAndSync()
             level?.playSound(
                 null, blockPos,
-                SoundEvents.BOTTLE_FILL_DRAGONBREATH, SoundSource.BLOCKS,
+                EKSounds.MAGIC_MISSILE_LAUNCHER_LOAD.get(), SoundSource.BLOCKS,
                 0.8f, 1.0f,
             )
             true
@@ -217,7 +217,7 @@ class MagicMissileLauncherBlockEntity(pos: BlockPos, state: BlockState) :
             markChangedAndSync()
             level?.playSound(
                 null, blockPos,
-                SoundEvents.BOTTLE_FILL_DRAGONBREATH, SoundSource.BLOCKS,
+                EKSounds.MAGIC_MISSILE_LAUNCHER_UNLOAD.get(), SoundSource.BLOCKS,
                 0.8f, 1.0f,
             )
             true

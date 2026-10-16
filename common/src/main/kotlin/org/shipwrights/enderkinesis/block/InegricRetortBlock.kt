@@ -10,7 +10,8 @@ import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.LevelEvent
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.world.level.block.LiquidBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
@@ -85,7 +86,7 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
         val bottles = state.getValue(IchaericInkJarBlock.BOTTLES)
         if (bottles >= IchaericInkJarBlock.MAX_BOTTLES) return
         level.setBlock(pos, state.setValue(IchaericInkJarBlock.BOTTLES, bottles + 1), UPDATE_ALL)
-        level.levelEvent(LevelEvent.SOUND_DRIP_WATER_INTO_CAULDRON, pos, 0)
+        level.playSound(null, pos, EKSounds.INEGRIC_RETORT_DRIP.get(), SoundSource.BLOCKS, 1f, 1f)
         level.gameEvent(null, GameEvent.BLOCK_CHANGE, pos)
     }
 
@@ -93,6 +94,7 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
         val puddle = EKBlocks.ICHAERIC_INK.get().defaultBlockState()
             .setValue(LiquidBlock.LEVEL, IchaericInkFlowingFluid.PUDDLE_BLOCK_LEVEL)
         level.setBlock(pos, puddle, UPDATE_ALL)
+        level.playSound(null, pos, EKSounds.INEGRIC_RETORT_SPLAT.get(), SoundSource.BLOCKS, 1f, 1f)
     }
 
     override fun animateTick(state: BlockState, level: Level, pos: BlockPos, random: RandomSource) {

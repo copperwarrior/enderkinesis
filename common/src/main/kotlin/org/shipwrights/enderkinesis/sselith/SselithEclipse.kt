@@ -12,8 +12,10 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.tags.TagKey
 import net.minecraft.world.damagesource.DamageSource
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.LivingEntity
@@ -32,6 +34,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.UUID
 
 /**
@@ -75,6 +78,12 @@ object SselithEclipse {
     private const val RAMP_AFTER_TICKS = 200
 
     private const val DUST_BURST_COUNT = 24
+    private const val LIGHT_BURN_VOLUME = 0.8f
+    private const val DUST_DEATH_VOLUME = 1.0f
+    private const val ITEM_DUST_VOLUME = 0.6f
+    private const val PITCH_MIN = 0.9f
+    private const val BODY_PITCH_SPREAD = 0.2f
+    private const val ITEM_DUST_PITCH_SPREAD = 0.3f
 
     /** Vanilla yellow dye color as packed RGB — `DyeColor.YELLOW.textColor`. Stored
      *  leather-armor color is the same int. */
@@ -99,7 +108,7 @@ object SselithEclipse {
      *  positive, so [Long.MIN_VALUE] is unreachable as a real start tick. */
     private const val NO_MANUAL = Long.MIN_VALUE
 
-    /** Sselith level gameTime at which a debug-triggered eclipse began, or [NO_MANUAL].
+    /** Sselith level gameTime at which a command-triggered eclipse began, or [NO_MANUAL].
      *  Written on the server by [triggerNow] and on clients by the S2C receiver — both
      *  sides then read it from [intensity]. Volatile because the field crosses the
      *  integrated-server↔client thread boundary in single-player. */
@@ -154,7 +163,7 @@ object SselithEclipse {
 
     /** Start a manual eclipse anchored to the sselith level's current gameTime, then
      *  broadcast the start tick to every player in that level so client visuals match.
-     *  Server-side entry point used by `/eclipse next`. */
+     *  Server-side entry point used by `/enderkinesis sselith eclipse next`. */
     fun triggerNow(level: ServerLevel) {
         val start = level.gameTime
         manualTriggerStart = start
@@ -210,7 +219,7 @@ object SselithEclipse {
         val next = (exposure[player.uuid] ?: 0) + PLAYER_TICK_PERIOD
         exposure[player.uuid] = next
         val dmg = if (next >= RAMP_AFTER_TICKS) DAMAGE_RAMPED else DAMAGE_BASE
-        player.hurt(EKDamageSources.lightDamage(level, player), dmg)
+        applyLightDamage(level, player, dmg)
     }
 
     private fun tickLevel(level: ServerLevel) {
@@ -237,7 +246,7 @@ object SselithEclipse {
             if (entity !is LivingEntity || entity is Player) continue
             if (entity.type.`is`(LIGHT_DAMAGE_IMMUNE)) continue
             if (!isExposed(entity, level) || isProtected(entity, level)) continue
-            entity.hurt(EKDamageSources.lightDamage(level, entity), DAMAGE_BASE)
+            applyLightDamage(level, entity, DAMAGE_BASE)
         }
     }
 
@@ -250,6 +259,7 @@ object SselithEclipse {
         }
         for (item in doomed) {
             spawnDustBurst(level, item.x, item.y + 0.2, item.z)
+            playAt(level, item, EKSounds.SSELITH_ITEM_DUST.get(), ITEM_DUST_VOLUME, ITEM_DUST_PITCH_SPREAD)
             item.discard()
         }
     }
@@ -289,6 +299,8 @@ object SselithEclipse {
         if (!isLightDamageSource(source)) return EventResult.pass()
         val level = entity.level() as? ServerLevel ?: return EventResult.pass()
         spawnDustBurst(level, entity.x, entity.y + entity.bbHeight * 0.5, entity.z)
+        // The die mixin plays the sound for a non-player, and LIVING_DEATH can also fire for it.
+        if (entity is Player) playDustDeath(level, entity)
         // The client starts the fall-over animation from the synced health value, so it must hide the body.
         if (entity is ServerPlayer) {
             for (viewer in level.players()) {
@@ -313,6 +325,24 @@ object SselithEclipse {
     fun spawnLightDeathDust(entity: LivingEntity) {
         val level = entity.level() as? ServerLevel ?: return
         spawnDustBurst(level, entity.x, entity.y + entity.bbHeight * 0.5, entity.z)
+        playDustDeath(level, entity)
+    }
+
+    /** Light Damage with its burn sound. The sound plays only when the hit lands. */
+    @JvmStatic
+    fun applyLightDamage(level: ServerLevel, entity: LivingEntity, amount: Float) {
+        if (!entity.hurt(EKDamageSources.lightDamage(level, entity), amount)) return
+        playAt(level, entity, EKSounds.SSELITH_LIGHT_BURN.get(), LIGHT_BURN_VOLUME, BODY_PITCH_SPREAD)
+    }
+
+    private fun playDustDeath(level: ServerLevel, entity: LivingEntity) {
+        playAt(level, entity, EKSounds.SSELITH_DUST_DEATH.get(), DUST_DEATH_VOLUME, BODY_PITCH_SPREAD)
+    }
+
+    /** Pitch is 0.9 plus a random part of [pitchSpread]. */
+    private fun playAt(level: ServerLevel, entity: Entity, event: SoundEvent, volume: Float, pitchSpread: Float) {
+        val pitch = PITCH_MIN + level.random.nextFloat() * pitchSpread
+        level.playSound(null, entity.x, entity.y, entity.z, event, entity.soundSource, volume, pitch)
     }
 
     private fun spawnDustBurst(level: ServerLevel, x: Double, y: Double, z: Double) {

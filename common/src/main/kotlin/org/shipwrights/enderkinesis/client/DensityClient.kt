@@ -26,8 +26,7 @@ import org.shipwrights.enderkinesis.item.DensityNetwork
  *  - [endSession] called from `releaseUsing` — flushes the final value and
  *    clears local state.
  *
- *  The right-side HUD bar is a debug overlay — not part of the spec, kept
- *  for now as a visual readout of the live multiplier. */
+ *  The right-side HUD bar shows the live multiplier. */
 object DensityClient {
 
     /** Pixels of mouse-Y travel to span the full 0.5× → 2× range (one side of centre).

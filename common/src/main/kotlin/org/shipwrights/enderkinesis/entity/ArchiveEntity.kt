@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.entity
 
+import net.minecraft.core.BlockPos
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
@@ -16,18 +17,19 @@ import net.minecraft.world.entity.ai.attributes.Attributes
 import net.minecraft.world.entity.ai.control.FlyingMoveControl
 import net.minecraft.world.entity.ai.navigation.FlyingPathNavigation
 import net.minecraft.world.entity.ai.navigation.PathNavigation
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.storage.loot.LootParams
 import net.minecraft.world.level.storage.loot.LootTable
 import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets
 import net.minecraft.world.level.storage.loot.parameters.LootContextParams
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -96,14 +98,15 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
      *  ignored entirely so a stray arrow doesn't bypass the collapse-on-contact. */
     override fun isInvulnerableTo(source: DamageSource): Boolean = true
 
-    /** Force-pin onGround to false. The archive is a floating phenomenon, not
-     *  a creature standing on a block; vanilla's Entity.checkFallDamage calls
-     *  `block.fallOn(...)` whenever onGround becomes true (which fires the
-     *  landing sound + particles), and that's exactly what we don't want a
-     *  tornado settling on a corridor floor to do. */
     override fun setOnGround(onGround: Boolean) {
         super.setOnGround(false)
     }
+
+    /** Entity.move() writes the onGround field directly, past [setOnGround]. */
+    override fun checkFallDamage(y: Double, onGround: Boolean, state: BlockState, pos: BlockPos) {}
+
+    /** The fall sound plays before hurt(), so invulnerability does not mute it. */
+    override fun causeFallDamage(fallDistance: Float, multiplier: Float, source: DamageSource): Boolean = false
 
     /** Empty — movement is owned by direct navigation.moveTo() calls in [tick]
      *  rather than goal-based AI, so no goals are registered. */
@@ -269,12 +272,10 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
             )
             level().addFreshEntity(item)
         }
-        // Paper-burst — vanilla book-page-turn sound at low pitch reads as a
-        // pile of pages erupting; cheap, no custom sound required.
         level().playSound(
             null, x, y, z,
-            SoundEvents.BOOK_PAGE_TURN, SoundSource.NEUTRAL,
-            1.0f, 0.6f + random.nextFloat() * 0.2f,
+            EKSounds.SSELITH_ARCHIVE_COLLAPSE.get(), SoundSource.NEUTRAL,
+            1.0f, 0.9f + random.nextFloat() * 0.2f,
         )
         discard()
     }
@@ -414,7 +415,7 @@ class ArchiveEntity(type: EntityType<out ArchiveEntity>, level: Level) :
          *  search per ~5 s is plenty for a slow tornado and keeps total path
          *  CPU cost negligible. */
         private const val PATH_COOLDOWN_TICKS = 100
-        private const val ACTIVE_RANGE = 64.0
+        const val ACTIVE_RANGE = 64.0
 
         /** Collapse bbox inflation. The tornado bounding box is 1×3×1 and the
          *  player bbox is 0.6×1.8×0.6 — a 0.75 inflate makes the trigger generous

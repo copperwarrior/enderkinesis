@@ -8,6 +8,7 @@ import net.minecraft.world.level.block.state.BlockState
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.util.ServerTicks
 import org.valkyrienskies.core.api.ships.properties.ShipId
 import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.common.dimensionId
@@ -141,13 +142,14 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
         /** Convert a block-pos in the originating block's frame (shipyard or world)
          *  to world XYZ, then queue a chain-style explosion on the next server tick.
          *  Deferred so a long fuse of explosives propagates over consecutive ticks
-         *  instead of recursively blowing the call stack. */
+         *  instead of recursively blowing the call stack. `server.execute` is not a
+         *  delay: on the server thread it runs the task at once. */
         fun queueChainExplosion(level: ServerLevel, pos: BlockPos) {
             val worldPos = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
             val ship = level.getLoadedShipManagingPos(pos)
             if (ship != null) ship.transform.shipToWorld.transformPosition(worldPos)
             val immut = pos.immutable()
-            level.server.execute {
+            ServerTicks.runAfter(level.server, 1) {
                 EXPLODING_POSITIONS.add(immut)
                 try {
                     level.explode(

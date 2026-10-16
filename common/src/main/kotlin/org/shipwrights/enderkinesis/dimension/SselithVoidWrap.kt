@@ -3,7 +3,11 @@ package org.shipwrights.enderkinesis.dimension
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.TickEvent
+import dev.architectury.networking.NetworkManager
+import io.netty.buffer.Unpooled
+import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.network.protocol.game.ClientboundMoveVehiclePacket
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.damagesource.DamageSource
@@ -12,6 +16,7 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.RelativeMovement
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.dimensionId
@@ -44,6 +49,9 @@ import org.valkyrienskies.mod.common.vsCore
  */
 object SselithVoidWrap {
 
+    /** S2C, no payload: the receiver went from the bottom to the top. */
+    val WRAPPED_PACKET: ResourceLocation = EnderkinesisMod.id("sselith/void_wrap")
+
     /** Below this Y the wrap fires. Symmetric with [WRAP_TOP] so the dimension reads as a
      *  vertical band centred on y=0. */
     private const val WRAP_BOTTOM = -512.0
@@ -67,6 +75,9 @@ object SselithVoidWrap {
             val riders = wrapShips(level)
             if (fallers.isNotEmpty() || riders.isNotEmpty()) {
                 SselithParallel.onWrapped(fallers + riders, level.gameTime)
+                for (player in (fallers + riders).distinct()) {
+                    NetworkManager.sendToPlayer(player, WRAPPED_PACKET, FriendlyByteBuf(Unpooled.buffer()))
+                }
             }
         })
     }

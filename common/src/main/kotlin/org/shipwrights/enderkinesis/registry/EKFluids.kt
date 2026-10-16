@@ -27,6 +27,8 @@ object EKFluids {
             .slopeFindDistance(2)
             .dropOff(2)
             .convertToSource(false)
+            .fillSound(EKSounds.ICHAERIC_INK_BUCKET_FILL)
+            .emptySound(EKSounds.ICHAERIC_INK_BUCKET_EMPTY)
 
     val ICHAERIC_INK: RegistrySupplier<FlowingFluid> =
         FLUIDS.register("ichaeric_ink") { ArchitecturyFlowingFluid.Source(ICHAERIC_INK_ATTRIBUTES) }

@@ -104,6 +104,7 @@ object IrreverantRemnantNetwork {
                 // acts, which is while the drip is airborne here, so the drawn link is the physical one.
                 buf.writeVarInt((if (blob.onSurface) -1 else blob.parent?.id ?: -1) + 1)
                 buf.writeByte(blob.spawnAge)
+                buf.writeVarInt(blob.massId)
                 count++
             }
             buf.setShort(countIndex, count)

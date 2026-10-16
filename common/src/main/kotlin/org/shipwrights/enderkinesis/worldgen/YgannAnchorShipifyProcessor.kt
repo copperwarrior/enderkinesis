@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.Mth
 import net.minecraft.util.RandomSource
 import net.minecraft.world.level.ChunkPos
+import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessor
@@ -18,6 +19,8 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.PlanarAnchorBlockEntity
+import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKProcessors
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
@@ -82,6 +85,20 @@ object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
         return processedBlockInfos
     }
 
+    // A strut can tick and make its lid ship before assembly. A reset after assembly leaves
+    // that lid loose, so the template state is removed here.
+    override fun processBlock(
+        level: LevelReader, offset: BlockPos, pos: BlockPos,
+        blockInfo: StructureTemplate.StructureBlockInfo,
+        relativeBlockInfo: StructureTemplate.StructureBlockInfo,
+        settings: StructurePlaceSettings,
+    ): StructureTemplate.StructureBlockInfo {
+        val nbt = relativeBlockInfo.nbt
+        if (nbt == null || !relativeBlockInfo.state.`is`(EKBlocks.SHULKER_STRUT.get())) return relativeBlockInfo
+        val clean = nbt.copy().also(ShulkerStrutBlockEntity::removeShipState)
+        return StructureTemplate.StructureBlockInfo(relativeBlockInfo.pos, relativeBlockInfo.state, clean)
+    }
+
     override fun getType(): StructureProcessorType<*> = EKProcessors.YGANN_ANCHOR_SHIPIFY.get()
 
     private fun scheduleAssembleAndRotate(
@@ -114,12 +131,7 @@ object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
                 // VS2 assembly ends dynamic and returns the ship before it is loaded; hold it
                 // static until its anchors have joints.
                 ship.isStatic = true
-                // Assembly is a pure block translation, so this is exact (no transform timing).
-                val offset = BlockPos(
-                    Math.round(assembled.toCenter.x - assembled.fromCenter.x).toInt(),
-                    Math.round(assembled.toCenter.y - assembled.fromCenter.y).toInt(),
-                    Math.round(assembled.toCenter.z - assembled.fromCenter.z).toInt(),
-                )
+                val offset = ShipCrew.assemblyOffset(blocks, assembled.toCenter)
                 // Compose Y(yaw) · X(pitch) · Z(roll) — standard aerospace order. JOML's
                 // `rotate*` post-multiplies, so applied to a body-frame vector this rolls
                 // first, then pitches, then yaws. World up is +Y; pitch tips the bow up/down
@@ -163,13 +175,9 @@ object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
         val anchors = ArrayList<BlockPos>()
         for (worldPos in post.worldBlocks) {
             val shipyardPos = worldPos.offset(post.offset)
-            when (val be = server.getBlockEntity(shipyardPos)) {
-                is PlanarAnchorBlockEntity -> {
-                    be.resetForStructureRespawn()
-                    anchors.add(shipyardPos)
-                }
-                is org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity -> be.resetForStructureRespawn()
-            }
+            val be = server.getBlockEntity(shipyardPos) as? PlanarAnchorBlockEntity ?: continue
+            be.resetForStructureRespawn()
+            anchors.add(shipyardPos)
         }
         rotateWhenLoaded(server, shipId, post.rot, post.crew, post.offset, anchors, LOAD_ATTEMPTS)
     }

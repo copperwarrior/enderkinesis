@@ -12,6 +12,7 @@ import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
@@ -33,10 +34,13 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.shipwrights.enderkinesis.blockentity.Commandable
 import org.shipwrights.enderkinesis.item.OldPaperItem
 import org.shipwrights.enderkinesis.item.StaffOfCommandItem
+import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.shipwrights.enderkinesis.worldgen.ShipyardCrew
+import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipObjectManagingPos
@@ -145,6 +149,19 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         }
     }
 
+    override fun getAmbientSound(): SoundEvent = EKSounds.SHULKONAUT_AMBIENT.get()
+
+    override fun getAmbientSoundInterval(): Int = AMBIENT_SOUND_INTERVAL
+
+    override fun getHurtSound(source: net.minecraft.world.damagesource.DamageSource): SoundEvent =
+        EKSounds.SHULKONAUT_HURT.get()
+
+    override fun getDeathSound(): SoundEvent = EKSounds.SHULKONAUT_DEATH.get()
+
+    fun voice(event: SoundEvent, volume: Float = 1f, pitch: Float = voicePitch) {
+        playSound(event, volume, pitch)
+    }
+
     fun hasBook(): Boolean = entityData.get(DATA_HAS_BOOK)
 
     override fun defineSynchedData() {
@@ -164,6 +181,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                 player.displayClientMessage(
                     Component.translatable("entity.enderkinesis.shulkonaut.bad_selector"), true,
                 )
+                voice(EKSounds.SHULKONAUT_REJECT.get())
                 return InteractionResult.FAIL
             }
             val parsed = ArrayList<StandingOrder>()
@@ -175,6 +193,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                             .append(": ").append(Component.literal("unknown qualifier in \"$line\"")),
                         true,
                     )
+                    voice(EKSounds.SHULKONAUT_REJECT.get())
                     return InteractionResult.FAIL
                 }
                 val parseError = if (order.blockTarget != null) null else selectorError(order.selector)
@@ -184,6 +203,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                             .append(" (\"$line\"): ").append(parseError),
                         true,
                     )
+                    voice(EKSounds.SHULKONAUT_REJECT.get())
                     return InteractionResult.FAIL
                 }
                 parsed.removeAll { it.key == order.key }   // last-wins per family
@@ -196,6 +216,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
             orders.addAll(parsed)
             entityData.set(DATA_HAS_BOOK, true)
             if (!player.abilities.instabuild) stack.shrink(1)
+            voice(EKSounds.SHULKONAUT_STUDY.get())
             player.displayClientMessage(
                 Component.translatable(
                     "entity.enderkinesis.shulkonaut.selector_set",
@@ -212,6 +233,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
             }
             orders.clear()
             entityData.set(DATA_HAS_BOOK, false)
+            voice(EKSounds.SHULKONAUT_CLEAR.get())
             player.displayClientMessage(
                 Component.translatable("entity.enderkinesis.shulkonaut.cleared"), true,
             )
@@ -477,6 +499,12 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
     }
 
     private fun refreshOrderTarget(server: ServerLevel, order: StandingOrder) {
+        val hadTarget = order.targetId >= 0 || order.targetShipId >= 0
+        resolveOrderTarget(server, order)
+        if (!hadTarget && (order.targetId >= 0 || order.targetShipId >= 0)) voice(EKSounds.SHULKONAUT_SPOT.get())
+    }
+
+    private fun resolveOrderTarget(server: ServerLevel, order: StandingOrder) {
         if (order.blockTarget != null) {
             order.targetId = -1
             order.targetShipId = -1L
@@ -518,8 +546,11 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         var best: Long = -1L
         var bestDistSq = Double.MAX_VALUE
         val dimId = server.dimensionId
+        // A jointed ship is a part of a mechanism (a Shulker Strut lid), not a vessel.
+        val jointsByShip = ValkyrienSkiesMod.getOrCreateGTPA(dimId).getJointsByShipIds()
         for (ship in server.shipObjectWorld.loadedShips) {
             if (ship.id == ownShipId) continue
+            if (!jointsByShip[ship.id].isNullOrEmpty()) continue
             // loadedShips is server-wide: without this, an End gunner could "target"
             // an overworld ship and volley its coordinates into the wrong dimension.
             if (ship.chunkClaimDimension != dimId) continue
@@ -723,7 +754,10 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                 }
                 else -> false
             }
-            if (responded) StaffOfCommandItem.spawnBlockSpark(server, entry.pos, ship)
+            if (responded) {
+                StaffOfCommandItem.spawnBlockSpark(server, entry.pos, ship)
+                commandVoice()
+            }
         } else {
             val entry = minions[pick - blocks.size]
             val order = orderForKey(entry.typeId.toString()) ?: return
@@ -737,12 +771,14 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                         e.commandMoveTo(if (order.verb == VERB_TO) aim.entity?.position() ?: aim.pos else aim.pos)
                     }
                     StaffOfCommandItem.spawnBlockSpark(server, e.blockPosition(), null)
+                    commandVoice()
                 }
                 is net.minecraft.world.entity.boss.enderdragon.EndCrystal -> {
                     // Staff-parity: trigger detonates (vanilla shot-the-crystal
                     // branch); aim/WATCH skips — a crystal has nothing to orient.
                     if (!watch) {
                         StaffOfCommandItem.spawnBlockSpark(server, e.blockPosition(), null)
+                        commandVoice()
                         e.hurt(server.damageSources().generic(), 1.0f)
                     }
                 }
@@ -751,8 +787,14 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         }
     }
 
-    /** Worldgen order issue: parse + adopt [line] and rewrite the held order book's
-     *  page to match, so looting the book shows this ship's actual standing orders.
+    // Quieter and less varied than other voices: it repeats each FIRE_INTERVAL.
+    private fun commandVoice() {
+        val pitch = Mth.randomBetween(random, COMMAND_PITCH_MIN, COMMAND_PITCH_MAX)
+        voice(EKSounds.SHULKONAUT_COMMAND.get(), COMMAND_VOLUME, pitch)
+    }
+
+    /** Worldgen order issue: parse + adopt [line] and replace the held order book with Old
+     *  Paper that shows it, so the loot shows this ship's actual standing orders.
      *  False when the line doesn't parse (caller keeps the template default). */
     fun issueOrder(line: String): Boolean {
         val order = parseOrderSpec(line) ?: return false
@@ -767,7 +809,14 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                     Component.Serializer.toJson(Component.literal(line)),
                 ),
             )
-            orderBook.getOrCreateTag().put("pages", pages)
+            // The template holds a signed book. Old Paper reads the same `title`, `author` and `pages` tags.
+            val paper = ItemStack(EKItems.OLD_PAPER.get())
+            val tag = paper.getOrCreateTag()
+            orderBook.tag?.let { old ->
+                for (key in PAPER_KEPT_TAGS) if (old.contains(key)) tag.putString(key, old.getString(key))
+            }
+            tag.put("pages", pages)
+            orderBook = paper
         }
         return true
     }
@@ -945,6 +994,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         private const val NBT_AUTO_ENROLLED = "EkAutoEnrolled"
         private const val NBT_ANCHOR = "EkAnchor"
         private const val NBT_ORDER_BOOK = "EkOrderBook"
+        private val PAPER_KEPT_TAGS = listOf("title", "author")
         private const val NBT_ORDER_VERB = "EkOrderVerb"
         private const val NBT_ORDER_ARG = "EkOrderArg"
         private const val NBT_ORDERS = "EkOrders"
@@ -975,6 +1025,10 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         /** Ticks a fresh spawn waits to end up aboard before auto-enroll gives up. */
         private const val AUTO_ENROLL_GRACE_TICKS = 200
         private const val FIRE_INTERVAL = 40
+        private const val AMBIENT_SOUND_INTERVAL = 240
+        private const val COMMAND_VOLUME = 0.5f
+        private const val COMMAND_PITCH_MIN = 0.95f
+        private const val COMMAND_PITCH_MAX = 1.05f
         /** Max line-of-sight raycasts per refresh (closest candidates first). */
         private const val LOS_CHECK_LIMIT = 10
         private const val IDLE_LOOK_RANGE = 8.0

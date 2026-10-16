@@ -4,20 +4,16 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import org.joml.Matrix4dc
+import org.joml.Vector3d
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils
+import org.valkyrienskies.mod.common.vsCore
 
 /**
- * Entity-vs-cage collision adjustment for Wand-of-Ga'Mylan cages.
- * Mirrors the structure of [OrbEntityCollision]: per-cage compound
- * hex-bipyramid shape (see [GamylanCageShape]) is fed into
- * [EntityShipCollisionUtils.adjustEntityMovementForPrimitiveShapeCollision],
- * which traces the entity's swept AABB against each primitive child of
- * the compound and clamps the movement.
- *
- * Called from [org.shipwrights.enderkinesis.mixin.EntityOrbCollisionMixin]
- * after the orb adjustment pass, on the same wrapped collide step.
+ * Entity-vs-cage collision for Wand-of-Ga'Mylan cages. A crystal collides as its exact convex
+ * hull ([GamylanCageShape.Hull]). A soder bottle collides as its compound of primitives.
  */
 object GamylanCageEntityCollision {
 
@@ -50,7 +46,7 @@ object GamylanCageEntityCollision {
         val moveLen = Math.sqrt(movement.lengthSqr())
 
         var adjusted = movement
-        val collide = { bodyId: Long, bodyRadius: Double, shape: () -> org.valkyrienskies.core.api.bodies.shape.BodyShapeData ->
+        val collide = { bodyId: Long, bodyRadius: Double, adjust: (Vec3, Matrix4dc) -> Vec3 ->
             val body = shipWorld.allBodies.getById(bodyId)
             if (body != null) {
                 val bodyPos = body.kinematics.position
@@ -59,29 +55,34 @@ object GamylanCageEntityCollision {
                 val dy = bodyPos.y() - cy
                 val dz = bodyPos.z() - cz
                 if (dx * dx + dy * dy + dz * dz <= cullR * cullR) {
-                    adjusted = EntityShipCollisionUtils.adjustEntityMovementForPrimitiveShapeCollision(
-                        entity, adjusted, entityBoundingBox, shape(), body.kinematics.transform.toWorld,
-                    )
+                    adjusted = adjust(adjusted, body.kinematics.transform.toWorld)
                 }
+            }
+        }
+        val collideHull = { bodyId: Long, dims: Vector3d, hull: GamylanCageShape.Hull ->
+            collide(bodyId, GamylanCageShape.boundingRadius(dims)) { move, toWorld ->
+                val polygon = vsCore.entityPolygonCollider
+                    .createPolygonFromPointsAndNormals(hull.points, hull.normals, toWorld, null)
+                EntityShipCollisionUtils
+                    .adjustEntityMovementForPrimitiveShapePolygons(entity, move, entityBoundingBox, listOf(polygon))
             }
         }
         if (level.isClientSide) {
             // The server table is empty on the client of a dedicated server. The client entry has
             // no Tribulla flag, so a soder bottle collides as the crystal of the same size.
             org.shipwrights.enderkinesis.client.GamylanCageClientRegistry.forEachIn(level.dimension()) { entry ->
-                collide(entry.bodyId, GamylanCageShape.boundingRadius(entry.shapeDims)) {
-                    GamylanCageShape.newCompoundShape(entry.shapeDims)
-                }
+                collideHull(entry.bodyId, entry.shapeDims, entry.hull)
             }
         } else {
             GamylanCageRegistry.forEachInVsDim(vsDim) { data ->
-                // Bounding-sphere broad-phase: largest extent of the bipyramid (or soder
-                // bottle, in Tribulla cages) from its centre.
-                val bodyRadius = if (data.isTribulla) SoderShape.boundingRadius(data.entityCullSize)
-                else GamylanCageShape.boundingRadius(data.shapeDims)
-                collide(data.bodyId, bodyRadius) {
-                    if (data.isTribulla) SoderShape.newCompoundShape(data.entityCullSize)
-                    else GamylanCageShape.newCompoundShape(data.shapeDims)
+                if (data.isTribulla) {
+                    collide(data.bodyId, SoderShape.boundingRadius(data.entityCullSize)) { move, toWorld ->
+                        EntityShipCollisionUtils.adjustEntityMovementForPrimitiveShapeCollision(
+                            entity, move, entityBoundingBox, SoderShape.newCompoundShape(data.entityCullSize), toWorld,
+                        )
+                    }
+                } else {
+                    collideHull(data.bodyId, data.shapeDims, data.hull)
                 }
             }
         }

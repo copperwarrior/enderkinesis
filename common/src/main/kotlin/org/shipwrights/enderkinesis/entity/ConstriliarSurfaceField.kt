@@ -4,6 +4,9 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import net.minecraft.world.phys.shapes.BooleanOp
+import net.minecraft.world.phys.shapes.Shapes
+import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.valkyrienskies.mod.common.getShipsIntersecting
 
@@ -34,7 +37,12 @@ object ConstriliarSurfaceField {
      *  away-from-surface normal (floor → up, wall → out, ceiling → down). Null when no
      *  collision geometry is within [range]. [smoothing] overrides the log-sum-exp
      *  sharpness — higher = smaller rounding radius (≈ 1/k blocks), giving more
-     *  decisive normals near concave corners at the cost of continuity. */
+     *  decisive normals near concave corners at the cost of continuity.
+     *
+     *  [mergeBlocks]: the normal comes from the world blocks merged into maximal boxes.
+     *  A soft union of per-block boxes reads closer at every seam, which tilted the
+     *  normal up to ~17° on a flat floor at a 0.2-block sample height. The distances
+     *  stay per-block, so thresholds tuned on them keep their meaning. */
     fun sample(
         level: Level,
         entity: Entity?,
@@ -44,8 +52,10 @@ object ConstriliarSurfaceField {
         smoothing: Double = SMOOTHING,
         maxBoxes: Int = MAX_BOXES,
         extraBoxes: List<AABB>? = null,
+        mergeBlocks: Boolean = false,
     ): Sample? {
-        val boxes = collectBoxes(level, entity, centre, range, ownShipId, maxBoxes, extraBoxes)
+        val merged = if (mergeBlocks) ArrayList<AABB>(16) else null
+        val boxes = collectBoxes(level, entity, centre, range, ownShipId, maxBoxes, extraBoxes, merged)
         if (boxes.isEmpty()) return null
 
         val dists = DoubleArray(boxes.size)
@@ -65,7 +75,23 @@ object ConstriliarSurfaceField {
         }
         if (gradient.lengthSquared() < 1.0e-8 || weightSum <= 0.0) return null
         val smoothDist = dMin - Math.log(weightSum) / smoothing
-        return Sample(gradient.normalize(), smoothDist, dMin)
+        gradient.normalize()
+        if (merged != null && merged.isNotEmpty()) smoothNormal(centre, merged, smoothing, gradient)
+        return Sample(gradient, smoothDist, dMin)
+    }
+
+    /** Smoothed normal over [boxes] into [out]; leaves [out] as it was when the field
+     *  has no direction at [centre]. */
+    private fun smoothNormal(centre: Vec3, boxes: List<AABB>, smoothing: Double, out: Vector3d) {
+        val grad = Vector3d()
+        var dMin = Double.MAX_VALUE
+        for (box in boxes) dMin = Math.min(dMin, boxSdf(centre, box, grad))
+        val sum = Vector3d()
+        for (box in boxes) {
+            val d = boxSdf(centre, box, grad)
+            sum.fma(Math.exp(-smoothing * (d - dMin)), grad)
+        }
+        if (sum.lengthSquared() >= 1.0e-8) out.set(sum).normalize()
     }
 
     /** Reused arrays and the result of [sampleBoxes]. One for each caller thread. */
@@ -87,7 +113,7 @@ object ConstriliarSurfaceField {
      *  list with [sampleBoxes]. */
     fun boxesNear(
         level: Level, centre: Vec3, range: Double, maxBoxes: Int, extraBoxes: List<AABB>?,
-    ): List<AABB> = collectBoxes(level, null, centre, range, null, maxBoxes, extraBoxes)
+    ): List<AABB> = collectBoxes(level, null, centre, range, null, maxBoxes, extraBoxes, null)
 
     /** [sample] over a given box list, with no allocation. False when the field has no
      *  direction at the point. The result is in [scratch]. */
@@ -123,8 +149,9 @@ object ConstriliarSurfaceField {
         centre: Vec3,
         range: Double,
         ownShipId: Long?,
-        maxBoxes: Int = MAX_BOXES,
-        extraBoxes: List<AABB>? = null,
+        maxBoxes: Int,
+        extraBoxes: List<AABB>?,
+        mergedOut: MutableList<AABB>?,
     ): List<AABB> {
         val out = ArrayList<AABB>(32)
         val search = AABB(centre, centre).inflate(range)
@@ -140,11 +167,20 @@ object ConstriliarSurfaceField {
                 if (out.size >= maxBoxes) return out
             }
         }
+        val extraEnd = out.size
+        var joined: VoxelShape? = if (mergedOut != null) Shapes.empty() else null
         outer@ for (shape in level.getBlockCollisions(entity, search)) {
+            if (joined != null) joined = Shapes.joinUnoptimized(joined, shape, BooleanOp.OR)
             for (box in shape.toAabbs()) {
                 out.add(box)
                 if (out.size >= maxBoxes) break@outer
             }
+        }
+        val worldEnd = out.size
+        if (mergedOut != null && joined != null) {
+            mergedOut.addAll(out.subList(0, extraEnd))
+            // optimize() + toAabbs() emits maximal boxes: a flat floor becomes one box.
+            mergedOut.addAll(joined.optimize().toAabbs())
         }
         // Other ships' hulls are surface too (own ship excluded — it's the body).
         for (ship in level.getShipsIntersecting(search)) {
@@ -159,6 +195,7 @@ object ConstriliarSurfaceField {
                 }
             }
         }
+        mergedOut?.addAll(out.subList(worldEnd, out.size))
         return out
     }
 

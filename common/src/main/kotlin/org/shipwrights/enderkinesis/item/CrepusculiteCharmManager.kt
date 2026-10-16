@@ -5,6 +5,7 @@ import dev.architectury.event.events.common.TickEvent
 import java.util.UUID
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.effect.MobEffects
 import net.minecraft.world.entity.player.Player
@@ -13,6 +14,7 @@ import net.minecraft.world.level.Level
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.mixin.ServerGamePacketListenerAccessor
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.shipObjectWorld
 
@@ -121,7 +123,12 @@ object CrepusculiteCharmManager {
      *  `broadcastBreakEvent` because the charm typically isn't in a hand or armor slot —
      *  the visual break would target the wrong slot. */
     private fun damageCharm(stack: ItemStack, player: ServerPlayer) {
-        if (stack.hurt(1, player.random, player)) stack.shrink(1)
+        if (!stack.hurt(1, player.random, player)) return
+        stack.shrink(1)
+        player.serverLevel().playSound(
+            null, player.x, player.y, player.z,
+            EKSounds.CREPUSCULITE_CHARM_BREAK.get(), SoundSource.PLAYERS, 1f, 1f,
+        )
     }
 
     private fun findCharmStack(player: Player): ItemStack? {

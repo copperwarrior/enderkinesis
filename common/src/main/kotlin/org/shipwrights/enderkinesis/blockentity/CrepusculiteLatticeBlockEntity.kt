@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
@@ -9,6 +10,7 @@ import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.effect.MobEffectInstance
@@ -26,11 +28,14 @@ import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import org.shipwrights.enderkinesis.physics.CrepusculiteLatticeForceInducer
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
 import org.shipwrights.enderkinesis.physics.LatticeCatchZone
+import org.shipwrights.enderkinesis.physics.LatticeHullVolume
+import org.shipwrights.enderkinesis.physics.LatticeOcean
 import org.shipwrights.enderkinesis.physics.LatticeRegistry
 import org.shipwrights.enderkinesis.physics.OceanDepth
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -44,6 +49,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     private var lastScanMass = Double.NaN
     private var lastScanBox = 0L
     private var forcedRescanIn = 0
+    private var lastSplashSoundTick = 0L
+
+    /** Ids of the entities in the ocean, for the catch sound. Server thread only. */
+    private val caught = IntOpenHashSet()
+    private val caughtPrev = IntOpenHashSet()
 
     /** Ship-local block triples (x,y,z flattened). VS2 ships routinely roll/invert, so the
      *  ship's Y axis must never be collapsed — world up is the only valid vertical. */
@@ -97,7 +107,23 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val next = (seaLevel ?: return null) + delta
         seaLevel = next
         markChangedAndSync()
+        val sound = if (delta > 0.0) {
+            EKSounds.CREPUSCULITE_LATTICE_SEA_LEVEL_UP
+        } else {
+            EKSounds.CREPUSCULITE_LATTICE_SEA_LEVEL_DOWN
+        }
+        (level as? ServerLevel)?.let {
+            it.playSound(null, blockPos, sound.get(), SoundSource.BLOCKS, 1f, seaLevelPitch(it, next))
+        }
         return next
+    }
+
+    /** One semitone for each block of sea level above or below the lattice. */
+    private fun seaLevelPitch(level: ServerLevel, seaLevel: Double): Float {
+        val here = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
+        level.getLoadedShipManagingPos(blockPos)?.transform?.shipToWorld?.transformPosition(here)
+        val semitones = (seaLevel - here.y) * SEA_LEVEL_SEMITONES_PER_BLOCK
+        return Math.pow(2.0, semitones / SEMITONES_PER_OCTAVE).toFloat().coerceIn(SEA_LEVEL_PITCH_MIN, SEA_LEVEL_PITCH_MAX)
     }
 
     /** Set the wave/particle tint to the given packed RGB. Persisted in NBT and synced to
@@ -179,10 +205,8 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val yawCos = Math.cos(yaw)
         val yawSin = Math.sin(yaw)
 
-        // Wave params: server reads the inducer's live values; client doesn't have the
-        // inducer attachment (it's a server-only VS2 attachment), so it falls back to a
-        // sensible default. This only affects the *push magnitude* — the in-zone check
-        // ignores wave params entirely.
+        // The inducer is a server-only VS2 attachment. The client calculates the same
+        // intensity from the depth formula, which is the same on the two sides.
         val waveTime: Double
         val waveIntensity: Double
         if (level is ServerLevel) {
@@ -195,8 +219,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             waveIntensity = inducer?.waveIntensity ?: 1.0
         } else {
             waveTime = level.gameTime.toDouble()
-            waveIntensity = 1.0
+            waveIntensity = waveIntensityAt(level, pos, s2w, waterLineY)
         }
+
+        val off = CrepusculiteLatticeBlock.OFF_POWER
+        val strength = (off - blockState.getValue(BlockStateProperties.POWER)).coerceAtLeast(0).toFloat() / off
 
         // Tint defaults to the static ender-purple; a dyed lattice overrides it AND
         // flips `dyed=true` so the zone's derived deep/foam shades come into play.
@@ -207,12 +234,12 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             val tb = (rgb and 0xFF) / 255f
             LatticeCatchZone(
                 cx, cy, cz, ax, ay, az, waterLineY, waveTime, waveIntensity,
-                yawCos, yawSin, tr, tg, tb, dyed = true, shipId = ship.id,
+                yawCos, yawSin, tr, tg, tb, dyed = true, shipId = ship.id, strength = strength,
             )
         } else {
             LatticeCatchZone(
                 cx, cy, cz, ax, ay, az, waterLineY, waveTime, waveIntensity, yawCos, yawSin,
-                shipId = ship.id,
+                shipId = ship.id, strength = strength,
             )
         }
         // Owner rule: one ocean for each ship, from its highest lattice. The mesh, the
@@ -227,6 +254,22 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         }
         publishedZone = zone
         LatticeRegistry.publish(level, this, zone)
+    }
+
+    /** Depth-driven wave intensity: wave plane height vs the terrain beneath the lattice's
+     *  current world column. Client and server must get the same value. */
+    private fun waveIntensityAt(
+        level: Level, pos: BlockPos, shipToWorld: org.joml.Matrix4dc, waterLineY: Double,
+    ): Double {
+        // Ygann's Abyss is totally void — the heightmap reads as min-build-height everywhere,
+        // so the normal depth-from-terrain calc would saturate to max intensity.
+        if (level.dimension() == YgannAbyss.LEVEL_KEY) return YGANN_ABYSS_WAVE_INTENSITY
+        val lw = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        shipToWorld.transformPosition(lw)
+        // Shared depth metric: heightmap in open dims, downward floor scan under a ceiling
+        // (Nether's roof heightmap would give one flat intensity dimension-wide).
+        val terrainY = OceanDepth.terrainY(level, Math.floor(lw.x).toInt(), Math.floor(lw.z).toInt(), waterLineY)
+        return GerstnerOcean.intensityFor(waterLineY, terrainY)
     }
 
     /**
@@ -389,23 +432,8 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // Shared clock so the physics wave matches the client visual wave exactly.
         inducer.waveTime = level.gameTime.toDouble()
 
-        // Depth-driven wave intensity: wave plane height vs the world heightmap beneath the
-        // lattice's current world column (the physics thread can't read the level itself).
-        val lw = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        ship.transform.shipToWorld.transformPosition(lw)
-        // Ygann's Abyss is totally void — the heightmap reads as min-build-height everywhere,
-        // so the normal depth-from-terrain calc would saturate to max intensity. Skip the
-        // calc and use a flat dimension-wide intensity instead.
-        inducer.waveIntensity = if (level.dimension() == YgannAbyss.LEVEL_KEY) {
-            YGANN_ABYSS_WAVE_INTENSITY
-        } else {
-            // Shared depth metric: heightmap in open dims, downward floor scan under a ceiling
-            // (Nether's roof heightmap would give one flat intensity dimension-wide).
-            val terrainY = OceanDepth.terrainY(
-                level, Math.floor(lw.x).toInt(), Math.floor(lw.z).toInt(), inducer.waterLineY,
-            )
-            GerstnerOcean.intensityFor(inducer.waterLineY, terrainY)
-        }
+        // The physics thread can't read the level itself.
+        inducer.waveIntensity = waveIntensityAt(level, pos, ship.transform.shipToWorld, inducer.waterLineY)
 
         // Per-block buoyancy needs the ship's solid blocks, but the Physics thread can't read the
         // world — capture them here (server thread). Throttled: scanning the ship's whole AABB is
@@ -476,10 +504,9 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // ship yaw. A world-axis box gives a float area where no ocean shows on a turned ship.
         val zone = publishedZone ?: return
         val cx = zone.cx; val cy = zone.cy; val cz = zone.cz
-        val ax = zone.ax; val ay = zone.ay; val az = zone.az
+        val ay = zone.ay
         val maxY = cy + ay
-        val dyN = (waterLineY - cy) / ay
-        if (dyN * dyN >= 1.0) return                          // water line outside the ellipsoid
+        if (waterLineY <= LatticeOcean.bottomY(zone)) return
 
         // Query the full ellipsoid volume (down to its floor), up past the surface so a fast
         // faller is still caught the tick it crosses the plane.
@@ -490,7 +517,8 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         )
         val effect = EKEffects.CREPUSCULAR_FLOATATION.get()
         val toShip = ship.transform.worldToShip
-        val local = Vector3d()
+        val wake = LatticeOcean.wakeSources(level)
+        var catchPlayed = false
 
         for (entity in level.getEntities(null as Entity?, box) { it.isAlive }) {
             // Magic missile: homing projectile with its own deliberate trajectory; the
@@ -514,32 +542,24 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             val ey = entity.y
             val ez = entity.z
 
-            // Is the entity *actively* in the virtual ocean this tick? Volume-relative: inside the
-            // 3D ellipsoid, below the wave plane, unsupported (`!onGround` — VS2 sets onGround=true
-            // for entities standing on ship blocks, so deck-standers/dry-floor entities are
-            // excluded), and *not enclosed inside the ship*. Enclosure is judged in the ship's own
-            // block space: transform the entity into ship-local coords and check its column — it
-            // is enclosed (a dry interior room, don't float) only if sandwiched between ship
-            // structure both above and below. Below the keel, above the deck, or outside the
-            // footprint are all open water → float. (No geometric world hull cutout — that wrongly
-            // blocked under-ship/flooded spaces; no VS2 air-pocket/dragging reliance.)
-            val nx = zone.localNx(ex, ez)
-            val ny = (ey - cy) / ay
-            val nz = zone.localNz(ex, ez)
-            val insideEllipsoid = nx * nx + ny * ny + nz * nz <= 1.0
-            val surfaceY = waterLineY + GerstnerOcean.heightAt(ex, ez, waveTime, waveIntensity)
+            // The same water as the fluid probe: [LatticeOcean] less the dry parts of the hull.
             val feetY = entity.boundingBox.minY
+            val surfaceY = LatticeOcean.surfaceY(zone, ex, ez, wake)      // NaN where the ocean has no water
             val submerged = feetY < surfaceY
+            val wet = !surfaceY.isNaN() && feetY >= LatticeOcean.bottomY(zone) &&
+                LatticeHullVolume.isWet(level, ship, toShip, ex, feetY, ez)
+            val inRegion = submerged && wet
 
-            local.set(ex, ey, ez)
-            toShip.transformPosition(local)
-            val ck = colKey(Math.floor(local.x).toInt(), Math.floor(local.z).toInt())
-            val cMax = colMaxY.get(ck)
-            val enclosed = cMax != Int.MIN_VALUE && run {              // ship blocks in this column
-                val ly = Math.floor(local.y).toInt()
-                ly > colMinY.get(ck) && ly < cMax                      // solid above AND below
+            // A floating entity bobs through the surface. It stays caught until it is clear of the ocean.
+            val nearSurface = wet && feetY < surfaceY + CATCH_EXIT_CLEARANCE
+            val wasCaught = caughtPrev.contains(entity.id)
+            if (inRegion || (wasCaught && nearSurface)) caught.add(entity.id)
+            if (inRegion && !wasCaught && !catchPlayed) {
+                catchPlayed = true
+                level.playSound(
+                    null, ex, ey, ez, EKSounds.CREPUSCULITE_LATTICE_CATCH.get(), SoundSource.BLOCKS, 1f, 1f,
+                )
             }
-            val inRegion = !entity.onGround() && insideEllipsoid && submerged && !enclosed
 
             // Top up the grace timer while actively floating. Living entities only — MobEffects
             // don't apply to items/boats/etc, which just float in-region with no grace.
@@ -588,6 +608,9 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             entity.fallDistance = 0f
             entity.hurtMarked = true                  // tracker broadcasts the new motion
         }
+        caughtPrev.clear()
+        caughtPrev.addAll(caught)
+        caught.clear()
     }
 
     /**
@@ -652,6 +675,13 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             blockPrevDepth.put(key, depth)
 
             if (prev <= 0.0 && depth > 0.0) {
+                if (level.gameTime - lastSplashSoundTick !in 0 until SPLASH_SOUND_INTERVAL_TICKS) {
+                    lastSplashSoundTick = level.gameTime
+                    level.playSound(
+                        null, w.x, w.y, w.z, EKSounds.CREPUSCULITE_LATTICE_SPLASH.get(), SoundSource.BLOCKS,
+                        1f, SPLASH_PITCH_MIN + rng.nextFloat() * SPLASH_PITCH_SPREAD,
+                    )
+                }
                 // The collision: how fast the block closed on the surface this tick.
                 val plunge = (depth - prev).coerceAtLeast(0.0)
 
@@ -970,6 +1000,21 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // inducer and claim authority — at most one game tick of dropped buoyancy.
         val previousAuthority = inducer.authorityHolder
         ship.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
+        if (publishedZone != null && isActive(this) && !hasOtherActiveLattice(level, ship)) {
+            level.playSound(null, pos, EKSounds.CREPUSCULITE_LATTICE_COLLAPSE.get(), SoundSource.BLOCKS, 1f, 1f)
+        }
+    }
+
+    private fun hasOtherActiveLattice(level: ServerLevel, ship: org.valkyrienskies.core.api.ships.Ship): Boolean {
+        var found = false
+        ship.activeChunksSet.forEach { cx, cz ->
+            if (found) return@forEach
+            val chunk = level.chunkSource.getChunkNow(cx, cz) ?: return@forEach
+            found = chunk.blockEntities.values.any {
+                it is CrepusculiteLatticeBlockEntity && it !== this && !it.isRemoved && isActive(it)
+            }
+        }
+        return found
     }
 
     override fun saveAdditional(tag: CompoundTag) {
@@ -1013,6 +1058,9 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         private const val RESCAN_INTERVAL_TICKS = 40
         /** Each scan opportunity (one for each tick after the interval) counts. About 60 s. */
         private const val FORCED_RESCAN_SCANS = 1200
+
+        private fun isActive(be: CrepusculiteLatticeBlockEntity): Boolean =
+            be.blockState.getValue(BlockStateProperties.POWER) < CrepusculiteLatticeBlock.OFF_POWER
 
         /** Order by Y, then X, then Z. The highest lattice has authority on a ship. */
         @JvmStatic
@@ -1092,6 +1140,17 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
          *  tick of wave drift; any block more than this far outside the band can't reach the
          *  surface this tick even at full ship velocity. */
         private const val SPLASH_BAND_SAFETY = 2.0
+        /** One splash sound for each lattice in this interval, for all the blocks that cross. */
+        private const val SPLASH_SOUND_INTERVAL_TICKS = 10L
+        private const val SEA_LEVEL_SEMITONES_PER_BLOCK = 1.0
+        private const val SEMITONES_PER_OCTAVE = 12.0
+        /** The sound engine clamps pitch to this range. */
+        private const val SEA_LEVEL_PITCH_MIN = 0.5f
+        private const val SEA_LEVEL_PITCH_MAX = 2.0f
+        private const val SPLASH_PITCH_MIN = 0.9f
+        private const val SPLASH_PITCH_SPREAD = 0.2f
+        /** Height above the surface (blocks) at which a caught entity is out of the ocean. */
+        private const val CATCH_EXIT_CLEARANCE = 1.0
 
         /** VS world velocities are per-second; particles are per-tick (20 tps). */
         private const val SEC_TO_TICK = 1.0 / 20.0

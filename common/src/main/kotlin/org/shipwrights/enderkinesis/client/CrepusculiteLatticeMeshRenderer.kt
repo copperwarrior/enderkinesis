@@ -6,10 +6,15 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexBuffer
 import com.mojang.blaze3d.vertex.VertexFormat
+import dev.architectury.event.events.client.ClientReloadShadersEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.MultiBufferSource
+import net.minecraft.client.renderer.ShaderInstance
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.server.packs.resources.ResourceProvider
 import org.joml.Matrix4f
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
 import org.shipwrights.enderkinesis.physics.LatticeCatchZone
 import org.shipwrights.enderkinesis.physics.LatticeRegistry
@@ -40,8 +45,8 @@ import kotlin.math.sqrt
  *     waves and reduced amplitude/alpha, fakes optical depth without being volumetric.
  *
  * Drawn through the additive [OrbBeamLineRenderType.BEAM_LINE] so overlapping layers brighten
- * and the visual matches the rest of the mod's glowing-additive vocabulary. No fragment shader
- * required — all the magic lives in the per-vertex colour/alpha.
+ * and the visual matches the rest of the mod's glowing-additive vocabulary. The per-vertex
+ * colour/alpha carries the look; `rendertype_lattice_ocean` adds the TV static grain.
  */
 object CrepusculiteLatticeMeshRenderer {
     private val LOG = com.mojang.logging.LogUtils.getLogger()
@@ -49,6 +54,42 @@ object CrepusculiteLatticeMeshRenderer {
     /** Master toggle. False ⇒ no mesh; the existing particle path is unaffected either way. */
     @JvmField
     var enabled: Boolean = true
+
+    private var staticShader: ShaderInstance? = null
+    private var surfaceShader: ShaderInstance? = null
+
+    /** Upper limit of the shader `Time` uniform, in ticks. Keeps the float hash input small. */
+    private const val STATIC_TIME_PERIOD = 512.0
+
+    fun init() {
+        ClientReloadShadersEvent.EVENT.register { provider, sink ->
+            sink.registerShader(
+                ShaderInstance(
+                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    "rendertype_lattice_ocean",
+                    DefaultVertexFormat.POSITION_COLOR,
+                )
+            ) { instance -> staticShader = instance }
+            sink.registerShader(
+                ShaderInstance(
+                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    "rendertype_lattice_surface",
+                    DefaultVertexFormat.POSITION_COLOR,
+                )
+            ) { instance -> surfaceShader = instance }
+        }
+    }
+
+    // Same workaround as ScryingRenderTypes: ShaderInstance fails on a namespaced shader name.
+    private fun namespaced(delegate: ResourceProvider, namespace: String) =
+        ResourceProvider { loc ->
+            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
+                val attempt = delegate.getResource(ResourceLocation(namespace, loc.path))
+                if (attempt.isPresent) attempt else delegate.getResource(loc)
+            } else {
+                delegate.getResource(loc)
+            }
+        }
 
     /** Two-tier LOD so waves stay visible at distance without exploding vertex count.
      *
@@ -79,6 +120,9 @@ object CrepusculiteLatticeMeshRenderer {
         /** Render-thread per-frame gate — false while the host ship is fully cloaked
          *  (builds pause, so the retained buffer would otherwise draw stale). */
         var drawThisFrame = false
+        var phantom = false
+        var hullMask: CrepusculiteLatticeHullMask.Mask? = null
+        var worldToShip: org.joml.Matrix4dc? = null
 
         // worker-side vertex grid scratch
         var vw = 0
@@ -108,7 +152,6 @@ object CrepusculiteLatticeMeshRenderer {
         val cameraX: Double, val cameraY: Double, val cameraZ: Double,
         val wakeSources: List<WakeSource>,
         val cloakFade: Float,
-        val footprint: CrepusculiteLatticeFootprintCache.Snapshot?,
         val phantom: Boolean, val lodFadeIn: Boolean,
         val meshStep: Double, val outerRadius: Double, val innerCullRadius: Double,
     )
@@ -138,6 +181,9 @@ object CrepusculiteLatticeMeshRenderer {
     private const val PHANTOM_X_OFFSET: Double = 0.7
     private const val PHANTOM_Z_OFFSET: Double = 0.4
     private const val PHANTOM_ALPHA_SCALE: Float = 0.55f
+
+    /** Which of the two wave layers gets the depth fade at blocks: false = the top layer. */
+    private const val SOFT_EDGE_ON_PHANTOM = false
 
 
     /** Deep ender-green (#032620). Used for wave troughs. */
@@ -183,6 +229,11 @@ object CrepusculiteLatticeMeshRenderer {
     private const val MIN_VIEW_FACTOR: Float = 0.05f
 
     private val tmpNormal = Vector3d()
+    private val maskMatD = org.joml.Matrix4d()
+    private val maskMatF = Matrix4f()
+    private val surfaceModelView = Matrix4f()
+    private val identity = Matrix4f()
+    private val surfacePasses = arrayOfNulls<PassBuffer>(4)
     private val authorityByShip = it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<net.minecraft.core.BlockPos>()
 
     fun renderAll(
@@ -208,11 +259,15 @@ object CrepusculiteLatticeMeshRenderer {
                     it.remove()
                 }
             }
+            CrepusculiteLatticeHullMask.evict(frameCounter)
+            CrepusculiteLatticeShoreMap.evict(frameCounter)
         }
 
         val wakeSources = collectWakeSources(level)
         val now = System.nanoTime()
         var anyData = false
+
+        CrepusculiteLatticeOceanVolume.begin(poseStack, cameraX, cameraY, cameraZ)
 
         // Owner rule: one ocean for each ship, from its highest lattice.
         authorityByShip.clear()
@@ -229,12 +284,14 @@ object CrepusculiteLatticeMeshRenderer {
             // the fade is baked into the vertex build via cloakFade.
             val ship = level.getShipManagingPos(be.blockPos) as? ClientShip
             if (ship != null && authorityByShip.get(ship.id) != be.blockPos) continue
-            val cloakFade: Float = if (ship != null) {
+            // The cloak fade and the lattice power fade. All layers and the volume use the product.
+            val cloakFade: Float = zone.strength * if (ship != null) {
                 (1f - ClientShipCloakingState.getProgress(ship.id)).coerceIn(0f, 1f)
             } else 1f
-            val footprint = if (ship != null && cloakFade > 0f) {
-                CrepusculiteLatticeFootprintCache.snapshot(level, ship)
+            val hullMask = if (ship != null && cloakFade > 0f) {
+                CrepusculiteLatticeHullMask.maskFor(level, ship, frameCounter, time)
             } else null
+            val worldToShip = if (hullMask != null) ship?.renderTransform?.worldToShip else null
 
             val baseKey = be.blockPos.asLong() shl 2
             for (pass in 0..3) {
@@ -242,7 +299,11 @@ object CrepusculiteLatticeMeshRenderer {
                 val coarse = pass >= 2
                 val pb = passCaches.getOrPut(baseKey + pass) { PassBuffer() }
                 pb.lastUsedFrame = frameCounter
+                surfacePasses[pass] = pb
+                pb.phantom = phantom
                 pb.drawThisFrame = cloakFade > 0f
+                pb.hullMask = hullMask
+                pb.worldToShip = worldToShip
 
                 if (cloakFade > 0f && !pb.building && pb.pending.get() == null &&
                     now - pb.lastBuildNanos >= REBUILD_NANOS
@@ -250,7 +311,7 @@ object CrepusculiteLatticeMeshRenderer {
                     pb.building = true
                     pb.lastBuildNanos = now
                     val job = BuildJob(
-                        zone, time, cameraX, cameraY, cameraZ, wakeSources, cloakFade, footprint,
+                        zone, time, cameraX, cameraY, cameraZ, wakeSources, cloakFade,
                         phantom = phantom,
                         lodFadeIn = coarse,
                         meshStep = when {
@@ -286,7 +347,18 @@ object CrepusculiteLatticeMeshRenderer {
                 }
                 if (pb.hasData && cloakFade > 0f) anyData = true
             }
+
+            val shoreMap = if (cloakFade > 0f) {
+                CrepusculiteLatticeShoreMap.mapFor(be.blockPos.asLong(), zone, time, frameCounter)
+            } else null
+            if (shoreMap != null && CrepusculiteLatticeOceanVolume.beginHeightMap(zone, wakeSources.isNotEmpty())) {
+                // The top layer and the phantom layer: the higher of the two is the surface.
+                for (pb in surfacePasses) drawSurface(zone, pb)
+                VertexBuffer.unbind()
+                CrepusculiteLatticeOceanVolume.draw(zone, cloakFade, dyeDimOf(zone), shoreMap, hullMask, worldToShip)
+            }
         }
+        CrepusculiteLatticeOceanVolume.end()
         if (!anyData) return
 
         // Draw all retained buffers directly — additive blending commutes, so drawing
@@ -294,8 +366,12 @@ object CrepusculiteLatticeMeshRenderer {
         val pose = poseStack.last().pose()
         OrbBeamLineRenderType.BEAM_LINE.setupRenderState()
         val projection = RenderSystem.getProjectionMatrix()
-        val shader = RenderSystem.getShader()
+        // BEAM_LINE's POSITION_COLOR shader is the fallback while the static shader reloads.
+        val shader = staticShader ?: RenderSystem.getShader()
         if (shader != null) {
+            shader.safeGetUniform("Time").set((time % STATIC_TIME_PERIOD).toFloat())
+            // Read-only use of the bound depth: the mesh does not write depth. StaffGemGlow does the same.
+            shader.setSampler("SceneDepth", Minecraft.getInstance().mainRenderTarget.depthTextureId)
             for (pb in passCaches.values) {
                 if (!pb.hasData || !pb.drawThisFrame || pb.lastUsedFrame != frameCounter) continue
                 val vb = pb.vertexBuffer ?: continue
@@ -304,6 +380,8 @@ object CrepusculiteLatticeMeshRenderer {
                     (pb.originY - cameraY).toFloat(),
                     (pb.originZ - cameraZ).toFloat(),
                 )
+                applyHullMask(shader, pb, time)
+                shader.safeGetUniform("SoftEdge").set(if (pb.phantom == SOFT_EDGE_ON_PHANTOM) 1f else 0f)
                 vb.bind()
                 vb.drawWithShader(modelView, projection, shader)
             }
@@ -312,58 +390,62 @@ object CrepusculiteLatticeMeshRenderer {
         OrbBeamLineRenderType.BEAM_LINE.clearRenderState()
     }
 
-    /** Walk VS2's loaded ships in [level], building a [WakeSource] per ship that's actually
-     *  moving (above [Wake]'s MIN_SPEED threshold). Velocity is converted from VS2's
-     *  blocks/SECOND units to the wake math's blocks/TICK convention. Hull half-extents are
-     *  the ship's local-AABB extents projected onto the velocity axis (`Σ |ext · dir|`) —
-     *  exact for axis-aligned hulls, a conservative upper bound otherwise; visually fine
-     *  for first-cut wake. Empty list when there are no eligible ships → wake math no-ops. */
+    /** One retained wave mesh pass, top-down, into the bound height map. The mesh does not change. */
+    private fun drawSurface(zone: LatticeCatchZone, pb: PassBuffer?) {
+        if (pb == null || !pb.hasData) return
+        val vb = pb.vertexBuffer ?: return
+        val shader = surfaceShader ?: return
+        CrepusculiteLatticeOceanVolume.heightMatrix(zone, pb.originX, pb.originY, pb.originZ, surfaceModelView)
+        vb.bind()
+        vb.drawWithShader(surfaceModelView, identity, shader)
+    }
+
+    private fun applyHullMask(shader: ShaderInstance, pb: PassBuffer, time: Double) {
+        val mask = pb.hullMask
+        val worldToShip = pb.worldToShip
+        if (mask == null || worldToShip == null) {
+            shader.safeGetUniform("MaskSize").set(0, 0, 0)
+            shader.safeGetUniform("MaskBlend").set(1f)
+            return
+        }
+        shader.safeGetUniform("MaskMat").set(maskMatrix(pb, worldToShip, mask.texMinX, mask.texMinY, mask.texMinZ))
+        shader.safeGetUniform("MaskSize").set(mask.texW, mask.texH, mask.texD)
+        shader.setSampler("HullMask", mask.textureId)
+        val blend = mask.blendAt(time)
+        shader.safeGetUniform("MaskBlend").set(blend)
+        if (blend < 1f) {
+            shader.safeGetUniform("PrevMaskMat")
+                .set(maskMatrix(pb, worldToShip, mask.prevMinX, mask.prevMinY, mask.prevMinZ))
+            shader.safeGetUniform("PrevMaskSize").set(mask.prevW, mask.prevH, mask.prevD)
+            shader.setSampler("PrevHullMask", mask.prevTextureId)
+        }
+    }
+
+    // Mesh position -> world -> shipyard -> mask cell. Doubles: shipyard coordinates are large.
+    private fun maskMatrix(pb: PassBuffer, worldToShip: org.joml.Matrix4dc, minX: Int, minY: Int, minZ: Int): Matrix4f {
+        maskMatD.translation(-minX.toDouble(), -minY.toDouble(), -minZ.toDouble())
+            .mul(worldToShip)
+            .translate(pb.originX, pb.originY, pb.originZ)
+        return maskMatF.set(maskMatD)
+    }
+
+    // Render transforms, not tick transforms: the wake must follow the drawn ship each frame.
     private fun collectWakeSources(level: net.minecraft.client.multiplayer.ClientLevel): List<WakeSource> {
         val ships = level.shipObjectWorld.loadedShips
         if (ships.isEmpty()) return emptyList()
         val out = ArrayList<WakeSource>()
         for (ship in ships) {
             val cs = ship as? ClientShip ?: continue
-            val aabb = cs.shipAABB ?: continue                          // *ship-local* AABB
-            val vel = cs.velocity                                       // blocks/SECOND, world
-            val vxPerSec = vel.x()
-            val vzPerSec = vel.z()
-            val speed3dPerSec = Math.sqrt(vxPerSec * vxPerSec + vzPerSec * vzPerSec)
-            if (speed3dPerSec < 0.01) continue                          // stationary; skip
-            val speed = speed3dPerSec * (1.0 / 20.0)                    // → blocks/TICK
-            val dirX = vxPerSec / speed3dPerSec
-            val dirZ = vzPerSec / speed3dPerSec
-            // Hull half-extents projected onto the velocity axis MUST happen in the ship's
-            // local frame — projecting ship-LOCAL extents onto a WORLD direction is correct
-            // only for an unrotated ship, since otherwise the AABB's axes don't align with
-            // world. Transform the velocity into local frame first, then project the local
-            // AABB. `transformDirection` skips translation, so unit-scale ships preserve
-            // magnitude (≈ 1).
-            val localDir = org.joml.Vector3d(dirX, 0.0, dirZ)
-            cs.renderTransform.worldToShip.transformDirection(localDir)
-            val absLocalDirX = Math.abs(localDir.x)
-            val absLocalDirZ = Math.abs(localDir.z)
-            val xExt = (aabb.maxX() - aabb.minX() + 1).toDouble()
-            val zExt = (aabb.maxZ() - aabb.minZ() + 1).toDouble()
-            val halfLength = (xExt * absLocalDirX + zExt * absLocalDirZ) * 0.5
-            val halfWidth  = (xExt * absLocalDirZ + zExt * absLocalDirX) * 0.5
-            val pos = cs.renderTransform.positionInWorld                // interpolated visual XZ
-            out.add(WakeSource(
-                centerX = pos.x(),
-                centerZ = pos.z(),
-                dirX = dirX,
-                dirZ = dirZ,
-                speed = speed,
-                halfLength = halfLength,
-                halfWidth = halfWidth,
-            ))
+            val aabb = cs.shipAABB ?: continue
+            val transform = cs.renderTransform
+            Wake.sourceOf(aabb, cs.velocity, transform.worldToShip, transform.positionInWorld)?.let { out.add(it) }
         }
         return out
     }
 
 
     /** WORKER-THREAD pass build: pure math over snapshotted inputs (zone, camera,
-     *  wake, footprint) — no level/ship/GL access. Produces a RenderedBuffer with
+     *  wake) — no level/ship/GL access. Produces a RenderedBuffer with
      *  vertices relative to the zone centre; the render thread uploads and draws it. */
     private fun buildPass(pb: PassBuffer, job: BuildJob) {
         try {
@@ -455,10 +537,7 @@ object CrepusculiteLatticeMeshRenderer {
         // BODY is already zero, but the fresnel white-shift and foam lightening kept
         // it clearly visible — scale alpha by tint luminance so black dye reads
         // near-invisible and gray sits where black used to. Un-dyed keeps full look.
-        val dyeDim: Float = if (zone.dyed) {
-            val luma = 0.2126f * zone.tintR + 0.7152f * zone.tintG + 0.0722f * zone.tintB
-            DYE_DIM_MIN + (1f - DYE_DIM_MIN) * luma.coerceIn(0f, 1f)
-        } else 1f
+        val dyeDim = dyeDimOf(zone)
 
         // Hot-loop precomputation. Inside [interiorSafe] the shore math is identity
         // (taper 1, edge 1) — the bulk of the ocean skips every atan2/warp/tendril
@@ -576,11 +655,7 @@ object CrepusculiteLatticeMeshRenderer {
                 val rimB = lerp(cb, 1f, grazing * FRESNEL_WHITE_SHIFT)
                 val viewAlphaFactor = max(MIN_VIEW_FACTOR, cosThetaF.pow(viewFalloffPower))
 
-                // Hull-footprint factor: bilinear vs the STATIC waterline (see
-                // FootprintCache) so the cull pattern doesn't oscillate with waves.
-                val hullFactor = job.footprint?.alphaAt(x, zone.waterLineY, z) ?: 1f
-
-                val alpha = TOP_BASE_ALPHA * viewAlphaFactor * edge * layerAlphaScale * hullFactor * cloakFade * lodFade * dyeDim
+                val alpha = TOP_BASE_ALPHA * viewAlphaFactor * edge * layerAlphaScale * cloakFade * lodFade * dyeDim
                 nr[idx] = rimR; ng[idx] = rimG; nb[idx] = rimB
                 na[idx] = alpha.coerceIn(0f, 1f)
             }
@@ -617,6 +692,15 @@ object CrepusculiteLatticeMeshRenderer {
         pb.pending.set(Prepared(builder.end(), originX, originY, originZ, vertexCount))
     }
 
+
+    /** Runs pure math on the mesh worker thread. */
+    internal fun runOnWorker(task: Runnable) = buildExecutor.execute(task)
+
+    private fun dyeDimOf(zone: LatticeCatchZone): Float {
+        if (!zone.dyed) return 1f
+        val luma = 0.2126f * zone.tintR + 0.7152f * zone.tintG + 0.0722f * zone.tintB
+        return DYE_DIM_MIN + (1f - DYE_DIM_MIN) * luma.coerceIn(0f, 1f)
+    }
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t.coerceIn(0f, 1f)
 }

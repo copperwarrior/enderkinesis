@@ -125,7 +125,7 @@ object SselithAmbience {
             if (!murmurScheduled) {
                 murmurNextTick = now + MURMUR_FIRST_MIN + rng.nextInt((MURMUR_FIRST_MAX - MURMUR_FIRST_MIN).toInt())
                 murmurScheduled = true
-            } else if (now >= murmurNextTick &&
+            } else if (now >= murmurNextTick && !SselithEclipseSounds.isLoopPlaying() &&
                 currentMurmur.let { it == null || !mc.soundManager.isActive(it) }
             ) {
                 val pitch = 1.0f + (rng.nextFloat() - 0.5f) * 2.0f * PITCH_VARIANCE

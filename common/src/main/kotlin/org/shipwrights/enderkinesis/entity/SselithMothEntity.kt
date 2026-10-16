@@ -7,9 +7,12 @@ import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.entity.Mob
@@ -17,10 +20,12 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier
 import net.minecraft.world.entity.ai.attributes.Attributes
 import net.minecraft.world.entity.ai.control.FlyingMoveControl
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -198,6 +203,10 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
 
     override fun registerGoals() { /* pure custom AI in [tick] */ }
 
+    override fun checkFallDamage(y: Double, onGround: Boolean, state: BlockState, pos: BlockPos) {}
+
+    override fun causeFallDamage(fallDistance: Float, multiplier: Float, source: DamageSource): Boolean = false
+
     override fun getStandingEyeHeight(pose: net.minecraft.world.entity.Pose, dims: net.minecraft.world.entity.EntityDimensions): Float =
         dims.height * 0.5f
 
@@ -272,8 +281,32 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
                     x - face.stepX, y - face.stepY, z - face.stepZ,
                 )
             }
-            if (!isLanded()) spawnDustTrail()
+            if (!isLanded()) {
+                spawnDustTrail()
+                if (tickCount % WING_CYCLE_TICKS == WING_DOWNSTROKE_TICK) playWingBeat()
+            }
         }
+    }
+
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.SSELITH_MOTH_HURT.get()
+
+    override fun getDeathSound(): SoundEvent = EKSounds.SSELITH_MOTH_DEATH.get()
+
+    /** Only moths near the local player play, so a flock does not stack up. */
+    private fun playWingBeat() {
+        val listener = level().players().firstOrNull { it.isLocalPlayer } ?: return
+        if (listener.distanceToSqr(this) > WING_SOUND_RANGE * WING_SOUND_RANGE) return
+        level().playLocalSound(
+            x, y, z, EKSounds.SSELITH_MOTH_WING.get(), SoundSource.NEUTRAL,
+            WING_VOLUME, WING_PITCH_MIN + random.nextFloat() * (WING_PITCH_MAX - WING_PITCH_MIN), false,
+        )
+    }
+
+    private fun playServerSound(event: SoundEvent, volume: Float) {
+        level().playSound(
+            null, x, y, z, event, SoundSource.NEUTRAL,
+            volume, PERCH_PITCH_MIN + random.nextFloat() * (PERCH_PITCH_MAX - PERCH_PITCH_MIN),
+        )
     }
 
     /** Roll a landing attempt: sample random blocks in the terrain band
@@ -436,6 +469,7 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
             entityData.set(DATA_LAND_NY, normal.y.toFloat())
             entityData.set(DATA_LAND_NZ, normal.z.toFloat())
             landedTicks = LAND_STAY_MIN + random.nextInt(LAND_STAY_VAR)
+            playServerSound(EKSounds.SSELITH_MOTH_LAND.get(), LAND_VOLUME)
             return
         }
         if (dist < LAND_DIRECT_DIST) {
@@ -485,6 +519,7 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
         )
         entityData.set(DATA_LANDED_FACE, -1)
         clearLandingTarget()
+        playServerSound(EKSounds.SSELITH_MOTH_TAKEOFF.get(), TAKEOFF_VOLUME)
         setDeltaMovement(
             n.x * TAKEOFF_SPEED,
             n.y * TAKEOFF_SPEED + 0.02,
@@ -770,6 +805,18 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
 
         /** 1-in-N ticks a flying moth rolls a landing attempt (~25 s mean). */
         private const val LAND_ATTEMPT_INTERVAL = 500
+
+        /** Matches the length of the FLY clip; tick 35 is the start of its downstroke. */
+        private const val WING_CYCLE_TICKS = 100
+        private const val WING_DOWNSTROKE_TICK = 35
+        private const val WING_SOUND_RANGE = 24.0
+        private const val WING_VOLUME = 0.4f
+        private const val WING_PITCH_MIN = 0.85f
+        private const val WING_PITCH_MAX = 1.1f
+        private const val TAKEOFF_VOLUME = 0.6f
+        private const val LAND_VOLUME = 0.5f
+        private const val PERCH_PITCH_MIN = 0.9f
+        private const val PERCH_PITCH_MAX = 1.1f
 
         /** Random block samples per attempt; most fail fast in open air,
          *  and the wing-disc clearance test rejects cramped sites — sized

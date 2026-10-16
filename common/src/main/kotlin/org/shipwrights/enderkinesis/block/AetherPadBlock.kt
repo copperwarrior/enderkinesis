@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.block
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -17,6 +18,7 @@ import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.shipwrights.enderkinesis.blockentity.AetherPadBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Aether Pad — a directional thruster designed for hover vehicles.
@@ -83,8 +85,15 @@ class AetherPadBlock(properties: BlockBehaviour.Properties) :
     ) {
         if (level.isClientSide) return
         val newPower = level.getBestNeighborSignal(pos)
-        if (state.getValue(BlockStateProperties.POWER) != newPower) {
+        val oldPower = state.getValue(BlockStateProperties.POWER)
+        if (oldPower != newPower) {
             level.setBlock(pos, state.setValue(BlockStateProperties.POWER, newPower), 3)
+            val event = when {
+                oldPower == 0 -> EKSounds.AETHER_PAD_POWER_ON
+                newPower == 0 -> EKSounds.AETHER_PAD_POWER_OFF
+                else -> null
+            }
+            event?.let { level.playSound(null, pos, it.get(), SoundSource.BLOCKS, POWER_SOUND_VOLUME, 1f) }
         }
     }
 
@@ -104,5 +113,9 @@ class AetherPadBlock(properties: BlockBehaviour.Properties) :
         return BlockEntityTicker { lvl, p, st, be ->
             (be as? AetherPadBlockEntity)?.commonTick(lvl, p, st)
         }
+    }
+
+    companion object {
+        private const val POWER_SOUND_VOLUME = 0.8f
     }
 }

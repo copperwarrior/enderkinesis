@@ -34,19 +34,6 @@ class IrreverantRemnantSpawnEggItem(properties: Properties) : Item(properties) {
         val player = context.player
         val parallel = (player as? ServerPlayer)?.let(SselithParallel::get) ?: BigInteger.ZERO
 
-        // Sneak to clear instead of seed. Particles never merge or expire,
-        // so a test site otherwise only ever accumulates.
-        if (player != null && player.isShiftKeyDown) {
-            val removed = IrreverantRemnantManager.clearNear(
-                level, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, CLEAR_RADIUS, parallel,
-            )
-            player.displayClientMessage(
-                Component.literal("Cleared $removed remnant particles")
-                    .withStyle(ChatFormatting.GRAY),
-                true,
-            )
-            return InteractionResult.CONSUME
-        }
         val spawned = IrreverantRemnantManager.spawnCluster(level, pos, face, SPAWN_PARTICLES, parallel)
         if (!spawned && player != null) {
             player.displayClientMessage(
@@ -63,9 +50,6 @@ class IrreverantRemnantSpawnEggItem(properties: Properties) : Item(properties) {
     }
 
     private companion object {
-        /** Radius cleared by a sneak-click. */
-        private const val CLEAR_RADIUS = 12.0
-
         /** Particles seeded per egg; a usable test lump needs a crowd. */
         private const val SPAWN_PARTICLES = 14
     }

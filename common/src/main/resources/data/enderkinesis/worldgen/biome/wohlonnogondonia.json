@@ -14,6 +14,17 @@
       "min_delay": 12000,
       "max_delay": 24000,
       "replace_current_music": false
+    },
+    "ambient_sound": "enderkinesis:ambient.wohlonnogondonia.loop",
+    "mood_sound": {
+      "sound": "enderkinesis:ambient.wohlonnogondonia.mood",
+      "tick_delay": 6000,
+      "block_search_extent": 8,
+      "offset": 2.0
+    },
+    "additions_sound": {
+      "sound": "enderkinesis:ambient.wohlonnogondonia.additions",
+      "tick_chance": 0.0111
     }
   },
   "spawners": {

@@ -39,7 +39,7 @@ import org.shipwrights.enderkinesis.item.StaffOfAegisItem
 import org.shipwrights.enderkinesis.item.StaffOfCommandItem
 import org.shipwrights.enderkinesis.item.StaffOfConcealmentItem
 import org.shipwrights.enderkinesis.item.StaffOfDensityItem
-import org.shipwrights.enderkinesis.item.StaffOfRecitalItem
+import org.shipwrights.enderkinesis.item.StaffOfFusionItem
 import org.shipwrights.enderkinesis.item.StaffOfScalesItem
 import org.shipwrights.enderkinesis.item.StaffOfSunderingItem
 import org.shipwrights.enderkinesis.item.TomeOfBindingItem
@@ -290,8 +290,8 @@ object EKItems {
         ITEMS.register("staff_of_density") { StaffOfDensityItem(props().stacksTo(1)) }
     val STAFF_OF_SCALES: RegistrySupplier<Item> =
         ITEMS.register("staff_of_scales") { StaffOfScalesItem(props().stacksTo(1)) }
-    val STAFF_OF_RECITAL: RegistrySupplier<Item> =
-        ITEMS.register("staff_of_recital") { StaffOfRecitalItem(props().stacksTo(1)) }
+    val STAFF_OF_FUSION: RegistrySupplier<Item> =
+        ITEMS.register("staff_of_fusion") { StaffOfFusionItem(props().stacksTo(1)) }
     val STAFF_OF_AEGIS: RegistrySupplier<Item> =
         ITEMS.register("staff_of_aegis") { StaffOfAegisItem(props().stacksTo(1)) }
     val STAFF_OF_SUNDERING: RegistrySupplier<Item> =
@@ -442,7 +442,7 @@ object EKItems {
     val SSELITH_LECTERN_ITEM = blockItem("sselith_lectern", EKBlocks.SSELITH_LECTERN)
     val ORB_OF_LINKING_ITEM = blockItem("orb_of_linking", EKBlocks.ORB_OF_LINKING)
     val ORB_OF_SCRYING_ITEM = blockItem("orb_of_scrying", EKBlocks.ORB_OF_SCRYING)
-    val HEART_OF_THE_WILD_ITEM = blockItem("heart_of_the_wild", EKBlocks.HEART_OF_THE_WILD)
+    val HEART_OF_THE_WILD_ITEM = ITEMS.register("heart_of_the_wild") { org.shipwrights.enderkinesis.item.HeartOfTheWildBlockItem(EKBlocks.HEART_OF_THE_WILD.get(), props()) }
     val CRYSTAL_EXPLOSIVE_ITEM = blockItem("crystal_explosive", EKBlocks.CRYSTAL_EXPLOSIVE)
     val HEART_CANDLE_ITEM = blockItem("heart_candle", EKBlocks.HEART_CANDLE)
 

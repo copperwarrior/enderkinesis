@@ -27,6 +27,8 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.blockentity.ScribesDeskBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
+import net.minecraft.sounds.SoundSource
 
 class ScribesDeskBlock(properties: Properties) : Block(properties), EntityBlock {
 
@@ -73,7 +75,15 @@ class ScribesDeskBlock(properties: Properties) : Block(properties), EntityBlock 
         val desk = level.getBlockEntity(pos) as? ScribesDeskBlockEntity ?: return InteractionResult.PASS
         val held = player.getItemInHand(hand)
         val slot = desk.slotFor(held)
-        if (slot != null && desk.load(slot, held)) return InteractionResult.CONSUME
+        if (slot != null && desk.load(slot, held)) {
+            val sound = when (slot) {
+                ScribesDeskBlockEntity.PAPER -> EKSounds.SCRIBES_DESK_LOAD_PAPER
+                ScribesDeskBlockEntity.PENFEATHER -> EKSounds.SCRIBES_DESK_LOAD_QUILL
+                else -> EKSounds.SCRIBES_DESK_LOAD_INK
+            }
+            level.playSound(null, pos, sound.get(), SoundSource.BLOCKS, 1f, 1f)
+            return InteractionResult.CONSUME
+        }
         if (desk.isReady && player is ServerPlayer) {
             ScribesDeskNetwork.open(player, pos)
         } else {

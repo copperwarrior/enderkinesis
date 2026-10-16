@@ -8,6 +8,7 @@ import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
@@ -21,6 +22,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.internal.joints.VSDistanceJoint
@@ -385,7 +387,11 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         val wasEmpty = targetingSources.isEmpty()
         if (!targetingSources.add(sourcePos)) return        // already known
         setChanged()
-        if (wasEmpty) updateTargetedBlockstate()
+        if (!wasEmpty) return
+        updateTargetedBlockstate()
+        val srv = level as? ServerLevel ?: return
+        val pitch = LATCH_PITCH_MIN + srv.random.nextFloat() * LATCH_PITCH_SPREAD
+        srv.playSound(null, blockPos, EKSounds.PLANAR_ANCHOR_LATCH.get(), SoundSource.BLOCKS, 1f, pitch)
     }
 
     /** Unregister a previously-added source. Flips TARGETED off when the last source leaves. */
@@ -645,6 +651,7 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
                     persistedPullOnly = persistedPullOnlyForCallback
                     jointPending = false
                     sync()
+                    level.playSound(null, pos, EKSounds.PLANAR_ANCHOR_FIRE.get(), SoundSource.BLOCKS, 1f, 1f)
                 }
             }
         }
@@ -722,6 +729,7 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         jointPending = false                  // any in-flight callback will drop its joint
         retractStartTick = level.gameTime
         sync()
+        level.playSound(null, blockPos, EKSounds.PLANAR_ANCHOR_RELEASE.get(), SoundSource.BLOCKS, 1f, 1f)
     }
 
     /** Tear down the visual once the retract animation has elapsed. Releasing the target
@@ -839,6 +847,7 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     override fun setRemoved() {
+        level?.let { if (it.isClientSide) PlanarAnchorClientRegistry.unregister(it, this) }
         super.setRemoved()
         // Block-break / chunk-unload: cleanup now, no animation — the BE is going away.
         (level as? ServerLevel)?.let { srv ->
@@ -986,6 +995,7 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
 
     override fun setLevel(level: Level) {
         super.setLevel(level)
+        if (level.isClientSide) PlanarAnchorClientRegistry.register(level, this)
         // Initial chunk-load case: `load()` ran before `setLevel()`, so its client-side stamp
         // was skipped. Stamp now if we arrived already-visible.
         if (level.isClientSide && anchorWorld != null && clientPhaseStartTick < 0L) {
@@ -1022,6 +1032,9 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         ClientboundBlockEntityDataPacket.create(this)
 
     companion object {
+        private const val LATCH_PITCH_MIN: Float = 0.95f
+        private const val LATCH_PITCH_SPREAD: Float = 0.1f
+
 
         /** Hard cap on how far past the block the cloud is allowed to sit, regardless of ship
          *  size. The actual distance is `min(shipAABBHalfDiagonal, CLOUD_MAX_DISTANCE)`. */

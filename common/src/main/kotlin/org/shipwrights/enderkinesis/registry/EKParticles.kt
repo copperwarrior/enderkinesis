@@ -139,6 +139,9 @@ object EKParticles {
     val SSELITH_BOOKMOTH: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("sselith_bookmoth") { EKOceanParticleType() }
 
+    val CREPUSCULITE_LIGHTSTONE_SHINE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("crepusculite_lightstone_shine") { EKOceanParticleType() }
+
     /** Tiny white sparkle inside the Staff-of-Aegis shield box. Zero
      *  gravity / zero friction so the cloud stays contained. See
      *  [org.shipwrights.enderkinesis.client.AegisSparkleParticle]. */
@@ -244,6 +247,9 @@ object EKParticles {
     fun sselithBookmoth(): EKOceanParticleType = SSELITH_BOOKMOTH.get() as EKOceanParticleType
 
     fun aegisSparkle(): EKOceanParticleType = AEGIS_SPARKLE.get() as EKOceanParticleType
+
+    fun crepusculiteLightstoneShine(): EKOceanParticleType =
+        CREPUSCULITE_LIGHTSTONE_SHINE.get() as EKOceanParticleType
 
     fun sunderingBeamParticle(): EKOceanParticleType = SUNDERING_BEAM_PARTICLE.get() as EKOceanParticleType
 

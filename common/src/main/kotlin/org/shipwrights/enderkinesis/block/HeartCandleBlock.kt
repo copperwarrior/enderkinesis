@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.block
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
@@ -20,6 +21,7 @@ import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Single-only candle. Bypasses [net.minecraft.world.level.block.CandleBlock] (which
  *  declares the `candles` 1..4 property) and extends [AbstractCandleBlock] directly,
@@ -91,6 +93,10 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
         if (!WohlonnogondoniaPortalManager.addPortal(serverLevel, portalPos)) return
         WohlonnogondoniaSpreader.startPortalSeed(serverLevel, portalPos)
         WohlonnogondoniaTreeGrower.startTree(serverLevel, portalPos)
+        serverLevel.playSound(
+            null, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5,
+            EKSounds.WOHLON_RITUAL_IGNITE.get(), SoundSource.BLOCKS, 3f, 1f,
+        )
     }
 
     companion object {

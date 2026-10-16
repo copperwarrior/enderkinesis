@@ -80,8 +80,8 @@ object CrystalExplosiveCollisionRouter {
 
         val physA = event.physLevel.getShipById(event.shipIdA)
         val physB = event.physLevel.getShipById(event.shipIdB)
-        val mA = physA?.mass ?: 0.0
-        val mB = physB?.mass ?: 0.0
+        val mA = movableMass(physA)
+        val mB = movableMass(physB)
         val effectiveMass = if (mA > 0.0 && mB > 0.0) {
             (mA * mB) / (mA + mB)
         } else {
@@ -137,6 +137,10 @@ object CrystalExplosiveCollisionRouter {
             }
         }
     }
+
+    // A static body is immovable, but it reports a finite mass. The VS2 terrain body reports 10 kg.
+    private fun movableMass(ship: PhysShip?): Double =
+        if (ship == null || ship.isStatic) 0.0 else ship.mass
 
     private fun checkShipSide(
         map: ConcurrentHashMap<BlockPos, CrystalExplosiveBlockEntity>,

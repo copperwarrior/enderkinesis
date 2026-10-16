@@ -3,7 +3,7 @@ package org.shipwrights.enderkinesis.mixin;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.InteractionHand;
-import org.shipwrights.enderkinesis.item.RecitalHelper;
+import org.shipwrights.enderkinesis.item.WyllandTomeItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -34,9 +34,7 @@ public abstract class LocalPlayerWyllandTomeNoSwingMixin {
         Object self = this;
         if (Minecraft.getInstance().player != self) return;
         LocalPlayer p = (LocalPlayer) self;
-        // Recognise both the bare tome AND the Staff of Recital with the
-        // tome active — the staff proxies the same left-click gesture.
-        if (RecitalHelper.isHoldingWyllandTome(p)) {
+        if (WyllandTomeItem.isHeld(p)) {
             ci.cancel();
         }
     }

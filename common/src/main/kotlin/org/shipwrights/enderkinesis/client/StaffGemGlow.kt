@@ -35,45 +35,39 @@ object StaffGemGlow {
 
     enum class Spin { NONE, SHAFT_AXIS, TUMBLE }
 
-    private class Style(color: Int, val spin: Spin = Spin.NONE, val dark: Boolean = false) {
+    class Style(color: Int, val spin: Spin = Spin.NONE, val dark: Boolean = false) {
         val red = (color shr 16 and 0xFF) / 255f
         val green = (color shr 8 and 0xFF) / 255f
         val blue = (color and 0xFF) / 255f
     }
 
-    class Parts internal constructor(
-        val body: BakedModel,
-        val gem: BakedModel,
+    class Gem internal constructor(
+        val model: BakedModel,
         private val centerX: Float,
         private val centerY: Float,
         private val centerZ: Float,
         private val radius: Float,
     ) {
-        fun spin(stack: ItemStack, poseStack: PoseStack) {
-            val rotation = when (styles[stack.item]?.spin) {
-                Spin.SHAFT_AXIS -> scratchRotation.rotationY(turn(SHAFT_PERIOD_MS))
+        /** [clockMs] sets the spin phase. A caller can advance it at a different rate. */
+        fun spin(style: Style, poseStack: PoseStack, clockMs: Double = Util.getMillis().toDouble()) {
+            val rotation = when (style.spin) {
+                Spin.SHAFT_AXIS -> scratchRotation.rotationY(turn(clockMs, SHAFT_PERIOD_MS))
                 Spin.TUMBLE -> scratchRotation.rotationYXZ(
-                    turn(TUMBLE_Y_PERIOD_MS), turn(TUMBLE_X_PERIOD_MS), turn(TUMBLE_Z_PERIOD_MS),
+                    turn(clockMs, TUMBLE_Y_PERIOD_MS),
+                    turn(clockMs, TUMBLE_X_PERIOD_MS),
+                    turn(clockMs, TUMBLE_Z_PERIOD_MS),
                 )
-                else -> return
+                Spin.NONE -> return
             }
             poseStack.rotateAround(rotation, centerX, centerY, centerZ)
         }
 
-        /** Draws the halo after the staff body. Returns the consumer to use for the gem. */
-        fun emitHalo(
-            stack: ItemStack, poseStack: PoseStack, buffers: MultiBufferSource, vertexConsumer: VertexConsumer,
-        ): VertexConsumer {
-            val style = styles[stack.item] ?: return vertexConsumer
-            val shader = shaderInstance ?: return vertexConsumer
-            val source = buffers as? MultiBufferSource.BufferSource ?: return vertexConsumer
-            // ItemRenderer.render uses this same type for an item that is not a BlockItem.
-            val itemType = ItemBlockRenderTypes.getRenderType(stack, true)
-            // The halo shader reads the body depth, so the body must draw first.
-            source.endBatch(itemType)
+        /** Returns the halo's render type, or null when the halo shader is not loaded. */
+        fun queueHalo(style: Style, poseStack: PoseStack, buffers: MultiBufferSource): RenderType? {
+            val shader = shaderInstance ?: return null
             shader.setSampler(DEPTH_SAMPLER, Minecraft.getInstance().mainRenderTarget.depthTextureId)
             val haloType = if (style.dark) DARK_HALO else ADDITIVE_HALO
-            val haloConsumer = source.getBuffer(haloType)
+            val haloConsumer = buffers.getBuffer(haloType)
             val matrix = poseStack.last().pose()
             // The pose result is view space. The vertex shader adds the UV offset there, so the quad faces the camera.
             val center = matrix.transformPosition(centerX, centerY, centerZ, scratchCenter)
@@ -82,6 +76,26 @@ object StaffGemGlow {
             haloVertex(haloConsumer, style, center, rim, -rim)
             haloVertex(haloConsumer, style, center, rim, rim)
             haloVertex(haloConsumer, style, center, -rim, rim)
+            return haloType
+        }
+    }
+
+    class Parts internal constructor(val body: BakedModel, private val gem: Gem, private val style: Style) {
+        val gemModel: BakedModel get() = gem.model
+
+        fun spin(poseStack: PoseStack) = gem.spin(style, poseStack)
+
+        /** Draws the halo after the staff body. Returns the consumer to use for the gem. */
+        fun emitHalo(
+            stack: ItemStack, poseStack: PoseStack, buffers: MultiBufferSource, vertexConsumer: VertexConsumer,
+        ): VertexConsumer {
+            if (shaderInstance == null) return vertexConsumer
+            val source = buffers as? MultiBufferSource.BufferSource ?: return vertexConsumer
+            // ItemRenderer.render uses this same type for an item that is not a BlockItem.
+            val itemType = ItemBlockRenderTypes.getRenderType(stack, true)
+            // The halo shader reads the body depth, so the body must draw first.
+            source.endBatch(itemType)
+            val haloType = gem.queueHalo(style, poseStack, source) ?: return vertexConsumer
             // Draw the halo now: the gem draws later, on top, so the halo does not wash it out.
             source.endBatch(haloType)
             // endBatch ended the item builder, so the caller's consumer is stale.
@@ -155,7 +169,7 @@ object StaffGemGlow {
             put(EKItems.STAFF_OF_CONCEALMENT.get(), Style(0x2CE0D8, Spin.TUMBLE))
             put(EKItems.STAFF_OF_DENSITY.get(), Style(0x0C0E10, dark = true))
             put(EKItems.STAFF_OF_SCALES.get(), Style(0x2A6200))
-            put(EKItems.STAFF_OF_RECITAL.get(), Style(0x7B0AFB))
+            put(EKItems.STAFF_OF_FUSION.get(), Style(0x7B0AFB))
             put(EKItems.STAFF_OF_AEGIS.get(), Style(0x6B6B6B, Spin.SHAFT_AXIS))
             put(EKItems.STAFF_OF_SUNDERING.get(), Style(0x7E5014))
         }
@@ -163,21 +177,30 @@ object StaffGemGlow {
 
     // Weak keys: a resource reload replaces every BakedModel.
     private val partsByModel = WeakHashMap<BakedModel, Parts>()
+    private val gemsByModel = WeakHashMap<BakedModel, Gem>()
     private val scratchRotation = Quaternionf()
     private val scratchCenter = Vector3f()
     private val scratchScale = Vector3f()
 
     @JvmStatic
     fun partsOf(stack: ItemStack, model: BakedModel): Parts? {
-        if (stack.item !in styles) return null
-        return partsByModel.getOrPut(model) { split(model) }
+        val style = styles[stack.item] ?: return null
+        return partsByModel.getOrPut(model) { split(model, style) }
     }
 
-    private fun split(model: BakedModel): Parts {
+    /** A whole model as one gem, for a renderer that keeps its gem in a separate model. */
+    fun gemOf(model: BakedModel): Gem =
+        gemsByModel.getOrPut(model) { gem(model, BakedItemModels.quadsOf(model)) }
+
+    private fun split(model: BakedModel, style: Style): Parts {
         val (gemQuads, bodyQuads) = BakedItemModels.quadsOf(model).partition {
             val name = it.sprite.contents().name()
             name.namespace == EnderkinesisMod.MOD_ID && name.path.startsWith(GEM_SPRITE_PREFIX)
         }
+        return Parts(partModel(model, bodyQuads), gem(partModel(model, gemQuads), gemQuads), style)
+    }
+
+    private fun gem(model: BakedModel, gemQuads: List<BakedQuad>): Gem {
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var minZ = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
         for (quad in gemQuads) {
@@ -192,8 +215,8 @@ object StaffGemGlow {
                 minZ = minOf(minZ, z); maxZ = maxOf(maxZ, z)
             }
         }
-        return Parts(
-            partModel(model, bodyQuads), partModel(model, gemQuads),
+        return Gem(
+            model,
             (minX + maxX) / 2f, (minY + maxY) / 2f, (minZ + maxZ) / 2f,
             Vector3f(maxX - minX, maxY - minY, maxZ - minZ).length() / 2f,
         )
@@ -210,8 +233,8 @@ object StaffGemGlow {
         )
     }
 
-    private fun turn(periodMs: Long): Float =
-        (Util.getMillis() % periodMs).toFloat() / periodMs * TAU
+    private fun turn(clockMs: Double, periodMs: Long): Float =
+        (clockMs % periodMs / periodMs).toFloat() * TAU
 
     private const val GEM_SPRITE_PREFIX = "item/mystic_"
     private const val VERTICES_PER_QUAD = 4

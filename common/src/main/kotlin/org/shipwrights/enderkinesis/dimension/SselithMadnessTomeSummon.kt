@@ -25,6 +25,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Player-side gift flourish under Sselith Madness, in-Repertory only: random per-tick roll
@@ -239,13 +240,13 @@ object SselithMadnessTomeSummon {
                 if (!player.inventory.add(stack)) {
                     player.drop(stack, false)
                 }
-                playDeliveryEffects(player, level, state.source, success = true)
+                playDeliveryEffects(player, level, state.source, Delivery.GIFT)
             } else {
-                playDeliveryEffects(player, level, state.source, success = false)
+                playDeliveryEffects(player, level, state.source, Delivery.NONE)
             }
         } else {
             // Book floated back into the shelf — quieter close.
-            playDeliveryEffects(player, level, state.returnTo, success = false)
+            playDeliveryEffects(player, level, state.returnTo, Delivery.SHELVED)
         }
         activeSummons.remove(player.uuid)
         broadcastEnd(player)
@@ -372,8 +373,8 @@ object SselithMadnessTomeSummon {
     private fun playStareStartEffects(player: ServerPlayer, level: ServerLevel, shelf: BlockPos) {
         level.playSound(
             null, shelf.x + 0.5, shelf.y + 0.5, shelf.z + 0.5,
-            SoundEvents.ENCHANTMENT_TABLE_USE, SoundSource.PLAYERS,
-            0.6f, 0.7f + player.random.nextFloat() * 0.2f,
+            EKSounds.SSELITH_TOME_CALL.get(), SoundSource.PLAYERS,
+            0.6f, 0.9f + player.random.nextFloat() * 0.1f,
         )
         for (i in 0 until 16) {
             level.sendParticles(
@@ -388,19 +389,28 @@ object SselithMadnessTomeSummon {
         }
     }
 
-    /** Final delivery cue: page-turn click and a glyph burst around
-     *  the player. [success] toggles whether we also burst around the
-     *  shelf (no-gift cases get a quieter close so the player knows
-     *  the summon ended without rewarding them). */
+    private enum class Delivery { GIFT, SHELVED, NONE }
+
+    /** Only a gift also bursts around the shelf, so a no-gift end is quieter. */
     private fun playDeliveryEffects(
-        player: ServerPlayer, level: ServerLevel, shelf: BlockPos, success: Boolean,
+        player: ServerPlayer, level: ServerLevel, shelf: BlockPos, outcome: Delivery,
     ) {
-        level.playSound(
-            null, player.x, player.y, player.z,
-            SoundEvents.BOOK_PAGE_TURN, SoundSource.PLAYERS,
-            1.0f, 0.85f + player.random.nextFloat() * 0.2f,
-        )
-        if (success) {
+        when (outcome) {
+            Delivery.GIFT -> level.playSound(
+                null, player.x, player.y, player.z,
+                EKSounds.SSELITH_TOME_GIFT.get(), SoundSource.PLAYERS, 0.7f, 1f,
+            )
+            Delivery.SHELVED -> level.playSound(
+                null, shelf.x + 0.5, shelf.y + 0.5, shelf.z + 0.5,
+                EKSounds.SSELITH_TOME_SHELVE.get(), SoundSource.PLAYERS, 0.7f, 1f,
+            )
+            Delivery.NONE -> level.playSound(
+                null, player.x, player.y, player.z,
+                SoundEvents.BOOK_PAGE_TURN, SoundSource.PLAYERS,
+                1.0f, 0.85f + player.random.nextFloat() * 0.2f,
+            )
+        }
+        if (outcome == Delivery.GIFT) {
             for (i in 0 until 16) {
                 level.sendParticles(
                     ParticleTypes.ENCHANT,

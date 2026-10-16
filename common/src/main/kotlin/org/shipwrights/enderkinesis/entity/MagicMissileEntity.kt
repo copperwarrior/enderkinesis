@@ -8,7 +8,6 @@ import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.Entity
@@ -454,8 +453,8 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
         if (level().isClientSide) return
         level().playSound(
             null, this.x, this.y, this.z,
-            SoundEvents.SHULKER_BULLET_HURT, SoundSource.NEUTRAL,
-            0.8f, 1.4f,
+            EKSounds.MAGIC_MISSILE_FIZZLE.get(), SoundSource.NEUTRAL,
+            0.8f, 1.0f,
         )
         discard()
     }
@@ -615,7 +614,7 @@ class MagicMissileEntity(type: EntityType<out MagicMissileEntity>, level: Level)
             if (!fromEnemyMissile) return false
         }
         if (!level().isClientSide && !isRemoved) {
-            playSound(net.minecraft.sounds.SoundEvents.SHULKER_BULLET_HURT, 1.0f, 1.0f)
+            playSound(EKSounds.MAGIC_MISSILE_FIZZLE.get(), 1.0f, 1.0f)
             markHurt()
             discard()
             return true

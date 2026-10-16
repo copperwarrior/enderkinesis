@@ -142,9 +142,9 @@ object GamylanCageManager {
             if (capture(serverLevel, entity)) {
                 level.playSound(
                     null, entity.x, entity.y, entity.z,
-                    net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_RESONATE,
+                    org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAPTURE.get(),
                     net.minecraft.sounds.SoundSource.PLAYERS,
-                    1.0f, 0.7f,
+                    1.0f, 1.0f,
                 )
             }
             EventResult.interruptTrue()
@@ -260,9 +260,9 @@ object GamylanCageManager {
         if (cage != null) {
             level.playSound(
                 null, victim.x, victim.y, victim.z,
-                net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_RESONATE,
+                org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAPTURE.get(),
                 net.minecraft.sounds.SoundSource.PLAYERS,
-                1.0f, 0.7f,
+                1.0f, 1.0f,
             )
             if (!keepInv) {
                 inventoryBackup = victim.inventory.save(net.minecraft.nbt.ListTag())
@@ -546,7 +546,7 @@ object GamylanCageManager {
         releaseContents(level, data, breakPos)
         level.playSound(
             null, breakPos.x, breakPos.y, breakPos.z,
-            net.minecraft.sounds.SoundEvents.GLASS_BREAK,
+            org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAGE_SHATTER.get(),
             net.minecraft.sounds.SoundSource.BLOCKS,
             1.0f, 1.0f,
         )

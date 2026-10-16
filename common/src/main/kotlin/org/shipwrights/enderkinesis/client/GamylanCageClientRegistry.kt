@@ -59,6 +59,13 @@ object GamylanCageClientRegistry {
         @Volatile var renderEntity: Entity? = null,
         @Volatile var renderEntityFailed: Boolean = false,
     ) {
+        /** Non-null while the cage drifts to a pedestal and has no weld. Client thread only. */
+        var alignTarget: AlignTarget? = null
+
+        val hull: org.shipwrights.enderkinesis.body.GamylanCageShape.Hull by lazy {
+            org.shipwrights.enderkinesis.body.GamylanCageShape.newHull(shapeDims)
+        }
+
         /** Packed 0xRRGGBB tint used by the crystal shell rim + noise
          *  pass. Three-tier derivation:
          *
@@ -100,6 +107,9 @@ object GamylanCageClientRegistry {
             return textureMostSaturatedColor(entity) ?: FALLBACK_CRYSTAL_COLOR
         }
     }
+
+    /** [hoverInFrame] is in the shipyard frame of [shipId], or in world coords when [shipId] is null. */
+    class AlignTarget(val shipId: Long?, val hoverInFrame: Vector3d)
 
     /** Default crystal tint: Wohlon blue `(140, 200, 240)`. */
     const val FALLBACK_CRYSTAL_COLOR: Int = 0x8CC8F0

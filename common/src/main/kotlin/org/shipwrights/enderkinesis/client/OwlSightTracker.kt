@@ -5,16 +5,15 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.Util
 import net.minecraft.client.Minecraft
-import net.minecraft.core.BlockPos
+import net.minecraft.client.resources.sounds.SimpleSoundInstance
+import net.minecraft.client.resources.sounds.SoundInstance
 import net.minecraft.sounds.SoundSource
 import org.joml.Matrix3f
 import org.joml.Matrix4f
-import org.joml.Vector3d
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.block.OwlStatueEscape
 import org.shipwrights.enderkinesis.client.model.StatueOwlModel
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -29,6 +28,7 @@ object OwlSightTracker {
     private const val PRUNE_INTERVAL: Long = 1024L
     private const val MIN_LOOK_DISTANCE: Float = 1.0e-4f
     private const val MEAN_UNSEEN_MILLIS_PER_TURN: Double = 10_000.0
+    private const val MIN_SEEN_MILLIS_TO_ARM: Long = 5_000L
     private const val REVEAL_VOLUME: Float = 0.35f
     private const val DRONING_HORN_INDEX: Int = 6
     private const val MAX_PRIMED: Int = 64
@@ -40,6 +40,8 @@ object OwlSightTracker {
         var heldThrough = -1L
         var lastRenderedFrame = 0L
         var lastRollMillis = 0L
+        var seenSinceMillis = -1L
+        var armed = false
         var tracking = false
         var turned = false
     }
@@ -91,14 +93,20 @@ object OwlSightTracker {
         state.lastRenderedFrame = frame
         when {
             state.lastSeenFrame == resolvedFrame -> {
-                if (state.turned) reveal(key)
+                if (state.turned) {
+                    reveal()
+                    state.armed = false
+                }
                 state.turned = false
+                if (state.seenSinceMillis < 0L) state.seenSinceMillis = now
+                if (now - state.seenSinceMillis >= MIN_SEEN_MILLIS_TO_ARM) state.armed = true
                 state.tracking = false
                 state.lastRollMillis = now
             }
             state.heldThrough >= resolvedFrame -> state.lastRollMillis = now
             else -> {
-                if (!state.tracking) state.tracking = rollTurn(state, now)
+                state.seenSinceMillis = -1L
+                if (!state.tracking && state.armed) state.tracking = rollTurn(state, now)
                 if (state.tracking) {
                     lookAtCamera(state, modelView)
                     state.turned = true
@@ -152,15 +160,13 @@ object OwlSightTracker {
         return ThreadLocalRandom.current().nextDouble() < chance
     }
 
-    private fun reveal(key: Long) {
-        val mc = Minecraft.getInstance()
-        val level = mc.level ?: return
-        val pos = BlockPos.of(key)
-        val world = Vector3d(pos.x + 0.5, pos.y + 1.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.transform?.shipToWorld?.transformPosition(world)
-        level.playLocalSound(
-            world.x, world.y, world.z, EKSounds.PRISMATIC_HORN_CAVES[DRONING_HORN_INDEX].get(),
-            SoundSource.AMBIENT, REVEAL_VOLUME, 1f, false,
+    private fun reveal() {
+        Minecraft.getInstance().soundManager.play(
+            SimpleSoundInstance(
+                EKSounds.PRISMATIC_HORN_CAVES[DRONING_HORN_INDEX].get().location, SoundSource.AMBIENT,
+                REVEAL_VOLUME, 1f, SoundInstance.createUnseededRandom(),
+                false, 0, SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true,
+            ),
         )
         OwlsMarkClient.apply()
     }

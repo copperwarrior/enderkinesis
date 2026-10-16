@@ -1,0 +1,46 @@
+{
+	"parent": "minecraft:block/block",
+	"texture_size": [64, 64],
+	"textures": {
+		"3": "enderkinesis:block/void_hook",
+		"particle": "enderkinesis:block/ancrite_block"
+	},
+	"elements": [
+		{
+			"name": "crystal",
+			"from": [7.25, 11, 8.75],
+			"to": [9.25, 13, 10.75],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [7.25, 11, 8.75]
+			},
+			"faces": {
+				"north": {
+					"uv": [9, 3, 9.5, 3.5],
+					"texture": "#3"
+				},
+				"east": {
+					"uv": [9, 3.5, 9.5, 4],
+					"texture": "#3"
+				},
+				"south": {
+					"uv": [9, 4, 9.5, 4.5],
+					"texture": "#3"
+				},
+				"west": {
+					"uv": [9, 4.5, 9.5, 5],
+					"texture": "#3"
+				},
+				"up": {
+					"uv": [8, 9, 8.5, 9.5],
+					"texture": "#3"
+				},
+				"down": {
+					"uv": [9.25, 5, 9.75, 5.5],
+					"texture": "#3"
+				}
+			}
+		}
+	]
+}

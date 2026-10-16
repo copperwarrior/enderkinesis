@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.mixin;
 import net.minecraft.world.entity.Entity;
 import org.shipwrights.enderkinesis.block.IchaericInkEntity;
 import org.shipwrights.enderkinesis.block.IchaericInkPhysics;
+import org.shipwrights.enderkinesis.block.IchaericInkSounds;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,6 +15,7 @@ public abstract class EntityIchaericInkMixin implements IchaericInkEntity {
 
     @Unique private double enderkinesis$inkHeight;
     @Unique private boolean enderkinesis$eyesInInk;
+    @Unique private boolean enderkinesis$inkTracked;
 
     @Override
     public double enderkinesisInkHeight() {
@@ -28,7 +30,11 @@ public abstract class EntityIchaericInkMixin implements IchaericInkEntity {
     @Inject(method = "baseTick", at = @At("TAIL"))
     private void enderkinesis$trackIchaericInk(CallbackInfo ci) {
         Entity self = (Entity) (Object) this;
+        double previous = enderkinesis$inkHeight;
         enderkinesis$inkHeight = IchaericInkPhysics.updateCurrents(self);
+        // Vanilla skips the splash on an entity's first tick, so a loaded entity does not splash.
+        if (enderkinesis$inkTracked) IchaericInkSounds.tick(self, previous, enderkinesis$inkHeight);
+        enderkinesis$inkTracked = true;
         enderkinesis$eyesInInk = IchaericInkPhysics.eyesIn(self);
         if (enderkinesis$inkHeight > 0.0) {
             self.resetFallDistance();

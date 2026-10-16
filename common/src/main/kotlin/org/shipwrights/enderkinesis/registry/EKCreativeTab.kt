@@ -118,7 +118,7 @@ object EKCreativeTab {
             output.accept(EKItems.STAFF_OF_CONCEALMENT.get())
             output.accept(EKItems.STAFF_OF_DENSITY.get())
             output.accept(EKItems.STAFF_OF_SCALES.get())
-            output.accept(EKItems.STAFF_OF_RECITAL.get())
+            output.accept(EKItems.STAFF_OF_FUSION.get())
             output.accept(EKItems.STAFF_OF_AEGIS.get())
             output.accept(EKItems.STAFF_OF_SUNDERING.get())
 

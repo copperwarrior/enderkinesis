@@ -8,6 +8,7 @@ import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.item.DyeColor
 import net.minecraft.world.level.block.entity.BlockEntity
@@ -18,6 +19,7 @@ import org.joml.Vector3d
 import org.joml.Vector3i
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.api.ships.LoadedServerShip
@@ -25,6 +27,7 @@ import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.internal.joints.VSD6Joint
 import org.valkyrienskies.core.internal.joints.VSJoint
+import org.valkyrienskies.core.internal.joints.VSJointAndId
 import org.valkyrienskies.core.internal.joints.VSJointPose
 import org.valkyrienskies.core.internal.joints.VSPrismaticJoint
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
@@ -32,6 +35,8 @@ import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.getShipManagingPos
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
 import org.valkyrienskies.core.api.world.ServerShipWorld
@@ -53,8 +58,8 @@ import org.valkyrienskies.core.api.world.ServerShipWorld
  *
  * Joint lifecycle: a [VSPrismaticJoint] anchored at `basePos.centre` with slide axis
  * `FACING.normal`, [VSD6Joint.LinearLimitPair] clamped at the current extension target.
- * Signal change tears down and rebuilds the joint with new limits — same pattern as
- * [org.shipwrights.enderkinesis.item.HingingTomeOrbBehavior].
+ * A signal change updates the live joint in place with `updateJoint`. A base or lid ship
+ * change removes the joint and adds a new one.
  *
  * Client-side: BER renders both shulker shells (base at the block, lid at the ship's
  * `renderTransform`). See [org.shipwrights.enderkinesis.client.ShulkerStrutRenderer].
@@ -82,7 +87,12 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
     private var jointPending: Boolean = false
     /** Base ship the joint names; a VS2 split or weld can move the base to another ship. */
     private var boundBaseShipId: Long? = null
+    private var boundScale: Double = 1.0
     private var lastTargetExtension: Float = -1f
+
+    var comparatorSignal: Int = 0
+        private set
+    private val scratchLidPos = Vector3d()
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
@@ -129,6 +139,9 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         ClientboundBlockEntityDataPacket.create(this)
 
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
+        // After a worldgen assembly, a second block entity object can tick at this position.
+        // Each object made its own lid ship.
+        if (level.getBlockEntity(pos) !== this) return
         // Stage 1: ship lifecycle.
         //   - First tick after place/load: `topShipId == NO_SHIP` → create the lid ship.
         //   - Lid ship gone after creation (binding_roots merge edge case, manual delete,
@@ -160,20 +173,84 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         // Stage 2: wait for the ship to promote to LoadedServerShip — joints target loaded
         // ships, and the ship's inertia / COM isn't valid until then.
         val topShip = level.shipObjectWorld.loadedShips.getById(topShipId) ?: return
+        val baseShip: Ship? = level.getShipManagingPos(pos)
+        val facing = state.getValue(BlockStateProperties.FACING)
+        val scale = baseShip?.transform?.shipToWorldScaling?.x() ?: 1.0
+        matchLidScale(level, topShip, scale)
+        updateComparatorSignal(level, pos, state, topShip, baseShip, facing)
 
         val power = state.getValue(BlockStateProperties.POWER).coerceIn(0, 15)
-        val target = power * MAX_EXTENSION_BLOCKS / 15f
+        driveJoint(level, pos, baseShip, topShip, facing, power * MAX_EXTENSION_BLOCKS / 15f, scale)
+    }
 
-        // Stage 3: bind / rebind joint on signal change. Pending gate covers the gtpa
-        // addJoint() → callback round-trip.
+    /** Stage 3: bind or update the joint. The pending gate covers the addJoint → callback round trip. */
+    private fun driveJoint(
+        level: ServerLevel, pos: BlockPos, baseShip: Ship?, topShip: LoadedServerShip,
+        facing: Direction, target: Float, scale: Double,
+    ) {
         if (jointPending) return
-        val baseShip: Ship? = level.getShipManagingPos(pos)
-        if (jointId != NO_JOINT && target == lastTargetExtension && baseShip?.id == boundBaseShipId) return
+        val baseShipId = baseShip?.id
+        if (jointId != NO_JOINT && target == lastTargetExtension &&
+            baseShipId == boundBaseShipId && scale == boundScale) return
 
-        val facing = state.getValue(BlockStateProperties.FACING)
+        playMoveSound(level, pos, target)
+        val joint = buildJoint(pos, baseShip, topShip, facing, target, scale)
+        boundScale = scale
+        if (jointId != NO_JOINT && baseShipId == boundBaseShipId) {
+            ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).updateJoint(VSJointAndId(jointId, joint))
+            lastTargetExtension = target
+            setChanged()
+            return
+        }
         releaseJoint(level)
-        boundBaseShipId = baseShip?.id
-        bindJoint(level, pos, baseShip, topShip, facing, target)
+        boundBaseShipId = baseShipId
+        addJoint(level, joint, target)
+    }
+
+    /** A host ship can be rescaled after assembly; a lid at another scale breaks the half-cube split. */
+    private fun matchLidScale(level: ServerLevel, topShip: LoadedServerShip, scale: Double) {
+        val t = topShip.transform
+        if (abs(t.shipToWorldScaling.x() - scale) < SCALE_EPSILON) return
+        val data = vsCore.newShipTeleportData(
+            newPos = t.positionInWorld,
+            newRot = t.shipToWorldRotation,
+            newDimension = level.dimensionId,
+            newScale = scale,
+            newPosInShip = t.positionInShip,
+        )
+        vsCore.teleportShip(level.shipObjectWorld as ServerShipWorld, topShip, data)
+    }
+
+    private fun updateComparatorSignal(
+        level: ServerLevel, pos: BlockPos, state: BlockState, topShip: Ship, baseShip: Ship?, facing: Direction,
+    ) {
+        val lid = lidShipyardPos ?: return
+        val p = scratchLidPos.set(lid.x + 0.5, lid.y + 0.5, lid.z + 0.5)
+        topShip.shipToWorld.transformPosition(p)
+        baseShip?.worldToShip?.transformPosition(p)
+        val extension = (p.x - pos.x - 0.5) * facing.stepX +
+            (p.y - pos.y - 0.5) * facing.stepY +
+            (p.z - pos.z - 0.5) * facing.stepZ
+        val max = MAX_EXTENSION_BLOCKS.toDouble()
+        val signal = (extension.coerceIn(0.0, max) * 15.0 / max).roundToInt()
+        if (signal == comparatorSignal) return
+        comparatorSignal = signal
+        level.updateNeighbourForOutputSignal(pos, state.block)
+    }
+
+    /** No sound on the first bind after placement, when [lastTargetExtension] is still -1. */
+    private fun playMoveSound(level: ServerLevel, pos: BlockPos, target: Float) {
+        val last = lastTargetExtension
+        if (last < 0f || target == last) return
+        val event = when {
+            last == 0f -> EKSounds.SHULKER_STRUT_OPEN
+            target == 0f -> EKSounds.SHULKER_STRUT_CLOSE
+            target > last -> EKSounds.SHULKER_STRUT_EXTEND
+            else -> EKSounds.SHULKER_STRUT_RETRACT
+        }
+        level.playSound(
+            null, pos, event.get(), SoundSource.BLOCKS, MOVE_SOUND_VOLUME, 0.95f + level.random.nextFloat() * 0.1f,
+        )
     }
 
     /** Release the joint and air *only* the lid block — not the whole ship. If the player
@@ -220,6 +297,7 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
     private fun tryAssembleTopShip(level: ServerLevel, basePos: BlockPos, state: BlockState): Boolean {
         val facing = state.getValue(BlockStateProperties.FACING)
         val hostShip: Ship? = level.getShipManagingPos(basePos)
+        val scale = hostShip?.transform?.shipToWorldScaling?.x() ?: 1.0
 
         // World-frame target for the lid at extension=0. For a ship-mounted strut, basePos
         // is in host shipyard coords; convert.
@@ -232,7 +310,7 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         )
 
         val ship = try {
-            level.shipObjectWorld.createNewShipAtBlock(centreBlock, false, 1.0, level.dimensionId)
+            level.shipObjectWorld.createNewShipAtBlock(centreBlock, false, scale, level.dimensionId)
         } catch (t: Throwable) {
             LOG.warn("[EK shulker strut] failed to create lid ship for strut at {}", basePos, t)
             return false
@@ -271,6 +349,7 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
             newPosInShip = Vector3d(lidPos.x + 0.5, lidPos.y + 0.5, lidPos.z + 0.5),
             newRot = newRot ?: Quaterniond(),
             newDimension = level.dimensionId,
+            newScale = scale,
         )
         vsCore.teleportShip(level.shipObjectWorld as ServerShipWorld, ship, data)
 
@@ -281,14 +360,14 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         return true
     }
 
-    private fun bindJoint(
-        level: ServerLevel,
+    private fun buildJoint(
         basePos: BlockPos,
         baseShip: Ship?,
         topShip: LoadedServerShip,
         facing: Direction,
         targetExtension: Float,
-    ) {
+        scale: Double,
+    ): VSJoint {
         // pose0 anchor lives in baseShip's local frame (world frame if no host ship).
         // basePos is already a BlockPos in that frame, so basePos.centre is already in
         // pose0's frame — no further transform needed.
@@ -318,14 +397,16 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         } ?: Vector3d(topShip.inertiaData.centerOfMass)
         val pose1Rot = Quaterniond(orientation)
 
+        // Pose positions are shipyard coords that VS2 scales; limits are raw world distances.
+        val s = scale.toFloat()
         val limit = VSD6Joint.LinearLimitPair(
-            lowerLimit = (targetExtension - 0.01f).coerceAtLeast(0f),
-            upperLimit = targetExtension + 0.01f,
+            lowerLimit = ((targetExtension - 0.01f) * s).coerceAtLeast(0f),
+            upperLimit = (targetExtension + 0.01f) * s,
             stiffness = LIMIT_STIFFNESS,
             damping = LIMIT_DAMPING,
         )
 
-        val joint: VSJoint = VSPrismaticJoint(
+        return VSPrismaticJoint(
             shipId0 = baseShip?.id,
             pose0 = VSJointPose(pose0Pos, pose0Rot),
             shipId1 = topShip.id,
@@ -334,33 +415,26 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
             compliance = JOINT_COMPLIANCE,
             linearLimitPair = limit,
         )
+    }
 
+    private fun addJoint(level: ServerLevel, joint: VSJoint, targetExtension: Float) {
         val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
         jointPending = true
-        val capturedTarget = targetExtension
+        val lidShipId = topShipId
         gtpa.addJoint(joint, 0) { id: Int ->
             level.executeOrSchedule {
-                if (this.isRemoved || level.getBlockEntity(blockPos) !== this) {
+                // A lid ship change while the add is in flight leaves a joint that names the old ship.
+                if (this.isRemoved || level.getBlockEntity(blockPos) !== this || topShipId != lidShipId) {
                     gtpa.removeJoint(id)
+                    jointPending = false
                     return@executeOrSchedule
                 }
                 jointId = id
                 jointPending = false
-                lastTargetExtension = capturedTarget
+                lastTargetExtension = targetExtension
                 setChanged()
             }
         }
-    }
-
-    /** Template NBT names lid ships from the world that built it; those ids can match live ships. */
-    fun resetForStructureRespawn() {
-        topShipId = NO_SHIP
-        lidShipyardPos = null
-        jointId = NO_JOINT
-        jointPending = false
-        boundBaseShipId = null
-        lastTargetExtension = -1f
-        setChanged()
     }
 
     // VS2 does not save the joint, but it keeps it for the session. Without this, each
@@ -379,6 +453,8 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
 
     companion object {
         private val LOG = LogUtils.getLogger()
+        private const val MOVE_SOUND_VOLUME = 0.6f
+        private const val SCALE_EPSILON = 1e-6
 
         const val NO_SHIP: Long = Long.MIN_VALUE
         private const val NO_JOINT: Int = -1
@@ -389,6 +465,15 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         private const val NBT_LID_POS_Y = "LidPosY"
         private const val NBT_LID_POS_Z = "LidPosZ"
         private const val NBT_DYE_COLOR = "Color"
+
+        /** Template NBT names lid ships from the world that built it; those ids can match live ships. */
+        fun removeShipState(tag: CompoundTag) {
+            tag.remove(NBT_TOP_SHIP)
+            tag.remove(NBT_LID_POS_X)
+            tag.remove(NBT_LID_POS_Y)
+            tag.remove(NBT_LID_POS_Z)
+            tag.remove(NBT_LAST_EXTENSION)
+        }
 
         /** Highest signal (POWER 15) extends the lid this far along FACING. */
         private const val MAX_EXTENSION_BLOCKS: Float = 5f
@@ -407,7 +492,7 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         private const val LIMIT_STIFFNESS: Float = 1e5f
         private const val LIMIT_DAMPING: Float = 1.6e4f
 
-        /** Near-zero compliance on the non-slide DOFs so the lid doesn't drift sideways. */
+        /** VS2 documents compliance as used by Krunch_Classic and ignored by PhysX; Konstant use is unconfirmed. */
         private const val JOINT_COMPLIANCE: Double = 1e-10
     }
 }

@@ -15,7 +15,9 @@ import net.minecraft.client.renderer.LevelRenderer
 import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.texture.OverlayTexture
+import net.minecraft.Util
 import net.minecraft.core.BlockPos
+import net.minecraft.sounds.SoundSource
 import org.joml.Matrix4f
 import org.joml.Quaternionf
 import org.joml.Vector3f
@@ -25,6 +27,7 @@ import org.shipwrights.enderkinesis.remnant.IrreverantRemnantNetwork
 import org.shipwrights.enderkinesis.remnant.RemnantBody
 import org.shipwrights.enderkinesis.remnant.RemnantSurfaceProbe
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.abs
 
 /**
@@ -77,6 +80,9 @@ object IrreverantRemnantClient {
 
         /** Id of the particle this one physically hangs from, or -1. A drip's skin stretches to it. */
         var parentId: Int = -1
+
+        /** Id the server gives the connected mass this cube is part of. */
+        var massId: Int = id
 
         /** Ticks since it seeped out, counted on from the server's value at first sight. Below
          *  [IrreverantRemnantNetwork.SPAWN_TICKS] it is still growing in from the plane below. */
@@ -177,6 +183,13 @@ object IrreverantRemnantClient {
     /** Splatters since the last tick, against [MAX_SPLATS_PER_TICK]. */
     private var splatsThisTick = 0
 
+    /** Splat sounds since the last tick, against [MAX_SPLAT_SOUNDS_PER_TICK]. */
+    private var splatSoundsThisTick = 0
+
+    /** Times of the last [MAX_FORM_SOUNDS] form sounds, oldest at [formSoundNext]. A spawn egg drips 14 cubes. */
+    private val formSoundAt = LongArray(MAX_FORM_SOUNDS) { Long.MIN_VALUE / 2 }
+    private var formSoundNext = 0
+
     /** Ticks since the last sync, and the local player's parallel at the last tick. The server stops syncing
      *  when its pool empties, so cubes it removed are only dropped here by these two checks. */
     private var ticksSinceSync = 0
@@ -200,6 +213,7 @@ object IrreverantRemnantClient {
             val count = buf.readShort().toInt() and 0xFFFF
             val ids = IntArray(count)
             val parents = IntArray(count)
+            val massIds = IntArray(count)
             val ages = IntArray(count)
             val seeps = BooleanArray(count)
             val values = DoubleArray(count * FIELDS_PER_SYNC)
@@ -220,6 +234,7 @@ object IrreverantRemnantClient {
                 val nz = buf.readByte().toDouble() * IrreverantRemnantNetwork.NORMAL_STEP
                 parents[i] = buf.readVarInt() - 1
                 ages[i] = buf.readByte().toInt()
+                massIds[i] = buf.readVarInt()
                 ids[i] = id
                 seeps[i] = seeping
                 val base = i * FIELDS_PER_SYNC
@@ -243,6 +258,7 @@ object IrreverantRemnantClient {
                         seeps[i],
                         parents[i],
                         ages[i],
+                        massIds[i],
                     )
                 }
                 retireUnseen()
@@ -260,6 +276,7 @@ object IrreverantRemnantClient {
         seeping: Boolean,
         parent: Int,
         spawnAge: Int,
+        massId: Int,
     ) {
         val existing = blobs.get(id)
         if (existing == null) {
@@ -268,12 +285,15 @@ object IrreverantRemnantClient {
                 it.seeping = seeping
                 it.parentId = parent
                 it.spawnAge = spawnAge
+                it.massId = massId
                 if (spawnAge < IrreverantRemnantNetwork.SPAWN_TICKS) anchorSpawn(it)
+                if (spawnAge <= FORM_SOUND_MAX_AGE) playForm(it)
             })
             return
         }
         existing.unseenSyncs = 0
         existing.parentId = parent
+        existing.massId = massId
         existing.seeping = seeping
         existing.radius = radius
         detectBounce(existing, svx - existing.vx, svy - existing.vy, svz - existing.vz)
@@ -295,6 +315,18 @@ object IrreverantRemnantClient {
         existing.errX = dx
         existing.errY = dy
         existing.errZ = dz
+    }
+
+    private fun playForm(blob: ClientBlob) {
+        val level = Minecraft.getInstance().level ?: return
+        val now = Util.getMillis()
+        if (now - formSoundAt[formSoundNext] < FORM_SOUND_WINDOW_MS) return
+        formSoundAt[formSoundNext] = now
+        formSoundNext = (formSoundNext + 1) % MAX_FORM_SOUNDS
+        level.playLocalSound(
+            blob.x, blob.y, blob.z, EKSounds.REMNANT_FORM.get(), SoundSource.HOSTILE,
+            FORM_VOLUME, FORM_PITCH_MIN + level.random.nextFloat() * (FORM_PITCH_MAX - FORM_PITCH_MIN), false,
+        )
     }
 
     /**
@@ -366,6 +398,7 @@ object IrreverantRemnantClient {
         val parallel = SselithParallelView.local
         val parallelChanged = lastParallel != null && parallel != lastParallel
         lastParallel = parallel
+        RemnantCrawlSound.begin()
         if (blobs.isEmpty()) return
         val minecraft = Minecraft.getInstance()
         // The client tick keeps running while the game is paused — the world
@@ -384,6 +417,8 @@ object IrreverantRemnantClient {
         clientTicks++
         var dust = 0
         splatsThisTick = 0
+        splatSoundsThisTick = 0
+        val listener = minecraft.player
         val values = blobs.values.iterator()
         while (values.hasNext()) {
             val blob = values.next()
@@ -415,6 +450,9 @@ object IrreverantRemnantClient {
             advancePulse(blob, moved)
             advanceStretch(blob, moved)
             if (blob.spawnAge < IrreverantRemnantNetwork.SPAWN_TICKS) blob.spawnAge++
+            val near = listener != null &&
+                listener.distanceToSqr(blob.x, blob.y, blob.z) <= RemnantCrawlSound.RANGE * RemnantCrawlSound.RANGE
+            RemnantCrawlSound.add(blob.massId, blob.x, blob.y, blob.z, blob.radius, moved, near)
             // Dust like a Cataloger's: one mote per moving cube every few ticks, staggered by id. Client-side, so
             // only players on this cube's parallel see it.
             if (moved > DUST_MIN_STEP && dust < MAX_DUST_PER_TICK && (clientTicks + blob.id) % DUST_INTERVAL == 0L) {
@@ -422,6 +460,7 @@ object IrreverantRemnantClient {
                 dust++
             }
         }
+        RemnantCrawlSound.end()
     }
 
     /**
@@ -457,6 +496,14 @@ object IrreverantRemnantClient {
         impact: Double,
     ) {
         val force = (impact / SPLAT_FULL_IMPACT).coerceAtMost(1.0)
+        if (splatSoundsThisTick < MAX_SPLAT_SOUNDS_PER_TICK) {
+            splatSoundsThisTick++
+            level.playLocalSound(
+                blob.x, blob.y, blob.z, EKSounds.REMNANT_SPLAT.get(), SoundSource.HOSTILE,
+                (SPLAT_VOLUME_BASE + SPLAT_VOLUME_FORCE * force).toFloat(),
+                SPLAT_PITCH_MIN + level.random.nextFloat() * (SPLAT_PITCH_MAX - SPLAT_PITCH_MIN), false,
+            )
+        }
         // Thin along the normal, wide across it.
         val squash = force * SPLAT_SQUASH
         blob.stretchX = 1.0 + squash * 0.5 - squash * 1.5 * nx * nx
@@ -1120,6 +1167,20 @@ object IrreverantRemnantClient {
     private const val SPLAT_MOTES = 6
     private const val SPLAT_SPREAD = 1.5
     private const val MAX_SPLATS_PER_TICK = 8
+
+    private const val MAX_SPLAT_SOUNDS_PER_TICK = 2
+    private const val SPLAT_VOLUME_BASE = 0.25
+    private const val SPLAT_VOLUME_FORCE = 0.55
+    private const val SPLAT_PITCH_MIN = 0.85f
+    private const val SPLAT_PITCH_MAX = 1.1f
+
+    /** The form sound is timed to the forming animation, so a cube that arrives later than this plays none. */
+    private const val FORM_SOUND_MAX_AGE = 10
+    private const val MAX_FORM_SOUNDS = 3
+    private const val FORM_SOUND_WINDOW_MS = 500L
+    private const val FORM_VOLUME = 0.4f
+    private const val FORM_PITCH_MIN = 0.9f
+    private const val FORM_PITCH_MAX = 1.1f
 
     /** Smallest velocity change between two syncs that can only be a bounce: the weakest rebound, less one
      *  step of velocity quantisation on each axis. */

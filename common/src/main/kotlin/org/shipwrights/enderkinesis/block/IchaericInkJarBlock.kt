@@ -3,7 +3,6 @@ package org.shipwrights.enderkinesis.block
 import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
@@ -26,6 +25,8 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
+import dev.architectury.registry.registries.RegistrySupplier
 
 class IchaericInkJarBlock(properties: Properties) : Block(properties) {
 
@@ -49,10 +50,12 @@ class IchaericInkJarBlock(properties: Properties) : Block(properties) {
         val held = player.getItemInHand(hand)
         val bottles = state.getValue(BOTTLES)
         return when {
-            held.`is`(EKItems.ICHAERIC_INK_BOTTLE.get()) && bottles < MAX_BOTTLES ->
-                transfer(state, level, pos, player, hand, bottles + 1, Items.GLASS_BOTTLE, SoundEvents.BOTTLE_EMPTY)
+            held.`is`(EKItems.ICHAERIC_INK_BOTTLE.get()) && bottles < MAX_BOTTLES -> transfer(
+                state, level, pos, player, hand, bottles + 1, Items.GLASS_BOTTLE, EKSounds.ICHAERIC_INK_JAR_POUR,
+            )
             held.`is`(Items.GLASS_BOTTLE) && bottles > 0 -> transfer(
-                state, level, pos, player, hand, bottles - 1, EKItems.ICHAERIC_INK_BOTTLE.get(), SoundEvents.BOTTLE_FILL,
+                state, level, pos, player, hand, bottles - 1, EKItems.ICHAERIC_INK_BOTTLE.get(),
+                EKSounds.ICHAERIC_INK_BOTTLE_FILL,
             )
             else -> InteractionResult.PASS
         }
@@ -61,12 +64,12 @@ class IchaericInkJarBlock(properties: Properties) : Block(properties) {
     @Suppress("LongParameterList") // A parameter object would only move the list.
     private fun transfer(
         state: BlockState, level: Level, pos: BlockPos, player: Player, hand: InteractionHand,
-        bottles: Int, returned: Item, sound: SoundEvent,
+        bottles: Int, returned: Item, sound: RegistrySupplier<SoundEvent>,
     ): InteractionResult {
         if (level.isClientSide) return InteractionResult.SUCCESS
         level.setBlock(pos, state.setValue(BOTTLES, bottles), UPDATE_ALL)
         player.setItemInHand(hand, ItemUtils.createFilledResult(player.getItemInHand(hand), player, ItemStack(returned)))
-        level.playSound(null, pos, sound, SoundSource.BLOCKS, 1f, 1f)
+        level.playSound(null, pos, sound.get(), SoundSource.BLOCKS, 1f, 0.9f + 0.04f * bottles)
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
         player.displayClientMessage(Component.translatable(CONTENTS_KEY, bottles, MAX_BOTTLES), true)
         return InteractionResult.CONSUME

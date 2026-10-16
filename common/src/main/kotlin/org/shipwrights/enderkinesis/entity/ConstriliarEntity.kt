@@ -16,19 +16,18 @@ import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.PathfinderMob
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier
 import net.minecraft.world.entity.ai.attributes.Attributes
+import net.minecraft.world.entity.ai.control.BodyRotationControl
 import net.minecraft.world.entity.ai.goal.FloatGoal
 import net.minecraft.world.entity.ai.goal.Goal
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal
 import net.minecraft.world.entity.ai.navigation.PathNavigation
 import net.minecraft.world.entity.ai.navigation.WallClimberNavigation
-import net.minecraft.world.entity.item.FallingBlockEntity
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
-import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.entity.JukeboxBlockEntity
 import net.minecraft.world.level.chunk.ChunkStatus
@@ -36,6 +35,7 @@ import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
+import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Quaternionf
 import org.joml.Vector3d
@@ -44,6 +44,9 @@ import org.joml.Vector3i
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
 import org.shipwrights.enderkinesis.physics.ConstriliarShipController
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
+import dev.architectury.registry.registries.RegistrySupplier
+import net.minecraft.sounds.SoundEvent
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.api.attachment.getOrPutAttachment
@@ -58,6 +61,7 @@ import org.valkyrienskies.mod.common.world.clipIncludeShips
 import org.valkyrienskies.mod.common.vsCore
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.util.settings
+import org.valkyrienskies.mod.common.BlockStateInfo
 import java.util.EnumSet
 import java.util.UUID
 
@@ -168,10 +172,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val dx = t.x - origin.x
         val dy = t.y - origin.y
         val dz = t.z - origin.z
-        val wantYaw = Math.toDegrees(Math.atan2(dz, dx)).toFloat() - 90f
-        val delta = Mth.wrapDegrees(wantYaw - yBodyRot)
-        yBodyRot += Mth.clamp(delta, -SIT_TURN_SPEED, SIT_TURN_SPEED)
-        yRot = yBodyRot
+        stepBodyYaw(yawToward(dx, dz), SIT_TURN_SPEED)
         yHeadRot = yBodyRot
         val horizontal = Math.sqrt(dx * dx + dz * dz)
         faceAimPitchDeg = (-Math.toDegrees(Math.atan2(dy, horizontal))).toFloat()
@@ -189,15 +190,15 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private var shipId: Long = NO_SHIP
     private var platformPos: BlockPos? = null
     private var shipUnloadedTicks: Int = 0
+    private var lastMassOp = "world load"
+    private var lastMassOpTick = 0
+    private var inertiaRepairGaveUp = false
     private var shipMissingTicks: Int = 0
     private var stuckWakeTicks: Int = 0
     private val serverGait = ConstriliarServerGait()
 
-    // Gap-jump state machine: 0 none, 1 crouch (spring compressing), 2 flight.
-    private var jumpPhase = 0
-    private var jumpTicks = 0
-    private var jumpSuppressTicks = 0
-    private var jumpTarget: Vec3? = null
+    private var jumpState: ConstriliarJumpState = ConstriliarJumpState.Idle
+    private var strutsWereActive = false
 
     // Hard-stall recovery anchor: survives replans (the navigator's own stall clock
     // resets on every replan, so a moving owner masks a physically pinned body).
@@ -208,7 +209,12 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  client-only, so the server must find playing jukeboxes itself. */
     private var dancing = false
 
-    private fun isDancing(): Boolean = dancing
+    private var lastAcknowledgeAt = Long.MIN_VALUE / 2
+    private var arrivalCheered = false
+    private var panicked = false
+
+    /** An aimed sentry holds its pose and does not dance. */
+    private fun isDancing(): Boolean = dancing && faceTarget == null
 
     /** A playing jukebox within range — world grid AND ships (including our own back:
      *  a jukebox carried as cargo is a portable boombox). Distance is checked in each
@@ -301,15 +307,40 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  [org.shipwrights.enderkinesis.mixin.EntityShipCollisionOwnShipMixin] on both
      *  sides (client movement is predicted). */
     fun ownShipIdForCollision(): Long? =
-        if (level().isClientSide) clientOwnShipId() else shipId.takeIf { it != NO_SHIP }
+        if (level().isClientSide) clientOwnShipId() else ownShipOrNull()
 
-    /** Body pose in the frame the body is actually drawn in — the ship's render
-     *  transform (model ground plane = platform centre, rotation = ship ∘ 180°-yaw).
-     *  Null when the ship isn't available client-side; callers fall back to the
-     *  entity pose then. */
-    fun shipRenderPose(): Pair<Vec3, Quaternionf>? {
-        // The intro anchors everything (body AND gait homes) to the entity.
-        if (introActive()) return null
+    /** Client: the pose the body is drawn at. The intro is entity-anchored and eases
+     *  onto the ship's render transform over the settle, so the platform renderer
+     *  takes over without a jump. Without a client ship, the entity pose. */
+    fun bodyRenderPose(partialTick: Float): Pair<Vec3, Quaternionf> {
+        val ship = shipRenderPose()
+        if (!introActive() && ship != null) return ship
+        val origin = bodyOrigin(partialTick)
+        val q = bodyQuat(partialTick)
+        val w = introShipBlend(partialTick)
+        if (ship == null || w <= 0f) return Pair(origin, q)
+        return Pair(origin.lerp(ship.first, w.toDouble()), q.slerp(ship.second, w))
+    }
+
+    // The brain rides at ground level, so the default eye probe sat inside the ground on
+    // any tilt or step and drew the body black. Both renderers read this probe.
+    override fun getLightProbePosition(partialTicks: Float): Vec3 {
+        if (!level().isClientSide) return super.getLightProbePosition(partialTicks)
+        val (origin, q) = bodyRenderPose(partialTicks)
+        val up = q.transform(Vector3f(0f, 1f, 0f))
+        return origin.add(up.x * LIGHT_PROBE_UP, up.y * LIGHT_PROBE_UP, up.z * LIGHT_PROBE_UP)
+    }
+
+    private fun introShipBlend(partialTick: Float): Float {
+        val t = spawnAnimTime(partialTick)
+        if (t < ANIM_JUMP_END) return 0f
+        val p = ((t - ANIM_JUMP_END) / (SPAWN_ANIM_TOTAL - ANIM_JUMP_END)).toFloat().coerceIn(0f, 1f)
+        return p * p * (3f - 2f * p)
+    }
+
+    /** The ship's render transform as a body pose: model ground plane = platform
+     *  centre, rotation = ship ∘ 180°-yaw. */
+    private fun shipRenderPose(): Pair<Vec3, Quaternionf>? {
         val pPos = entityData.get(DATA_PLATFORM_POS).orElse(null) ?: return null
         val ship = level().getShipObjectManagingPos(pPos)
             as? org.valkyrienskies.core.api.ships.ClientShip ?: return null
@@ -351,6 +382,14 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     override fun createNavigation(level: Level): PathNavigation = WallClimberNavigation(this, level)
 
+    // Vanilla's "moving" test reads hover jitter as motion and snaps yBodyRot back to
+    // yRot, flipping the ship's desired yaw at idle; with a back ship, gait code owns yaw.
+    override fun createBodyControl(): BodyRotationControl = object : BodyRotationControl(this) {
+        override fun clientTick() {
+            if (!hasBackShip()) super.clientTick()
+        }
+    }
+
     override fun onClimbable(): Boolean = entityData.get(DATA_CLIMBING)
 
     override fun removeWhenFarAway(distanceToClosestPlayer: Double): Boolean = false
@@ -371,7 +410,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     fun isSitting(): Boolean = entityData.get(DATA_SITTING)
 
-    private fun setSitting(sitting: Boolean) {
+    private fun setSitting(sitting: Boolean, sound: Boolean = true) {
+        if (sound && sitting != isSitting()) voice(if (sitting) EKSounds.CONSTRILIAR_SIT else EKSounds.CONSTRILIAR_STAND, 0.6f)
         entityData.set(DATA_SITTING, sitting)
         if (sitting) stopNavigating()
     }
@@ -401,7 +441,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val remaining = entityData.get(DATA_SPAWN_ANIM)
         if (remaining > 0) return spawnAnimLift((SPAWN_ANIM_TOTAL - remaining).toDouble())
         // Jump crouch: the spring compresses — hover target drops, legs fold via IK.
-        if (jumpPhase == 1) return JUMP_CROUCH_LIFT
+        if (jumpState is ConstriliarJumpState.Crouch) return JUMP_CROUCH_LIFT
         val base = if (isSitting()) SIT_LIFT else BODY_LIFT
         // Aiming UP rears the body — ride height climbs with the aim steepness so the
         // nose pitches skyward instead of the tail grinding into the ground.
@@ -414,26 +454,27 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     }
 
     /** Continuous intro lift curve — one function for the server's ship target and the
-     *  client's fractional-tick render, so neither quantizes: smoothstep rise, sine-arc
-     *  hop, then the ship spring's settle provides the happy bob. */
+     *  client's fractional-tick render, so neither quantizes: smoothstep rise, crouch,
+     *  sine-arc hop, then the ship spring's settle provides the happy bob. */
     fun spawnAnimLift(t: Double): Double = when {
         t < ANIM_RISE_START -> SIT_LIFT
         t < ANIM_RISE_END -> {
             val p = (t - ANIM_RISE_START) / (ANIM_RISE_END - ANIM_RISE_START)
             SIT_LIFT + (BODY_LIFT - SIT_LIFT) * (p * p * (3.0 - 2.0 * p))
         }
+        t < ANIM_JUMP_START -> BODY_LIFT - (BODY_LIFT - JUMP_CROUCH_LIFT) *
+            Math.sin(Math.PI * (t - ANIM_RISE_END) / (ANIM_JUMP_START - ANIM_RISE_END))
         t < ANIM_JUMP_END -> BODY_LIFT +
-            ANIM_JUMP_HEIGHT * Math.sin(Math.PI * (t - ANIM_RISE_END) / (ANIM_JUMP_END - ANIM_RISE_END))
+            ANIM_JUMP_HEIGHT * Math.sin(Math.PI * (t - ANIM_JUMP_START) / (ANIM_JUMP_END - ANIM_JUMP_START))
         else -> BODY_LIFT
     }
 
     fun isSpawnAnimating(): Boolean = entityData.get(DATA_SPAWN_ANIM) > 0
 
-    /** Client: the intro owns rendering while either clock still runs — the server one
-     *  (physics timeline) or the local one (visual timeline, plays to completion). */
+    /** Once the local clock runs it alone decides: the synced countdown reaches 0 a
+     *  sync later, and that gap left a frame where neither renderer drew the body. */
     fun introActive(): Boolean =
-        entityData.get(DATA_SPAWN_ANIM) > 0 ||
-            (clientIntroTicks >= 0f && clientIntroTicks < SPAWN_ANIM_TOTAL)
+        if (clientIntroTicks >= 0f) clientIntroTicks < SPAWN_ANIM_TOTAL else entityData.get(DATA_SPAWN_ANIM) > 0
 
     /** Elapsed intro time from the CLIENT clock; negative when not playing. */
     fun spawnAnimTime(partialTick: Float): Float {
@@ -444,6 +485,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     /** Kick off the block-awakens intro; called by the scroll and the spawn egg. */
     fun startSpawnAnimation() {
         entityData.set(DATA_SPAWN_ANIM, SPAWN_ANIM_TOTAL)
+        voice(EKSounds.CONSTRILIAR_AWAKEN, 1f)
     }
 
     /** Random idle blinking, client-side only (purely cosmetic). */
@@ -458,6 +500,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     /** Staff of Command order: walk to [target]; a sitting constriliar only turns
      *  toward it. */
     fun commandMoveTo(target: Vec3) {
+        acknowledge()
+        arrivalCheered = false
         commandedTarget = target
         commandedTicks = 0
         faceTarget = null
@@ -467,12 +511,38 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     /** Staff "Aim To": turn in place toward [target] without walking. Cancels any
      *  in-flight go-to so the two orders don't fight over the body yaw. */
     fun commandFaceToward(target: Vec3) {
+        acknowledge()
         commandedTarget = null
         faceTarget = target
         faceAnchorShipId = -1L
         faceBaseUp.set(surfaceUp)   // aim relative to the surface being stood on NOW
         navigation.stop()
         surfaceNav.stop()
+    }
+
+    private fun acknowledge() {
+        val now = level().gameTime
+        if (now - lastAcknowledgeAt < ACKNOWLEDGE_GAP_TICKS) return
+        lastAcknowledgeAt = now
+        playSound(EKSounds.CONSTRILIAR_ACKNOWLEDGE.get(), 0.5f, 0.9f + random.nextFloat() * 0.2f)
+    }
+
+    private fun voice(event: RegistrySupplier<SoundEvent>, volume: Float) {
+        playSound(event.get(), volume, 1f)
+    }
+
+    override fun getAmbientSound(): SoundEvent? = if (isSitting()) null else EKSounds.CONSTRILIAR_AMBIENT.get()
+
+    override fun playAmbientSound() {
+        getAmbientSound()?.let { playSound(it, AMBIENT_VOLUME, voicePitch) }
+    }
+
+    // die() plays it at its own volume.
+    override fun getDeathSound(): SoundEvent? = null
+
+    override fun die(source: net.minecraft.world.damagesource.DamageSource) {
+        if (!dead && !level().isClientSide) voice(EKSounds.CONSTRILIAR_DEATH, 0.8f)
+        super.die(source)
     }
 
     // Navigation facade: surface A* when the ship body exists, vanilla otherwise.
@@ -483,7 +553,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             // colliding physics bodies — two walkers pressing into the same corridor
             // deadlock), and their standing spots are excluded from goal selection so
             // pets sent to the same place park beside each other.
-            surfaceNav.moveTo(level(), blockPosition(), dest, shipId.takeIf { it != NO_SHIP }, gatherOccupied(dest), this)
+            surfaceNav.moveTo(level(), blockPosition(), dest, ownShipOrNull(), gatherOccupied(dest), this, smoothUp)
         } else {
             navigation.moveTo(dest.x, dest.y, dest.z, FOLLOW_SPEED)
         }
@@ -590,7 +660,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             }
             if (followOwnerAcrossDimensions()) return
             if (tickCount % 20 == 0) {
+                val wasDancing = isDancing()
                 dancing = hasBackShip() && findPlayingJukebox(level() as ServerLevel)
+                if (isDancing() && !wasDancing) voice(EKSounds.CONSTRILIAR_HAPPY, 0.6f)
             }
             // The spawn intro is rendered on the ENTITY (clients have it immediately);
             // the ship rendering takes over when the countdown ends, by which time the
@@ -606,8 +678,10 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 horizontalCollision && attachedDir?.axis?.isHorizontal == true && attachedGap < CLIMB_WALL_GAP,
             )
             tickSittingTurn()
+            tickIntroTurn()
             tickCommandSeparation()
             tickShip()
+            if (isStrained() && tickCount % STRAIN_SOUND_TICKS == 0) voice(EKSounds.CONSTRILIAR_STRAIN, 0.5f)
         } else {
             clientUpPrev.set(clientUpCur)
             clientUpCur.set(entityData.get(DATA_UP_X), entityData.get(DATA_UP_Y), entityData.get(DATA_UP_Z))
@@ -616,6 +690,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 clientIntroTicks = (SPAWN_ANIM_TOTAL - introRemaining).toFloat()
             } else if (clientIntroTicks in 0f..(SPAWN_ANIM_TOTAL - 1).toFloat()) {
                 clientIntroTicks += 1f
+            }
+            if (clientIntroTicks in 0f..(SPAWN_ANIM_TOTAL - 1).toFloat()) {
+                ConstriliarIntroFx.tick(this, clientIntroTicks)
             }
             gait.tick(this)
             if (clientBlinkTicks > 0) {
@@ -648,17 +725,37 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (turnBodyToward(target)) commandedTarget = null
     }
 
+    /** Awakening: turn to the owner while rising, so the eyes open facing them on the hop. */
+    private fun tickIntroTurn() {
+        val remaining = entityData.get(DATA_SPAWN_ANIM)
+        if (remaining <= 0) return
+        val t = SPAWN_ANIM_TOTAL - remaining
+        if (t < ANIM_RISE_START || t >= ANIM_JUMP_START) return
+        val target = owner() ?: return
+        stepBodyYaw(yawToward(target.x - x, target.z - z), INTRO_TURN_SPEED)
+        yHeadRot = yBodyRot
+    }
+
     /** One tick of clamped body-yaw turn toward [target]; true once aligned. */
     private fun turnBodyToward(target: Vec3): Boolean {
-        val wantYaw = Math.toDegrees(Math.atan2(target.z - z, target.x - x)).toFloat() - 90f
-        val delta = Mth.wrapDegrees(wantYaw - yBodyRot)
-        val step = Mth.clamp(delta, -SIT_TURN_SPEED, SIT_TURN_SPEED)
-        yBodyRot += step
-        yRot = yBodyRot
+        val delta = stepBodyYaw(yawToward(target.x - x, target.z - z), SIT_TURN_SPEED)
         yHeadRot = yBodyRot
         lookControl.setLookAt(target.x, target.y, target.z)
         return Math.abs(delta) < 4f
     }
+
+    /** MC yaw (degrees) of the horizontal direction (dx, dz). */
+    private fun yawToward(dx: Double, dz: Double): Float = Math.toDegrees(Math.atan2(dz, dx)).toFloat() - 90f
+
+    /** One clamped body-yaw step toward [wantYaw]; returns the error before the step. */
+    private fun stepBodyYaw(wantYaw: Float, maxStep: Float): Float {
+        val delta = Mth.wrapDegrees(wantYaw - yBodyRot)
+        yBodyRot += Mth.clamp(delta, -maxStep, maxStep)
+        yRot = yBodyRot
+        return delta
+    }
+
+    private fun ownShipOrNull(): Long? = shipId.takeIf { it != NO_SHIP }
 
     /** Interpolated body up-vector for rendering. */
     fun upVector(partialTick: Float): Vector3f =
@@ -692,20 +789,16 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     // ------------------------------------------------------------------ attitude
 
-    /** Smoothly steer [smoothUp] toward the local surface normal from the weighted
-     *  six-side probe. The look pitch is folded in on top — the body IS the head, so
-     *  look-at goals pitch the whole plate toward their target (xRot is already clamped
-     *  by maxHeadXRot). */
+    /** Smoothly steer [smoothUp] toward the local surface normal. Face orders build the
+     *  aim basis directly; only an explicit move order folds the look pitch in. */
     private fun updateAttitude() {
         // The intro plays grid-square like the block it was: no surface alignment (and
         // no look-tilt) until the hop-up, which doubles as the "coming alive" beat.
         val animRemaining = entityData.get(DATA_SPAWN_ANIM)
-        if (animRemaining > 0 && SPAWN_ANIM_TOTAL - animRemaining < ANIM_RISE_END) {
+        if (animRemaining > 0 && SPAWN_ANIM_TOTAL - animRemaining < ANIM_JUMP_START) {
             surfaceUp.set(WORLD_UP)
             smoothUp.set(WORLD_UP)
-            entityData.set(DATA_UP_X, 0f)
-            entityData.set(DATA_UP_Y, 1f)
-            entityData.set(DATA_UP_Z, 0f)
+            syncUp()
             return
         }
         // Deep underwater there is no surface to stand on — level out and let buoyancy
@@ -714,20 +807,36 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (serverLevel != null && isPlateSubmerged(serverLevel)) {
             surfaceUp.set(WORLD_UP)
             smoothUp.lerp(WORLD_UP, ATTITUDE_LERP).normalize()
-            entityData.set(DATA_UP_X, smoothUp.x.toFloat())
-            entityData.set(DATA_UP_Y, smoothUp.y.toFloat())
-            entityData.set(DATA_UP_Z, smoothUp.z.toFloat())
+            syncUp()
             return
         }
-        // The SDF field's gradient IS the surface normal — continuous around every edge
-        // and corner, no face snapping, real collision geometry (stairs, slabs, other
-        // ships' hulls). It also feeds the attachment data (climb gate, stick fallback).
+        updateSurfaceUp(sampleContactUp())
+        val target = Vector3d(surfaceUp)
+        faceAimRotation = buildFaceAim(target)
+        foldMovePitch(target)
+        smoothUp.lerp(target, ATTITUDE_LERP).normalize()
+        syncUp()
+    }
+
+    private fun syncUp() {
+        entityData.set(DATA_UP_X, smoothUp.x.toFloat())
+        entityData.set(DATA_UP_Y, smoothUp.y.toFloat())
+        entityData.set(DATA_UP_Z, smoothUp.z.toFloat())
+    }
+
+    /** The SDF field's gradient IS the surface normal — continuous around every edge
+     *  and corner, real collision geometry (stairs, slabs, other ships' hulls). Also
+     *  feeds the attachment data (climb gate, stick fallback). Null when detached. */
+    private fun sampleContactUp(): Vector3d? {
         val sample = ConstriliarSurfaceField.sample(
-            level(), this, boundingBox.center, SDF_RANGE, shipId.takeIf { it != NO_SHIP },
+            level(), this, boundingBox.center, SDF_RANGE, ownShipOrNull(), mergeBlocks = true,
         )
         attachedGap = sample?.distance ?: Double.MAX_VALUE
         attachedDir = sample?.let { Direction.getNearest(-it.up.x, -it.up.y, -it.up.z) }
-        val contactUp = sample?.takeIf { it.distance < SDF_ATTACH_DIST }?.up
+        return sample?.takeIf { it.distance < SDF_ATTACH_DIST }?.up
+    }
+
+    private fun updateSurfaceUp(contactUp: Vector3d?) {
         if (pathUpActive) {
             // Deliberate wall/ceiling traversal: average the path node's support normal
             // with the felt contact — commitment to the target face, but the
@@ -764,83 +873,62 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             // Airborne: relax back to world-up.
             surfaceUp.lerp(WORLD_UP, 0.2).normalize()
         }
-        val target = Vector3d(surfaceUp)
-        // FACE ORDERS: construct the aim orientation directly — forward at the
-        // target, up as close to the order-time surface normal as the aim permits
-        // (elevation clamped to the fold cap). The yaw+fold pipeline below assumes an
-        // upright body; this basis construction aims correctly from walls/ceilings.
-        val ft = faceTarget
-        var aimQ: Quaterniond? = null
-        if (ft != null && facePoseActive && !isFlailing()) {
-            val origin = bodyBlockCentre()
-            val f = Vector3d(ft.x - origin.x, ft.y - origin.y, ft.z - origin.z)
-            if (f.lengthSquared() > 1.0e-6) {
-                f.normalize()
-                val capSin = Math.sin(Math.toRadians(FACE_PITCH_FOLD_MAX_DEG.toDouble()))
-                var e = f.dot(faceBaseUp)
-                if (Math.abs(e) > capSin) {
-                    // Pull the aim direction back toward the base plane to the cap.
-                    val fPara = Vector3d(f).sub(Vector3d(faceBaseUp).mul(e))
-                    val paraLen = fPara.length()
-                    if (paraLen > 1.0e-6) {
-                        fPara.mul(Math.sqrt(1.0 - capSin * capSin) / paraLen)
-                        f.set(fPara).add(Vector3d(faceBaseUp).mul(capSin * Math.signum(e))).normalize()
-                        e = f.dot(faceBaseUp)
-                    }
-                }
-                faceAimPitchDeg = (-Math.toDegrees(Math.asin(e.coerceIn(-1.0, 1.0)))).toFloat()
-                val upAim = Vector3d(faceBaseUp).sub(Vector3d(f).mul(e))
-                if (upAim.lengthSquared() > 1.0e-6) {
-                    upAim.normalize()
-                    target.set(upAim)
-                    val xAxis = Vector3d(upAim).cross(f)
-                    if (xAxis.lengthSquared() > 1.0e-6) {
-                        xAxis.normalize()
-                        aimQ = Quaterniond().setFromNormalized(
-                            org.joml.Matrix3d(
-                                xAxis.x, xAxis.y, xAxis.z,
-                                upAim.x, upAim.y, upAim.z,
-                                f.x, f.y, f.z,
-                            ),
-                        )
-                    }
-                }
+    }
+
+    /** Face orders: the aim orientation, built directly — forward at the target, up as
+     *  close to the order-time surface normal as the aim permits (elevation clamped to
+     *  the fold cap). The yaw+fold pipeline assumes an upright body and can't aim from
+     *  walls or ceilings. Writes the aim's up into [target]; null when no aim holds. */
+    private fun buildFaceAim(target: Vector3d): Quaterniond? {
+        val ft = faceTarget ?: return null
+        if (!facePoseActive || isFlailing()) return null
+        val origin = bodyBlockCentre()
+        val f = Vector3d(ft.x - origin.x, ft.y - origin.y, ft.z - origin.z)
+        if (f.lengthSquared() <= 1.0e-6) return null
+        f.normalize()
+        val capSin = Math.sin(Math.toRadians(FACE_PITCH_FOLD_MAX_DEG.toDouble()))
+        var e = f.dot(faceBaseUp)
+        if (Math.abs(e) > capSin) {
+            // Pull the aim direction back toward the base plane to the cap.
+            val fPara = Vector3d(f).sub(Vector3d(faceBaseUp).mul(e))
+            val paraLen = fPara.length()
+            if (paraLen > 1.0e-6) {
+                fPara.mul(Math.sqrt(1.0 - capSin * capSin) / paraLen)
+                f.set(fPara).add(Vector3d(faceBaseUp).mul(capSin * Math.signum(e))).normalize()
+                e = f.dot(faceBaseUp)
             }
         }
-        faceAimRotation = aimQ
-        // A sitting constriliar rests level; only a staff order (faced via
-        // tickSittingTurn's look-at) may pitch it.
-        // The look-pitch fold noses the body toward what it faces — but ONLY for an
-        // explicit MOVE order. Folding free looks (LookAtPlayer / RandomLookAround)
-        // tilted an idle body up to 25° in arbitrary directions — read as "leaning for
-        // no reason", worst under cargo. Capped hard regardless: an at-your-feet look
-        // target is a ±90° pitch, which once folded into a full face-plant. Face
-        // orders don't fold — their pitch is already in the aim basis above.
-        val allowPitch = ft == null &&
-            commandedTarget != null && (isSitting() || !surfaceNav.isInProgress())
-        val pitch = if (allowPitch) {
-            Math.toRadians(Mth.clamp(xRot, -PITCH_FOLD_MAX_DEG, PITCH_FOLD_MAX_DEG).toDouble())
-        } else {
-            0.0
-        }
-        if (Math.abs(pitch) > 1.0e-3) {
-            val yawRad = Math.toRadians(yBodyRot.toDouble())
-            // Rotate about the body-right axis; negated so positive xRot (looking down)
-            // leans the up-vector forward = nose dips.
-            target.rotateAxis(-pitch, -Math.cos(yawRad), 0.0, -Math.sin(yawRad))
-        }
-        smoothUp.lerp(target, ATTITUDE_LERP).normalize()
-        entityData.set(DATA_UP_X, smoothUp.x.toFloat())
-        entityData.set(DATA_UP_Y, smoothUp.y.toFloat())
-        entityData.set(DATA_UP_Z, smoothUp.z.toFloat())
+        faceAimPitchDeg = (-Math.toDegrees(Math.asin(e.coerceIn(-1.0, 1.0)))).toFloat()
+        val upAim = Vector3d(faceBaseUp).sub(Vector3d(f).mul(e))
+        if (upAim.lengthSquared() <= 1.0e-6) return null
+        upAim.normalize()
+        target.set(upAim)
+        val xAxis = Vector3d(upAim).cross(f)
+        if (xAxis.lengthSquared() <= 1.0e-6) return null
+        xAxis.normalize()
+        return Quaterniond().setFromNormalized(
+            Matrix3d(
+                xAxis.x, xAxis.y, xAxis.z,
+                upAim.x, upAim.y, upAim.z,
+                f.x, f.y, f.z,
+            ),
+        )
+    }
 
-        // Face-plant triage: separates "the DESIRED attitude is pitched" (these inputs
-        // show it) from "physics diverges from the target" (shipUpY sinks while
-        // smoothUp stays vertical). Remove once the tilt bug is closed.
-        if (ATTITUDE_DEBUG && tickCount % 20 == 0 && !level().isClientSide && hasBackShip()) {
-            val shipUp = (level() as ServerLevel).shipObjectWorld.loadedShips.getById(shipId)
-                ?.transform?.shipToWorldRotation?.transform(Vector3d(0.0, 1.0, 0.0))
-        }
+    /** The look-pitch fold noses the body toward what it faces — but ONLY during the
+     *  sitting turn, where [turnBodyToward] aims the look at the commanded spot. A
+     *  standing hold keeps [commandedTarget] while idle look goals drive xRot (any
+     *  player, head frame), which tilted the body in arbitrary directions. The hard cap
+     *  stops an at-your-feet target from folding into a face-plant. Face orders carry
+     *  their pitch in the aim basis. */
+    private fun foldMovePitch(target: Vector3d) {
+        if (faceTarget != null || commandedTarget == null || !isSitting()) return
+        val pitch = Math.toRadians(Mth.clamp(xRot, -PITCH_FOLD_MAX_DEG, PITCH_FOLD_MAX_DEG).toDouble())
+        if (Math.abs(pitch) <= 1.0e-3) return
+        val yawRad = Math.toRadians(yBodyRot.toDouble())
+        // Rotate about the body-right axis; negated so positive xRot (looking down)
+        // leans the up-vector forward = nose dips.
+        target.rotateAxis(-pitch, -Math.cos(yawRad), 0.0, -Math.sin(yawRad))
     }
 
     /** Deep-submerged: the plate itself sits in fluid with more fluid above it (wading
@@ -914,17 +1002,19 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         // claimed by the first such click. The owner check runs server-side only —
         // ownerUUID is never synced, so the client optimistically succeeds.
         if (level().isClientSide) return InteractionResult.SUCCESS
-        if (ownerUUID == null) ownerUUID = player.uuid
+        val claimed = ownerUUID == null
+        if (claimed) {
+            ownerUUID = player.uuid
+            voice(EKSounds.CONSTRILIAR_HAPPY, 0.6f)
+        }
         if (player.uuid == ownerUUID) {
-            setSitting(!isSitting())
+            setSitting(!isSitting(), sound = !claimed)
             commandedTarget = null
             return InteractionResult.CONSUME
         }
         return super.mobInteract(player, hand)
     }
 
-    /** The back ship exists for the entity's whole life: a static ship whose only
-     *  guaranteed block is the platform plate at the chunk-claim centre. */
     /** Before building a new body, reconnect to an orphaned one: a nearby ship carrying
      *  a platform block that no living constriliar claims. Worlds saved mid-bug (wiped
      *  linkage) left cargo-laden bodies orphaned at the pet's spot — creating a fresh
@@ -935,7 +1025,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         for (ship in level.getShipsIntersecting(search)) {
             val serverShip = level.shipObjectWorld.allShips.getById(ship.id) ?: continue
             var found: BlockPos? = null
-            forEachShipBlock(level, serverShip, CARGO_SCAN_BUDGET) { pos, state ->
+            ConstriliarCargo.forEachShipBlock(level, serverShip, CARGO_SCAN_BUDGET) { pos, state ->
                 if (found == null && state.`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())) found = pos
             }
             val pPos = found ?: continue
@@ -989,6 +1079,13 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             bodyBlockState().lightEmission,
         )
 
+    /** The platform's mass after inheritance: the source block's mass, or the
+     *  platform's own datapack mass when the source has none. */
+    private fun inheritedPlatformMass(): Double? {
+        val platformMass = BlockStateInfo.get(platformBlockState())?.first ?: return null
+        return (BlockStateInfo.get(bodyBlockState())?.first ?: platformMass).coerceAtLeast(1.0)
+    }
+
     private fun createBackShip(level: ServerLevel) {
         if (adoptOrphanShip(level)) return
         val ship = try {
@@ -1014,27 +1111,24 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             it.setOwner(this)
             it.setSource(bodyBlockState())
         }
-        // Full mass inheritance: rewrite the platform's datapack mass (400, coupled to
-        // vs_mass/enderkinesis.json) to the animated source block's own mass. Pure
-        // inertia adjustment via the core hook the block pipeline itself uses — same
-        // type on both sides touches mass only, no voxel rebuild. Applied exactly once
-        // per ship: maintenance re-places are net-zero (-400/+400) so the delta holds,
-        // and every destruction path deletes the ship (no residual to leak). Internal
-        // VS2 API — may shift between versions.
-        val sourceMass = (org.valkyrienskies.mod.common.BlockStateInfo.get(bodyBlockState())?.first
-            ?: PLATFORM_BASE_MASS).coerceAtLeast(1.0)
-        if (sourceMass != PLATFORM_BASE_MASS) {
+        // Full mass inheritance: rewrite the platform's datapack mass (vs_mass) to the
+        // animated source block's own mass. Pure inertia adjustment via the core hook the
+        // block pipeline itself uses — same type on both sides touches mass only, no voxel
+        // rebuild. Applied exactly once per ship: maintenance re-places are net-zero, and
+        // every destruction path deletes the ship. Internal VS2 API — may shift.
+        val platformMass = BlockStateInfo.get(platformBlockState())?.first
+        val sourceMass = inheritedPlatformMass()
+        if (platformMass != null && sourceMass != null && sourceMass != platformMass) {
             level.shipObjectWorld.onSetBlock(
                 pPos.x, pPos.y, pPos.z, level.dimensionId,
                 vsCore.blockTypes.solid, vsCore.blockTypes.solid,
-                PLATFORM_BASE_MASS, sourceMass,
+                platformMass, sourceMass,
             )
         }
+        noteMassOp("create")
         platformPos = pPos
         shipId = ship.id
         teleportShipToBack(level, ship)
-        // Positive marker for build/state verification — creation used to be silent,
-        // which made "which build is actually running?" undiagnosable from logs.
     }
 
     /** Cargo layer empty (fresh spawn or mined off) — fill it by clicking with a block.
@@ -1080,8 +1174,6 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 noPhysics = false
                 return
             }
-            if (shipId != NO_SHIP) {
-            }
             shipId = NO_SHIP
             platformPos = null
             entityData.set(DATA_HAS_SHIP, false)
@@ -1102,14 +1194,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         }
         entityData.set(DATA_HAS_SHIP, true)
         entityData.set(DATA_PLATFORM_POS, java.util.Optional.ofNullable(platformPos))
-        // NOTE: the old once-per-session platform re-place (voxel refresh for ships
-        // saved under stale vs_mass values) is GONE. The mass provider answers
-        // authoritatively now, the swap could never fix stale mass anyway (the delta
-        // uses current values on both sides), and its static→dynamic flip on every
-        // world load risked the documented stale phys-side static latch — reloaded
-        // constriliars came back force-inert.
-        unstickIfNeverLoading(level)
+        unstickIfNeverLoading(level, ship)
         if (tickCount % CARGO_SCAN_INTERVAL == 0) validateCargo(level, ship)
+        checkInertia(level, ship)
         driveShip(level)
     }
 
@@ -1127,16 +1214,43 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (loaded.settings.changeDimensionOnTouchPortals) loaded.settings.changeDimensionOnTouchPortals = false
         val platformCentre = Vector3d(pPos.x + 0.5, pPos.y + 0.5, pPos.z + 0.5)
         val plate = loaded.transform.shipToWorld.transformPosition(Vector3d(platformCentre))
+        rideBody(loaded, plate)
+        stitchPath(level)
 
-        // The brain rides the body: snap onto the plate, carry the ship's velocity (the
-        // gait's step-lead reads deltaMovement), never self-collide or take fall damage.
-        // EXCEPT during the spawn intro: the intro renders anchored to the ENTITY, which
-        // must hold rock-still while the (possibly still-loading, spring-lagged) ship
-        // converges to it in the background — snapping to the ship made the intro
-        // inherit spring wobble and sync quantization.
+        val moveVel = Vector3d()
+        val node = walkIntent(level, moveVel)
+        moveVel.add(separationVel)
+
+        val controller = loaded.getOrPutAttachment(ConstriliarShipController::class.java) {
+            ConstriliarShipController()
+        }
+        controller.setPlatform(platformCentre)
+        val submerged = isPlateSubmerged(level)
+        if (submerged) {
+            driveSubmerged(level, controller, loaded, plate, moveVel)
+        } else {
+            tickJump(level, controller, moveVel)
+            driveOnSurface(level, controller, loaded, plate, moveVel, node)
+        }
+        controller.strengthScale = strengthScale()
+        controller.publish()
+        entityData.set(DATA_STRAINED, loaded.inertiaData.mass > STRAIN_MASS * strengthScale())
+        if (submerged) return
+
+        val wantsMotion = moveVel.lengthSquared() > 0.25
+        tickInertRescue(level, loaded, wantsMotion)
+        tickHardStall(level, controller, node, wantsMotion)
+    }
+
+    /** The brain rides the body: snap onto the plate, carry the ship's velocity (the
+     *  gait's step-lead reads deltaMovement), never self-collide or take fall damage.
+     *  EXCEPT during the spawn intro: the intro renders anchored to the ENTITY, which
+     *  must hold rock-still while the (possibly still-loading, spring-lagged) ship
+     *  converges to it in the background. */
+    private fun rideBody(loaded: ServerShip, plate: Vector3d) {
         noPhysics = true
-        val lift = currentLift()
         if (!isSpawnAnimating()) {
+            val lift = currentLift()
             setPos(plate.x - smoothUp.x * lift, plate.y - smoothUp.y * lift, plate.z - smoothUp.z * lift)
             setDeltaMovement(loaded.velocity.x() / 20.0, loaded.velocity.y() / 20.0, loaded.velocity.z() / 20.0)
         } else {
@@ -1146,20 +1260,20 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         // A ghost never runs move(), so vanilla would never flag it grounded — and
         // GroundPathNavigation only follows/updates paths while onGround.
         setOnGround(true)
+    }
 
-        // Leg stitching: plan the NEXT leg from the current path's end before the
-        // walker runs out — distant targets become one continuous stride instead of
-        // stop-plan-go at every 32-block seam.
-        if (tickCount % STITCH_INTERVAL == 0 && !isSitting() && surfaceNav.needsExtension()) {
-            val dest = surfaceNav.currentDestWorld(level)
-            if (dest != null) {
-                surfaceNav.extendPath(level, shipId.takeIf { it != NO_SHIP }, gatherOccupied(dest), this)
-            }
-        }
+    /** Leg stitching: plan the NEXT leg from the current path's end before the walker
+     *  runs out — distant targets become one continuous stride instead of
+     *  stop-plan-go at every 32-block seam. */
+    private fun stitchPath(level: ServerLevel) {
+        if (tickCount % STITCH_INTERVAL != 0 || isSitting() || !surfaceNav.needsExtension()) return
+        val dest = surfaceNav.currentDestWorld(level) ?: return
+        surfaceNav.extendPath(level, ownShipOrNull(), gatherOccupied(dest), this)
+    }
 
-        // Walk intent from the surface path: in-plane velocity toward the current node
-        // with approach braking, so the spring never overshoots waypoints at full tilt.
-        val moveVel = Vector3d()
+    /** Fills [moveVel] with the in-plane walk toward the current path node, with
+     *  approach braking so the spring never overshoots waypoints. Returns the node. */
+    private fun walkIntent(level: ServerLevel, moveVel: Vector3d): ConstriliarSurfaceNavigator.Node? {
         // Mid face-transition (attitude still rotating toward the path's face) progress
         // is rotational, not positional — the stall detector must not fire on it.
         val transitioning = pathUpActive && smoothUp.dot(pathUp) < TRANSITION_AGREE
@@ -1168,126 +1282,181 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         } else {
             surfaceNav.tickFollow(level, position(), transitioning)
         }
-        if (node != null) {
-            val normal = node.face.opposite
-            pathUp.set(normal.stepX.toDouble(), normal.stepY.toDouble(), normal.stepZ.toDouble())
-            pathUpActive = true
-            val cell = surfaceNav.nodeWorldCenter(level, node)
-            val to = Vector3d(cell.x - x, cell.y - y, cell.z - z)
-            // Full in-plane projection strips exactly the component needed to press
-            // into a wall corner or nose over a ledge lip; while the node's face
-            // disagrees with the current attitude, keep a share of it so the drive
-            // commits into the transition as the attitude rotates.
-            val agree = Mth.clamp(smoothUp.dot(pathUp), 0.0, 1.0)
-            val keep = TRANSITION_DRIVE_KEEP * (1.0 - agree)
-            to.sub(Vector3d(smoothUp).mul(to.dot(smoothUp) * (1.0 - keep)))
-            val dist = to.length()
-            if (dist > 1.0e-3) {
-                // Tight squeeze: crawl and square the body to the grid axis — the
-                // 1-wide plate only fits a 1-wide gap when it isn't at an angle.
-                val tight = surfaceNav.isTight(level, node)
-                var speed = Math.min(WALK_SPEED, dist * BRAKE_GAIN + 0.4)
-                if (tight) speed = Math.min(speed, TIGHT_SPEED)
-                moveVel.set(to).mul(speed / dist)
-                // Vanilla body-yaw comes from MoveControl, which the ghost bypasses.
-                if (moveVel.x * moveVel.x + moveVel.z * moveVel.z > 0.04) {
-                    var wantYaw = Math.toDegrees(Math.atan2(moveVel.z, moveVel.x)).toFloat() - 90f
-                    if (tight) wantYaw = Math.round(wantYaw / 90f) * 90f
-                    yBodyRot += Mth.clamp(Mth.wrapDegrees(wantYaw - yBodyRot), -WALK_TURN_SPEED, WALK_TURN_SPEED)
-                    yRot = yBodyRot
+        if (node == null) {
+            pathUpActive = false
+            return null
+        }
+        surfaceNav.nodeWorldUp(level, node, pathUp)
+        pathUpActive = true
+        val cell = surfaceNav.nodeWorldCenter(level, node)
+        val to = Vector3d(cell.x - x, cell.y - y, cell.z - z)
+        // Full in-plane projection strips exactly the component needed to press
+        // into a wall corner or nose over a ledge lip; while the node's face
+        // disagrees with the current attitude, keep a share of it so the drive
+        // commits into the transition as the attitude rotates.
+        val agree = Mth.clamp(smoothUp.dot(pathUp), 0.0, 1.0)
+        val keep = TRANSITION_DRIVE_KEEP * (1.0 - agree)
+        to.sub(Vector3d(smoothUp).mul(to.dot(smoothUp) * (1.0 - keep)))
+        val dist = to.length()
+        if (dist <= 1.0e-3) return node
+        // Tight squeeze: crawl and square the body to the grid axis — the
+        // 1-wide plate only fits a 1-wide gap when it isn't at an angle.
+        val tight = surfaceNav.isTight(level, node)
+        var speed = Math.min(WALK_SPEED, dist * BRAKE_GAIN + 0.4)
+        if (tight) speed = Math.min(speed, TIGHT_SPEED)
+        moveVel.set(to).mul(speed / dist)
+        // Vanilla body-yaw comes from MoveControl, which the ghost bypasses.
+        if (moveVel.x * moveVel.x + moveVel.z * moveVel.z > 0.04) {
+            var wantYaw = yawToward(moveVel.x, moveVel.z)
+            if (tight) wantYaw = surfaceNav.snapYawToGrid(level, wantYaw)
+            stepBodyYaw(wantYaw, WALK_TURN_SPEED)
+        }
+        return node
+    }
+
+    /** Deep-submerged: buoyancy overrides the surface hover — target the fluid surface
+     *  straight above and rise to it (walk intent still applies, so it swims). */
+    private fun driveSubmerged(
+        level: ServerLevel,
+        controller: ConstriliarShipController,
+        loaded: ServerShip,
+        plate: Vector3d,
+        moveVel: Vector3d,
+    ) {
+        var top = BlockPos.containing(plate.x, plate.y, plate.z)
+        var budget = FLUID_SURFACE_SCAN_BUDGET
+        while (budget-- > 0 && !level.getFluidState(top.above()).isEmpty) top = top.above()
+        controller.setHover(plate.x, top.y + 0.8 + currentLift(), plate.z)
+        controller.setUp(0.0, 1.0, 0.0)
+        controller.setMoveVel(moveVel)
+        controller.idealRotation = aimTrimmedRotation(desiredShipRotation(), loaded.transform.shipToWorldRotation)
+        controller.strutsActive = false
+        strutsWereActive = false
+        entityData.set(DATA_AIRBORNE, false)
+    }
+
+    /** Gap jump: approach the take-off node instead of steering at the landing (which
+     *  is across the gap), compress the spring, launch ballistically, and free-fly. */
+    private fun tickJump(level: ServerLevel, controller: ConstriliarShipController, moveVel: Vector3d) {
+        when (val jump = jumpState) {
+            is ConstriliarJumpState.Idle -> approachJump(level, moveVel)
+            is ConstriliarJumpState.Crouch -> {
+                moveVel.zero()
+                jumpState = when {
+                    // A sit, a stop, or a replan during the crouch cancels the jump.
+                    isSitting() || surfaceNav.activeJumpSegment()?.second != jump.landing ->
+                        ConstriliarJumpState.Idle
+                    jump.ticks + 1 < JUMP_CROUCH_TICKS -> jump.copy(ticks = jump.ticks + 1)
+                    else -> ConstriliarJumpState.Flight(launchToward(controller, jump.target))
                 }
             }
-        } else {
-            pathUpActive = false
-        }
-        moveVel.add(separationVel)
-
-        // Deep-submerged: buoyancy overrides the surface hover — target the fluid
-        // surface straight above and rise to it (walk intent still applies, so it
-        // swims while surfacing).
-        if (isPlateSubmerged(level)) {
-            var top = BlockPos.containing(plate.x, plate.y, plate.z)
-            var budget = FLUID_SURFACE_SCAN_BUDGET
-            while (budget-- > 0 && !level.getFluidState(top.above()).isEmpty) top = top.above()
-            val controller = loaded.getOrPutAttachment(ConstriliarShipController::class.java) {
-                ConstriliarShipController()
+            is ConstriliarJumpState.Flight -> {
+                moveVel.zero()
+                val ticks = jump.ticks + 1
+                jumpState = if (ticks > JUMP_FLIGHT_MAX_TICKS) ConstriliarJumpState.Idle else jump.copy(ticks = ticks)
             }
-            controller.platformX = platformCentre.x
-            controller.platformY = platformCentre.y
-            controller.platformZ = platformCentre.z
-            controller.hoverX = plate.x
-            controller.hoverY = top.y + 0.8 + currentLift()
-            controller.hoverZ = plate.z
-            controller.hoverActive = true
-            controller.upX = 0.0
-            controller.upY = 1.0
-            controller.upZ = 0.0
-            controller.moveVelX = moveVel.x
-            controller.moveVelY = moveVel.y
-            controller.moveVelZ = moveVel.z
-            controller.idealRotation =
-                aimTrimmedRotation(desiredShipRotation(), loaded.transform.shipToWorldRotation)
-            controller.strengthScale = strengthScale()
-            controller.publish()
-            entityData.set(DATA_AIRBORNE, false)
-            entityData.set(DATA_STRAINED, loaded.inertiaData.mass > STRAIN_MASS * strengthScale())
+        }
+    }
+
+    private fun approachJump(level: ServerLevel, moveVel: Vector3d) {
+        if (isSitting()) return
+        val segment = surfaceNav.activeJumpSegment() ?: return
+        val takeoff = surfaceNav.nodeWorldCenter(level, segment.first)
+        if (position().distanceToSqr(takeoff) < JUMP_TAKEOFF_ARRIVE_SQ) {
+            voice(EKSounds.CONSTRILIAR_JUMP, 0.6f)
+            jumpState = ConstriliarJumpState.Crouch(segment.second, surfaceNav.nodeWorldCenter(level, segment.second))
             return
         }
+        // Re-aim the walk at the take-off, not across the gap.
+        val to = Vector3d(takeoff.x - x, takeoff.y - y, takeoff.z - z)
+        to.sub(Vector3d(smoothUp).mul(to.dot(smoothUp)))
+        val dist = to.length()
+        if (dist > 1.0e-3) {
+            moveVel.set(to).mul(Math.min(WALK_SPEED, dist * BRAKE_GAIN + 0.4) / dist)
+        }
+    }
 
-        // Gap jump: approach the take-off node instead of steering at the landing
-        // (which is across the gap), compress the spring, launch ballistically, and
-        // free-fly with the hover suppressed until the arc comes down.
-        val jumpSegment = if (isSitting()) null else surfaceNav.activeJumpSegment()
-        when (jumpPhase) {
-            0 -> if (jumpSegment != null) {
-                val takeoff = surfaceNav.nodeWorldCenter(level, jumpSegment.first)
-                if (position().distanceToSqr(takeoff) < JUMP_TAKEOFF_ARRIVE_SQ) {
-                    jumpPhase = 1
-                    jumpTicks = 0
-                    jumpTarget = surfaceNav.nodeWorldCenter(level, jumpSegment.second)
-                } else {
-                    // Re-aim the walk at the take-off, not across the gap.
-                    val to = Vector3d(takeoff.x - x, takeoff.y - y, takeoff.z - z)
-                    to.sub(Vector3d(smoothUp).mul(to.dot(smoothUp)))
-                    val dist = to.length()
-                    if (dist > 1.0e-3) {
-                        moveVel.set(to).mul(Math.min(WALK_SPEED, dist * BRAKE_GAIN + 0.4) / dist)
-                    }
-                }
-            }
-            1 -> {
-                moveVel.zero()
-                if (++jumpTicks >= JUMP_CROUCH_TICKS) {
-                    val target = jumpTarget
-                    if (target != null) {
-                        val dx = target.x - x
-                        val dz = target.z - z
-                        val horizontal = Math.sqrt(dx * dx + dz * dz)
-                        val flightTime = JUMP_TIME_BASE + JUMP_TIME_PER_BLOCK * horizontal
-                        val controller0 = loaded.getOrPutAttachment(ConstriliarShipController::class.java) {
-                            ConstriliarShipController()
-                        }
-                        controller0.launchX = dx / flightTime
-                        controller0.launchZ = dz / flightTime
-                        controller0.launchY = (target.y - y) / flightTime + 0.5 * 10.0 * flightTime
-                        controller0.queueLaunch()
-                        jumpSuppressTicks = Math.max(4, (flightTime * 20.0 * 0.5).toInt())
-                    }
-                    jumpPhase = 2
-                    jumpTicks = 0
-                }
-            }
-            2 -> {
-                moveVel.zero()
-                jumpTicks++
-                if (jumpTicks > JUMP_FLIGHT_MAX_TICKS) jumpPhase = 0
+    /** Queues a ballistic launch that lands on [target]; returns the hover-suppress ticks. */
+    private fun launchToward(controller: ConstriliarShipController, target: Vec3): Int {
+        val dx = target.x - x
+        val dz = target.z - z
+        val flightTime = JUMP_TIME_BASE + JUMP_TIME_PER_BLOCK * Math.sqrt(dx * dx + dz * dz)
+        controller.queueLaunch(
+            dx / flightTime,
+            (target.y - y) / flightTime + 0.5 * ConstriliarShipController.GRAVITY * flightTime,
+            dz / flightTime,
+        )
+        return Math.max(4, (flightTime * 20.0 * 0.5).toInt())
+    }
+
+    private fun driveOnSurface(
+        level: ServerLevel,
+        controller: ConstriliarShipController,
+        loaded: ServerShip,
+        plate: Vector3d,
+        moveVel: Vector3d,
+        node: ConstriliarSurfaceNavigator.Node?,
+    ) {
+        val lift = currentLift()
+        var surface = sampleHoverSurface(level, plate, moveVel, lift)
+        // Mid-jump: the hover must not fight the ballistic arc — suppress it until the
+        // arc is past its apex, then let it reacquire and cushion the landing.
+        val jump = jumpState
+        if (jump is ConstriliarJumpState.Flight) {
+            if (jump.ticks < jump.suppressTicks) {
+                surface = null
+            } else if (surface != null) {
+                voice(EKSounds.CONSTRILIAR_LAND, 0.6f)
+                jumpState = ConstriliarJumpState.Idle
             }
         }
+        if (surface != null) {
+            // Transition clearance: while the body's orientation still disagrees with
+            // the local surface (reorienting between floor/wall/ceiling), ride higher so
+            // the tilted plate's corners swing clear instead of digging into blocks.
+            val mismatch = 1.0 - Math.max(0.0, smoothUp.dot(surfaceUp))
+            val clearance = lift + mismatch * TILT_CLEARANCE
+            // Aiming rises along the (re-based) surface snapshot: the pitched live
+            // smoothUp displaces the hover target sideways, and world-up would pull a
+            // wall-stander off its wall.
+            val rise = if (faceTarget != null && facePoseActive) faceBaseUp else smoothUp
+            controller.setHover(
+                surface.x + rise.x * clearance,
+                surface.y + rise.y * clearance,
+                surface.z + rise.z * clearance,
+            )
+        } else {
+            controller.hoverActive = false
+            // Fell clear (e.g. off a ceiling mid-path): drop the path's attitude claim
+            // so the body rights itself toward world-up on the way down, and the legs
+            // flail (client reads the flag).
+            pathUpActive = false
+        }
+        val flailing = surface == null
+        // The hover is off for a whole jump flight, which is not a fall.
+        if (!flailing) {
+            panicked = false
+        } else if (!panicked && jumpState is ConstriliarJumpState.Idle) {
+            panicked = true
+            voice(EKSounds.CONSTRILIAR_PANIC, 0.6f)
+        }
+        entityData.set(DATA_AIRBORNE, flailing)
+        controller.setUp(smoothUp.x, smoothUp.y, smoothUp.z)
+        controller.setMoveVel(moveVel)
+        controller.idealRotation = aimTrimmedRotation(desiredShipRotation(), loaded.transform.shipToWorldRotation)
+        if (isDancing() && node == null && !isSitting() && jumpState is ConstriliarJumpState.Idle &&
+            controller.hoverActive
+        ) {
+            applyDance(controller)
+        }
+        tickStruts(level, controller)
+    }
 
-        // Adaptive ride height: sample the surface under the plate AND ahead along the
-        // travel direction, then hover relative to the HIGHEST hit — the body rises
-        // before it reaches a step and planes over single-block pits instead of diving
-        // in. All rays skip the body's own blocks; no hit anywhere = free-fall.
+    /** Adaptive ride height: sample the surface under the plate AND ahead along the
+     *  travel direction, and return the HIGHEST hit — the body rises before it reaches
+     *  a step and planes over single-block pits. Rays skip the body's own blocks; null
+     *  means free-fall. */
+    private fun sampleHoverSurface(level: ServerLevel, plate: Vector3d, moveVel: Vector3d, lift: Double): Vec3? {
         val upV = Vec3(smoothUp.x, smoothUp.y, smoothUp.z)
         val plateV = Vec3(plate.x, plate.y, plate.z)
         var bestSurface: Vec3? = null
@@ -1310,171 +1479,128 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 true,
                 shipId,
             )
-            if (hit.type != HitResult.Type.MISS) {
-                val loc = fluidAdjustedSurface(level, hit.location)
-                val along = loc.x * smoothUp.x + loc.y * smoothUp.y + loc.z * smoothUp.z
-                if (along > bestAlongUp) {
-                    bestAlongUp = along
-                    bestSurface = loc
-                }
+            if (hit.type == HitResult.Type.MISS) continue
+            val loc = fluidAdjustedSurface(level, hit.location)
+            val along = loc.x * smoothUp.x + loc.y * smoothUp.y + loc.z * smoothUp.z
+            if (along > bestAlongUp) {
+                bestAlongUp = along
+                bestSurface = loc
             }
         }
-        val controller = loaded.getOrPutAttachment(ConstriliarShipController::class.java) {
-            ConstriliarShipController()
-        }
-        controller.platformX = platformCentre.x
-        controller.platformY = platformCentre.y
-        controller.platformZ = platformCentre.z
-        // Mid-jump: the hover must not fight the ballistic arc — suppress it until the
-        // arc is past its apex, then let it reacquire and cushion the landing.
-        if (jumpPhase == 2) {
-            if (jumpTicks < jumpSuppressTicks) {
-                bestSurface = null
-            } else if (bestSurface != null) {
-                jumpPhase = 0
-            }
-        }
-        if (bestSurface != null) {
-            // Transition clearance: while the body's orientation still disagrees with
-            // the local surface (reorienting between floor/wall/ceiling), ride higher so
-            // the tilted plate's corners swing clear instead of digging into blocks.
-            val mismatch = 1.0 - Math.max(0.0, smoothUp.dot(surfaceUp))
-            val clearance = lift + mismatch * TILT_CLEARANCE
-            if (faceTarget != null && facePoseActive) {
-                // Aiming: rise along the (re-based) surface snapshot. The pitched live
-                // smoothUp displaces the hover target sideways (a standing force
-                // conflict); world-up would pull a wall-stander off its wall.
-                controller.hoverX = bestSurface.x + faceBaseUp.x * clearance
-                controller.hoverY = bestSurface.y + faceBaseUp.y * clearance
-                controller.hoverZ = bestSurface.z + faceBaseUp.z * clearance
-            } else {
-                controller.hoverX = bestSurface.x + smoothUp.x * clearance
-                controller.hoverY = bestSurface.y + smoothUp.y * clearance
-                controller.hoverZ = bestSurface.z + smoothUp.z * clearance
-            }
-            controller.hoverActive = true
-        } else {
-            controller.hoverActive = false
-            // Fell clear (e.g. off a ceiling mid-path): drop the path's attitude claim
-            // so the body rights itself toward world-up on the way down, and the legs
-            // flail (client reads the flag).
-            pathUpActive = false
-        }
-        entityData.set(DATA_AIRBORNE, bestSurface == null)
-        controller.upX = smoothUp.x
-        controller.upY = smoothUp.y
-        controller.upZ = smoothUp.z
-        controller.moveVelX = moveVel.x
-        controller.moveVelY = moveVel.y
-        controller.moveVelZ = moveVel.z
-        controller.idealRotation =
-            aimTrimmedRotation(desiredShipRotation(), loaded.transform.shipToWorldRotation)
+        return bestSurface
+    }
 
-        // Jukebox dance (idle only): bob left, bounce, bob right, bounce — bobs are a
-        // roll+sway of the hover/rotation targets, bounces are hover-spring pops. The
-        // legs dance for free: the gait re-plants feet under the physically moving body.
-        if (isDancing() && node == null && !isSitting() && jumpPhase == 0 && controller.hoverActive) {
-            val t = tickCount % (DANCE_BEAT * 4)
-            val phase = t / DANCE_BEAT
-            val beat = Math.sin(Math.PI * (t % DANCE_BEAT) / DANCE_BEAT)
-            if (phase == 1 || phase == 3) {
-                controller.hoverX += smoothUp.x * beat * DANCE_BOUNCE
-                controller.hoverY += smoothUp.y * beat * DANCE_BOUNCE
-                controller.hoverZ += smoothUp.z * beat * DANCE_BOUNCE
-            } else {
-                val dir = if (phase == 0) 1.0 else -1.0
-                val rot = controller.idealRotation
-                val side = rot.transform(Vector3d(1.0, 0.0, 0.0))
-                // Roll about the WORLD-space forward axis — a ship-local axis rolls
-                // whatever the flipped model frame points at (it read as a slight nod).
-                val forward = rot.transform(Vector3d(0.0, 0.0, 1.0)).normalize()
-                controller.hoverX += side.x * dir * beat * DANCE_SWAY
-                controller.hoverY += side.y * dir * beat * DANCE_SWAY
-                controller.hoverZ += side.z * dir * beat * DANCE_SWAY
-                controller.idealRotation = Quaterniond()
-                    .rotationAxis(dir * beat * DANCE_ROLL, forward.x, forward.y, forward.z)
-                    .mul(rot, Quaterniond())
-            }
+    /** Jukebox dance (idle only): bob left, bounce, bob right, bounce — bobs are a
+     *  roll+sway of the hover/rotation targets, bounces are hover-spring pops. The legs
+     *  dance for free: the gait re-plants feet under the physically moving body. */
+    private fun applyDance(controller: ConstriliarShipController) {
+        val t = tickCount % (DANCE_BEAT * 4)
+        val phase = t / DANCE_BEAT
+        val beat = Math.sin(Math.PI * (t % DANCE_BEAT) / DANCE_BEAT)
+        if (phase == 1 || phase == 3) {
+            controller.hoverX += smoothUp.x * beat * DANCE_BOUNCE
+            controller.hoverY += smoothUp.y * beat * DANCE_BOUNCE
+            controller.hoverZ += smoothUp.z * beat * DANCE_BOUNCE
+            return
         }
+        val dir = if (phase == 0) 1.0 else -1.0
+        val rot = controller.idealRotation
+        val side = rot.transform(Vector3d(1.0, 0.0, 0.0))
+        // Roll about the WORLD-space forward axis — a ship-local axis rolls
+        // whatever the flipped model frame points at (it read as a slight nod).
+        val forward = rot.transform(Vector3d(0.0, 0.0, 1.0)).normalize()
+        controller.hoverX += side.x * dir * beat * DANCE_SWAY
+        controller.hoverY += side.y * dir * beat * DANCE_SWAY
+        controller.hoverZ += side.z * dir * beat * DANCE_SWAY
+        controller.idealRotation = Quaterniond()
+            .rotationAxis(dir * beat * DANCE_ROLL, forward.x, forward.y, forward.z)
+            .mul(rot, Quaterniond())
+    }
 
-        // Supplemental leg springs: a muscle layer over the hover — off in the special
-        // modes that choreograph the hover target (sit, dance, jump, intro) and when
-        // airborne (stale anchors must not glide the fall).
-        // faceTarget: the struts' ground-anchored springs apply a constant righting
-        // torque against a pitched aim — the rotation PD (no integral term) settles
-        // where they balance, well short of the commanded fold. An aiming body is
-        // hover-carried; the muscles stand down.
-        val strutsOk = controller.hoverActive && jumpPhase == 0 && !isSitting() &&
+    /** Supplemental leg springs: a muscle layer over the hover — off in the special
+     *  modes that choreograph the hover target (sit, dance, jump, intro) and when
+     *  airborne (stale anchors must not glide the fall). An aiming body is also
+     *  hover-carried: the struts' ground-anchored springs apply a righting torque, and
+     *  the rotation PD settles where they balance, short of the commanded fold. */
+    private fun tickStruts(level: ServerLevel, controller: ConstriliarShipController) {
+        val strutsOk = controller.hoverActive && jumpState is ConstriliarJumpState.Idle && !isSitting() &&
             !isDancing() && !isSpawnAnimating() && !isFlailing() && faceTarget == null
         controller.strutsActive = strutsOk
-        if (strutsOk) {
-            serverGait.tick(this, level)
-            for (i in 0..3) {
-                controller.strutAnchorX[i] = serverGait.anchors[i].x
-                controller.strutAnchorY[i] = serverGait.anchors[i].y
-                controller.strutAnchorZ[i] = serverGait.anchors[i].z
-                controller.strutHipX[i] = platformCentre.x + HIP_LOCAL_X[i]
-                controller.strutHipY[i] = platformCentre.y
-                controller.strutHipZ[i] = platformCentre.z + HIP_LOCAL_Z[i]
-                controller.strutStance[i] = serverGait.isStance(i)
-            }
+        if (strutsOk && !strutsWereActive) serverGait.reset()
+        strutsWereActive = strutsOk
+        if (!strutsOk) return
+        serverGait.tick(this, level)
+        for (i in 0..3) {
+            controller.strutAnchorX[i] = serverGait.anchors[i].x
+            controller.strutAnchorY[i] = serverGait.anchors[i].y
+            controller.strutAnchorZ[i] = serverGait.anchors[i].z
+            controller.strutHipX[i] = controller.platformX + HIP_LOCAL_X[i]
+            controller.strutHipY[i] = controller.platformY
+            controller.strutHipZ[i] = controller.platformZ + HIP_LOCAL_Z[i]
+            controller.strutStance[i] = serverGait.isStance(i)
         }
+    }
 
-        controller.strengthScale = strengthScale()
-        controller.publish()
-        entityData.set(DATA_STRAINED, loaded.inertiaData.mass > STRAIN_MASS * strengthScale())
-
-        // Inert-body rescue: VS2 puts settled bodies to sleep and a sleeping body
-        // ignores listener forces — a bare, perfectly-balanced ship falls asleep and
-        // then can't walk. Wanting motion while the ship sits dead-still for ~0.75 s
-        // earns a snap teleport to the (near-identical) desired pose, which wakes it.
-        // Generic on purpose: it also heals any other inert-body cause.
-        val wantsMotion = moveVel.lengthSquared() > 0.25
-        if (wantsMotion && loaded.velocity.lengthSquared() < 1.0e-4) {
-            if (++stuckWakeTicks >= STUCK_WAKE_TICKS) {
-                stuckWakeTicks = 0
-                teleportShipToBack(level, loaded)
-            }
-        } else {
+    /** Inert-body rescue: VS2 puts settled bodies to sleep and a sleeping body ignores
+     *  listener forces. Wanting motion while the ship sits dead-still for ~0.75 s earns
+     *  a snap teleport to the (near-identical) desired pose, which wakes it. */
+    private fun tickInertRescue(level: ServerLevel, loaded: ServerShip, wantsMotion: Boolean) {
+        if (!wantsMotion || loaded.velocity.lengthSquared() >= 1.0e-4) {
             stuckWakeTicks = 0
+            return
         }
+        if (++stuckWakeTicks >= STUCK_WAKE_TICKS) {
+            stuckWakeTicks = 0
+            teleportShipToBack(level, loaded)
+        }
+    }
 
-        // Hard-stall recovery: the navigator's stall clock resets on every replan, so a
-        // body physically pinned at a ledge/corner while chasing a MOVING target never
-        // triggers it (jitter against geometry also defeats the sleep-wake check). If
-        // the body wants motion but hasn't displaced in ~3 s, log the exact situation
-        // and pop a recovery hop toward the waypoint.
-        if (wantsMotion && jumpPhase == 0) {
-            val anchor = stallAnchor
-            if (anchor == null || position().distanceToSqr(anchor) > HARD_STALL_DIST_SQ) {
-                stallAnchor = position()
-                stallAnchorTicks = 0
-            } else if (++stallAnchorTicks >= HARD_STALL_TICKS) {
-                stallAnchorTicks = 0
-                stallAnchor = null
-                val waypoint = node?.let { surfaceNav.nodeWorldCenter(level, it) }
-                if (waypoint != null) {
-                    val dx = waypoint.x - x
-                    val dz = waypoint.z - z
-                    val horizontal = Math.sqrt(dx * dx + dz * dz).coerceAtLeast(1.0e-3)
-                    controller.launchX = dx / horizontal * HOP_SPEED
-                    controller.launchZ = dz / horizontal * HOP_SPEED
-                    controller.launchY = HOP_UP_SPEED
-                    controller.queueLaunch()
-                    jumpPhase = 2
-                    jumpTicks = 0
-                    jumpSuppressTicks = HOP_SUPPRESS_TICKS
-                }
-            }
-        } else {
+    /** Hard-stall recovery: the navigator's stall clock resets on every replan, so a
+     *  body pinned at a ledge/corner while chasing a MOVING target never triggers it.
+     *  No displacement for ~3 s while wanting motion pops a hop toward the waypoint. */
+    private fun tickHardStall(
+        level: ServerLevel,
+        controller: ConstriliarShipController,
+        node: ConstriliarSurfaceNavigator.Node?,
+        wantsMotion: Boolean,
+    ) {
+        if (!wantsMotion || jumpState !is ConstriliarJumpState.Idle) {
             stallAnchor = null
             stallAnchorTicks = 0
+            return
         }
+        val anchor = stallAnchor
+        if (anchor == null || position().distanceToSqr(anchor) > HARD_STALL_DIST_SQ) {
+            stallAnchor = position()
+            stallAnchorTicks = 0
+            return
+        }
+        if (++stallAnchorTicks < HARD_STALL_TICKS) return
+        stallAnchorTicks = 0
+        stallAnchor = null
+        val waypoint = node?.let { surfaceNav.nodeWorldCenter(level, it) } ?: return
+        // In the surface plane plus off the surface: a world-up hop pushed wall and
+        // ceiling walkers along or into their own surface.
+        val hop = Vector3d(waypoint.x - x, waypoint.y - y, waypoint.z - z)
+        hop.sub(Vector3d(smoothUp).mul(hop.dot(smoothUp)))
+        hop.mul(HOP_SPEED / hop.length().coerceAtLeast(1.0e-3)).fma(HOP_UP_SPEED, smoothUp)
+        controller.queueLaunch(hop.x, hop.y, hop.z)
+        voice(EKSounds.CONSTRILIAR_JUMP, 0.6f)
+        jumpState = ConstriliarJumpState.Flight(HOP_SUPPRESS_TICKS)
     }
 
     /** Server-gait access to attitude internals (same package, supplemental legs). */
     internal fun serverUp(): Vector3d = smoothUp
     internal fun serverShipRotation(): Quaterniond = desiredShipRotation()
+
+    /** Server twin of [shipRenderPose] from the physics transform: platform centre and
+     *  the ACTUAL ship rotation (no 180° flip). Null when the ship isn't loaded. */
+    internal fun serverShipPose(level: ServerLevel): Pair<Vec3, Quaterniond>? {
+        val pPos = platformPos ?: return null
+        val transform = level.shipObjectWorld.loadedShips.getById(shipId)?.transform ?: return null
+        val centre = transform.shipToWorld.transformPosition(Vector3d(pPos.x + 0.5, pPos.y + 0.5, pPos.z + 0.5))
+        return Pair(Vec3(centre.x, centre.y, centre.z), Quaterniond(transform.shipToWorldRotation))
+    }
 
     private fun desiredShipRotation(): Quaterniond {
         // A standing face order's directly-constructed basis IS the desired
@@ -1489,7 +1615,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  mass on a block update — a ship saved before the platform had a vs_mass entry
      *  stays stuck forever. The entity ticking means a player is near, so a long
      *  unloaded streak is that deadlock: re-place the platform to force the recompute. */
-    private fun unstickIfNeverLoading(level: ServerLevel) {
+    private fun unstickIfNeverLoading(level: ServerLevel, ship: ServerShip) {
         if (level.shipObjectWorld.loadedShips.getById(shipId) != null) {
             shipUnloadedTicks = 0
             return
@@ -1505,15 +1631,50 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             } finally {
                 servicingPlatform = false
             }
+            // The air step removes the datapack mass, not the inherited one, and can
+            // trip VS2's zero-mass reset; rebuild from the blocks.
+            noteMassOp("unstick re-place")
+            rebuildInertia(level, ship, pPos)
+        }
+    }
+
+    private fun noteMassOp(op: String) {
+        lastMassOp = op
+        lastMassOpTick = tickCount
+    }
+
+    /** A non-positive-definite tensor makes the solver emit NaN every step, and one NaN
+     *  force from the drive kills the VS2 physics pipeline. */
+    private fun checkInertia(level: ServerLevel, ship: ServerShip) {
+        if (inertiaRepairGaveUp || ConstriliarInertia.isValid(ship)) return
+        val pPos = platformPos ?: return
+        // A missing plate is validateCargo's job; it rebuilds after the restore.
+        if (!level.getBlockState(pPos).`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())) return
+        LOG.warn(
+            "[EK constriliar] ship {} inertia invalid (mass={}, tensor={}); last mass op '{}' {} ticks ago; rebuilding",
+            ship.id, ship.inertiaData.mass, ship.inertiaData.momentOfInertiaTensor,
+            lastMassOp, tickCount - lastMassOpTick,
+        )
+        rebuildInertia(level, ship, pPos)
+    }
+
+    private fun rebuildInertia(level: ServerLevel, ship: ServerShip, pPos: BlockPos) {
+        val platformMass = inheritedPlatformMass()
+        val rebuilt = platformMass != null && ConstriliarInertia.rebuild(level, ship, pPos, platformMass)
+        inertiaRepairGaveUp = !rebuilt || !ConstriliarInertia.isValid(ship)
+        if (inertiaRepairGaveUp) {
+            LOG.warn("[EK constriliar] ship {} inertia rebuild failed (mass={})", ship.id, ship.inertiaData.mass)
         }
     }
 
     /** Restore the platform plate if something aired it. No cargo-shape policing — the
      *  leg-strength mass budget is the real limit on what it can carry. */
-    private fun validateCargo(level: ServerLevel, @Suppress("UNUSED_PARAMETER") ship: ServerShip) {
+    private fun validateCargo(level: ServerLevel, ship: ServerShip) {
         val pPos = platformPos ?: return
         if (!level.getBlockState(pPos).`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())) {
             level.setBlock(pPos, platformBlockState(), 3)
+            noteMassOp("platform restore")
+            rebuildInertia(level, ship, pPos)
         }
         // Entity network ids change every session, so the BER's back-reference is
         // re-stamped here rather than persisted; the source skin rides along.
@@ -1577,7 +1738,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val ship = level.shipObjectWorld.allShips.getById(shipId)
         val pPos = platformPos
         if (ship != null && pPos != null) {
-            if (dropCargo) dropShipCargo(level, ship, pPos)
+            if (dropCargo) ConstriliarCargo.dropShipCargo(level, ship, pPos)
             ShipAssembler.deleteShip(level, ship, false, false)
         }
         shipId = NO_SHIP
@@ -1677,6 +1838,10 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             if (t != null && distanceToSqr(t.x, t.y, t.z) <= COMMAND_ARRIVE_SQ) {
                 // Arrived: keep holding the spot with a fresh budget for re-approaches.
                 commandedTicks = 0
+                if (!arrivalCheered) {
+                    arrivalCheered = true
+                    voice(EKSounds.CONSTRILIAR_HAPPY, 0.6f)
+                }
             } else if (commandedTicks >= COMMAND_TIMEOUT_TICKS) {
                 // Unreachable: give the order up rather than pathing forever.
                 commandedTarget = null
@@ -1742,6 +1907,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         private val SITTING_DIMENSIONS =
             net.minecraft.world.entity.EntityDimensions.scalable(1.0f, 0.15f)
         private const val SIT_TURN_SPEED = 8f
+        /** Covers a 180° turn inside the rise + crouch window (~10 ticks). */
+        private const val INTRO_TURN_SPEED = 20f
         private const val COMMAND_TIMEOUT_TICKS = 400
         private const val COMMAND_ARRIVE_SQ = 4.0
         /** Boid separation among commanded walkers: neighbour radius (blocks), per-tick
@@ -1754,7 +1921,6 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         private const val NBT_BODY_BLOCK = "EkBodyBlock"
 
         private const val ATTITUDE_LERP = 0.12
-        /** Max look pitch folded into body tilt — attention, never a face-plant. */
         /** Aim elevation cap off the base (floor/wall) plane. */
         private const val FACE_PITCH_FOLD_MAX_DEG = 22.5f
         /** Body-block centre height along the attitude up (the aim origin). */
@@ -1772,13 +1938,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         private const val AIM_TRIM_RATE = 0.02
         private const val AIM_TRIM_MAX = 0.4
         private const val AIM_TRIM_DECAY = 0.9
+        /** Max look pitch folded into body tilt — attention, never a face-plant. */
         private const val PITCH_FOLD_MAX_DEG = 25f
-        /** Once-a-second attitude triage log; flip off when the tilt bug is closed. */
-        private const val ATTITUDE_DEBUG = false
-
-        /** The platform's registered datapack mass — keep in sync with
-         *  data/valkyrienskies/vs_mass/enderkinesis.json. */
-        private const val PLATFORM_BASE_MASS = 400.0
 
         /** Mass-relative strength curve anchors (see [strengthScale]). */
         private const val NETHERITE_CARRY_BLOCKS = 1.85
@@ -1804,55 +1965,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
         private const val CARGO_SCAN_INTERVAL = 10
         private const val CARGO_SCAN_BUDGET = 512
-        private const val CARGO_DROP_SCAN_BUDGET = 100_000
         private const val TICKS_PER_SECOND = 20.0
         private const val DIMENSION_FOLLOW_INTERVAL = 20
 
-        private inline fun forEachShipBlock(
-            level: ServerLevel,
-            ship: ServerShip,
-            cellBudget: Int,
-            action: (BlockPos, net.minecraft.world.level.block.state.BlockState) -> Unit,
-        ) {
-            val aabb = ship.shipAABB ?: return
-            var budget = cellBudget
-            val cursor = BlockPos.MutableBlockPos()
-            for (y in aabb.minY()..aabb.maxY()) {
-                for (x in aabb.minX()..aabb.maxX()) {
-                    for (z in aabb.minZ()..aabb.maxZ()) {
-                        if (budget-- <= 0) return
-                        cursor.set(x, y, z)
-                        val state = level.getBlockState(cursor)
-                        if (!state.isAir) action(cursor.immutable(), state)
-                    }
-                }
-            }
-        }
-
-        private fun popBlockOff(
-            level: ServerLevel,
-            ship: ServerShip,
-            shipyardPos: BlockPos,
-            state: net.minecraft.world.level.block.state.BlockState,
-        ) {
-            level.setBlock(shipyardPos, Blocks.AIR.defaultBlockState(), 3)
-            val world = ship.shipToWorld.transformPosition(
-                Vector3d(shipyardPos.x + 0.5, shipyardPos.y + 0.5, shipyardPos.z + 0.5),
-            )
-            val worldPos = BlockPos.containing(world.x, world.y, world.z)
-            if (level.getBlockState(worldPos).isAir) {
-                FallingBlockEntity.fall(level, worldPos, state)
-            } else {
-                Block.popResource(level, worldPos, ItemStack(state.block))
-            }
-        }
-
-        /** Drops each block of [ship] into the world, but not the plate at [platformPos]. */
-        fun dropShipCargo(level: ServerLevel, ship: ServerShip, platformPos: BlockPos) {
-            forEachShipBlock(level, ship, CARGO_DROP_SCAN_BUDGET) { pos, state ->
-                if (pos != platformPos) popBlockOff(level, ship, pos, state)
-            }
-        }
         private const val SHIP_RETRY_INTERVAL = 20
         private const val SHIP_UNSTICK_TICKS = 100
         private const val CLIMB_WALL_GAP = 0.15
@@ -1939,18 +2054,33 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
          *  block's ~7000 carried "without issue"). */
         private const val STRAIN_MASS = 7500.0
 
-        // Spawn-animation timeline (ticks): squash 0-10, eyes fade 8-18, legs pop 14-30,
-        // rise 20-36, sine hop 36-46, spring settle = the happy bob.
+        private const val AMBIENT_VOLUME = 0.4f
+        private const val ACKNOWLEDGE_GAP_TICKS = 10L
+        private const val STRAIN_SOUND_TICKS = 30
+
+        // Spawn-animation timeline (ticks), keyed to constriliar_awaken.ogg: crack + groan
+        // squash 3.5-13, leg clicks 14-22.5, swell rise 25-33, silent crouch 33-35.5,
+        // hop 35.5-45.5 (airborne silence), landing chirp = the spring-settle bob.
         const val SPAWN_ANIM_TOTAL = 52
-        const val ANIM_SQUASH_END = 10.0
+        const val ANIM_SQUASH_START = 3.5
+        const val ANIM_SQUASH_END = 13.0
         const val ANIM_EYES_START = 8.0
         const val ANIM_EYES_END = 18.0
-        const val ANIM_RISE_START = 20.0
-        const val ANIM_RISE_END = 36.0
-        const val ANIM_JUMP_END = 46.0
+        const val ANIM_RISE_START = 25.0
+        const val ANIM_RISE_END = 33.0
+        const val ANIM_JUMP_START = 35.5
+        const val ANIM_JUMP_END = 45.5
         private const val ANIM_JUMP_HEIGHT = 0.5
-        val ANIM_LEG_POP = floatArrayOf(14f, 20f, 17f, 23f)
+        val ANIM_LEG_POP = floatArrayOf(14f, 19.5f, 16.5f, 22.5f)
         const val ANIM_LEG_POP_LENGTH = 8f
+        /** The foot reads as landed here: the drop is done, only ~1 px of arc lift remains. */
+        const val ANIM_LEG_PLANT = 5f
+
+        /** 0 = the full original block, 1 = the settled plate. */
+        fun spawnSquash(t: Float): Float {
+            val p = ((t - ANIM_SQUASH_START) / (ANIM_SQUASH_END - ANIM_SQUASH_START)).toFloat().coerceIn(0f, 1f)
+            return p * p * (3f - 2f * p)
+        }
 
         private const val BLINK_LENGTH = 3
         private const val BLINK_MIN_GAP = 60
@@ -1965,6 +2095,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             SynchedEntityData.defineId(ConstriliarEntity::class.java, EntityDataSerializers.FLOAT)
         private val DATA_UP_Z: EntityDataAccessor<Float> =
             SynchedEntityData.defineId(ConstriliarEntity::class.java, EntityDataSerializers.FLOAT)
+        /** Light probe height above the model ground plane: mid-plate. */
+        private const val LIGHT_PROBE_UP = 0.5
 
         /** Liquids read as floor at 0.8 of the block (a source's clip top is ~0.89), so
          *  the walker wades slightly into the surface instead of skating its skin.

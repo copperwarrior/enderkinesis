@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.stats.Stats
 import net.minecraft.world.InteractionHand
@@ -22,6 +21,7 @@ import org.shipwrights.enderkinesis.block.IchaericInkFlowingFluid
 import org.shipwrights.enderkinesis.block.IchaericInkReserve
 import org.shipwrights.enderkinesis.registry.EKFluids
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 object IchaericInk {
 
@@ -42,7 +42,11 @@ object IchaericInk {
         val emptied = level is ServerLevel &&
             (!level.getFluidState(pos).isSource || IchaericInkReserve.of(level).takeBottle(pos))
         if (emptied) level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL)
-        level.playSound(player, player.x, player.y, player.z, SoundEvents.BOTTLE_FILL, SoundSource.NEUTRAL, 1f, 1f)
+        // Only the server knows if this bottle empties the ink, so the user also hears it from the server.
+        if (level is ServerLevel) {
+            val sound = if (emptied) EKSounds.ICHAERIC_INK_BOTTLE_FILL_LAST else EKSounds.ICHAERIC_INK_BOTTLE_FILL
+            level.playSound(null, player.x, player.y, player.z, sound.get(), SoundSource.NEUTRAL, 1f, 1f)
+        }
         level.gameEvent(player, GameEvent.FLUID_PICKUP, pos)
         player.awardStat(Stats.ITEM_USED.get(stack.item))
         val filled = ItemUtils.createFilledResult(stack, player, ItemStack(EKItems.ICHAERIC_INK_BOTTLE.get()))

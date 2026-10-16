@@ -9,6 +9,8 @@ import net.minecraft.world.item.DyeItem
 import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.DirectionalBlock
 import net.minecraft.world.level.block.EntityBlock
 import net.minecraft.world.level.block.entity.BlockEntity
@@ -127,13 +129,29 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
     ): InteractionResult {
         val held = player.getItemInHand(hand)
         val dye = held.item as? DyeItem ?: return InteractionResult.PASS
-        if (level.isClientSide) return InteractionResult.SUCCESS
         val be = level.getBlockEntity(pos) as? ShulkerStrutBlockEntity ?: return InteractionResult.PASS
         if (be.dyeColor == dye.dyeColor) return InteractionResult.PASS
+        if (level.isClientSide) return InteractionResult.SUCCESS
         be.setDyeColor(dye.dyeColor)
         if (!player.abilities.instabuild) held.shrink(1)
         return InteractionResult.CONSUME
     }
+
+    @Deprecated("Deprecated in Java")
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState =
+        state.setValue(BlockStateProperties.FACING, rotation.rotate(state.getValue(BlockStateProperties.FACING)))
+
+    @Deprecated("Deprecated in Java")
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState =
+        state.rotate(mirror.getRotation(state.getValue(BlockStateProperties.FACING)))
+
+    @Deprecated("Deprecated in Java")
+    override fun hasAnalogOutputSignal(state: BlockState): Boolean = true
+
+    /** Reads the lid's measured extension, which lags the input while moving, loaded, or blocked. */
+    @Deprecated("Deprecated in Java")
+    override fun getAnalogOutputSignal(state: BlockState, level: Level, pos: BlockPos): Int =
+        (level.getBlockEntity(pos) as? ShulkerStrutBlockEntity)?.comparatorSignal ?: 0
 
     /** Tear down the body when the base breaks so the lid doesn't get orphaned. */
     @Deprecated("Deprecated in Java")

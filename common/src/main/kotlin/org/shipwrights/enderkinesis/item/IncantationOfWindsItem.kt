@@ -54,9 +54,8 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
                 } else {
                     // Out of XP: the incantation feeds on the caster
                     // instead — half a heart per second, cast continues.
-                    entity.hurt(
-                        org.shipwrights.enderkinesis.dimension.EKDamageSources.lightDamage(level, entity),
-                        NO_XP_HEALTH_COST,
+                    org.shipwrights.enderkinesis.sselith.SselithEclipse.applyLightDamage(
+                        level, entity, NO_XP_HEALTH_COST,
                     )
                 }
             }

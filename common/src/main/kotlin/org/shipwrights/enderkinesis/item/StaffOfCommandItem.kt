@@ -20,6 +20,7 @@ import net.minecraft.world.level.Level
 import org.joml.Vector3d
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.blockentity.Commandable
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -116,6 +117,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             }
             val added = target.receiveCommandedBlocks(entries) +
                 target.receiveCommandedEntities(entityEntries)
+            target.voice(EKSounds.SHULKONAUT_TRANSFER.get())
             writeEntries(heldStaff, emptyList())
             writeEntityEntries(heldStaff, emptyList())
             player.displayClientMessage(

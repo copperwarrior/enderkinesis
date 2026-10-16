@@ -676,24 +676,6 @@ object WohlonnogondoniaSpreader {
      *  incrementally in [tickSeedJobs] so the cost of ~270
      *  biome writes + chunk-resync packets is spread out instead
      *  of dumped into one tick. */
-    /** Flip the single biome cell containing [blockPos] to
-     *  Wohlonnogondonia. Routes through [setBiomeCellTo] so the
-     *  chunk is properly tainted, the section mask is bumped,
-     *  and the resync packet fires — i.e. it's the same write
-     *  path the spreader uses internally, just exposed publicly
-     *  for the `/wohlon setcell` debug command. Returns `true`
-     *  if the cell flipped, `false` if the chunk is unloaded
-     *  or the cell was already Wohlon. */
-    @JvmStatic
-    fun convertSingleCellToWohlon(level: ServerLevel, blockPos: BlockPos): Boolean {
-        val wohlonBiome = lookupBiome(level) ?: return false
-        return setBiomeCellTo(
-            level,
-            blockPos.x shr 2, blockPos.y shr 2, blockPos.z shr 2,
-            wohlonBiome,
-        )
-    }
-
     /** Convert every biome cell touched by a collection of
      *  block positions to the Wohlon biome, deduplicating
      *  shared cells (4 × 4 × 4 block cells) and coalescing
@@ -1429,7 +1411,7 @@ object WohlonnogondoniaSpreader {
 
     /** Update the frontier bitmasks of the just-flipped cell *and*
      *  its six previously-Wohlon neighbours. Called from
-     *  [setBiomeCellTo] and [setBiomeCellSilent] after the biome
+     *  [setBiomeCellSilent] after the biome
      *  write succeeds.
      *
      *  Two-part maintenance:
@@ -1680,37 +1662,7 @@ object WohlonnogondoniaSpreader {
         level.setBlock(pos, target, flags)
     }
 
-    /** Write [biome] into the biome cell at world-quarter
-     *  coordinates [(qx, qy, qz)]. Loads the chunk if needed and sends the
-     *  biome packet at once. Only the debug command uses it; spread uses
-     *  [setBiomeCellSilent]. */
-    private fun setBiomeCellTo(
-        level: ServerLevel, qx: Int, qy: Int, qz: Int, biome: Holder<Biome>,
-    ): Boolean {
-        val cx = qx shr 2
-        val cz = qz shr 2
-        val chunk = level.getChunk(cx, cz) as? LevelChunk ?: return false
-        val sectionIdx = (qy shr 2) - chunk.minSection
-        if (sectionIdx < 0 || sectionIdx >= chunk.sections.size) return false
-        val localQx = qx and 3
-        val localQy = qy and 3
-        val localQz = qz and 3
-        val section: LevelChunkSection = chunk.sections[sectionIdx]
-        val existing = section.getNoiseBiome(localQx, localQy, localQz)
-        if (existing === biome || isWohlon(existing)) return false
-        @Suppress("UNCHECKED_CAST")
-        val biomes = section.biomes as PalettedContainer<Holder<Biome>>
-        biomes.getAndSet(localQx, localQy, localQz, biome)
-        chunk.setUnsaved(true)
-        markTainted(getTaintedData(level), chunk.pos)
-        bumpSectionMask(level, chunk.pos, sectionIdx)
-        updateFrontierForFlip(level, qx, qy, qz)
-        markChunkActivity(level, chunk.pos)
-        broadcastChunkResync(level, chunk)
-        return true
-    }
-
-    /** Sibling of [setBiomeCellTo] that never loads a chunk and queues the client resync in
+    /** Writes one biome cell. Never loads a chunk, and queues the client resync in
      *  [pendingResyncs]. [touchedChunks] dedupes the per-chunk work inside one caller pass. */
     private fun setBiomeCellSilent(
         level: ServerLevel,
@@ -1768,10 +1720,6 @@ object WohlonnogondoniaSpreader {
             above++
         }
         return true
-    }
-
-    private fun broadcastChunkResync(level: ServerLevel, chunk: LevelChunk) {
-        level.chunkSource.chunkMap.resendBiomesForChunks(listOf<ChunkAccess>(chunk))
     }
 
     private fun isWohlon(biome: Holder<Biome>): Boolean = biome.`is`(Wohlonnogondonia.BIOME_KEY)

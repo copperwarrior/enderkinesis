@@ -61,6 +61,9 @@ class OceanParticle(
     private val tintG: Float
     private val tintB: Float
 
+    /** Lattice power fade of the host ocean, locked at spawn. */
+    private val strength: Float
+
     /**
      * Precomputed per-wave phase offset / amplitude (see [GerstnerOcean.precomputeSample]) for
      * surface/deep particles. Computed once here so the per-tick wave loop is just a sin/cos sum
@@ -78,7 +81,9 @@ class OceanParticle(
         val zone = org.shipwrights.enderkinesis.physics.LatticeRegistry.zoneAt(level, x, y, z)
         if (zone != null) {
             tintR = zone.tintR; tintG = zone.tintG; tintB = zone.tintB
+            strength = zone.strength
         } else {
+            strength = 1f
             tintR = org.shipwrights.enderkinesis.physics.LatticeCatchZone.DEFAULT_TINT_R
             tintG = org.shipwrights.enderkinesis.physics.LatticeCatchZone.DEFAULT_TINT_G
             tintB = org.shipwrights.enderkinesis.physics.LatticeCatchZone.DEFAULT_TINT_B
@@ -92,7 +97,7 @@ class OceanParticle(
             lifetime = 40 + this.random.nextInt(30)
             quadSize *= 1.2f + this.random.nextFloat() * 0.6f
             xd = vx; yd = vy; zd = vz
-            alpha = 1.0f
+            alpha = strength
             this.xo = x; this.yo = y; this.zo = z
             // Reconstruct the lattice's rest-plane Y so the splash can sample the wave
             // surface anywhere, anytime. Splash spawns at the hull-on-wave contact point —
@@ -161,7 +166,7 @@ class OceanParticle(
         val fadeOut = if (age > tailStart) {
             (lifetime - age).toFloat() / (lifetime - tailStart).coerceAtLeast(1).toFloat()
         } else 1.0f
-        alpha = min(fadeIn, fadeOut) * 0.85f
+        alpha = min(fadeIn, fadeOut) * 0.85f * strength
     }
 
     private fun tickSplash() {
@@ -207,7 +212,7 @@ class OceanParticle(
 
         setColor(SPLASH_R, SPLASH_G, SPLASH_B)
         val fadeOut = (lifetime - age).toFloat() / (lifetime * 0.4f).coerceAtLeast(1f)
-        alpha = min(1.0f, fadeOut)
+        alpha = min(1.0f, fadeOut) * strength
     }
 
     private fun tickWave() {
@@ -256,7 +261,7 @@ class OceanParticle(
         val fadeOut = if (age > tailStart) {
             (lifetime - age).toFloat() / (lifetime - tailStart).coerceAtLeast(1).toFloat()
         } else 1.0f
-        alpha = min(fadeIn, fadeOut)
+        alpha = min(fadeIn, fadeOut) * strength
     }
 
     private fun lerp(a: Float, b: Float, f: Double): Float = a + (b - a) * f.toFloat()

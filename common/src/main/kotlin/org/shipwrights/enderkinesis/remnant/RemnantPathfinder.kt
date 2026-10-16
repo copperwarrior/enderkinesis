@@ -328,6 +328,10 @@ class RemnantPath {
     var lastZ = 0.0
     var evaluatedAt = Long.MIN_VALUE
 
+    /** The player this mass hunted at the last goal pass, and the tick of its last filament snap sound. */
+    var preyId: java.util.UUID? = null
+    var lastSnapSoundAt = Long.MIN_VALUE / 2
+
     val exhausted: Boolean get() = index >= nodes.size
 
     fun reset(x: Double, y: Double, z: Double, tick: Long) {

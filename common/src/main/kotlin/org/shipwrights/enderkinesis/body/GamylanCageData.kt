@@ -146,6 +146,8 @@ data class GamylanCageData(
     @Volatile var droppedItems: MutableList<ItemStack> = java.util.ArrayList(),
 ) {
 
+    val hull: GamylanCageShape.Hull by lazy { GamylanCageShape.newHull(shapeDims) }
+
     fun originAsVector(): Vector3dc = captureOrigin
     fun hoverAsVector(): Vector3dc = hoverPos
 }

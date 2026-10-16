@@ -2,7 +2,13 @@ package org.shipwrights.enderkinesis.blockentity
 
 import org.valkyrienskies.mod.common.dimensionId
 import net.minecraft.core.BlockPos
+import net.minecraft.nbt.CompoundTag
+import net.minecraft.network.protocol.Packet
+import net.minecraft.network.protocol.game.ClientGamePacketListener
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import org.joml.Vector3d
@@ -59,6 +65,10 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
      *  thereafter. Time is in ticks (`gameTime + partialTick`). */
     var clientLastRenderTime: Double = -1.0
 
+    /** True while a world-placed harness pulls at least one ship. The server syncs it to the client. */
+    var pulling: Boolean = false
+        private set
+
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
         cachedPowerLevel = state.getValue(VoidHarnessBlock.POWER)
 
@@ -89,7 +99,31 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
         } else {
             cachedNearbyShipIds = EMPTY_IDS
         }
+        val nowPulling = cachedNearbyShipIds.isNotEmpty()
+        if (nowPulling != pulling) {
+            pulling = nowPulling
+            level.sendBlockUpdated(pos, state, state, Block.UPDATE_CLIENTS)
+        }
+    }
 
+    override fun getUpdateTag(): CompoundTag = CompoundTag().also { it.putBoolean(NBT_PULLING, pulling) }
+
+    override fun getUpdatePacket(): Packet<ClientGamePacketListener>? =
+        ClientboundBlockEntityDataPacket.create(this)
+
+    override fun load(tag: CompoundTag) {
+        super.load(tag)
+        pulling = tag.getBoolean(NBT_PULLING)
+    }
+
+    override fun setLevel(level: Level) {
+        super.setLevel(level)
+        if (level.isClientSide) VoidHarnessClientRegistry.register(level, this)
+    }
+
+    override fun setRemoved() {
+        level?.let { if (it.isClientSide) VoidHarnessClientRegistry.unregister(it, this) }
+        super.setRemoved()
     }
 
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
@@ -190,5 +224,6 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
          *  coincident ship from being yanked back and forth around the harness each tick. */
         const val SOFT_CORE_RADIUS: Double = 1.0
         private val EMPTY_IDS = LongArray(0)
+        private const val NBT_PULLING = "Pulling"
     }
 }

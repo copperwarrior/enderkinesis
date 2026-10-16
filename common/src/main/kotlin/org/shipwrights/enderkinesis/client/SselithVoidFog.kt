@@ -67,11 +67,6 @@ object SselithVoidFog {
     private var halfTex = -1
     private var halfWidth = 0
     private var halfHeight = 0
-    private var colorFbo = -1
-    private var fboColorTex = -1
-    private var fboWidth = 0
-    private var fboHeight = 0
-    private val gpuTimer = GpuTimer()
 
     private val invViewProj = Matrix4f()
     private var camBlockX = 0
@@ -143,29 +138,19 @@ object SselithVoidFog {
         drawFog(mc, march, upsample)
     }
 
-    /** F3 line in Sselith with the pass's GPU time or why it has none. */
-    @JvmStatic
-    fun debugLine(): String? {
-        val level = Minecraft.getInstance().level ?: return null
-        if (level.dimension() != SselithRepertory.LEVEL_KEY) return null
-        val state = if (boundLevel == null) "off (shader pack)" else gpuTimer.status
-        return "Sselith void fog: $state"
-    }
-
     private fun drawFog(mc: Minecraft, march: EffectInstance, upsample: EffectInstance) {
         val main = mc.mainRenderTarget
         ensureHalfTarget(main.width, main.height)
         RenderSystem.disableDepthTest()
         RenderSystem.disableCull()
         RenderSystem.depthMask(false)
-        val timed = mc.options.renderDebug && gpuTimer.begin()
 
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, halfFbo)
         GlStateManager._viewport(0, 0, halfWidth, halfHeight)
         RenderSystem.disableBlend()
         RefractionPass.drawQuad(march, halfWidth, halfHeight, pushMarchUniforms)
 
-        bindColorOnlyTarget(main)
+        MainColorOnlyTarget.bind(main)
         GlStateManager._viewport(0, 0, main.width, main.height)
         // BlendMode.apply skips all state, enableBlend too, when this effect's mode was the last one applied.
         RenderSystem.enableBlend()
@@ -176,7 +161,6 @@ object SselithVoidFog {
         )
         RefractionPass.drawQuad(upsample, main.width, main.height, pushUpsampleUniforms)
 
-        if (timed) gpuTimer.end()
         RenderSystem.depthMask(true)
         RenderSystem.enableDepthTest()
         RenderSystem.enableCull()
@@ -204,30 +188,13 @@ object SselithVoidFog {
         halfHeight = h
     }
 
-    // Main's colour without its depth, so the shader can sample main depth without a GL feedback loop.
-    private fun bindColorOnlyTarget(main: RenderTarget) {
-        if (colorFbo == -1) colorFbo = GlStateManager.glGenFramebuffers()
-        GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, colorFbo)
-        // A resize can hand the new colour texture the deleted one's id, so the size is checked too.
-        if (fboColorTex != main.colorTextureId || fboWidth != main.width || fboHeight != main.height) {
-            GlStateManager._glFramebufferTexture2D(
-                GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, main.colorTextureId, 0,
-            )
-            fboColorTex = main.colorTextureId
-            fboWidth = main.width
-            fboHeight = main.height
-        }
-    }
-
     private fun pushMarchUniforms(eff: EffectInstance) {
         eff.safeGetUniform("InvViewProj").set(invViewProj)
         eff.safeGetUniform("CamBlockWrap").set(camBlockX and (MASK_SIZE - 1), camBlockZ and (MASK_SIZE - 1))
         eff.safeGetUniform("CamFrac").set((camX - camBlockX).toFloat(), (camZ - camBlockZ).toFloat())
         eff.safeGetUniform("CamY").set(camY.toFloat())
         eff.safeGetUniform("DepthParams").set(depthA, depthB)
-        val start = SselithFog.start()
-        // smoothstep is undefined when start >= end; `/sselithfogrange` can set that.
-        eff.safeGetUniform("FogRange").set(start, maxOf(SselithFog.end(), start + 1e-3f))
+        eff.safeGetUniform("FogRange").set(SselithFog.start(), SselithFog.end())
         eff.safeGetUniform("SlabY").set(minY, maxY)
         eff.safeGetUniform("EdgeFade").set(EDGE_FADE)
         eff.safeGetUniform("BreaksLo").set(densityBreaks[0], densityBreaks[1], densityBreaks[2], densityBreaks[3])

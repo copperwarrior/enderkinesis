@@ -6,6 +6,10 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.util.RandomSource
 import net.minecraft.core.Direction
 import net.minecraft.core.BlockPos
+import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.network.protocol.game.ClientboundSoundPacket
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import java.math.BigInteger
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
@@ -14,6 +18,7 @@ import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.dimension.SselithBlockTracker
 import org.shipwrights.enderkinesis.dimension.SselithParallel
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.sqrt
 
 /**
@@ -76,10 +81,17 @@ object IrreverantRemnantManager {
     private val pathGoal = BlockPos.MutableBlockPos()
 
     private val clusterCount = it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap()
+    private val clusterMinId = it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap()
     private val clusterParallel = it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap()
 
     /** Parallel table index of each player in this tick's player list, or -1 when no particle is on it. */
     private var playerParallels = IntArray(0)
+
+    /** Drips whose filament broke in this tick's force pass, which has no player list to play the sound to. */
+    private val snapped = ArrayList<IrreverantRemnantBlob>()
+
+    /** Game tick of each player's last stir sound. */
+    private val lastStirAt = HashMap<java.util.UUID, Long>()
 
 
     /** Distinct cluster roots this pass, so a mass can look for others.
@@ -338,6 +350,7 @@ object IrreverantRemnantManager {
         surface.refreshEntities(tickLevel, particleBounds(blobs))
         buildHash(blobs)
         applyParticleForces(blobs)
+        playSnaps(tickLevel, players)
         for (blob in blobs) integrate(blob, tickLevel.gameTime)
         // Goal selection is the expensive part (clustering + player search),
         // so it runs on an interval; the steering it produces is applied
@@ -394,6 +407,7 @@ object IrreverantRemnantManager {
         // Accumulate each cluster's centroid and volume.
         clusterVolume.clear()
         clusterCount.clear()
+        clusterMinId.clear()
         clusterParallel.clear()
         clusterGoalX.clear()
         clusterGoalY.clear()
@@ -410,6 +424,9 @@ object IrreverantRemnantManager {
             if (clusterCount.addTo(root, 1) == 0) {
                 clusterRoots.add(root)
                 clusterParallel.put(root, blob.parallel)
+                clusterMinId.put(root, blob.id)
+            } else if (blob.id < clusterMinId.get(root)) {
+                clusterMinId.put(root, blob.id)
             }
             clusterVolume.addTo(root, v)
             clusterX.addTo(root, blob.x * v)
@@ -441,6 +458,7 @@ object IrreverantRemnantManager {
         for (i in 0 until n) {
             val blob = blobs[i]
             val root = find(i)
+            blob.massId = clusterMinId.get(root)
             val volume = clusterVolume.get(root)
             if (volume <= 0.0) continue
             val cx = clusterX.get(root) / volume
@@ -491,7 +509,12 @@ object IrreverantRemnantManager {
 
             blob.path = path
             blob.hunting = hunting
-            updateSeep(path, cx, cy, cz, tickLevel.gameTime)
+            if (updateSeep(path, cx, cy, cz, tickLevel.gameTime)) {
+                playToParallel(
+                    tickLevel, players, blob.parallel, cx, cy, cz, EKSounds.REMNANT_SEEP.get(),
+                    SEEP_VOLUME, randomPitch(tickLevel, SEEP_PITCH_MIN, SEEP_PITCH_MAX),
+                )
+            }
             blob.seeping = path.seeping
             if (path.exhausted) {
                 blob.goalX = tx; blob.goalY = ty; blob.goalZ = tz
@@ -502,6 +525,9 @@ object IrreverantRemnantManager {
                 blob.goalZ = BlockPos.getZ(node) + 0.5
             }
             if (clusterHeading.add(root)) {
+                val wasHunting = path.preyId != null
+                path.preyId = prey?.uuid
+                if (prey != null && !wasHunting) stir(tickLevel, prey, cx, cy, cz)
                 clusterGoalX.put(root, blob.goalX)
                 clusterGoalY.put(root, blob.goalY)
                 clusterGoalZ.put(root, blob.goalZ)
@@ -743,6 +769,7 @@ object IrreverantRemnantManager {
             // shedding — impressive once, then permanent scenery.
             if (distSq > PARENT_SNAP * PARENT_SNAP) {
                 if (++blob.stretchTicks >= SNAP_PATIENCE) {
+                    snapped.add(blob)
                     blob.parent = null
                     blob.stretchTicks = 0
                     // Kept from reattaching immediately, or it grabs the same
@@ -869,23 +896,24 @@ object IrreverantRemnantManager {
      * regardless of what any individual particle is doing or where the
      * waypoint went.
      */
-    private fun updateSeep(path: RemnantPath, cx: Double, cy: Double, cz: Double, now: Long) {
-        if (path.evaluatedAt == now) return
+    /** Returns true when the mass starts to seep on this pass. */
+    private fun updateSeep(path: RemnantPath, cx: Double, cy: Double, cz: Double, now: Long): Boolean {
+        if (path.evaluatedAt == now) return false
         path.evaluatedAt = now
 
         if (path.seepTicks > 0) {
             path.seepTicks -= BEHAVIOR_INTERVAL.toInt()
-            if (path.seepTicks > 0) return
+            if (path.seepTicks > 0) return false
             path.seeping = false
             path.stuckTicks = 0
             path.lastX = Double.NaN
-            return
+            return false
         }
         // Nothing to compare against on the first pass for a new mass.
         if (path.lastX.isNaN()) {
             path.lastX = cx; path.lastY = cy; path.lastZ = cz
             path.stuckTicks = 0
-            return
+            return false
         }
         val dx = cx - path.lastX
         val dy = cy - path.lastY
@@ -902,10 +930,10 @@ object IrreverantRemnantManager {
         } else {
             path.stuckTicks += BEHAVIOR_INTERVAL.toInt()
         }
-        if (path.stuckTicks >= STUCK_PATIENCE) {
-            path.seeping = true
-            path.seepTicks = SEEP_DURATION
-        }
+        if (path.stuckTicks < STUCK_PATIENCE) return false
+        path.seeping = true
+        path.seepTicks = SEEP_DURATION
+        return true
     }
 
     /** A route is redone when it has run out, gone stale, or its target has
@@ -1007,9 +1035,72 @@ object IrreverantRemnantManager {
             // Overlapping cubes are summed twice where they overlap each other; the clamp absorbs that.
             val depth = (overlap / (box.xsize * box.ysize * box.zsize)).coerceIn(0.0, 1.0)
             val damage = DAMAGE_MIN + (DAMAGE_MAX - DAMAGE_MIN) * depth
-            player.hurt(EKDamageSources.irreverantRemnant(tickLevel), damage.toFloat())
+            if (player.hurt(EKDamageSources.irreverantRemnant(tickLevel), damage.toFloat())) {
+                playToParallel(
+                    tickLevel, players, parallel, player.x, player.y, player.z, EKSounds.REMNANT_CONSUME.get(),
+                    CONSUME_VOLUME, randomPitch(tickLevel, CONSUME_PITCH_MIN, CONSUME_PITCH_MAX),
+                )
+            }
         }
     }
+
+    // -------------------------------------------------------------- sound
+
+    /** One snap per mass in [SNAP_SOUND_GAP] ticks, so a tearing tendril does not rattle. */
+    private fun playSnaps(tickLevel: ServerLevel, players: List<ServerPlayer>) {
+        val now = tickLevel.gameTime
+        for (blob in snapped) {
+            val path = blob.path
+            if (path != null) {
+                if (now - path.lastSnapSoundAt < SNAP_SOUND_GAP) continue
+                path.lastSnapSoundAt = now
+            }
+            playToParallel(
+                tickLevel, players, blob.parallel, blob.x, blob.y, blob.z, EKSounds.REMNANT_SNAP.get(),
+                SNAP_VOLUME, randomPitch(tickLevel, SNAP_PITCH_MIN, SNAP_PITCH_MAX),
+            )
+        }
+        snapped.clear()
+    }
+
+    /** The hunted player's only warning, so only that player hears it. */
+    private fun stir(tickLevel: ServerLevel, prey: ServerPlayer, cx: Double, cy: Double, cz: Double) {
+        val now = tickLevel.gameTime
+        lastStirAt.values.removeIf { now - it >= STIR_COOLDOWN || now < it }
+        if (lastStirAt.putIfAbsent(prey.uuid, now) != null) return
+        sendSound(prey, EKSounds.REMNANT_STIR.get(), cx, cy, cz, STIR_VOLUME, 1f, tickLevel.random.nextLong())
+    }
+
+    /** Like [ServerLevel.playSound], but only players on [parallel] hear it: the others cannot see the remnant. */
+    @Suppress("LongParameterList") // A position, a parallel and a sound; a holder object would allocate per sound.
+    private fun playToParallel(
+        tickLevel: ServerLevel, players: List<ServerPlayer>, parallel: Int,
+        x: Double, y: Double, z: Double, event: SoundEvent, volume: Float, pitch: Float,
+    ) {
+        val range = event.getRange(volume).toDouble()
+        val seed = tickLevel.random.nextLong()
+        for (p in players.indices) {
+            if (playerParallels[p] != parallel) continue
+            val player = players[p]
+            if (player.distanceToSqr(x, y, z) > range * range) continue
+            sendSound(player, event, x, y, z, volume, pitch, seed)
+        }
+    }
+
+    @Suppress("LongParameterList") // Mirrors the fields of ClientboundSoundPacket.
+    private fun sendSound(
+        player: ServerPlayer, event: SoundEvent,
+        x: Double, y: Double, z: Double, volume: Float, pitch: Float, seed: Long,
+    ) {
+        player.connection.send(
+            ClientboundSoundPacket(
+                BuiltInRegistries.SOUND_EVENT.wrapAsHolder(event), SoundSource.HOSTILE, x, y, z, volume, pitch, seed,
+            ),
+        )
+    }
+
+    private fun randomPitch(tickLevel: ServerLevel, min: Float, max: Float): Float =
+        min + tickLevel.random.nextFloat() * (max - min)
 
     /** Summed intersection volume of [box] with the cubes on [parallel], from
      *  the spatial hash. The query is padded so cubes that moved since the
@@ -1529,6 +1620,19 @@ object IrreverantRemnantManager {
 
 
     private const val HUNT_PARTICLES = 10
+
+    private const val SNAP_VOLUME = 0.5f
+    private const val SNAP_PITCH_MIN = 0.9f
+    private const val SNAP_PITCH_MAX = 1.1f
+    private const val SNAP_SOUND_GAP = 10L
+    private const val SEEP_VOLUME = 0.7f
+    private const val SEEP_PITCH_MIN = 0.9f
+    private const val SEEP_PITCH_MAX = 1.0f
+    private const val CONSUME_VOLUME = 0.8f
+    private const val CONSUME_PITCH_MIN = 0.9f
+    private const val CONSUME_PITCH_MAX = 1.1f
+    private const val STIR_VOLUME = 0.6f
+    private const val STIR_COOLDOWN = 20L * 20L
     private const val MERGE_SEEK_RANGE = 32.0
 
     /** How far a hunting mass can sense a player. */

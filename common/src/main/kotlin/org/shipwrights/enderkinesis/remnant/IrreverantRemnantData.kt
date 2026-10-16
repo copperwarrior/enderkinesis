@@ -56,6 +56,10 @@ class IrreverantRemnantBlob(
     @JvmField
     var parent: IrreverantRemnantBlob? = null
 
+    /** Lowest particle id in this particle's connected mass, from the last cluster pass. Clients group sound by it. */
+    @JvmField
+    var massId: Int = id
+
     /** Ticks this particle's link has been stretched past breaking, and a
      *  spell after a break during which it will not reattach. Transient. */
     @JvmField

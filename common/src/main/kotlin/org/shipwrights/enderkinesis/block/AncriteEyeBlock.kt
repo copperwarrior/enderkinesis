@@ -4,12 +4,13 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.util.RandomSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.player.Player
+import net.minecraft.world.entity.projectile.AbstractArrow
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -26,6 +27,7 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.blockentity.AncriteEyeBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Analog redstone source — mirrors vanilla `LeverBlock` for power transmission: weak
@@ -102,10 +104,28 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
         return InteractionResult.CONSUME
     }
 
+    // Mirrors vanilla `ButtonBlock`: a stuck arrow gets no more `entityInside` calls,
+    // so [tick] polls the shape to hold the press.
+    @Deprecated("Deprecated in Java")
+    override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
+        if (level.isClientSide || entity !is AbstractArrow) return
+        if (!hasArrowInside(state, level, pos)) return
+        val be = level.getBlockEntity(pos) as? AncriteEyeBlockEntity ?: return
+        pressButton(level, pos, state, be)
+    }
+
+    private fun hasArrowInside(state: BlockState, level: Level, pos: BlockPos): Boolean =
+        level.getEntitiesOfClass(AbstractArrow::class.java, state.getShape(level, pos).bounds().move(pos))
+            .isNotEmpty()
+
     @Deprecated("Deprecated in Java")
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         val be = level.getBlockEntity(pos) as? AncriteEyeBlockEntity ?: return
         if (be.savedPower < 0) return
+        if (hasArrowInside(state, level, pos)) {
+            level.scheduleTick(pos, this, PRESS_DURATION_TICKS)
+            return
+        }
         val restored = be.savedPower
         be.savedPower = -1
         be.setChanged()
@@ -210,15 +230,17 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
          *  the wall re-evaluates. */
         fun setPower(level: Level, pos: BlockPos, state: BlockState, power: Int, pressed: Boolean) {
             val clamped = power.coerceIn(0, MAX_POWER)
+            val previous = state.getValue(POWER)
             val newState = state.setValue(POWER, clamped).setValue(PRESSED, pressed)
             level.setBlock(pos, newState, UPDATE_ALL)
             updateNeighbours(newState, level, pos)
-            val pitch = 0.5f + (clamped / MAX_POWER.toFloat()) * 1.0f
-            level.playSound(
-                null, pos,
-                SoundEvents.LEVER_CLICK, SoundSource.BLOCKS,
-                0.3f, pitch,
-            )
+            val pitch = 0.8f + (clamped / MAX_POWER.toFloat()) * 0.4f
+            val sound = when {
+                pressed -> EKSounds.ANCRITE_EYE_MAX
+                clamped > previous -> EKSounds.ANCRITE_EYE_UP
+                else -> EKSounds.ANCRITE_EYE_DOWN
+            }
+            level.playSound(null, pos, sound.get(), SoundSource.BLOCKS, 0.3f, pitch)
         }
 
         /** Same two-step neighbour poke `LeverBlock.updateNeighbours` does — at the eye's
