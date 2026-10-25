@@ -6434,6 +6434,11 @@
       "sselith": "siskstkhegh",
       "tag": "[cracked + ADJ]"
     },
+    "crackle": {
+      "pos": "VERB",
+      "sselith": "glouvkhsiskvel",
+      "tag": "[compound: fire + break + DIM]"
+    },
     "crackles": {
       "pos": "VERB",
       "sselith": "glouvkh",
@@ -7738,6 +7743,11 @@
       "pos": "ADJ",
       "sselith": "kwerstekhegh",
       "tag": "[determine + ADJ]"
+    },
+    "detonate": {
+      "pos": "VERB",
+      "sselith": "morsiskkraekh",
+      "tag": "[compound: explode + make]"
     },
     "devastate": {
       "pos": "VERB",
@@ -12069,6 +12079,11 @@
       "sselith": "morschrkh",
       "tag": "[further + AUG]"
     },
+    "fuse": {
+      "pos": "VERB",
+      "sselith": "kreunteltkh",
+      "tag": "[RE + merge]"
+    },
     "future": {
       "pos": "NOUN",
       "sselith": "vrendtemkh",
@@ -13818,6 +13833,11 @@
       "pos": "ADJ",
       "sselith": "morischkh",
       "tag": "[enormous]"
+    },
+    "hum": {
+      "pos": "VERB",
+      "sselith": "velzhsathorgh",
+      "tag": "[DIM + hiss]"
     },
     "human": {
       "pos": "NOUN",
@@ -22609,6 +22629,11 @@
       "sselith": "krekr",
       "tag": "[revolution]"
     },
+    "rebound": {
+      "pos": "VERB",
+      "sselith": "krelokttockh",
+      "tag": "[RE + throw]"
+    },
     "rebuild": {
       "pos": "VERB",
       "sselith": "krekraekh",
@@ -23958,6 +23983,11 @@
       "pos": "VERB",
       "sselith": "morvolkh",
       "tag": "[AUG + volkh]"
+    },
+    "rune": {
+      "pos": "NOUN",
+      "sselith": "zhskrimkhsthoun",
+      "tag": "[compound: write + stone]"
     },
     "rung": {
       "pos": "VERB",
@@ -38373,6 +38403,11 @@
       "pos": "NOUN",
       "sselith": "kwieltukhelk",
       "tag": "[calm + PL]"
+    },
+    "crumble": {
+      "pos": "VERB",
+      "sselith": "velsiskstkh",
+      "tag": "[DIM + break]"
     },
     "crumbles": {
       "pos": "NOUN",

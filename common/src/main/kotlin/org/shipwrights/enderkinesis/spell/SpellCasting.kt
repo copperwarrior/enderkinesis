@@ -4,17 +4,17 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.particles.ParticleTypes
-import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.item.AegisBox
-import org.shipwrights.enderkinesis.item.BeamSegment
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import kotlin.math.roundToInt
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Turns a [Spell] into element effects for each cast mode. Every element on the scroll
@@ -103,8 +103,16 @@ object SpellCasting {
                 val trace = SunderingBeamTrace.trace(ctx.level, ctx.caster, origin, look, beamReach(magnitude), mirrors, BEAM_HALF_WIDTH)
                 for (line in beamLines(trace)) applyAll(ctx, spell, line, 1f)
             }
-            Shape.SPRAY -> applyAll(ctx, spell, spray(origin, look, magnitude, mirrors), 1f)
-            Shape.CHAIN -> applyAll(ctx, spell, chain(ctx, origin, look, magnitude) ?: return, 1f)
+            Shape.SPRAY -> {
+                applyAll(ctx, spell, spray(origin, look, magnitude, mirrors), 1f)
+                ctx.level.playSound(null, origin.x, origin.y, origin.z, EKSounds.SPRAY_LOOP.get(), SoundSource.PLAYERS, LOOP_VOLUME, 1f)
+            }
+            Shape.CHAIN -> {
+                val group = chain(ctx, origin, look, magnitude) ?: return
+                applyAll(ctx, spell, group, 1f)
+                val at = group.anchor
+                ctx.level.playSound(null, at.x, at.y, at.z, EKSounds.CHAIN_ZAP.get(), SoundSource.PLAYERS, ZAP_VOLUME, 1.6f)
+            }
             Shape.BOLT -> return
         }
     }
@@ -120,7 +128,7 @@ object SpellCasting {
      * casters' Aegis boxes, and registers it with [BeamManager] for crossings and loops.
      * When [pulse], every element applies along the beam, up to where it feeds a merged beam.
      */
-    fun beamTick(ctx: SpellContext, spell: Spell, caster: LivingEntity, origin: Vec3, look: Vec3, pulse: Boolean, trail: Boolean) {
+    fun beamTick(ctx: SpellContext, spell: Spell, caster: LivingEntity, origin: Vec3, look: Vec3, pulse: Boolean) {
         val shapeElement = spell.shapeElement ?: return
         val level = ctx.level
         val reach = beamReach(spell.magnitude(shapeElement))
@@ -134,8 +142,10 @@ object SpellCasting {
             BeamManager.clip(caster.uuid, trace),
             if (BeamManager.isCut(caster.uuid)) null else trace.finalBlockPos,
         )
-        if (pulse) for (line in beamLines(acting)) applyAll(ctx, spell, line, 1f)
-        if (trail) beamTrail(level, acting.segments, spell.tint())
+        if (pulse) {
+            for (line in beamLines(acting)) applyAll(ctx, spell, line, 1f)
+            level.playSound(null, origin.x, origin.y, origin.z, EKSounds.BEAM_LOOP.get(), SoundSource.PLAYERS, LOOP_VOLUME, 1.2f)
+        }
     }
 
     /** One line per segment of a traced beam. The last ends just inside a struck block, so
@@ -143,18 +153,6 @@ object SpellCasting {
     fun beamLines(trace: BeamTrace): List<Delivery.Line> = trace.segments.mapIndexed { i, seg ->
         val bite = i == trace.segments.lastIndex && trace.finalBlockPos != null
         Delivery.Line(seg.start, if (bite) seg.end.add(seg.direction.scale(BLOCK_BITE)) else seg.end, BEAM_HALF_WIDTH)
-    }
-
-    /** Thin dust along a beam between pulses, in [rgb]. */
-    fun beamTrail(level: ServerLevel, segments: List<BeamSegment>, rgb: Int) {
-        val dust = dust(rgb)
-        for (seg in segments) {
-            val steps = (seg.length / TRAIL_SPACING).toInt().coerceAtLeast(1)
-            for (i in 1..steps) {
-                val p = seg.start.lerp(seg.end, i.toDouble() / steps)
-                level.sendParticles(dust, p.x, p.y, p.z, 1, 0.02, 0.02, 0.02, 0.0)
-            }
-        }
     }
 
     // -----------------------------------------------------------------------
@@ -233,6 +231,8 @@ object SpellCasting {
 
     private const val BEAM_HALF_WIDTH = 0.5
     private const val BLOCK_BITE = 0.1
+    private const val LOOP_VOLUME = 0.5f
+    private const val ZAP_VOLUME = 0.3f
     private const val TRAIL_SPACING = 0.75
     private val SPRAY_HALF_ANGLE = Math.toRadians(25.0)
     private const val CHAIN_RANGE = 12.0

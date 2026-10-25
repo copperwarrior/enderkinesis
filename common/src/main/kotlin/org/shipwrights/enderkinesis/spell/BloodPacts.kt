@@ -7,6 +7,8 @@ import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.Mob
 import org.shipwrights.enderkinesis.registry.EKEffects
 import java.util.UUID
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Blood's lasting bonds, server-side and not saved (the effects behind them are short):
@@ -45,6 +47,7 @@ object BloodPacts {
         masters[mob.uuid] = master.uuid
         if (mob.target === master) mob.target = null
         mob.addEffect(MobEffectInstance(EKEffects.ENTHRALLED.get(), ticks), master)
+        level.playSound(null, mob.x, mob.y, mob.z, EKSounds.ENTHRALLED.get(), SoundSource.HOSTILE, 1f, 0.8f)
     }
 
     private fun isThrallOf(entity: LivingEntity?, master: UUID): Boolean = entity != null && masters[entity.uuid] == master

@@ -7,6 +7,7 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.item.BeamSegment
 
 /**
  * Server senders for the spell effects clients have to see. Receivers are in
@@ -24,6 +25,8 @@ object SpellNetwork {
     val PHASE: ResourceLocation = EnderkinesisMod.id("spell/phase")
     val UNPHASE: ResourceLocation = EnderkinesisMod.id("spell/unphase")
     val STUTTER: ResourceLocation = EnderkinesisMod.id("spell/stutter")
+    val MERGED: ResourceLocation = EnderkinesisMod.id("spell/merged")
+    val VISUALS: ResourceLocation = EnderkinesisMod.id("spell/visuals")
 
     fun broadcastAbsent(level: ServerLevel, entity: Entity, absent: Boolean) =
         broadcast(level, ABSENT) { it.writeVarInt(entity.id); it.writeBoolean(absent) }
@@ -34,8 +37,32 @@ object SpellNetwork {
             for (pos in positions) buf.writeLong(pos)
         }
 
+    /** [entity]'s visible spell effects changed; see [SpellVisuals]. */
+    fun broadcastVisuals(level: ServerLevel, entity: Entity, bits: Int) =
+        broadcast(level, VISUALS) { it.writeVarInt(entity.id); it.writeVarInt(bits) }
+
     fun broadcastStutter(level: ServerLevel, shipId: Long, ticks: Int) =
         broadcast(level, STUTTER) { it.writeLong(shipId); it.writeVarInt(ticks) }
+
+    /** This tick's merged beams and their parents' cut lengths, sent every tick while any
+     *  exist; clients drop them a few ticks after they stop coming. */
+    fun broadcastMerged(level: ServerLevel, beams: List<Pair<List<BeamSegment>, Int>>, cuts: Map<Int, Double>) =
+        broadcast(level, MERGED) { buf ->
+            buf.writeVarInt(beams.size)
+            for ((segments, rgb) in beams) {
+                buf.writeInt(rgb)
+                buf.writeVarInt(segments.size)
+                for (seg in segments) {
+                    buf.writeDouble(seg.start.x); buf.writeDouble(seg.start.y); buf.writeDouble(seg.start.z)
+                    buf.writeDouble(seg.end.x); buf.writeDouble(seg.end.y); buf.writeDouble(seg.end.z)
+                }
+            }
+            buf.writeVarInt(cuts.size)
+            for ((id, cut) in cuts) {
+                buf.writeVarInt(id)
+                buf.writeDouble(cut)
+            }
+        }
 
     private inline fun broadcast(level: ServerLevel, id: ResourceLocation, write: (FriendlyByteBuf) -> Unit) {
         val buf = FriendlyByteBuf(Unpooled.buffer())

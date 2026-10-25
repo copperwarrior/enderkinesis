@@ -8,7 +8,6 @@ import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
@@ -21,6 +20,7 @@ import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.util.ShipMoves
 import org.valkyrienskies.mod.common.dimensionId
 import java.util.UUID
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Places runes and sets them off. A triggered rune always casts on the next tick, never in
@@ -113,7 +113,7 @@ object RuneTriggers {
         val owner = rune.owner?.let { level.server.playerList.getPlayer(it) }
         val ctx = SpellContext(level, null, centre, rune.owner, buffRecipient = owner, nearestRecipient = false)
         SpellCasting.burst(ctx, rune.spell, centre, area = false)
-        level.playSound(null, rune.pos, SoundEvents.EVOKER_CAST_SPELL, SoundSource.BLOCKS, 1f, 1.2f)
+        level.playSound(null, rune.pos, EKSounds.RUNE_TRIGGER.get(), SoundSource.BLOCKS, 1f, 1.2f)
     }
 
     private fun drainContacts(server: MinecraftServer) {
@@ -150,7 +150,7 @@ object RuneTriggers {
         if (!ctx.setBlock(target, rune)) return EventResult.interruptTrue()
         (level.getBlockEntity(target) as? RuneBlockEntity)?.write(spell, player.uuid, host.block)
         if (!player.abilities.instabuild) stack.shrink(1)
-        level.playSound(null, target, SoundEvents.ENCHANTMENT_TABLE_USE, SoundSource.PLAYERS, 1f, 0.7f)
+        level.playSound(null, target, EKSounds.RUNE_PLACE.get(), SoundSource.PLAYERS, 1f, 0.7f)
         player.displayClientMessage(Component.translatable(PLACED_KEY), true)
         return EventResult.interruptTrue()
     }

@@ -262,5 +262,27 @@ object EKParticles {
 
     fun ichaericInkDrip(): EKOceanParticleType = ICHAERIC_INK_DRIP.get() as EKOceanParticleType
 
+    // Mystic Scroll particles, drawn with vanilla textures tinted per kind (see SpellParticle).
+    /** Crystallized shatter: bright falling shards. */
+    val CRYSTAL_SHARD: RegistrySupplier<ParticleType<*>> = PARTICLES.register("crystal_shard") { EKOceanParticleType() }
+    /** Rot: drifting green spores. */
+    val ROT_SPORE: RegistrySupplier<ParticleType<*>> = PARTICLES.register("rot_spore") { EKOceanParticleType() }
+    /** Bleeding and Blood drain: falling drops. */
+    val BLOOD_DRIP: RegistrySupplier<ParticleType<*>> = PARTICLES.register("blood_drip") { EKOceanParticleType() }
+    /** Void: motes drifting into the dark. */
+    val VOID_MOTE: RegistrySupplier<ParticleType<*>> = PARTICLES.register("void_mote") { EKOceanParticleType() }
+    /** Looping beams: one expanding ring. */
+    val SHOCKWAVE_RING: RegistrySupplier<ParticleType<*>> = PARTICLES.register("shockwave_ring") { EKOceanParticleType() }
+
+    fun crystalShard(): EKOceanParticleType = CRYSTAL_SHARD.get() as EKOceanParticleType
+
+    fun rotSpore(): EKOceanParticleType = ROT_SPORE.get() as EKOceanParticleType
+
+    fun bloodDrip(): EKOceanParticleType = BLOOD_DRIP.get() as EKOceanParticleType
+
+    fun voidMote(): EKOceanParticleType = VOID_MOTE.get() as EKOceanParticleType
+
+    fun shockwaveRing(): EKOceanParticleType = SHOCKWAVE_RING.get() as EKOceanParticleType
+
     fun register() = PARTICLES.register()
 }

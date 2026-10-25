@@ -14,6 +14,8 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.RuneBlock
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Void's Abyssal Pocket: full blocks without a block entity in a small core are phased out
@@ -74,7 +76,9 @@ object AbyssalPockets {
                 }
             }
         }
-        if (added.isNotEmpty()) SpellNetwork.broadcastPhase(level, added, true)
+        if (added.isEmpty()) return
+        SpellNetwork.broadcastPhase(level, added, true)
+        level.playSound(null, centre.x, centre.y, centre.z, EKSounds.POCKET_PHASE.get(), SoundSource.BLOCKS, 1f, 0.7f)
     }
 
     private fun expire(level: ServerLevel) {

@@ -1,8 +1,6 @@
 package org.shipwrights.enderkinesis.effect
 
-import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.effect.MobEffect
 import net.minecraft.world.effect.MobEffectCategory
@@ -12,6 +10,9 @@ import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.ai.attributes.AttributeMap
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.spell.SpellCurves
+import org.shipwrights.enderkinesis.spell.SpellVisuals
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
  * Purity's Crystallized, which replaces the Moonstone gem's old Wither. Crystals grow on the
@@ -39,11 +40,17 @@ class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, 0xB7AEE2) {
         entity.addEffect(MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 25, slowness, false, false, false))
     }
 
+    override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.addAttributeModifiers(entity, attributes, amplifier)
+        SpellVisuals.update(entity)
+    }
+
     /** Called when the effect ends for any reason (running out, being cleansed or milked),
      *  and also when a new dose replaces it. The effect is still on the entity in the second
      *  case, which is how a refresh is told apart from an ending. */
     override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.removeAttributeModifiers(entity, attributes, amplifier)
+        SpellVisuals.update(entity)
         val level = entity.level() as? ServerLevel ?: return
         if (!entity.isAlive || entity.hasEffect(this)) return
         shatter(level, entity, SpellCurves.fromAmplifier(amplifier))
@@ -59,10 +66,10 @@ class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, 0xB7AEE2) {
             target.hurt(EKDamageSources.crystallization(level), damage)
         }
         level.sendParticles(
-            ParticleTypes.END_ROD, centre.x, centre.y, centre.z, 24,
+            EKParticles.crystalShard(), centre.x, centre.y, centre.z, 24,
             entity.bbWidth * 0.5, entity.bbHeight * 0.5, entity.bbWidth * 0.5, 0.15,
         )
-        level.playSound(null, entity.blockPosition(), SoundEvents.AMETHYST_CLUSTER_BREAK, SoundSource.HOSTILE, 1f, 1f)
+        level.playSound(null, entity.blockPosition(), EKSounds.CRYSTALLIZED_SHATTER.get(), SoundSource.HOSTILE, 1f, 1f)
     }
 
     companion object {

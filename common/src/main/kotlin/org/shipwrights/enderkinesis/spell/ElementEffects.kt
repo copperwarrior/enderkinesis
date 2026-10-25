@@ -28,10 +28,12 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.effect.FrozenEffect
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import kotlin.math.roundToInt
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 /** One element's effect: what it does to the entities and blocks of a [Delivery] at a given
  *  magnitude, plus its particles and sound. */
@@ -425,7 +427,7 @@ object ElementEffects {
             if (target === recipient) continue
             // `hurt` is false for invulnerable, i-framed or immune targets, which then don't
             // count toward the buff.
-            if (target.hurt(ctx.damage(DamageTypes.MAGIC), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drainedTargets += target
+            if (target.hurt(ctx.damage(EKDamageSources.BLOOD_DRAIN_KEY), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drainedTargets += target
         }
         val drained = drainedTargets.size
         // Enthralled and Bloodbound tie the drained to the caster, or a rune's owner.
@@ -442,7 +444,7 @@ object ElementEffects {
             recipient.addEffect(MobEffectInstance(MobEffects.HEALTH_BOOST, duration, amplifier), ctx.caster)
             recipient.addEffect(MobEffectInstance(MobEffects.REGENERATION, duration, amplifier), ctx.caster)
         }
-        SpellFx.burst(level, delivery, ParticleTypes.DAMAGE_INDICATOR, 80)
+        SpellFx.burst(level, delivery, EKParticles.bloodDrip(), 80)
         SpellFx.burst(level, delivery, BLOOD_DUST, 100)
         SpellFx.sound(level, delivery, SoundEvents.AMETHYST_BLOCK_RESONATE, pitch = 0.6f)
     }

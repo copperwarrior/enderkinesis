@@ -4,7 +4,6 @@ import net.minecraft.ChatFormatting
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
@@ -21,6 +20,7 @@ import org.shipwrights.enderkinesis.spell.Shape
 import org.shipwrights.enderkinesis.spell.Spell
 import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.spell.SpellContext
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Mystic Scroll, a finished spell from the Altar of Illumination. Every scroll is this one
@@ -63,6 +63,7 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         val origin = entity.eyePosition
         val look = entity.lookAngle
         if (shapeElement.shape == Shape.BOLT) {
+            if (held == 0) level.playSound(null, entity.x, entity.y, entity.z, EKSounds.BOLT_CHARGE.get(), SoundSource.PLAYERS, 1f, 1f)
             if (held % BOLT_CHARGE_FX_TICKS == 0) {
                 val p = origin.add(look)
                 level.sendParticles(SpellCasting.dust(shapeElement), p.x, p.y, p.z, 4, 0.15, 0.15, 0.15, 0.0)
@@ -73,7 +74,7 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         val pulse = held % SpellCasting.PULSE_TICKS == 0
         if (shapeElement.shape == Shape.BEAM) {
             // Every tick, so the beam stays registered for crossings while held.
-            SpellCasting.beamTick(ctx, spell, entity, origin, look, pulse, held % BEAM_TRAIL_TICKS == 0)
+            SpellCasting.beamTick(ctx, spell, entity, origin, look, pulse)
         } else if (pulse) {
             SpellCasting.pulse(ctx, spell, origin, look)
         }
@@ -111,7 +112,7 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
                 SpellBoltEntity.maxSpeed(spell.magnitude(shapeElement)) * charge, BOLT_INACCURACY,
             )
             level.addFreshEntity(bolt)
-            level.playSound(null, entity.x, entity.y, entity.z, SoundEvents.ENDER_PEARL_THROW, SoundSource.PLAYERS, 1f, 0.6f)
+            level.playSound(null, entity.x, entity.y, entity.z, EKSounds.BOLT_LAUNCH.get(), SoundSource.PLAYERS, 1f, 0.6f)
         } else if (held == 0) {
             // Let go before the first tick: still one pulse, so a tap is never wasted.
             SpellCasting.pulse(SpellContext(level, entity, entity.eyePosition, pulsed = true), spell, entity.eyePosition, entity.lookAngle)
@@ -121,7 +122,7 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
 
     private fun useUp(level: ServerLevel, entity: LivingEntity, stack: ItemStack) {
         if (entity !is Player || !entity.abilities.instabuild) stack.shrink(1)
-        level.playSound(null, entity.x, entity.y, entity.z, SoundEvents.BOOK_PAGE_TURN, SoundSource.PLAYERS, 1f, 0.8f)
+        level.playSound(null, entity.x, entity.y, entity.z, EKSounds.SCROLL_USED.get(), SoundSource.PLAYERS, 1f, 0.8f)
     }
 
     override fun appendHoverText(stack: ItemStack, level: Level?, tooltip: MutableList<Component>, flag: TooltipFlag) {
@@ -144,7 +145,6 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         private const val BOLT_MIN_CHARGE = 0.25f
         private const val BOLT_INACCURACY = 0.5f
         private const val BOLT_CHARGE_FX_TICKS = 4
-        private const val BEAM_TRAIL_TICKS = 2
 
         fun spellOf(stack: ItemStack): Spell? =
             stack.tag?.let { Spell.load(it, Spell.NBT_GLYPHS) }?.takeIf { it.glyphs.isNotEmpty() }

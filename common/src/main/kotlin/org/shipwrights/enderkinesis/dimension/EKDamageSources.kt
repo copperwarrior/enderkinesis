@@ -71,6 +71,11 @@ object EKDamageSources {
     val CRYSTALLIZATION_KEY: ResourceKey<DamageType> =
         ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("crystallization"))
 
+    /** Blood's drain. Magic that bypasses armour, like vanilla magic, with its own death
+     *  message (`death.attack.blood_drain`, `.player` when it has a caster). */
+    val BLOOD_DRAIN_KEY: ResourceKey<DamageType> =
+        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("blood_drain"))
+
     fun crystallization(level: ServerLevel): DamageSource {
         val registry = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
         return DamageSource(registry.getHolderOrThrow(CRYSTALLIZATION_KEY))

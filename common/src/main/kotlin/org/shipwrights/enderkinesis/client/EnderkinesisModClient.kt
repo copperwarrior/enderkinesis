@@ -19,6 +19,7 @@ import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKOceanParticleType
 import org.shipwrights.enderkinesis.item.MysticScrollItem
 import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
 import org.shipwrights.enderkinesis.spell.Element
@@ -643,6 +644,23 @@ object EnderkinesisModClient {
      *  call through Architectury registers late, with a warning for each provider. */
     fun registerParticleProviders(registrar: ParticleRegistrar) {
         particlesDone = true
+        // Mystic Scroll particles: vanilla textures, tinted per kind.
+        registrar.register(EKParticles.CRYSTAL_SHARD.get() as EKOceanParticleType) { sprites ->
+            SpellParticle.Provider(sprites, SpellParticle.Kind.CRYSTAL_SHARD)
+        }
+        registrar.register(EKParticles.ROT_SPORE.get() as EKOceanParticleType) { sprites ->
+            SpellParticle.Provider(sprites, SpellParticle.Kind.ROT_SPORE)
+        }
+        registrar.register(EKParticles.BLOOD_DRIP.get() as EKOceanParticleType) { sprites ->
+            SpellParticle.Provider(sprites, SpellParticle.Kind.BLOOD_DRIP)
+        }
+        registrar.register(EKParticles.VOID_MOTE.get() as EKOceanParticleType) { sprites ->
+            SpellParticle.Provider(sprites, SpellParticle.Kind.VOID_MOTE)
+        }
+        registrar.register(EKParticles.SHOCKWAVE_RING.get() as EKOceanParticleType) { sprites ->
+            SpellParticle.Provider(sprites, SpellParticle.Kind.SHOCKWAVE_RING)
+        }
+
         // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
         registrar.register(EKParticles.ocean()) { sprites ->
             OceanParticle.Provider(sprites, OceanParticle.Mode.SURFACE)

@@ -15,7 +15,11 @@ import org.shipwrights.enderkinesis.spell.BloodPacts
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.FrozenBodies
 import org.shipwrights.enderkinesis.spell.SpellContext
+import org.shipwrights.enderkinesis.spell.SpellVisuals
 import java.util.WeakHashMap
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 // The status effects the Mystic Scroll elements apply (Crystallized has its own file). Each
 // is small; the parts that reach outside an effect tick (jumping, fall damage, healing,
@@ -25,6 +29,16 @@ import java.util.WeakHashMap
 class EntangledEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GROWTH.color) {
     init {
         addAttributeModifier(Attributes.MOVEMENT_SPEED, "6f3a2c41-7b1e-4c0d-9b5a-2e8f1d6c3a01", -1.0, AttributeModifier.Operation.MULTIPLY_TOTAL)
+    }
+
+    override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.addAttributeModifiers(entity, attributes, amplifier)
+        SpellVisuals.update(entity)
+    }
+
+    override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.removeAttributeModifiers(entity, attributes, amplifier)
+        SpellVisuals.update(entity)
     }
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = true
@@ -95,7 +109,12 @@ class BleedingEffect : MobEffect(MobEffectCategory.HARMFUL, Element.BLOOD.color)
     override fun applyEffectTick(entity: LivingEntity, amplifier: Int) {
         if (entity.level().isClientSide) return
         val last = lastWalk.put(entity, entity.walkDist) ?: return
-        if (entity.walkDist - last > MOVED) entity.hurt(entity.damageSources().magic(), DAMAGE)
+        if (entity.walkDist - last <= MOVED) return
+        entity.hurt(entity.damageSources().magic(), DAMAGE)
+        (entity.level() as? ServerLevel)?.sendParticles(
+            EKParticles.bloodDrip(), entity.x, entity.y + entity.bbHeight * 0.6, entity.z, 4,
+            entity.bbWidth * 0.3, entity.bbHeight * 0.2, entity.bbWidth * 0.3, 0.0,
+        )
     }
 
     private companion object {
@@ -129,6 +148,10 @@ class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.POISON.color) {
         val time = entity.tickCount
         if (time % DAMAGE_INTERVAL == 0 && entity.health > 1f) {
             entity.hurt(entity.damageSources().magic(), minOf(DAMAGE, entity.health - 1f))
+            level.sendParticles(
+                EKParticles.rotSpore(), entity.x, entity.y + entity.bbHeight * 0.5, entity.z, 5,
+                entity.bbWidth * 0.4, entity.bbHeight * 0.3, entity.bbWidth * 0.4, 0.01,
+            )
         }
         if (time % SICKNESS_INTERVAL == 0 && !SpellContext.isUndead(entity)) {
             entity.addEffect(MobEffectInstance(MobEffects.HUNGER, SICKNESS_TICKS, 0, false, false))
@@ -170,11 +193,16 @@ class FrozenEffect : MobEffect(MobEffectCategory.HARMFUL, Element.COLD.color) {
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         FrozenBodies.freeze(entity)
+        SpellVisuals.update(entity)
+        entity.level().playSound(null, entity.x, entity.y, entity.z, EKSounds.FROZEN_LOCK.get(), SoundSource.HOSTILE, 1f, 0.8f)
     }
 
     override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.removeAttributeModifiers(entity, attributes, amplifier)
-        if (!entity.hasEffect(this)) FrozenBodies.thaw(entity)
+        SpellVisuals.update(entity)
+        if (entity.hasEffect(this)) return
+        FrozenBodies.thaw(entity)
+        entity.level().playSound(null, entity.x, entity.y, entity.z, EKSounds.FROZEN_RELEASE.get(), SoundSource.HOSTILE, 1f, 1f)
     }
 
     companion object {

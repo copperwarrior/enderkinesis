@@ -1,9 +1,7 @@
 package org.shipwrights.enderkinesis.entity
 
-import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
@@ -12,6 +10,8 @@ import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
  * Void's Singularity: a short-lived vortex. Dropped items and experience within [radius] are
@@ -53,9 +53,9 @@ class SingularityEntity(type: EntityType<out SingularityEntity>, level: Level) :
             entity.deltaMovement = toCentre.scale(PULL / dist)
             entity.hurtMarked = true
         }
-        level.sendParticles(ParticleTypes.REVERSE_PORTAL, centre.x, centre.y, centre.z, 6, radius * 0.3, radius * 0.3, radius * 0.3, 0.02)
+        level.sendParticles(EKParticles.voidMote(), centre.x, centre.y, centre.z, 6, radius * 0.3, radius * 0.3, radius * 0.3, 0.02)
         if (tickCount % HUM_TICKS == 0) {
-            level.playSound(null, centre.x, centre.y, centre.z, SoundEvents.BEACON_AMBIENT, SoundSource.NEUTRAL, 0.6f, 0.5f)
+            level.playSound(null, centre.x, centre.y, centre.z, EKSounds.SINGULARITY_HUM.get(), SoundSource.NEUTRAL, 0.6f, 0.5f)
         }
     }
 

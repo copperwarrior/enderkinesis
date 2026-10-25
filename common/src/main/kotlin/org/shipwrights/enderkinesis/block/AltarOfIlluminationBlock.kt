@@ -37,6 +37,7 @@ import org.shipwrights.enderkinesis.item.MysticShardItem
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.spell.Inscription
 import org.shipwrights.enderkinesis.spell.Spell
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Altar of Illumination, where Mystic Scrolls are made. Right-click with:
@@ -108,7 +109,7 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         val ink = state.getValue(INK) + 1
         level.setBlock(pos, state.setValue(INK, ink), UPDATE_ALL)
         player.setItemInHand(hand, ItemUtils.createFilledResult(player.getItemInHand(hand), player, ItemStack(Items.GLASS_BOTTLE)))
-        sound(level, pos, SoundEvents.BOTTLE_EMPTY)
+        sound(level, pos, EKSounds.ALTAR_INK.get())
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
         inkReadout(player, ink)
     }
@@ -130,14 +131,14 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
         when (outcome) {
             is Inscription.Outcome.Annihilated -> {
-                sound(level, pos, SoundEvents.FIRE_EXTINGUISH, pitch = 1.4f)
+                sound(level, pos, EKSounds.ALTAR_ANNIHILATE.get(), pitch = 1.4f)
                 (level as? ServerLevel)?.sendParticles(ParticleTypes.SMOKE, pos.x + 0.5, pos.y + 1.4, pos.z + 0.5, 12, 0.2, 0.2, 0.2, 0.02)
                 player.displayClientMessage(
                     Component.translatable(ANNIHILATED_KEY, shard.element.displayName(), outcome.hit.displayName()), true,
                 )
             }
-            is Inscription.Outcome.Fused -> sound(level, pos, SoundEvents.AMETHYST_BLOCK_CHIME, pitch = 0.8f)
-            Inscription.Outcome.Inscribed -> sound(level, pos, SoundEvents.ENCHANTMENT_TABLE_USE)
+            is Inscription.Outcome.Fused -> sound(level, pos, EKSounds.ALTAR_FUSE.get(), pitch = 0.8f)
+            Inscription.Outcome.Inscribed -> sound(level, pos, EKSounds.ALTAR_INSCRIBE.get())
         }
     }
 
@@ -154,7 +155,7 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
                 if (!player.inventory.add(scroll)) {
                     Containers.dropItemStack(level, pos.x + 0.5, pos.y + 1.1, pos.z + 0.5, scroll)
                 }
-                sound(level, pos, SoundEvents.BOOK_PUT)
+                sound(level, pos, EKSounds.ALTAR_FINISH.get())
                 level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
                 if (name != null) player.displayClientMessage(Component.translatable(FINISHED_KEY, name), true)
             }

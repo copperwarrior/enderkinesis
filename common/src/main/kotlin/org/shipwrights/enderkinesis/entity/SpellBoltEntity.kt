@@ -12,13 +12,17 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.item.MysticShardItem
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.ElementEffects
 import org.shipwrights.enderkinesis.spell.Spell
 import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.spell.SpellContext
 import java.util.UUID
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * A Bolt: the arcing projectile of a Forward cast whose shape is Bolt. It carries the whole
@@ -50,12 +54,31 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
     override fun tick() {
         super.tick()
         if (isRemoved) return
+        if (level().isClientSide) {
+            trail()
+            return
+        }
         val level = level() as? ServerLevel ?: return
         if (tickCount >= MAX_LIFETIME_TICKS) {
             discard()
             return
         }
         pullAlongPath(level)
+    }
+
+    /** Client: a dust trail in the shape element's colour, read from the shard it's drawn as. */
+    private fun trail() {
+        val stack = item
+        val element = (stack.item as? MysticShardItem)?.element
+            ?: stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)
+            ?: return
+        val dust = SpellCasting.dust(element)
+        val from = Vec3(xo, yo, zo)
+        val to = position()
+        repeat(TRAIL_PARTICLES) { i ->
+            val p = from.lerp(to, (i + 1).toDouble() / TRAIL_PARTICLES)
+            level().addParticle(dust, p.x, p.y, p.z, 0.0, 0.0, 0.0)
+        }
     }
 
     /** Gravity's pull along the flight path: everything near the bolt drifts toward it. */
@@ -79,6 +102,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         val caster = owner as? LivingEntity
         val ctx = SpellContext(level, caster, castPoint, caster?.uuid ?: ownerUuid)
         SpellCasting.burst(ctx, spell, result.location, area = false)
+        level.playSound(null, result.location.x, result.location.y, result.location.z, EKSounds.BOLT_IMPACT.get(), SoundSource.NEUTRAL, 1f, 1f)
         if (result is BlockHitResult && result.type == HitResult.Type.BLOCK) ElementEffects.dropBlock(ctx, result.blockPos)
         discard()
     }
@@ -105,6 +129,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
 
     companion object {
         const val MAX_LIFETIME_TICKS = 200
+        private const val TRAIL_PARTICLES = 3
         private const val PULL_RADIUS = 2.5
         private const val PULL_STRENGTH = 0.08
 

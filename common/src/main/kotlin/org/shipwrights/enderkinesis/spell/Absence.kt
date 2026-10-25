@@ -12,6 +12,9 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKEffects
 import java.util.IdentityHashMap
+import net.minecraft.sounds.SoundSource
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
  * Void's Absent: the target is out of the world. It vanishes from every client's view (see
@@ -51,6 +54,11 @@ object Absence {
         entity.isNoGravity = true
         mob?.isNoAi = true
         SpellNetwork.broadcastAbsent(level, entity, true)
+        level.sendParticles(
+            EKParticles.voidMote(), entity.x, entity.y + entity.bbHeight * 0.5, entity.z, 30,
+            entity.bbWidth * 0.5, entity.bbHeight * 0.5, entity.bbWidth * 0.5, 0.05,
+        )
+        level.playSound(null, entity.x, entity.y, entity.z, EKSounds.ABSENT_VANISH.get(), SoundSource.HOSTILE, 1f, 0.6f)
     }
 
     /** Each tick while Absent: held where it vanished, and no mob keeps it as a target. */
@@ -72,5 +80,6 @@ object Absence {
         (entity as? Mob)?.isNoAi = !state.hadAi
         entity.teleportTo(state.at.x, state.at.y, state.at.z)
         SpellNetwork.broadcastAbsent(level, entity, false)
+        level.playSound(null, entity.x, entity.y, entity.z, EKSounds.ABSENT_RETURN.get(), SoundSource.HOSTILE, 1f, 1f)
     }
 }

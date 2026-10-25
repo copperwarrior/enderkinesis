@@ -5,7 +5,6 @@ import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.damagesource.DamageTypes
 import net.minecraft.world.entity.Entity
@@ -19,6 +18,8 @@ import org.shipwrights.enderkinesis.item.BeamSegment
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import java.util.UUID
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
  * Every live beam, scroll and Staff of Sundering alike, registers here each tick. At the
@@ -116,6 +117,7 @@ object BeamManager {
         val cancelled = LinkedHashSet<Beam>()
         val merged = HashSet<Beam>()
         val nextCuts = HashMap<UUID, Double>()
+        val synced = HashMap<ServerLevel, MergedSync>()
 
         for (beam in live) {
             val loop = beam.trace.loopPoint ?: continue
@@ -141,14 +143,25 @@ object BeamManager {
                     merged += a; merged += b
                     nextCuts[a.id] = crossing.pathA
                     nextCuts[b.id] = crossing.pathB
-                    if (!runMerged(a, b, crossing)) {
+                    val sync = synced.getOrPut(a.level) { MergedSync() }
+                    a.owner?.let { sync.cuts[it.id] = crossing.pathA }
+                    b.owner?.let { sync.cuts[it.id] = crossing.pathB }
+                    if (!runMerged(a, b, crossing, sync)) {
                         cancelled += a; cancelled += b
                     }
                 }
             }
         }
         cuts = nextCuts
+        for ((level, sync) in synced) SpellNetwork.broadcastMerged(level, sync.beams, sync.cuts)
         for (beam in cancelled) beam.cancel()
+    }
+
+    /** One level's merged beams this tick, for clients to draw: each one's path and colour,
+     *  and how far each parent (by entity id) still reaches. */
+    class MergedSync {
+        val beams = ArrayList<Pair<List<BeamSegment>, Int>>()
+        val cuts = HashMap<Int, Double>()
     }
 
     /** The first place [a] and [b] come within their half-widths, in [a]'s path order. */
@@ -195,7 +208,7 @@ object BeamManager {
 
     /** Traces and applies the beam merged from [a] and [b] at [crossing]. False when it loops
      *  on itself, which cancels both casts. */
-    private fun runMerged(a: Beam, b: Beam, crossing: Crossing): Boolean {
+    private fun runMerged(a: Beam, b: Beam, crossing: Crossing, sync: MergedSync): Boolean {
         val level = a.level
         val strong = if (a.magnitude >= b.magnitude) a else b
         val bisector = crossing.dirA.add(crossing.dirB)
@@ -219,7 +232,11 @@ object BeamManager {
                 for ((element, magnitude) in magnitudes) ElementEffects.of(element).apply(ctx, line, magnitude)
             }
         }
-        if (level.gameTime % 2 == 0L) SpellCasting.beamTrail(level, trace.segments, tint.tint())
+        sync.beams += trace.segments to tint.tint()
+        if (level.gameTime % MERGE_SOUND_TICKS == 0L) {
+            val p = crossing.point
+            level.playSound(null, p.x, p.y, p.z, EKSounds.BEAM_MERGE.get(), SoundSource.PLAYERS, 1f, 1f)
+        }
         return true
     }
 
@@ -227,6 +244,7 @@ object BeamManager {
     // Shockwave and explosion
     // -----------------------------------------------------------------------
 
+    private const val MERGE_SOUND_TICKS = 40L
     private const val SHOCKWAVE_RADIUS = 3.0
     private const val SHOCKWAVE_PUSH = 0.9
 
@@ -234,9 +252,9 @@ object BeamManager {
      *  element effects. */
     fun shockwave(level: ServerLevel, point: Vec3) {
         push(level, point, SHOCKWAVE_RADIUS, SHOCKWAVE_PUSH)
-        level.sendParticles(ParticleTypes.FLASH, point.x, point.y, point.z, 1, 0.0, 0.0, 0.0, 0.0)
+        level.sendParticles(EKParticles.shockwaveRing(), point.x, point.y, point.z, 1, 0.0, 0.0, 0.0, 0.0)
         level.sendParticles(ParticleTypes.END_ROD, point.x, point.y, point.z, 40, 0.2, 0.2, 0.2, 0.35)
-        level.playSound(null, point.x, point.y, point.z, SoundEvents.AMETHYST_BLOCK_RESONATE, SoundSource.PLAYERS, 1.5f, 0.5f)
+        level.playSound(null, point.x, point.y, point.z, EKSounds.BEAM_SHOCKWAVE.get(), SoundSource.PLAYERS, 1.5f, 0.5f)
     }
 
     private const val DAMAGE_PER_ANNIHILATED = 1.5f
@@ -272,7 +290,7 @@ object BeamManager {
             ElementEffects.of(element).apply(ctx, Delivery.Sphere(point, radius), magnitude)
         }
         level.sendParticles(ParticleTypes.EXPLOSION_EMITTER, point.x, point.y, point.z, 1, 0.0, 0.0, 0.0, 0.0)
-        level.playSound(null, point.x, point.y, point.z, SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 2f, 1.2f)
+        level.playSound(null, point.x, point.y, point.z, EKSounds.BEAM_EXPLODE.get(), SoundSource.PLAYERS, 2f, 1.2f)
     }
 
     private fun push(level: ServerLevel, point: Vec3, radius: Double, strength: Double) {

@@ -5,6 +5,7 @@
   "minVersion": "0.8",
   "plugin": "org.shipwrights.enderkinesis.mixin.EnderkinesisMixinPlugin",
   "client": [
+    "LivingEntityRendererSpellLayersMixin",
     "BlockEntityRenderDispatcherAbsentMixin",
     "EntityRenderDispatcherSpellMixin",
     "LevelRendererAbsentMixin",
@@ -186,6 +187,7 @@
     "LivingEntitySpellEffectsMixin",
     "PlayerSpellEffectsMixin",
     "BlockStatePhasedCollisionMixin",
+    "ItemStackImbueFoilMixin",
     "ThrownEnderpearlLatticeAssemblyMixin",
     "WorldGenRegionCrewCaptureMixin",
     "EntityIchaericInkMixin"

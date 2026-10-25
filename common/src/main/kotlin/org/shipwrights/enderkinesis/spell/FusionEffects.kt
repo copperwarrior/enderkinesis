@@ -17,6 +17,7 @@ import org.shipwrights.enderkinesis.entity.SingularityEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEffects
 import kotlin.math.roundToInt
+import org.shipwrights.enderkinesis.registry.EKParticles
 
 /** The fusions' effects. A fusion is its own element, not a mix of its parents. */
 object FusionEffects {
@@ -175,7 +176,7 @@ object FusionEffects {
             // Abyssal Pocket: at a Bolt's impact or a rune, never on an Area cast.
             if (!delivery.area) AbyssalPockets.open(ctx, delivery.center, magnitude)
         }
-        SpellFx.inwardCollapse(level, delivery, ParticleTypes.REVERSE_PORTAL, 120, 1.5)
+        SpellFx.inwardCollapse(level, delivery, EKParticles.voidMote(), 120, 1.5)
         SpellFx.sound(level, delivery, SoundEvents.ENDERMAN_TELEPORT, pitch = 0.4f)
     }
 }
