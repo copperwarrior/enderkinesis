@@ -413,5 +413,5 @@ object ElementEffects {
      *  nearest the cast point, who is then spared the drain. */
     private fun bloodRecipient(ctx: SpellContext, candidates: List<LivingEntity>): LivingEntity? =
         ctx.buffRecipient ?: ctx.caster
-            ?: candidates.minByOrNull { it.position().distanceToSqr(ctx.castPoint) }
+            ?: if (ctx.nearestRecipient) candidates.minByOrNull { it.position().distanceToSqr(ctx.castPoint) } else null
 }

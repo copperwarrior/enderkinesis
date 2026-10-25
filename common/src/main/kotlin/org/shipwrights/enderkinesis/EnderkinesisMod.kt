@@ -190,6 +190,9 @@ object EnderkinesisMod {
         )
 
         org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.register()
+        org.shipwrights.enderkinesis.spell.RuneCollisionRouter.register()
+        org.shipwrights.enderkinesis.spell.RuneTriggers.init()
+        org.shipwrights.enderkinesis.spell.Imbues.init()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
         org.shipwrights.enderkinesis.dimension.SselithMothSpawner.init()
@@ -308,6 +311,7 @@ object EnderkinesisMod {
             org.shipwrights.enderkinesis.item.GamylanCageManager.clearSession()
             org.shipwrights.enderkinesis.util.SculkSpread.clearSession()
             org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.clearSession()
+            org.shipwrights.enderkinesis.spell.RuneCollisionRouter.clearSession()
             org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity.clearSession()
             org.shipwrights.enderkinesis.item.RodOfLevitationManager.clearSession()
             org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.clearSession()

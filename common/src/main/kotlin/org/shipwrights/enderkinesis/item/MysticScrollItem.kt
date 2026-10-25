@@ -6,7 +6,6 @@ import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
-import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
 import net.minecraft.world.entity.Entity
@@ -147,25 +146,7 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         fun spellOf(stack: ItemStack): Spell? =
             stack.tag?.let { Spell.load(it, Spell.NBT_GLYPHS) }?.takeIf { it.glyphs.isNotEmpty() }
 
-        /** The wrap layer's tint: the average of the spell's element colours, pushed to full
-         *  saturation so mixed hues don't wash out to grey. */
-        fun wrapColor(stack: ItemStack): Int {
-            val elements = spellOf(stack)?.magnitudes?.keys ?: return BLANK_WRAP_COLOR
-            val r = elements.sumOf { (it.color shr 16) and 0xFF } / elements.size
-            val g = elements.sumOf { (it.color shr 8) and 0xFF } / elements.size
-            val b = elements.sumOf { it.color and 0xFF } / elements.size
-            val max = maxOf(r, g, b)
-            val chroma = max - minOf(r, g, b)
-            // A near-grey average has no hue worth saturating.
-            if (max == 0 || chroma.toFloat() / max < MIN_SATURATION) return (r shl 16) or (g shl 8) or b
-            val sector = when (max) {
-                r -> ((g - b).toFloat() / chroma).mod(6f)
-                g -> (b - r).toFloat() / chroma + 2f
-                else -> (r - g).toFloat() / chroma + 4f
-            }
-            return Mth.hsvToRgb(sector / 6f, 1f, max / 255f)
-        }
-
-        private const val MIN_SATURATION = 0.05f
+        /** The wrap layer's tint; see [Spell.tint]. */
+        fun wrapColor(stack: ItemStack): Int = spellOf(stack)?.tint() ?: BLANK_WRAP_COLOR
     }
 }

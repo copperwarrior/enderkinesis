@@ -176,6 +176,10 @@
     "SpawnPlacementsInvoker",
     "StructureTemplateCrewCaptureMixin",
     "TagEntryAccessor",
+    "AnvilMenuImbueMixin",
+    "GrindstoneMenuImbueMixin",
+    "ProjectileImbueMixin",
+    "ThrownTridentItemAccessor",
     "ThrownEnderpearlLatticeAssemblyMixin",
     "WorldGenRegionCrewCaptureMixin",
     "EntityIchaericInkMixin"

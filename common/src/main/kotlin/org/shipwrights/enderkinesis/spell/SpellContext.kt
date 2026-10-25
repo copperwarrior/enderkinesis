@@ -27,6 +27,9 @@ import java.util.UUID
  * - [pulsed] is true for held shapes that re-apply every 0.5 s (Beam, Chain, Spray). They
  *   deal [PULSE_DAMAGE] of a one-shot cast's damage and smaller doses of stacking effects.
  * - [buffRecipient] overrides who gets Blood's buff (a rune's online owner).
+ * - [nearestRecipient]: with no caster or override, Blood's buff goes to the living
+ *   non-undead entity nearest the cast point. Runes turn this off, so an ownerless or
+ *   offline-owned rune's buff fizzles.
  */
 class SpellContext(
     val level: ServerLevel,
@@ -35,6 +38,7 @@ class SpellContext(
     val owner: UUID? = caster?.uuid,
     val pulsed: Boolean = false,
     val buffRecipient: LivingEntity? = null,
+    val nearestRecipient: Boolean = true,
 ) {
     /** The owner as a player for claim checks: online, or a fake player when offline. */
     private val ownerPlayer: ServerPlayer? by lazy {

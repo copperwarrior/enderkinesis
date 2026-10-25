@@ -1,10 +1,13 @@
 package org.shipwrights.enderkinesis.spell
 
+import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.level.ClipContext
+import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
@@ -29,11 +32,59 @@ object SpellCasting {
         return ((10f + (m - 1f) * 10f / 6f) * 20f).roundToInt()
     }
 
-    /** One sphere per element around [centre]. [area] marks a cast centred on the caster. */
-    fun burst(ctx: SpellContext, spell: Spell, centre: Vec3, area: Boolean) {
+    /** One sphere per element around [centre], each at its magnitude × [scale]. [area] marks
+     *  a cast centred on the caster. */
+    fun burst(ctx: SpellContext, spell: Spell, centre: Vec3, area: Boolean, scale: Float = 1f) {
         for ((element, magnitude) in spell.magnitudes) {
-            val delivery = Delivery.Sphere(centre, SpellCurves.areaRadius(magnitude), area)
-            ElementEffects.of(element).apply(ctx, delivery, magnitude)
+            val m = magnitude * scale
+            ElementEffects.of(element).apply(ctx, Delivery.Sphere(centre, SpellCurves.areaRadius(m), area), m)
+        }
+    }
+
+    private fun applyAll(ctx: SpellContext, spell: Spell, delivery: Delivery, scale: Float) {
+        for ((element, magnitude) in spell.magnitudes) ElementEffects.of(element).apply(ctx, delivery, magnitude * scale)
+    }
+
+    /**
+     * The spell striking one entity directly (an imbued hit), by the spell's shape, at
+     * magnitude × [scale]: a Bolt detonates on it, a Beam or Spray hits only it, and a Chain
+     * chains on from it. [hit] is shared by every target of one sweep, so chains never hit
+     * the same entity twice.
+     */
+    fun strikeEntity(ctx: SpellContext, spell: Spell, target: Entity, scale: Float, hit: MutableSet<Entity> = HashSet()) {
+        when (spell.shape ?: return) {
+            Shape.BOLT -> burst(ctx, spell, target.position().add(0.0, target.bbHeight * 0.5, 0.0), area = false, scale)
+            Shape.BEAM, Shape.SPRAY -> applyAll(ctx, spell, Delivery.SingleEntity(target), scale)
+            Shape.CHAIN -> {
+                val chaos = spell.magnitude(spell.shapeElement!!) * scale
+                val targets = chainFrom(ctx, target as? LivingEntity ?: return, chaos, hit)
+                applyAll(ctx, spell, Delivery.Group(targets, target.position()), scale)
+            }
+        }
+    }
+
+    /**
+     * The spell striking one block (an imbued projectile's missed shot), so it's never
+     * wasted: a Bolt detonates at [location] and the struck block then falls if it still
+     * qualifies; a Beam or Spray applies each element's block effect to the block; a Chain
+     * jumps from the impact to the nearest entity and chains on.
+     */
+    fun strikeBlock(ctx: SpellContext, spell: Spell, pos: BlockPos, face: Direction, location: Vec3, scale: Float) {
+        when (spell.shape ?: return) {
+            Shape.BOLT -> {
+                burst(ctx, spell, location, area = false, scale)
+                ElementEffects.dropBlock(ctx, pos)
+            }
+            Shape.BEAM, Shape.SPRAY -> applyAll(ctx, spell, Delivery.SingleBlock(pos, face), scale)
+            Shape.CHAIN -> {
+                val first = ctx.level.getEntitiesOfClass(LivingEntity::class.java, AABB(location, location).inflate(CHAIN_JUMP)) {
+                    it.isAlive && !it.isSpectator && !ctx.isCaster(it) && it.distanceToSqr(location) <= CHAIN_JUMP * CHAIN_JUMP
+                }.minByOrNull { it.distanceToSqr(location) } ?: return
+                val chaos = spell.magnitude(spell.shapeElement!!) * scale
+                val targets = chainFrom(ctx, first, chaos, HashSet())
+                chainArcs(ctx, location, targets.take(1))
+                applyAll(ctx, spell, Delivery.Group(targets, first.position()), scale)
+            }
         }
     }
 
@@ -98,18 +149,29 @@ object SpellCasting {
     fun chain(ctx: SpellContext, origin: Vec3, look: Vec3, magnitude: Float): Delivery.Group? {
         val cone = Delivery.Cone(origin, look, CHAIN_RANGE, CHAIN_HALF_ANGLE)
         val first = cone.living(ctx).minByOrNull { it.distanceToSqr(origin) } ?: return null
-        val hit = mutableListOf<LivingEntity>(first)
+        val targets = chainFrom(ctx, first, magnitude, HashSet())
+        chainArcs(ctx, origin, targets.take(1))
+        return Delivery.Group(targets, first.position())
+    }
+
+    /** [first] and up to [chainTargets] − 1 jumps from it, skipping anything in [hit], which
+     *  collects every entity struck. Jumps show their arcs; the arc to [first] is the
+     *  caller's. Empty when [first] was already hit. */
+    fun chainFrom(ctx: SpellContext, first: LivingEntity, magnitude: Float, hit: MutableSet<Entity>): List<LivingEntity> {
+        if (!hit.add(first)) return emptyList()
+        val targets = mutableListOf(first)
         var from: LivingEntity = first
-        while (hit.size < chainTargets(magnitude)) {
+        while (targets.size < chainTargets(magnitude)) {
             val next = ctx.level.getEntitiesOfClass(LivingEntity::class.java, from.boundingBox.inflate(CHAIN_JUMP)) {
                 it.isAlive && !it.isSpectator && it !in hit && !ctx.isCaster(it) &&
                     it.distanceToSqr(from) <= CHAIN_JUMP * CHAIN_JUMP && from.hasLineOfSight(it)
             }.minByOrNull { it.distanceToSqr(from) } ?: break
             hit += next
+            targets += next
             from = next
         }
-        chainArcs(ctx, origin, hit)
-        return Delivery.Group(hit, first.position())
+        chainArcs(ctx, first.position().add(0.0, first.bbHeight * 0.5, 0.0), targets.drop(1))
+        return targets
     }
 
     private fun chainArcs(ctx: SpellContext, origin: Vec3, targets: List<Entity>) {

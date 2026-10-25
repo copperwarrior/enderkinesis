@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.registry.EKParticles
 
@@ -237,6 +238,14 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CRYSTAL_EXPLOSIVE.get())
 
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ICHAERIC_INK_JAR.get())
+        // Rune decal: alpha-cut glyph, tinted from its spell.
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.RUNE.get())
+        ColorHandlerRegistry.registerBlockColors(
+            BlockColor { _, getter, pos, _ ->
+                (pos?.let { getter?.getBlockEntity(it) } as? RuneBlockEntity)?.spell?.tint() ?: 0xFFFFFF
+            },
+            EKBlocks.RUNE.get(),
+        )
         // Same translucent ink as the jar, filling the altar's basin.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ALTAR_OF_ILLUMINATION.get())
 
@@ -245,6 +254,10 @@ object EnderkinesisModClient {
             ItemColor { stack, tintIndex -> if (tintIndex == 1) MysticScrollItem.wrapColor(stack) else -1 },
             EKItems.MYSTIC_SCROLL.get(),
         )
+        // Imbued items name their spell under the item name.
+        dev.architectury.event.events.client.ClientTooltipEvent.ITEM.register { stack, lines, _ ->
+            org.shipwrights.enderkinesis.spell.Imbues.tooltip(stack)?.let { lines.add(minOf(1, lines.size), it) }
+        }
         // Base Mystic Shard, drawn for fusion glyphs on the altar, in the fusion's colour.
         ColorHandlerRegistry.registerItemColors(
             ItemColor { stack, _ ->

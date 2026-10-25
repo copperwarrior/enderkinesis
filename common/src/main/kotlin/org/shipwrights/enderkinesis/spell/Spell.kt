@@ -6,6 +6,7 @@ import net.minecraft.nbt.StringTag
 import net.minecraft.nbt.Tag
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.MutableComponent
+import net.minecraft.util.Mth
 
 /**
  * An inscribed spell: its glyphs in inscription order. A fusion glyph is one element.
@@ -64,6 +65,26 @@ class Spell(val glyphs: List<Element>) {
 
     fun save(): ListTag = ListTag().apply { glyphs.forEach { add(StringTag.valueOf(it.id)) } }
 
+    /** The spell's colour (scroll wraps, runes): the average of its element colours, pushed
+     *  to full saturation so mixed hues don't wash out to grey. */
+    fun tint(): Int {
+        val elements = magnitudes.keys
+        if (elements.isEmpty()) return 0xFFFFFF
+        val r = elements.sumOf { (it.color shr 16) and 0xFF } / elements.size
+        val g = elements.sumOf { (it.color shr 8) and 0xFF } / elements.size
+        val b = elements.sumOf { it.color and 0xFF } / elements.size
+        val max = maxOf(r, g, b)
+        val chroma = max - minOf(r, g, b)
+        // A near-grey average has no hue worth saturating.
+        if (max == 0 || chroma.toFloat() / max < MIN_TINT_SATURATION) return (r shl 16) or (g shl 8) or b
+        val sector = when (max) {
+            r -> ((g - b).toFloat() / chroma).mod(6f)
+            g -> (b - r).toFloat() / chroma + 2f
+            else -> (r - g).toFloat() / chroma + 4f
+        }
+        return Mth.hsvToRgb(sector / 6f, 1f, max / 255f)
+    }
+
     private fun strongestFirst(): Comparator<Element> =
         compareByDescending<Element> { magnitude(it) }.thenBy { NAME_ORDER.indexOf(it) }
 
@@ -71,6 +92,7 @@ class Spell(val glyphs: List<Element>) {
         const val MAX_ADJECTIVES = 2
         /** NBT key for the glyph list on scrolls and the altar. */
         const val NBT_GLYPHS = "Glyphs"
+        private const val MIN_TINT_SATURATION = 0.05f
         const val GLYPH_RUN_KEY = "spell.enderkinesis.glyph_run"
         private const val GLYPH_SEPARATOR = " + "
 

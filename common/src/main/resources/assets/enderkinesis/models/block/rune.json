@@ -1,0 +1,44 @@
+{
+  "ambientocclusion": false,
+  "textures": {
+    "rune": "enderkinesis:block/mystic_rune",
+    "particle": "enderkinesis:block/mystic_rune"
+  },
+  "elements": [
+    {
+      "from": [
+        0,
+        0.1,
+        0
+      ],
+      "to": [
+        16,
+        0.1,
+        16
+      ],
+      "shade": false,
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#rune",
+          "tintindex": 0
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#rune",
+          "tintindex": 0
+        }
+      }
+    }
+  ]
+}
