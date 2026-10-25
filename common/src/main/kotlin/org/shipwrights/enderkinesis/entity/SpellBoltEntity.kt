@@ -23,6 +23,8 @@ import org.shipwrights.enderkinesis.spell.SpellContext
 import java.util.UUID
 import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.spell.SpellCurves
+import org.shipwrights.enderkinesis.spell.SpellVfx
 
 /**
  * A Bolt: the arcing projectile of a Forward cast whose shape is Bolt. It carries the whole
@@ -30,7 +32,8 @@ import org.shipwrights.enderkinesis.registry.EKSounds
  * impact, like an Area cast. A block it lands on then falls, if it still qualifies after
  * the detonation's block effects. In flight it tugs nearby entities toward its path.
  *
- * Drawn as the shape element's shard. Fizzles if it flies for [MAX_LIFETIME_TICKS].
+ * Drawn as a glowing knot of light in the shape element's colour (see `SpellBoltRenderer`),
+ * trailing motes. Fizzles if it flies for [MAX_LIFETIME_TICKS].
  */
 class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : ThrowableItemProjectile(type, level) {
 
@@ -40,9 +43,9 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
     private var ownerUuid: UUID? = null
     private var castPoint: Vec3 = Vec3.ZERO
 
-    constructor(level: Level, caster: LivingEntity, spell: Spell) : this(EKEntities.SPELL_BOLT.get(), level) {
+    constructor(level: Level, caster: LivingEntity, spell: Spell, origin: Vec3) : this(EKEntities.SPELL_BOLT.get(), level) {
         setOwner(caster)
-        setPos(caster.x, caster.eyeY - 0.1, caster.z)
+        setPos(origin)
         this.spell = spell
         ownerUuid = caster.uuid
         castPoint = position()
@@ -68,17 +71,25 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
 
     /** Client: a dust trail in the shape element's colour, read from the shard it's drawn as. */
     private fun trail() {
-        val stack = item
-        val element = (stack.item as? MysticShardItem)?.element
-            ?: stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)
-            ?: return
+        val element = element() ?: return
         val dust = SpellCasting.dust(element)
         val from = Vec3(xo, yo, zo)
         val to = position()
         repeat(TRAIL_PARTICLES) { i ->
             val p = from.lerp(to, (i + 1).toDouble() / TRAIL_PARTICLES)
-            level().addParticle(dust, p.x, p.y, p.z, 0.0, 0.0, 0.0)
+            val spread = 0.08
+            level().addParticle(
+                dust, p.x + random.nextGaussian() * spread, p.y + bbHeight / 2 + random.nextGaussian() * spread,
+                p.z + random.nextGaussian() * spread, 0.0, 0.0, 0.0,
+            )
         }
+    }
+
+    /** The shape element, read from the shard the bolt carries (synced to clients). */
+    fun element(): Element? {
+        val stack = item
+        return (stack.item as? MysticShardItem)?.element
+            ?: stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)
     }
 
     /** Gravity's pull along the flight path: everything near the bolt drifts toward it. */
@@ -102,6 +113,10 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         val caster = owner as? LivingEntity
         val ctx = SpellContext(level, caster, castPoint, caster?.uuid ?: ownerUuid)
         SpellCasting.burst(ctx, spell, result.location, area = false)
+        // Impact: a flash and a shockwave shell the size of the largest burst, in the spell's colour.
+        val reach = spell.magnitudes.values.maxOfOrNull { SpellCurves.areaRadius(it) } ?: SpellCurves.BASE_RADIUS
+        SpellVfx.flash(level, result.location, 1.6, spell.tint())
+        SpellVfx.shell(level, result.location, reach, spell.tint(), 18)
         level.playSound(null, result.location.x, result.location.y, result.location.z, EKSounds.BOLT_IMPACT.get(), SoundSource.NEUTRAL, 1f, 1f)
         if (result is BlockHitResult && result.type == HitResult.Type.BLOCK) ElementEffects.dropBlock(ctx, result.blockPos)
         discard()
@@ -129,7 +144,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
 
     companion object {
         const val MAX_LIFETIME_TICKS = 200
-        private const val TRAIL_PARTICLES = 3
+        private const val TRAIL_PARTICLES = 6
         private const val PULL_RADIUS = 2.5
         private const val PULL_STRENGTH = 0.08
 

@@ -214,6 +214,7 @@ object SunderingClient {
         }
         // Mystic Scroll beams and merged beams share this style and this render pass.
         ScrollBeamClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
+        SpellVfxClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
     }
 
     private fun isWielding(player: Player): Boolean {

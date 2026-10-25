@@ -56,6 +56,16 @@ class WeightedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GRAVITY.colo
         addAttributeModifier(Attributes.KNOCKBACK_RESISTANCE, "0c9d7e52-3f4a-4b6e-8a1d-5b2c7f9e4d02", 1.0, AttributeModifier.Operation.ADDITION)
     }
 
+    override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.addAttributeModifiers(entity, attributes, amplifier)
+        SpellVisuals.update(entity)
+    }
+
+    override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.removeAttributeModifiers(entity, attributes, amplifier)
+        SpellVisuals.update(entity)
+    }
+
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = true
 
     override fun applyEffectTick(entity: LivingEntity, amplifier: Int) {

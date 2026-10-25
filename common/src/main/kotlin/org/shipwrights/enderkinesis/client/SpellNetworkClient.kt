@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.client
 
 import dev.architectury.networking.NetworkManager
 import dev.architectury.event.events.client.ClientTickEvent
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.client.Minecraft
@@ -14,6 +13,8 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.spell.SpellNetwork
+import org.joml.Quaternionf
+import org.shipwrights.enderkinesis.spell.SpellVisuals
 
 /**
  * Client half of [SpellNetwork]: which entities are Absent (not drawn), which blocks an
@@ -23,8 +24,6 @@ import org.shipwrights.enderkinesis.spell.SpellNetwork
 object SpellNetworkClient {
 
     private val absent = IntOpenHashSet()
-    /** Entity id → visible spell effects; see [org.shipwrights.enderkinesis.spell.SpellVisuals]. */
-    private val visuals = Int2IntOpenHashMap()
     /** Phased block positions, with the state each one is restored to. */
     private val phased = Long2ObjectOpenHashMap<BlockState>()
 
@@ -57,9 +56,25 @@ object SpellNetworkClient {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.VISUALS) { buf, ctx ->
             val id = buf.readVarInt()
             val bits = buf.readVarInt()
-            ctx.queue { if (bits == 0) visuals.remove(id) else visuals.put(id, bits) }
+            ctx.queue { SpellVisuals.setClientBits(id, bits) }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.FROZEN_POSE) { buf, ctx ->
+            val id = buf.readVarInt()
+            val rotation = Quaternionf(buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat())
+            ctx.queue { SpellVisuals.setClientPose(id, rotation) }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.VFX) { buf, ctx ->
+            val kind = buf.readByte().toInt()
+            val a = Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
+            val b = Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
+            val size = buf.readFloat()
+            val rgb = buf.readInt()
+            val life = buf.readVarInt()
+            val seed = buf.readInt()
+            ctx.queue { SpellVfxClient.add(kind, a, b, size, rgb, life, seed) }
         }
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel(::tickPockets))
+        SpellVfxClient.init()
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.STUTTER) { buf, ctx ->
             val shipId = buf.readLong()
             val ticks = buf.readVarInt()
@@ -67,9 +82,9 @@ object SpellNetworkClient {
         }
     }
 
-    /** The visible spell effects on the entity with [id], as [org.shipwrights.enderkinesis.spell.SpellVisuals] bits. */
+    /** The visible spell effects on the entity with [id], as [SpellVisuals] bits. */
     @JvmStatic
-    fun visuals(id: Int): Int = visuals.get(id)
+    fun visuals(id: Int): Int = SpellVisuals.clientBits(id)
 
     /** A faint void haze in the empty space of each phased block. */
     private fun tickPockets(level: ClientLevel) {
@@ -119,9 +134,10 @@ object SpellNetworkClient {
     /** World change or disconnect. */
     fun reset() {
         absent.clear()
-        visuals.clear()
+        SpellVisuals.resetClient()
         phased.clear()
         ScrollBeamClient.reset()
+        SpellVfxClient.reset()
     }
 
     /** Redraw, no neighbour shape updates: the server never changed the block. */

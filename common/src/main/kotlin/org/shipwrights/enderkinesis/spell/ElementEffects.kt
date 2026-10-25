@@ -52,7 +52,16 @@ fun interface ElementEffect {
  */
 object ElementEffects {
 
-    fun of(element: Element): ElementEffect = when (element) {
+    /** [element]'s effect, followed by the volume it leaves where it lands ([SpellVfx]). */
+    fun of(element: Element): ElementEffect {
+        val effect = base(element)
+        return ElementEffect { ctx, delivery, magnitude ->
+            effect.apply(ctx, delivery, magnitude)
+            SpellVfx.element(ctx, delivery, element, magnitude)
+        }
+    }
+
+    private fun base(element: Element): ElementEffect = when (element) {
         Element.HEAT -> HEAT
         Element.COLD -> COLD
         Element.GROWTH -> GROWTH
@@ -60,7 +69,6 @@ object ElementEffects {
         Element.GRAVITY -> GRAVITY
         Element.CHAOS -> CHAOS
         Element.BLOOD -> BLOOD
-        // The fusions' and Sundering's effects aren't implemented yet.
         Element.SUNDERING -> SUNDERING
         Element.SUNFIRE -> FusionEffects.SUNFIRE
         Element.POISON -> FusionEffects.POISON
@@ -372,8 +380,9 @@ object ElementEffects {
             val positions = entities.map { it.position() }
             for (i in entities.indices) {
                 val target = positions[(i + 1) % positions.size]
+                // Lightning leaps along each swap before the entity follows it.
+                SpellVfx.arc(level, positions[i].add(0.0, entities[i].bbHeight * 0.5, 0.0), target.add(0.0, entities[i].bbHeight * 0.5, 0.0), Element.CHAOS.color)
                 entities[i].teleportTo(target.x, target.y, target.z)
-                level.sendParticles(ParticleTypes.PORTAL, target.x, target.y + 1.0, target.z, 30, 0.5, 1.0, 0.5, 0.05)
             }
         }
         if (delivery is Delivery.SingleBlock) swapBlock(ctx, delivery.pos, magnitude)
@@ -432,6 +441,14 @@ object ElementEffects {
         val drained = drainedTargets.size
         // Enthralled and Bloodbound tie the drained to the caster, or a rune's owner.
         NamedEffects.blood(ctx, drainedTargets, ctx.caster ?: ctx.buffRecipient, magnitude)
+        // The blood visibly flows from each drained target to whoever it feeds.
+        val sink = recipient?.takeIf { it.isAlive }
+        if (sink != null) {
+            val to = sink.position().add(0.0, sink.bbHeight * 0.6, 0.0)
+            for (target in drainedTargets) {
+                SpellVfx.stream(level, target.position().add(0.0, target.bbHeight * 0.6, 0.0), to, Element.BLOOD.color)
+            }
+        }
         if (drained == 0) {
             SpellFx.burst(level, delivery, ParticleTypes.SMOKE, 40)
             SpellFx.sound(level, delivery, SoundEvents.WITHER_HURT, pitch = 1.4f)

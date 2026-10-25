@@ -59,8 +59,8 @@ object ScrollBeamClient {
         val shields = ArrayList<AegisBox.Frame>()
         shields.addAll(SunderingBeamTrace.collectWieldedShields(level, player))
         shields.addAll(AegisClient.snapshotDebugBoxes())
-        val look = player.getViewVector(tickDelta).normalize()
-        return SunderingBeamTrace.trace(level, player, player.getEyePosition(tickDelta), look, reach, shields)
+        val origin = SpellCasting.handOrigin(player, player.usedItemHand, tickDelta)
+        return SunderingBeamTrace.trace(level, player, origin, SpellCasting.handAim(player, origin, tickDelta), reach, shields)
     }
 
     /** [segments] of the beam held by the entity with [entityId], ending where it feeds a

@@ -21,15 +21,17 @@ import java.util.IdentityHashMap
 /**
  * Frozen mobs as VS2 physics bodies. Freezing gives the mob a box body the size of its
  * hitbox, launched with the mob's own velocity; while frozen the mob's AI and gravity are
- * off and it follows the body each tick, tumbling, sliding and being knocked about like any
- * physics object. Thawing deletes the body and hands its velocity back to the mob.
+ * off and it follows the body each tick, sliding and being knocked about like any physics
+ * object. Clients turn the model by the body's rotation (see [SpellNetwork.broadcastFrozenPose]),
+ * and other entities collide with it as with a boat. Thawing deletes the body and hands its velocity back to the mob.
  *
  * Players aren't mobs and can't be driven by a body; Frozen holds them still instead (see
  * [org.shipwrights.enderkinesis.effect.FrozenEffect]).
  */
 object FrozenBodies {
 
-    private class Frozen(val bodyId: Long, val hadAi: Boolean, val hadGravity: Boolean)
+    /** [initial] is the body's rotation when it froze: the mob's facing. */
+    private class Frozen(val bodyId: Long, val hadAi: Boolean, val hadGravity: Boolean, val initial: Quaterniond)
 
     // Game thread only.
     private val frozen = IdentityHashMap<Mob, Frozen>()
@@ -47,8 +49,9 @@ object FrozenBodies {
         val mob = entity as? Mob ?: return
         val level = mob.level() as? ServerLevel ?: return
         if (mob in frozen) return
-        val bodyId = createBody(level, mob) ?: return
-        frozen[mob] = Frozen(bodyId, !mob.isNoAi, !mob.isNoGravity)
+        val initial = Quaterniond().rotateY(-Math.toRadians(mob.yRot.toDouble()))
+        val bodyId = createBody(level, mob, initial) ?: return
+        frozen[mob] = Frozen(bodyId, !mob.isNoAi, !mob.isNoGravity, initial)
         mob.isNoAi = true
         mob.isNoGravity = true
     }
@@ -68,7 +71,7 @@ object FrozenBodies {
         VsBodies.delete(level, state.bodyId)
     }
 
-    private fun createBody(level: ServerLevel, mob: Mob): Long? {
+    private fun createBody(level: ServerLevel, mob: Mob, initial: Quaterniond): Long? {
         val shipWorld = level.shipObjectWorld as? ServerShipWorld ?: return null
         val w = mob.bbWidth.toDouble()
         val h = mob.bbHeight.toDouble()
@@ -85,7 +88,7 @@ object FrozenBodies {
                 kinematics = vsCore.newBodyKinematics(
                     Vector3d(velocity.x, velocity.y, velocity.z), Vector3d(),
                     Vector3d(centre.x, centre.y, centre.z),
-                    Quaterniond().rotateY(-Math.toRadians(mob.yRot.toDouble())),
+                    Quaterniond(initial),
                     Vector3d(1.0), Vector3d(),
                 ),
                 collisionShape = vsCore.newBoxBodyShape(Vector3d(w, h, w)),
@@ -113,13 +116,12 @@ object FrozenBodies {
             }
             val body = level.shipObjectWorld.allBodies.getById(state.bodyId) ?: continue
             val p = body.kinematics.position
-            val forward = body.kinematics.rotation.transform(Vector3d(0.0, 0.0, 1.0))
-            val yaw = Math.toDegrees(Math.atan2(-forward.x, forward.z)).toFloat()
             mob.teleportTo(p.x(), p.y() - mob.bbHeight / 2.0, p.z())
-            mob.yRot = yaw
-            mob.yBodyRot = yaw
-            mob.yHeadRot = yaw
             mob.deltaMovement = Vec3.ZERO
+            // The mob keeps the facing it froze with; clients turn its model by the body's
+            // rotation since then, so it tumbles with the ice.
+            val tumble = Quaterniond(body.kinematics.rotation).mul(Quaterniond(state.initial).invert())
+            SpellNetwork.broadcastFrozenPose(level, mob, tumble.x.toFloat(), tumble.y.toFloat(), tumble.z.toFloat(), tumble.w.toFloat())
         }
     }
 

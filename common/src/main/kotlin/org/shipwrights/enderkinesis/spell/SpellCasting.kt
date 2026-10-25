@@ -3,8 +3,9 @@ package org.shipwrights.enderkinesis.spell
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.DustParticleOptions
-import net.minecraft.core.particles.ParticleTypes
+import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.HumanoidArm
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
@@ -27,6 +28,32 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 object SpellCasting {
     /** Held shapes re-apply every 0.5 s. */
     const val PULSE_TICKS = 10
+
+    /** Where a cast from [hand] starts: just in front of that hand, on the side its arm is
+     *  on. Server and client share this, so a drawn beam leaves the hand it's cast from. */
+    fun handOrigin(entity: LivingEntity, hand: InteractionHand, partialTick: Float = 1f): Vec3 {
+        val look = entity.getViewVector(partialTick)
+        val flat = look.cross(UP)
+        val right = if (flat.lengthSqr() < 1.0e-6) Vec3(-Math.cos(Math.toRadians(entity.yRot.toDouble())), 0.0, -Math.sin(Math.toRadians(entity.yRot.toDouble()))) else flat.normalize()
+        val arm = if (hand == InteractionHand.MAIN_HAND) entity.mainArm else entity.mainArm.opposite
+        val side = if (arm == HumanoidArm.RIGHT) 1.0 else -1.0
+        return entity.getEyePosition(partialTick)
+            .add(look.scale(HAND_FORWARD))
+            .add(right.scale(HAND_SIDE * side))
+            .add(0.0, -HAND_DROP * entity.bbHeight / PLAYER_HEIGHT, 0.0)
+    }
+
+    /** Aim from [origin] at the point [AIM_CONVERGE] blocks along the caster's view, so a cast
+     *  from the hand still lands where the caster looks. */
+    fun handAim(entity: LivingEntity, origin: Vec3, partialTick: Float = 1f): Vec3 =
+        entity.getEyePosition(partialTick).add(entity.getViewVector(partialTick).scale(AIM_CONVERGE)).subtract(origin).normalize()
+
+    private val UP = Vec3(0.0, 1.0, 0.0)
+    private const val HAND_FORWARD = 0.45
+    private const val HAND_SIDE = 0.36
+    private const val HAND_DROP = 0.35
+    private const val PLAYER_HEIGHT = 1.8f
+    private const val AIM_CONVERGE = 16.0
 
     /** Ticks a Forward cast can be held: 10 s at magnitude 1, rising linearly to 20 s at 7,
      *  from the magnitude of the element that chose the shape. */
@@ -179,7 +206,17 @@ object SpellCasting {
     fun chain(ctx: SpellContext, origin: Vec3, look: Vec3, magnitude: Float): Delivery.Group? {
         val mirrors = BeamManager.mirrors(ctx.level, ctx.caster)
         val cone = Delivery.Cone(origin, look, CHAIN_RANGE, CHAIN_HALF_ANGLE, mirrors)
-        val first = cone.living(ctx).minByOrNull { it.distanceToSqr(origin) } ?: return null
+        val first = cone.living(ctx).minByOrNull { it.distanceToSqr(origin) }
+        if (first == null) {
+            // Nothing to strike: the lightning still lashes out into the air.
+            repeat(EMPTY_ARCS) {
+                val dir = look.add(
+                    ctx.level.random.nextGaussian() * 0.35, ctx.level.random.nextGaussian() * 0.35, ctx.level.random.nextGaussian() * 0.35,
+                ).normalize()
+                SpellVfx.arc(ctx.level, origin, origin.add(dir.scale(CHAIN_RANGE * (0.3 + 0.4 * ctx.level.random.nextDouble()))), Element.CHAOS.color, 4)
+            }
+            return null
+        }
         val targets = chainFrom(ctx, first, magnitude, HashSet())
         chainArcs(ctx, origin, targets.take(1))
         return Delivery.Group(targets, first.position())
@@ -212,11 +249,7 @@ object SpellCasting {
         var from = origin
         for (target in targets) {
             val to = target.position().add(0.0, target.bbHeight * 0.5, 0.0)
-            val steps = (from.distanceTo(to) / TRAIL_SPACING).toInt().coerceAtLeast(1)
-            for (i in 1..steps) {
-                val p = from.lerp(to, i.toDouble() / steps)
-                ctx.level.sendParticles(ParticleTypes.ELECTRIC_SPARK, p.x, p.y, p.z, 1, 0.08, 0.08, 0.08, 0.0)
-            }
+            SpellVfx.arc(ctx.level, from, to, Element.CHAOS.color, ARC_LIFE)
             from = to
         }
     }
@@ -231,9 +264,11 @@ object SpellCasting {
 
     private const val BEAM_HALF_WIDTH = 0.5
     private const val BLOCK_BITE = 0.1
+    private const val EMPTY_ARCS = 3
+    /** A pulse's arcs last until the next pulse. */
+    private const val ARC_LIFE = 8
     private const val LOOP_VOLUME = 0.5f
     private const val ZAP_VOLUME = 0.3f
-    private const val TRAIL_SPACING = 0.75
     private val SPRAY_HALF_ANGLE = Math.toRadians(25.0)
     private const val CHAIN_RANGE = 12.0
     private val CHAIN_HALF_ANGLE = Math.toRadians(30.0)

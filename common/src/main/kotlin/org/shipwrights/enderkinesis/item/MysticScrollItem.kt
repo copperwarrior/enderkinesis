@@ -60,14 +60,11 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         val spell = spellOf(stack) ?: return
         val shapeElement = spell.shapeElement ?: return
         val held = getUseDuration(stack) - remainingUseDuration
-        val origin = entity.eyePosition
-        val look = entity.lookAngle
+        // Every cast leaves the hand holding the scroll, aimed where the caster looks.
+        val origin = SpellCasting.handOrigin(entity, entity.usedItemHand)
+        val look = SpellCasting.handAim(entity, origin)
         if (shapeElement.shape == Shape.BOLT) {
-            if (held == 0) level.playSound(null, entity.x, entity.y, entity.z, EKSounds.BOLT_CHARGE.get(), SoundSource.PLAYERS, 1f, 1f)
-            if (held % BOLT_CHARGE_FX_TICKS == 0) {
-                val p = origin.add(look)
-                level.sendParticles(SpellCasting.dust(shapeElement), p.x, p.y, p.z, 4, 0.15, 0.15, 0.15, 0.0)
-            }
+            if (held == 0) level.playSound(null, origin.x, origin.y, origin.z, EKSounds.BOLT_CHARGE.get(), SoundSource.PLAYERS, 1f, 1f)
             return
         }
         val ctx = SpellContext(level, entity, origin, pulsed = true)
@@ -106,16 +103,19 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         val shapeElement = spell.shapeElement ?: return
         if (shapeElement.shape == Shape.BOLT) {
             val charge = (held.toFloat() / BOLT_FULL_CHARGE_TICKS).coerceIn(BOLT_MIN_CHARGE, 1f)
-            val bolt = SpellBoltEntity(level, entity, spell)
-            bolt.shootFromRotation(
-                entity, entity.xRot, entity.yRot, 0f,
-                SpellBoltEntity.maxSpeed(spell.magnitude(shapeElement)) * charge, BOLT_INACCURACY,
-            )
+            val origin = SpellCasting.handOrigin(entity, entity.usedItemHand)
+            val aim = SpellCasting.handAim(entity, origin)
+            val bolt = SpellBoltEntity(level, entity, spell, origin)
+            bolt.shoot(aim.x, aim.y, aim.z, SpellBoltEntity.maxSpeed(spell.magnitude(shapeElement)) * charge, BOLT_INACCURACY)
+            // The caster's own motion carries into the throw, as for any projectile.
+            val carried = entity.deltaMovement
+            bolt.deltaMovement = bolt.deltaMovement.add(carried.x, if (entity.onGround()) 0.0 else carried.y, carried.z)
             level.addFreshEntity(bolt)
             level.playSound(null, entity.x, entity.y, entity.z, EKSounds.BOLT_LAUNCH.get(), SoundSource.PLAYERS, 1f, 0.6f)
         } else if (held == 0) {
             // Let go before the first tick: still one pulse, so a tap is never wasted.
-            SpellCasting.pulse(SpellContext(level, entity, entity.eyePosition, pulsed = true), spell, entity.eyePosition, entity.lookAngle)
+            val origin = SpellCasting.handOrigin(entity, entity.usedItemHand)
+            SpellCasting.pulse(SpellContext(level, entity, origin, pulsed = true), spell, origin, SpellCasting.handAim(entity, origin))
         }
         useUp(level, entity, stack)
     }
@@ -144,7 +144,6 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
         private const val BOLT_FULL_CHARGE_TICKS = 30
         private const val BOLT_MIN_CHARGE = 0.25f
         private const val BOLT_INACCURACY = 0.5f
-        private const val BOLT_CHARGE_FX_TICKS = 4
 
         fun spellOf(stack: ItemStack): Spell? =
             stack.tag?.let { Spell.load(it, Spell.NBT_GLYPHS) }?.takeIf { it.glyphs.isNotEmpty() }

@@ -35,9 +35,9 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
 
     val hasScroll: Boolean get() = !blank.isEmpty
 
+    /** Lays down the paper; glyphs already gathered on the altar stay. */
     fun placeBlank(paper: ItemStack) {
         blank = paper.copyWithCount(1)
-        glyphs = emptyList()
         changed()
     }
 
@@ -61,8 +61,8 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
         return scroll
     }
 
-    /** The paper, if nothing was inscribed: inscribed shards are lost with the scroll. */
-    fun drops(): List<ItemStack> = if (hasScroll && glyphs.isEmpty()) listOf(blank.copy()) else emptyList()
+    /** The paper, if any. Inscribed shards are spent and lost with the altar. */
+    fun drops(): List<ItemStack> = if (hasScroll) listOf(blank.copy()) else emptyList()
 
     private fun changed() {
         setChanged()

@@ -115,10 +115,8 @@ object EnderkinesisModClient {
             net.minecraft.client.renderer.entity.NoopRenderer(ctx)
         }
 
-        // Spell Bolt — its shape element's shard, full-bright.
-        EntityRendererRegistry.register(EKEntities.SPELL_BOLT) { ctx ->
-            net.minecraft.client.renderer.entity.ThrownItemRenderer(ctx, 1.0f, true)
-        }
+        // Spell Bolt — a knot of light in its shape element's colour, no item model.
+        EntityRendererRegistry.register(EKEntities.SPELL_BOLT) { ctx -> SpellBoltRenderer(ctx) }
     }
 
     @JvmStatic

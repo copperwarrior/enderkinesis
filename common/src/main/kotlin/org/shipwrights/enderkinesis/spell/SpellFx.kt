@@ -19,6 +19,8 @@ object SpellFx {
      *  [count] positions inside the radius for us); spread along a line; clustered on a
      *  single entity or block face. */
     fun burst(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int) {
+        if (held(delivery)) return
+        val count = thin(count)
         when (delivery) {
             is Delivery.Sphere -> {
                 val c = delivery.anchor
@@ -61,6 +63,8 @@ object SpellFx {
     /** Particles from the centre with outward-radial motion. Each is its own packet (the
      *  batched [burst] can't direct motion per particle), so keep [count] modest. */
     fun outwardBlast(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int, speed: Double) {
+        if (held(delivery)) return
+        val count = thin(count)
         val sphere = delivery as? Delivery.Sphere ?: return burst(level, delivery, particle, fallbackCount(count))
         val c = sphere.anchor
         repeat(count) {
@@ -71,6 +75,8 @@ object SpellFx {
 
     /** Particles on the sphere's surface moving inward — "pulled toward the centre". */
     fun inwardCollapse(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int, speed: Double) {
+        if (held(delivery)) return
+        val count = thin(count)
         val sphere = delivery as? Delivery.Sphere ?: return burst(level, delivery, particle, fallbackCount(count))
         val c = sphere.anchor
         val r = sphere.radius
@@ -84,6 +90,8 @@ object SpellFx {
      *  moves in a straight line, but the initial tangent reads as a swirl. The band is ~3 m
      *  tall so the swirl isn't diluted across the whole sphere. */
     fun swirl(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int, tangentSpeed: Double) {
+        if (held(delivery)) return
+        val count = thin(count)
         val sphere = delivery as? Delivery.Sphere ?: return burst(level, delivery, particle, fallbackCount(count))
         val c = sphere.anchor
         val radius = sphere.radius
@@ -108,7 +116,16 @@ object SpellFx {
         }
     }
 
+    /** A held Beam or Spray re-applies every 0.5 s; its look comes from the beam renderer
+     *  and the spray's mist, not a burst per pulse. */
+    private fun held(delivery: Delivery): Boolean = delivery is Delivery.Line || delivery is Delivery.Cone
+
+    /** Particles are accents now; the volume comes from [SpellVfx]. */
+    private fun thin(count: Int): Int = (count * DENSITY).toInt().coerceAtLeast(1)
+    private const val DENSITY = 0.5
+
     fun sound(level: ServerLevel, delivery: Delivery, sound: SoundEvent, volume: Float = 1f, pitch: Float = 1f) {
+        if (held(delivery)) return
         level.playSound(null, BlockPos.containing(delivery.anchor), sound, SoundSource.PLAYERS, volume, pitch)
     }
 

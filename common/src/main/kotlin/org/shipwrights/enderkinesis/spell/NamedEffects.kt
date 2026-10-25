@@ -8,6 +8,7 @@ import net.minecraft.world.SimpleContainer
 import net.minecraft.world.effect.MobEffect
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.effect.MobEffects
+import net.minecraft.world.entity.AgeableMob
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.animal.Animal
@@ -116,6 +117,9 @@ object NamedEffects {
         )
     }
 
+    /** Health Growth restores per application, before the curve (a quarter on pulses). */
+    private const val GROWTH_HEAL = 1f
+
     fun growth(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
         val level = ctx.level
         val entangled = EKEffects.ENTANGLED.get()
@@ -125,7 +129,12 @@ object NamedEffects {
                 if (target.isBaby) target.setAge(0)
                 else if (target.canFallInLove()) target.setInLove(ctx.caster as? Player)
             }
-            target.addEffect(MobEffectInstance(entangled, SpellCurves.ticks(1.5f, 0.5f, magnitude)), ctx.caster)
+            // Gentle healing for whatever the growth touches.
+            target.heal(ctx.damageAmount(GROWTH_HEAL, magnitude))
+            // Roots only hold mobs that can't breed.
+            if (target !is AgeableMob) {
+                target.addEffect(MobEffectInstance(entangled, SpellCurves.ticks(1.5f, 0.5f, magnitude)), ctx.caster)
+            }
         }
         // Overgrow.
         for (pos in delivery.blocks(level)) {

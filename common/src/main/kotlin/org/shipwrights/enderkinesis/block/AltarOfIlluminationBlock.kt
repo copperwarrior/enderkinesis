@@ -43,6 +43,9 @@ import org.shipwrights.enderkinesis.registry.EKSounds
  * Altar of Illumination, where Mystic Scrolls are made. Right-click with:
  *
  * - paper (`#enderkinesis:altar_paper`) to lay down a blank scroll;
+ *
+ * Components go in any order: shards gather on the altar before the paper does, and only
+ * finishing needs paper, glyphs and ink together.
  * - an Ichaeric Ink Bottle to pour it into the basin, up to [MAX_INK] bottles ([INK]);
  * - a Mystic Shard to inscribe it, resolving opposites and fusions (see [Inscription]);
  * - the Penfeather of the Accursed Owl to finish the scroll, using one bottle of ink.
@@ -118,10 +121,6 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         level: Level, pos: BlockPos, player: Player, held: ItemStack, shard: MysticShardItem,
         altar: AltarOfIlluminationBlockEntity,
     ) {
-        if (!altar.hasScroll) {
-            player.displayClientMessage(Component.translatable(NO_SCROLL_KEY), true)
-            return
-        }
         val outcome = altar.inscribe(shard.element)
         if (outcome == null) {
             player.displayClientMessage(Component.translatable(FULL_KEY, Inscription.MAX_GLYPHS), true)

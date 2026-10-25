@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.BeamSegment
+import net.minecraft.world.phys.Vec3
 
 /**
  * Server senders for the spell effects clients have to see. Receivers are in
@@ -27,6 +28,8 @@ object SpellNetwork {
     val STUTTER: ResourceLocation = EnderkinesisMod.id("spell/stutter")
     val MERGED: ResourceLocation = EnderkinesisMod.id("spell/merged")
     val VISUALS: ResourceLocation = EnderkinesisMod.id("spell/visuals")
+    val VFX: ResourceLocation = EnderkinesisMod.id("spell/vfx")
+    val FROZEN_POSE: ResourceLocation = EnderkinesisMod.id("spell/frozen_pose")
 
     fun broadcastAbsent(level: ServerLevel, entity: Entity, absent: Boolean) =
         broadcast(level, ABSENT) { it.writeVarInt(entity.id); it.writeBoolean(absent) }
@@ -40,6 +43,25 @@ object SpellNetwork {
     /** [entity]'s visible spell effects changed; see [SpellVisuals]. */
     fun broadcastVisuals(level: ServerLevel, entity: Entity, bits: Int) =
         broadcast(level, VISUALS) { it.writeVarInt(entity.id); it.writeVarInt(bits) }
+
+    /** One [SpellVfx] visual. */
+    fun broadcastVfx(level: ServerLevel, kind: Int, a: Vec3, b: Vec3, size: Float, rgb: Int, life: Int, seed: Int) =
+        broadcast(level, VFX) { buf ->
+            buf.writeByte(kind)
+            buf.writeDouble(a.x); buf.writeDouble(a.y); buf.writeDouble(a.z)
+            buf.writeDouble(b.x); buf.writeDouble(b.y); buf.writeDouble(b.z)
+            buf.writeFloat(size)
+            buf.writeInt(rgb)
+            buf.writeVarInt(life)
+            buf.writeInt(seed)
+        }
+
+    /** A frozen mob's tumble: its body's rotation since it froze, sent every tick. */
+    fun broadcastFrozenPose(level: ServerLevel, entity: Entity, x: Float, y: Float, z: Float, w: Float) =
+        broadcast(level, FROZEN_POSE) { buf ->
+            buf.writeVarInt(entity.id)
+            buf.writeFloat(x); buf.writeFloat(y); buf.writeFloat(z); buf.writeFloat(w)
+        }
 
     fun broadcastStutter(level: ServerLevel, shipId: Long, ticks: Int) =
         broadcast(level, STUTTER) { it.writeLong(shipId); it.writeVarInt(ticks) }
