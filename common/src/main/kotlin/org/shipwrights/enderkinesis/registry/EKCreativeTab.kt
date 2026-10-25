@@ -129,6 +129,13 @@ object EKCreativeTab {
             output.accept(EKItems.MYSTIC_MOONSTONE.get())
             output.accept(EKItems.MYSTIC_SPINEL.get())
             output.accept(EKItems.MYSTIC_BLOODSTONE.get())
+            output.accept(EKItems.MYSTIC_CITRINE_SHARD.get())
+            output.accept(EKItems.MYSTIC_ONYX_SHARD.get())
+            output.accept(EKItems.MYSTIC_JADE_SHARD.get())
+            output.accept(EKItems.MYSTIC_AQUAMARINE_SHARD.get())
+            output.accept(EKItems.MYSTIC_MOONSTONE_SHARD.get())
+            output.accept(EKItems.MYSTIC_SPINEL_SHARD.get())
+            output.accept(EKItems.MYSTIC_BLOODSTONE_SHARD.get())
 
             output.accept(EKItems.END_CULT_HOOD.get())
             output.accept(EKItems.END_CULT_ROBES.get())

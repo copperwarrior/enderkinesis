@@ -65,4 +65,14 @@ object EKDamageSources {
         val registry = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
         return DamageSource(registry.getHolderOrThrow(SSELITH_REMNANT_KEY))
     }
+
+    /** Purity's Crystallized effect and its shatter. Bypasses armour (vanilla tag merge);
+     *  death message `death.attack.crystallization`. */
+    val CRYSTALLIZATION_KEY: ResourceKey<DamageType> =
+        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("crystallization"))
+
+    fun crystallization(level: ServerLevel): DamageSource {
+        val registry = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
+        return DamageSource(registry.getHolderOrThrow(CRYSTALLIZATION_KEY))
+    }
 }

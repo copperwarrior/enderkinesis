@@ -6694,6 +6694,16 @@
       "sselith": "morgloumkh",
       "tag": "[compound: light + stone]"
     },
+    "crystallization": {
+      "pos": "NOUN",
+      "sselith": "morgloumkhkrevirkhust",
+      "tag": "[crystallize + ABSTRACT]"
+    },
+    "crystallize": {
+      "pos": "VERB",
+      "sselith": "morgloumkhkrevirkh",
+      "tag": "[compound: crystal + become]"
+    },
     "cube": {
       "pos": "NOUN",
       "sselith": "morsiskstkkharghk",
@@ -21959,6 +21969,11 @@
       "sselith": "solknavkhorl",
       "tag": "[pure + ADV]"
     },
+    "purity": {
+      "pos": "NOUN",
+      "sselith": "solknavkhust",
+      "tag": "[pure + ABSTRACT]"
+    },
     "purple": {
       "pos": "ADJ",
       "sselith": "purpoulegh",
@@ -27128,6 +27143,11 @@
       "pos": "NOUN",
       "sselith": "solarkh",
       "tag": "[compound: schest-vir + day]"
+    },
+    "sunfire": {
+      "pos": "NOUN",
+      "sselith": "gloumkhglouvkh",
+      "tag": "[compound: sun + fire]"
     },
     "sunflower": {
       "pos": "NOUN",

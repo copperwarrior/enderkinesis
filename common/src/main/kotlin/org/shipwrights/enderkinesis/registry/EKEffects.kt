@@ -7,6 +7,7 @@ import net.minecraft.world.effect.MobEffect
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.effect.AmbrosialCravingEffect
 import org.shipwrights.enderkinesis.effect.CrepuscularFloatationEffect
+import org.shipwrights.enderkinesis.effect.CrystallizedEffect
 import org.shipwrights.enderkinesis.effect.OwlsMarkEffect
 import org.shipwrights.enderkinesis.effect.SselithMadnessEffect
 import org.shipwrights.enderkinesis.effect.YgannMadnessEffect
@@ -46,6 +47,10 @@ object EKEffects {
 
     val OWLS_MARK: RegistrySupplier<MobEffect> =
         EFFECTS.register("owls_mark") { OwlsMarkEffect() }
+
+    /** Purity's damage over time that shatters when it ends; see [CrystallizedEffect]. */
+    val CRYSTALLIZED: RegistrySupplier<MobEffect> =
+        EFFECTS.register("crystallized") { CrystallizedEffect() }
 
     fun register() = EFFECTS.register()
 }

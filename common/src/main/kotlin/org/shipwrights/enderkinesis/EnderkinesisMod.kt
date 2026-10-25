@@ -185,6 +185,9 @@ object EnderkinesisMod {
         ReloadListenerRegistry.register(
             PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.InegricRetortRates, id("inegric_retort"),
         )
+        ReloadListenerRegistry.register(
+            PackType.SERVER_DATA, org.shipwrights.enderkinesis.spell.FluidFreezing, id("fluid_freezing"),
+        )
 
         org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.register()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()

@@ -20,13 +20,9 @@ import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.GuideToStratusItem
 import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
-import org.shipwrights.enderkinesis.item.MysticAquamarineItem
-import org.shipwrights.enderkinesis.item.MysticBloodstoneItem
-import org.shipwrights.enderkinesis.item.MysticCitrineItem
-import org.shipwrights.enderkinesis.item.MysticJadeItem
-import org.shipwrights.enderkinesis.item.MysticMoonstoneItem
-import org.shipwrights.enderkinesis.item.MysticOnyxItem
-import org.shipwrights.enderkinesis.item.MysticSpinelItem
+import org.shipwrights.enderkinesis.item.MysticGemItem
+import org.shipwrights.enderkinesis.item.MysticShardItem
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.item.EideticBookmarkItem
 import org.shipwrights.enderkinesis.item.OldPaperItem
 import org.shipwrights.enderkinesis.item.SselithBookItem
@@ -297,23 +293,31 @@ object EKItems {
     val STAFF_OF_SUNDERING: RegistrySupplier<Item> =
         ITEMS.register("staff_of_sundering") { StaffOfSunderingItem(props().stacksTo(1)) }
 
-    /** Mystic Gems — right-click triggers a 7-block-diameter themed burst centred on the
-     *  holder; per-stack 10-second cooldown, item is not consumed. See [MysticGemItem]
-     *  for shared scaffolding and each subclass for the effect. */
-    val MYSTIC_CITRINE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_citrine") { MysticCitrineItem(props().stacksTo(1)) }
-    val MYSTIC_ONYX: RegistrySupplier<Item> =
-        ITEMS.register("mystic_onyx") { MysticOnyxItem(props().stacksTo(1)) }
-    val MYSTIC_JADE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_jade") { MysticJadeItem(props().stacksTo(1)) }
-    val MYSTIC_AQUAMARINE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_aquamarine") { MysticAquamarineItem(props().stacksTo(1)) }
-    val MYSTIC_MOONSTONE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_moonstone") { MysticMoonstoneItem(props().stacksTo(1)) }
-    val MYSTIC_SPINEL: RegistrySupplier<Item> =
-        ITEMS.register("mystic_spinel") { MysticSpinelItem(props().stacksTo(1)) }
-    val MYSTIC_BLOODSTONE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_bloodstone") { MysticBloodstoneItem(props().stacksTo(1)) }
+    /** Mystic Gem shards — one glyph of the gem's element each, inscribed at the Altar of
+     *  Illumination. Fire resistant, like the gems. See [MysticShardItem]. */
+    private fun shard(name: String, element: Element): RegistrySupplier<Item> =
+        ITEMS.register("mystic_${name}_shard") { MysticShardItem(element, props().fireResistant()) }
+
+    val MYSTIC_CITRINE_SHARD: RegistrySupplier<Item> = shard("citrine", Element.HEAT)
+    val MYSTIC_ONYX_SHARD: RegistrySupplier<Item> = shard("onyx", Element.GRAVITY)
+    val MYSTIC_JADE_SHARD: RegistrySupplier<Item> = shard("jade", Element.GROWTH)
+    val MYSTIC_AQUAMARINE_SHARD: RegistrySupplier<Item> = shard("aquamarine", Element.COLD)
+    val MYSTIC_MOONSTONE_SHARD: RegistrySupplier<Item> = shard("moonstone", Element.PURITY)
+    val MYSTIC_SPINEL_SHARD: RegistrySupplier<Item> = shard("spinel", Element.CHAOS)
+    val MYSTIC_BLOODSTONE_SHARD: RegistrySupplier<Item> = shard("bloodstone", Element.BLOOD)
+
+    /** Mystic Gems — right-click fires the element's burst (a 1-shard Area cast) and
+     *  shatters the gem into 7 shards. See [MysticGemItem]. */
+    private fun gem(name: String, element: Element, shard: RegistrySupplier<Item>): RegistrySupplier<Item> =
+        ITEMS.register("mystic_$name") { MysticGemItem(element, shard::get, props().stacksTo(1).fireResistant()) }
+
+    val MYSTIC_CITRINE: RegistrySupplier<Item> = gem("citrine", Element.HEAT, MYSTIC_CITRINE_SHARD)
+    val MYSTIC_ONYX: RegistrySupplier<Item> = gem("onyx", Element.GRAVITY, MYSTIC_ONYX_SHARD)
+    val MYSTIC_JADE: RegistrySupplier<Item> = gem("jade", Element.GROWTH, MYSTIC_JADE_SHARD)
+    val MYSTIC_AQUAMARINE: RegistrySupplier<Item> = gem("aquamarine", Element.COLD, MYSTIC_AQUAMARINE_SHARD)
+    val MYSTIC_MOONSTONE: RegistrySupplier<Item> = gem("moonstone", Element.PURITY, MYSTIC_MOONSTONE_SHARD)
+    val MYSTIC_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, MYSTIC_SPINEL_SHARD)
+    val MYSTIC_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, MYSTIC_BLOODSTONE_SHARD)
 
     /** Realm robe sets — three families (End Cult / Scholar / Blue Witch) × four slots
      *  (helmet / chest / legs / boots). All share [ScalingRobeArmorItem] which derives
