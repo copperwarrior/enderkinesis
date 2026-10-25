@@ -25,6 +25,7 @@ import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutTopBlockEntity
 import org.shipwrights.enderkinesis.blockentity.StatueBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHarnessBlockEntity
+import org.shipwrights.enderkinesis.blockentity.AltarOfIlluminationBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ForgottenItemBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ScribesDeskBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
@@ -219,6 +220,13 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("forgotten_item") {
             BlockEntityType.Builder.of(::ForgottenItemBlockEntity, EKBlocks.FORGOTTEN_ITEM.get())
                 .build(null) as BlockEntityType<ForgottenItemBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val ALTAR_OF_ILLUMINATION: RegistrySupplier<BlockEntityType<AltarOfIlluminationBlockEntity>> =
+        BLOCK_ENTITIES.register("altar_of_illumination") {
+            BlockEntityType.Builder.of(::AltarOfIlluminationBlockEntity, EKBlocks.ALTAR_OF_ILLUMINATION.get())
+                .build(null) as BlockEntityType<AltarOfIlluminationBlockEntity>
         }
 
     fun register() = BLOCK_ENTITIES.register()

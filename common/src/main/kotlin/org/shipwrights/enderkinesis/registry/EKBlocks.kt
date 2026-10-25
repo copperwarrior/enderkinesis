@@ -44,6 +44,7 @@ import org.shipwrights.enderkinesis.block.ShulkerStrutBlock
 import org.shipwrights.enderkinesis.block.IchaericInkBlock
 import org.shipwrights.enderkinesis.block.IchaericInkJarBlock
 import org.shipwrights.enderkinesis.block.InegricRetortBlock
+import org.shipwrights.enderkinesis.block.AltarOfIlluminationBlock
 import org.shipwrights.enderkinesis.block.ForgottenItemBlock
 import org.shipwrights.enderkinesis.block.ScribesDeskBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutTopBlock
@@ -555,6 +556,16 @@ object EKBlocks {
             BlockBehaviour.Properties.copy(Blocks.CRAFTING_TABLE)
                 .mapColor(MapColor.COLOR_YELLOW)
                 .sound(SoundType.BAMBOO_WOOD)
+                .noOcclusion()
+        )
+    }
+
+    /** Altar of Illumination — inscribes Mystic Shards onto a blank scroll and finishes
+     *  it with the Penfeather; see [AltarOfIlluminationBlock]. */
+    val ALTAR_OF_ILLUMINATION: RegistrySupplier<Block> = BLOCKS.register("altar_of_illumination") {
+        AltarOfIlluminationBlock(
+            BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES)
+                .mapColor(MapColor.DEEPSLATE)
                 .noOcclusion()
         )
     }

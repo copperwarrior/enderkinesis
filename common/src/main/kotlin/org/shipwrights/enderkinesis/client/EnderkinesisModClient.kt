@@ -19,6 +19,8 @@ import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
@@ -230,6 +232,21 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CRYSTAL_EXPLOSIVE.get())
 
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ICHAERIC_INK_JAR.get())
+        // Same translucent ink as the jar, filling the altar's basin.
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ALTAR_OF_ILLUMINATION.get())
+
+        // Mystic Scroll: layer 1 is the wrap, tinted from the spell's elements.
+        ColorHandlerRegistry.registerItemColors(
+            ItemColor { stack, tintIndex -> if (tintIndex == 1) MysticScrollItem.wrapColor(stack) else -1 },
+            EKItems.MYSTIC_SCROLL.get(),
+        )
+        // Base Mystic Shard, drawn for fusion glyphs on the altar, in the fusion's colour.
+        ColorHandlerRegistry.registerItemColors(
+            ItemColor { stack, _ ->
+                stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.color ?: -1
+            },
+            EKItems.MYSTIC_SHARD.get(),
+        )
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.INEGRIC_RETORT.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
 
@@ -371,6 +388,10 @@ object EnderkinesisModClient {
 
         BlockEntityRendererRegistry.register(EKBlockEntities.FORGOTTEN_ITEM.get()) { ctx ->
             ForgottenItemRenderer(ctx)
+        }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.ALTAR_OF_ILLUMINATION.get()) { ctx ->
+            AltarOfIlluminationRenderer(ctx)
         }
 
         // Shulker Strut lid — vanilla shulker lid shell, drawn at the lid block's ship-local

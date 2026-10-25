@@ -35,6 +35,7 @@ object EKCreativeTab {
             output.accept(EKItems.CREPUSCULITE_LATTICE_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_LIGHTSTONE_ITEM.get())
             output.accept(EKItems.CRYSTAL_PEDESTAL_ITEM.get())
+            output.accept(EKItems.ALTAR_OF_ILLUMINATION_ITEM.get())
             output.accept(EKItems.ENDER_ASTROLABE_ITEM.get())
             output.accept(EKItems.MAGIC_MISSILE_LAUNCHER_ITEM.get())
             output.accept(EKItems.EYEROSCOPE_ITEM.get())

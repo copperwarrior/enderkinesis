@@ -1,0 +1,33 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "enderkinesis:block/altar_of_illumination"
+      }
+    },
+    {
+      "when": {
+        "ink": "1"
+      },
+      "apply": {
+        "model": "enderkinesis:block/altar_of_illumination_ink_1"
+      }
+    },
+    {
+      "when": {
+        "ink": "2"
+      },
+      "apply": {
+        "model": "enderkinesis:block/altar_of_illumination_ink_2"
+      }
+    },
+    {
+      "when": {
+        "ink": "3"
+      },
+      "apply": {
+        "model": "enderkinesis:block/altar_of_illumination_ink_3"
+      }
+    }
+  ]
+}

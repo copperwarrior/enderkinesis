@@ -36,9 +36,50 @@ enum class Element(val id: String, val color: Int) {
             else -> null
         }
 
+    /** The two shard elements a fusion is made from; a plain element is its own component. */
+    val components: List<Element>
+        get() = when (this) {
+            SUNFIRE -> listOf(HEAT, PURITY)
+            POISON -> listOf(COLD, GROWTH)
+            VOID -> listOf(GRAVITY, BLOOD)
+            else -> listOf(this)
+        }
+
+    val isFusion: Boolean get() = components.size > 1
+
+    /** The Forward shape this element decides when it's the highest-priority one present. */
+    val shape: Shape
+        get() = when (this) {
+            GRAVITY, VOID -> Shape.BOLT
+            GROWTH, PURITY, SUNFIRE, SUNDERING -> Shape.BEAM
+            CHAOS -> Shape.CHAIN
+            HEAT, COLD, POISON, BLOOD -> Shape.SPRAY
+        }
+
     val translationKey: String get() = "element.enderkinesis.$id"
 
     /** The element's name in its own colour. */
     fun displayName(): MutableComponent =
         Component.translatable(translationKey).withStyle { it.withColor(TextColor.fromRgb(color)) }
+
+    companion object {
+        private val BY_ID: Map<String, Element> = entries.associateBy { it.id }
+
+        fun byId(id: String): Element? = BY_ID[id]
+
+        /** The fusion [a] and [b] form, in either order, or null. */
+        fun fusionOf(a: Element, b: Element): Element? =
+            entries.firstOrNull { it.isFusion && it.components.containsAll(listOf(a, b)) && a != b }
+    }
+}
+
+/** A Forward cast's shape, in priority order: the highest-priority element on a scroll
+ *  picks it, and every other glyph is payload. */
+enum class Shape(val id: String) {
+    BOLT("bolt"),
+    BEAM("beam"),
+    CHAIN("chain"),
+    SPRAY("spray");
+
+    val translationKey: String get() = "spell.enderkinesis.shape.$id"
 }

@@ -10,6 +10,7 @@ import net.minecraft.world.item.BlockItem
 import net.minecraft.world.item.Instrument
 import net.minecraft.world.item.InstrumentItem
 import net.minecraft.world.item.Item
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.item.RecordItem
 import net.minecraft.world.item.Rarity
@@ -21,6 +22,7 @@ import org.shipwrights.enderkinesis.item.GuideToStratusItem
 import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.item.MysticGemItem
+import org.shipwrights.enderkinesis.item.MysticScrollItem
 import org.shipwrights.enderkinesis.item.MysticShardItem
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.item.EideticBookmarkItem
@@ -306,6 +308,30 @@ object EKItems {
     val MYSTIC_SPINEL_SHARD: RegistrySupplier<Item> = shard("spinel", Element.CHAOS)
     val MYSTIC_BLOODSTONE_SHARD: RegistrySupplier<Item> = shard("bloodstone", Element.BLOOD)
 
+    private val SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
+        mapOf(
+            Element.HEAT to MYSTIC_CITRINE_SHARD, Element.GRAVITY to MYSTIC_ONYX_SHARD,
+            Element.GROWTH to MYSTIC_JADE_SHARD, Element.COLD to MYSTIC_AQUAMARINE_SHARD,
+            Element.PURITY to MYSTIC_MOONSTONE_SHARD, Element.CHAOS to MYSTIC_SPINEL_SHARD,
+            Element.BLOOD to MYSTIC_BLOODSTONE_SHARD,
+        )
+    }
+
+    /** The shard item of [element], or null for the fusions and Sundering, which have none. */
+    fun shardOf(element: Element): Item? = SHARDS[element]?.get()
+
+    /** Base Mystic Shard, tinted with the element named in its tag. Only for drawing the
+     *  fusion glyphs, which have no shard item; kept out of the creative tab. */
+    val MYSTIC_SHARD: RegistrySupplier<Item> = ITEMS.register("mystic_shard") { Item(props()) }
+
+    const val NBT_SHARD_ELEMENT = "Element"
+
+    /** A stack that draws [element]'s glyph: its shard, or the tinted base shard. */
+    fun glyphStack(element: Element): ItemStack {
+        shardOf(element)?.let { return ItemStack(it) }
+        return ItemStack(MYSTIC_SHARD.get()).apply { orCreateTag.putString(NBT_SHARD_ELEMENT, element.id) }
+    }
+
     /** Mystic Gems — right-click fires the element's burst (a 1-shard Area cast) and
      *  shatters the gem into 7 shards. See [MysticGemItem]. */
     private fun gem(name: String, element: Element, shard: RegistrySupplier<Item>): RegistrySupplier<Item> =
@@ -318,6 +344,11 @@ object EKItems {
     val MYSTIC_MOONSTONE: RegistrySupplier<Item> = gem("moonstone", Element.PURITY, MYSTIC_MOONSTONE_SHARD)
     val MYSTIC_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, MYSTIC_SPINEL_SHARD)
     val MYSTIC_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, MYSTIC_BLOODSTONE_SHARD)
+
+    /** Mystic Scroll — a finished spell from the Altar of Illumination. Never stacks; see
+     *  [MysticScrollItem]. */
+    val MYSTIC_SCROLL: RegistrySupplier<Item> =
+        ITEMS.register("mystic_scroll") { MysticScrollItem(props().stacksTo(1)) }
 
     /** Realm robe sets — three families (End Cult / Scholar / Blue Witch) × four slots
      *  (helmet / chest / legs / boots). All share [ScalingRobeArmorItem] which derives
@@ -424,6 +455,7 @@ object EKItems {
 
     val ANCRITE_BLOCK_ITEM = blockItem("ancrite_block", EKBlocks.ANCRITE_BLOCK)
     val CRYSTAL_PEDESTAL_ITEM = blockItem("crystal_pedestal", EKBlocks.CRYSTAL_PEDESTAL)
+    val ALTAR_OF_ILLUMINATION_ITEM = blockItem("altar_of_illumination", EKBlocks.ALTAR_OF_ILLUMINATION)
     val WOHLON_ROOT_ITEM = blockItem("wohlon_root", EKBlocks.WOHLON_ROOT)
     val RAW_ANCRITE_ITEM = blockItem("raw_ancrite", EKBlocks.RAW_ANCRITE)
     val REFINED_ANCRITE_ITEM = blockItem("refined_ancrite", EKBlocks.REFINED_ANCRITE)
