@@ -8,6 +8,14 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.effect.AmbrosialCravingEffect
 import org.shipwrights.enderkinesis.effect.CrepuscularFloatationEffect
 import org.shipwrights.enderkinesis.effect.CrystallizedEffect
+import org.shipwrights.enderkinesis.effect.EntangledEffect
+import org.shipwrights.enderkinesis.effect.WeightedEffect
+import org.shipwrights.enderkinesis.effect.DiscordEffect
+import org.shipwrights.enderkinesis.effect.EnthralledEffect
+import org.shipwrights.enderkinesis.effect.BleedingEffect
+import org.shipwrights.enderkinesis.effect.BloodboundEffect
+import org.shipwrights.enderkinesis.effect.RotEffect
+import org.shipwrights.enderkinesis.effect.HollowedEffect
 import org.shipwrights.enderkinesis.effect.OwlsMarkEffect
 import org.shipwrights.enderkinesis.effect.SselithMadnessEffect
 import org.shipwrights.enderkinesis.effect.YgannMadnessEffect
@@ -51,6 +59,30 @@ object EKEffects {
     /** Purity's damage over time that shatters when it ends; see [CrystallizedEffect]. */
     val CRYSTALLIZED: RegistrySupplier<MobEffect> =
         EFFECTS.register("crystallized") { CrystallizedEffect() }
+
+    /** Growth: roots hold the mob in place. See [EntangledEffect]. */
+    val ENTANGLED: RegistrySupplier<MobEffect> = EFFECTS.register("entangled") { EntangledEffect() }
+
+    /** Gravity: no jumping, sinks, no knockback, double fall damage. See [WeightedEffect]. */
+    val WEIGHTED: RegistrySupplier<MobEffect> = EFFECTS.register("weighted") { WeightedEffect() }
+
+    /** Chaos: mobs turn on random targets. See [DiscordEffect]. */
+    val DISCORD: RegistrySupplier<MobEffect> = EFFECTS.register("discord") { DiscordEffect() }
+
+    /** Blood: the mob fights for its master. See [EnthralledEffect]. */
+    val ENTHRALLED: RegistrySupplier<MobEffect> = EFFECTS.register("enthralled") { EnthralledEffect() }
+
+    /** Blood: damage over time while moving. See [BleedingEffect]. */
+    val BLEEDING: RegistrySupplier<MobEffect> = EFFECTS.register("bleeding") { BleedingEffect() }
+
+    /** Blood: takes part of its binder's damage. See [BloodboundEffect]. */
+    val BLOODBOUND: RegistrySupplier<MobEffect> = EFFECTS.register("bloodbound") { BloodboundEffect() }
+
+    /** Poison: a spreading venom that also harms undead. See [RotEffect]. */
+    val ROT: RegistrySupplier<MobEffect> = EFFECTS.register("rot") { RotEffect() }
+
+    /** Void: no healing from any source. See [HollowedEffect]. */
+    val HOLLOWED: RegistrySupplier<MobEffect> = EFFECTS.register("hollowed") { HollowedEffect() }
 
     fun register() = EFFECTS.register()
 }

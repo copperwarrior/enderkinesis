@@ -59,8 +59,9 @@ object ElementEffects {
         Element.BLOOD -> BLOOD
         // The fusions' and Sundering's effects aren't implemented yet.
         Element.SUNDERING -> SUNDERING
-        // The fusions' effects aren't implemented yet.
-        Element.SUNFIRE, Element.POISON, Element.VOID -> NONE
+        Element.SUNFIRE -> FusionEffects.SUNFIRE
+        Element.POISON -> FusionEffects.POISON
+        Element.VOID -> FusionEffects.VOID
     }
 
     private val NONE = ElementEffect { _, _, _ -> }
@@ -117,6 +118,7 @@ object ElementEffects {
         }
         // A FLAME shell with high outward speed reads as a detonation; SMALL_FLAME gives the
         // slower trailing embers.
+        NamedEffects.heat(ctx, delivery)
         SpellFx.outwardBlast(level, delivery, ParticleTypes.FLAME, 100, 0.6)
         SpellFx.burst(level, delivery, ParticleTypes.SMALL_FLAME, 60)
         SpellFx.sound(level, delivery, SoundEvents.BLAZE_SHOOT)
@@ -149,6 +151,7 @@ object ElementEffects {
             ctx.setBlock(pos, frozen)
         }
         // SNOWFLAKE carries the visible swirl, TINTED_SNOW dust the cyan-blue tint.
+        NamedEffects.cold(ctx, delivery)
         SpellFx.swirl(level, delivery, ParticleTypes.SNOWFLAKE, 100, 1.0)
         SpellFx.swirl(level, delivery, TINTED_SNOW, 140, 1.0)
         SpellFx.sound(level, delivery, SoundEvents.GLASS_BREAK, pitch = 0.7f)
@@ -162,13 +165,14 @@ object ElementEffects {
     /** 3 → ~33 % coverage, a sprinkling rather than instant overgrowth. */
     private const val BONEMEAL_DENOMINATOR = 3
 
-    private val GROWTH = ElementEffect { ctx, delivery, _ ->
+    private val GROWTH = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         for (pos in delivery.blocks(level)) {
             if (!delivery.scatterRoll(level.random, BONEMEAL_DENOMINATOR)) continue
             if (!ctx.mayChange(pos, level.getBlockState(pos))) continue
             BoneMealItem.growCrop(ItemStack(Items.BONE_MEAL), level, pos)
         }
+        NamedEffects.growth(ctx, delivery, magnitude)
         SpellFx.burst(level, delivery, ParticleTypes.HAPPY_VILLAGER, 80)
         SpellFx.burst(level, delivery, ParticleTypes.COMPOSTER, 50)
         SpellFx.sound(level, delivery, SoundEvents.SLIME_SQUISH, pitch = 1.5f)
@@ -180,6 +184,8 @@ object ElementEffects {
 
     private val PURITY = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
+        // Cleanse first, so the scroll never strips what it applies.
+        NamedEffects.cleanse(ctx, delivery)
         val crystallized = EKEffects.CRYSTALLIZED.get()
         for (target in delivery.living(ctx)) {
             target.addEffect(
@@ -201,6 +207,7 @@ object ElementEffects {
                 }
             }
         }
+        NamedEffects.purity(ctx, delivery)
         SpellFx.outwardBlast(level, delivery, ParticleTypes.END_ROD, 80, 0.5)
         SpellFx.burst(level, delivery, ParticleTypes.GLOW, 60)
         SpellFx.sound(level, delivery, SoundEvents.AMETHYST_BLOCK_CHIME, pitch = 1.2f)
@@ -288,7 +295,7 @@ object ElementEffects {
     /** Pull speed at the edge of the effect, falling off linearly toward the centre. */
     private const val PULL_STRENGTH = 0.6
 
-    private val GRAVITY = ElementEffect { ctx, delivery, _ ->
+    private val GRAVITY = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         // Every entity, not just living ones: items, XP, projectiles, boats and minecarts too.
         val reach = (delivery as? Delivery.Sphere)?.radius ?: SpellCurves.BASE_RADIUS
@@ -303,6 +310,7 @@ object ElementEffects {
         if (delivery is Delivery.SingleBlock) dropBlock(ctx, delivery.pos)
         // Particles converge from the perimeter to match the pull; REVERSE_PORTAL marks the
         // collapse point.
+        NamedEffects.gravity(ctx, delivery, magnitude)
         SpellFx.inwardCollapse(level, delivery, ParticleTypes.PORTAL, 160, 2.0)
         SpellFx.burst(level, delivery, ParticleTypes.REVERSE_PORTAL, 30)
         SpellFx.sound(level, delivery, SoundEvents.ENDERMAN_TELEPORT, pitch = 0.6f)
@@ -361,6 +369,7 @@ object ElementEffects {
             }
         }
         if (delivery is Delivery.SingleBlock) swapBlock(ctx, delivery.pos, magnitude)
+        NamedEffects.chaos(ctx, delivery, magnitude)
         SpellFx.burst(level, delivery, ParticleTypes.REVERSE_PORTAL, 60)
         SpellFx.sound(level, delivery, SoundEvents.ENDERMAN_TELEPORT, pitch = if (entities.size >= 2) 0.7f else 1.4f)
     }
@@ -405,13 +414,16 @@ object ElementEffects {
         // Undead have no life-force: they are never drained and never fed.
         val living = delivery.living(ctx).filter { !SpellContext.isUndead(it) }
         val recipient = bloodRecipient(ctx, living)
-        var drained = 0
+        val drainedTargets = ArrayList<LivingEntity>()
         for (target in living) {
             if (target === recipient) continue
             // `hurt` is false for invulnerable, i-framed or immune targets, which then don't
             // count toward the buff.
-            if (target.hurt(ctx.damage(DamageTypes.MAGIC), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drained++
+            if (target.hurt(ctx.damage(DamageTypes.MAGIC), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drainedTargets += target
         }
+        val drained = drainedTargets.size
+        // Enthralled and Bloodbound tie the drained to the caster, or a rune's owner.
+        NamedEffects.blood(ctx, drainedTargets, ctx.caster ?: ctx.buffRecipient, magnitude)
         if (drained == 0) {
             SpellFx.burst(level, delivery, ParticleTypes.SMOKE, 40)
             SpellFx.sound(level, delivery, SoundEvents.WITHER_HURT, pitch = 1.4f)

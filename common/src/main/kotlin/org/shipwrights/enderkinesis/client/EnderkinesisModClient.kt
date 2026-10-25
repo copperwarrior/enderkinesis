@@ -109,6 +109,11 @@ object EnderkinesisModClient {
             MagicMissileRenderer(ctx)
         }
 
+        // Singularity — drawn only by the particles it sends.
+        EntityRendererRegistry.register(EKEntities.SINGULARITY) { ctx ->
+            net.minecraft.client.renderer.entity.NoopRenderer(ctx)
+        }
+
         // Spell Bolt — its shape element's shard, full-bright.
         EntityRendererRegistry.register(EKEntities.SPELL_BOLT) { ctx ->
             net.minecraft.client.renderer.entity.ThrownItemRenderer(ctx, 1.0f, true)

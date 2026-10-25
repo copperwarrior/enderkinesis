@@ -60,6 +60,11 @@ class SpellTest {
     }
 
     @Test
+    fun `purity applies first`() {
+        Spell(listOf(HEAT, HEAT, PURITY, BLOOD)).magnitudes.keys.toList() shouldBe listOf(PURITY, HEAT, BLOOD)
+    }
+
+    @Test
     fun `magnitudes count glyphs`() {
         val spell = Spell(listOf(COLD, COLD, SUNFIRE))
         spell.magnitude(COLD) shouldBe 2f

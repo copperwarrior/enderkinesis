@@ -2999,6 +2999,11 @@
       "sselith": "blutkh",
       "tag": "[compound: blood + out]"
     },
+    "bleeding": {
+      "pos": "NOUN",
+      "sselith": "blutkhend",
+      "tag": "[bleed + PROG]"
+    },
     "blend": {
       "pos": "VERB",
       "sselith": "unteltkhend",
@@ -3053,6 +3058,11 @@
       "pos": "NOUN",
       "sselith": "blutkh",
       "tag": "[root]"
+    },
+    "bloodbound": {
+      "pos": "ADJ",
+      "sselith": "blutkhunteltkhegh",
+      "tag": "[compound: blood + bound]"
     },
     "bloody": {
       "pos": "ADJ",
@@ -8099,6 +8109,11 @@
       "sselith": "ontunteltkhakht",
       "tag": "[disconnect + PAST]"
     },
+    "discord": {
+      "pos": "NOUN",
+      "sselith": "nakwielkhust",
+      "tag": "[disorder + ABSTRACT]"
+    },
     "discount": {
       "pos": "NOUN",
       "sselith": "vellokust",
@@ -9739,6 +9754,16 @@
       "sselith": "morfielkh",
       "tag": "[compound: convince + make]"
     },
+    "entangle": {
+      "pos": "VERB",
+      "sselith": "oundkhvelunteltkh",
+      "tag": "[compound: root + bind]"
+    },
+    "entangled": {
+      "pos": "ADJ",
+      "sselith": "oundkhvelunteltkhacht",
+      "tag": "[entangle + PAST]"
+    },
     "enter": {
       "pos": "VERB",
       "sselith": "iskmt",
@@ -9763,6 +9788,16 @@
       "pos": "NOUN",
       "sselith": "dhoekhlumkust",
       "tag": "[entertain + ABSTRACT]"
+    },
+    "enthrall": {
+      "pos": "VERB",
+      "sselith": "blutkhmorschekh",
+      "tag": "[compound: blood + imprison]"
+    },
+    "enthralled": {
+      "pos": "ADJ",
+      "sselith": "blutkhmorschekhacht",
+      "tag": "[enthrall + PAST]"
     },
     "enthusiasm": {
       "pos": "NOUN",
@@ -13603,6 +13638,11 @@
       "pos": "ADJ",
       "sselith": "naviethegh",
       "tag": "[empty]"
+    },
+    "hollowed": {
+      "pos": "ADJ",
+      "sselith": "naviethacht",
+      "tag": "[hollow + PAST]"
     },
     "holy": {
       "pos": "ADJ",
@@ -23799,6 +23839,11 @@
       "sselith": "rougphlouhrkh",
       "tag": "[Sselith compound]"
     },
+    "rot": {
+      "pos": "NOUN",
+      "sselith": "mornktnavirk",
+      "tag": "[compound: death + sick]"
+    },
     "rotate": {
       "pos": "VERB",
       "sselith": "krevolkr",
@@ -25353,6 +25398,11 @@
       "pos": "NOUN",
       "sselith": "virlumkh",
       "tag": "[compound: one + player]"
+    },
+    "singularity": {
+      "pos": "NOUN",
+      "sselith": "solkust",
+      "tag": "[single + ABSTRACT]"
     },
     "sinister": {
       "pos": "ADJ",

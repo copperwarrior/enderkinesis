@@ -180,6 +180,8 @@
     "GrindstoneMenuImbueMixin",
     "ProjectileImbueMixin",
     "ThrownTridentItemAccessor",
+    "LivingEntitySpellEffectsMixin",
+    "PlayerSpellEffectsMixin",
     "ThrownEnderpearlLatticeAssemblyMixin",
     "WorldGenRegionCrewCaptureMixin",
     "EntityIchaericInkMixin"

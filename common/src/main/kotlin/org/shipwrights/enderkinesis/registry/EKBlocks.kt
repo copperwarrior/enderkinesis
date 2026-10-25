@@ -46,6 +46,7 @@ import org.shipwrights.enderkinesis.block.IchaericInkBlock
 import org.shipwrights.enderkinesis.block.IchaericInkJarBlock
 import org.shipwrights.enderkinesis.block.InegricRetortBlock
 import org.shipwrights.enderkinesis.block.AltarOfIlluminationBlock
+import org.shipwrights.enderkinesis.block.PhantomLightBlock
 import org.shipwrights.enderkinesis.block.RuneBlock
 import org.shipwrights.enderkinesis.block.ForgottenItemBlock
 import org.shipwrights.enderkinesis.block.ScribesDeskBlock
@@ -583,6 +584,20 @@ object EKBlocks {
                 .noLootTable()
                 .sound(SoundType.SMALL_AMETHYST_BUD)
                 .lightLevel { 5 }
+                .pushReaction(PushReaction.DESTROY)
+        )
+    }
+
+    /** Sunfire's temporary light; see [PhantomLightBlock]. No item. */
+    val PHANTOM_LIGHT: RegistrySupplier<Block> = BLOCKS.register("phantom_light") {
+        PhantomLightBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.NONE)
+                .replaceable()
+                .noCollission()
+                .noOcclusion()
+                .noLootTable()
+                .lightLevel { 15 }
                 .pushReaction(PushReaction.DESTROY)
         )
     }

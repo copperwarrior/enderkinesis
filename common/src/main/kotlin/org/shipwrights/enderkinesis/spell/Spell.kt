@@ -14,10 +14,13 @@ import net.minecraft.util.Mth
  */
 class Spell(val glyphs: List<Element>) {
 
-    /** Each element's magnitude: the number of glyphs it has. Insertion order is first
-     *  inscription. */
+    /** Each element's magnitude: the number of glyphs it has. This is also the order the
+     *  elements apply in: Purity first, so its Cleanse never strips what the rest of the spell
+     *  applies, then the others in order of first inscription. */
     val magnitudes: Map<Element, Float> =
         glyphs.groupingBy { it }.eachCount().mapValues { it.value.toFloat() }
+            .entries.sortedBy { if (it.key == Element.PURITY) 0 else 1 }
+            .associate { it.key to it.value }
 
     /** The element that decides the Forward shape: the highest-priority shape present, then
      *  the highest magnitude, then [NAME_ORDER]. Null for an empty scroll. */

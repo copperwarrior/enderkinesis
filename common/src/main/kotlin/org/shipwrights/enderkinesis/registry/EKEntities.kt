@@ -16,6 +16,7 @@ import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
 import org.shipwrights.enderkinesis.entity.MagicMissileEntity
+import org.shipwrights.enderkinesis.entity.SingularityEntity
 import org.shipwrights.enderkinesis.entity.SpellBoltEntity
 import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
 import org.shipwrights.enderkinesis.entity.PrismaticGoat
@@ -51,6 +52,16 @@ object EKEntities {
                 .clientTrackingRange(8)
                 .updateInterval(10)
                 .build("spell_bolt")
+        }
+
+    /** Void's vortex; see [SingularityEntity]. */
+    val SINGULARITY: RegistrySupplier<EntityType<SingularityEntity>> =
+        ENTITIES.register("singularity") {
+            EntityType.Builder.of(::SingularityEntity, MobCategory.MISC)
+                .sized(0.5f, 0.5f)
+                .clientTrackingRange(8)
+                .updateInterval(20)
+                .build("singularity")
         }
 
     val MAGIC_MISSILE: RegistrySupplier<EntityType<MagicMissileEntity>> =
