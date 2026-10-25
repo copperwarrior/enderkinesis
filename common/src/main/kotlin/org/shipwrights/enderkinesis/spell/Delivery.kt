@@ -32,6 +32,16 @@ sealed class Delivery {
 
     protected abstract fun candidates(ctx: SpellContext): List<Entity>
 
+    /** A box around everything the delivery can reach. */
+    fun bounds(): AABB = when (this) {
+        is Sphere -> AABB(center, center).inflate(radius)
+        is Line -> AABB(from, to).inflate(halfWidth)
+        is Cone -> AABB(origin, origin).inflate(length)
+        is Group -> targets.map { it.boundingBox }.reduceOrNull(AABB::minmax) ?: AABB(anchor, anchor)
+        is SingleEntity -> entity.boundingBox
+        is SingleBlock -> AABB(pos)
+    }
+
     /** Every block position the delivery touches. */
     abstract fun blocks(level: Level): List<BlockPos>
 

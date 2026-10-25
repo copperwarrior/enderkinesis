@@ -141,6 +141,8 @@ object EnderkinesisModClient {
 
         // Wand of Ga'Mylan cage S2C receivers (added / removed / hp).
         org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
+        // Spell effects clients must see: Absent entities, Abyssal Pocket blocks, Reveal stutters.
+        SpellNetworkClient.init()
         // Shatter cloud spawned on cage break — owns its own per-tick
         // physics, so init separately from the network init.
         org.shipwrights.enderkinesis.client.GamylanCageShatter.init()
@@ -615,6 +617,8 @@ object EnderkinesisModClient {
     /** Client tables of the level that ends. The server sends the cage list again after a respawn. */
     private fun clearClientSession() {
         GamylanCageClientRegistry.clearSession()
+        SpellNetworkClient.reset()
+        DiscordDisguise.reset()
         GamylanCageShatter.clearSession()
         AegisClient.clearSession()
         WikLakRedirectFlashTracker.clearSession()

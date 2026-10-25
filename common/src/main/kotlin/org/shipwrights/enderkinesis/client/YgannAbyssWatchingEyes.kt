@@ -13,7 +13,6 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.RandomSource
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -146,7 +145,7 @@ object YgannAbyssWatchingEyes {
     }
 
     private fun tick(level: ClientLevel) {
-        if (level.dimension() != YgannAbyss.LEVEL_KEY) {
+        if (!YgannSky.isShown(level)) {
             if (pairs.isNotEmpty()) pairs = emptyList()
             return
         }
@@ -230,11 +229,11 @@ object YgannAbyssWatchingEyes {
     }
 
     fun isShowing(level: ClientLevel): Boolean =
-        pairs.isNotEmpty() && level.dimension() == YgannAbyss.LEVEL_KEY
+        pairs.isNotEmpty() && YgannSky.isShown(level)
 
     fun renderSky(poseStack: PoseStack, partialTick: Float) {
         val level = Minecraft.getInstance().level ?: return
-        if (level.dimension() != YgannAbyss.LEVEL_KEY) return
+        if (!YgannSky.isShown(level)) return
         val activePairs = pairs
         if (activePairs.isEmpty()) return
 

@@ -24,7 +24,6 @@ import org.lwjgl.opengl.GL12
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.client.model.TentacleAnimation
 import org.shipwrights.enderkinesis.client.model.TentacleModel
-import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -478,7 +477,7 @@ object YgannAbyssWrithingSea {
     fun renderSky(poseStack: PoseStack, partialTick: Float) {
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
-        if (level.dimension() != YgannAbyss.LEVEL_KEY) return
+        if (!YgannSky.isShown(level)) return
 
         val cam = mc.gameRenderer.mainCamera.position
         // Client wall-clock seconds — smooth regardless of server TPS (see class docs).

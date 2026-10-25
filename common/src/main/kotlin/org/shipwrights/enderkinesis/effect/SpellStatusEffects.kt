@@ -10,8 +10,10 @@ import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.ai.attributes.AttributeMap
 import net.minecraft.world.entity.ai.attributes.AttributeModifier
 import net.minecraft.world.entity.ai.attributes.Attributes
+import org.shipwrights.enderkinesis.spell.Absence
 import org.shipwrights.enderkinesis.spell.BloodPacts
 import org.shipwrights.enderkinesis.spell.Element
+import org.shipwrights.enderkinesis.spell.FrozenBodies
 import org.shipwrights.enderkinesis.spell.SpellContext
 import java.util.WeakHashMap
 
@@ -153,5 +155,51 @@ class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.POISON.color) {
         const val SPREAD_CHANCE = 0.6f
         const val SPREAD_RANGE = 2.5
         const val MAX_STEPS = 3
+    }
+}
+
+/**
+ * Cold: a mob becomes a VS2 physics object for the duration (see [FrozenBodies]); a player
+ * is held still. Applied once a target's accumulated freeze ticks reach the threshold.
+ */
+class FrozenEffect : MobEffect(MobEffectCategory.HARMFUL, Element.COLD.color) {
+    init {
+        addAttributeModifier(Attributes.MOVEMENT_SPEED, "a3f1e0d2-5c6b-4a79-8e2d-9f4b1c7a6e03", -1.0, AttributeModifier.Operation.MULTIPLY_TOTAL)
+    }
+
+    override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.addAttributeModifiers(entity, attributes, amplifier)
+        FrozenBodies.freeze(entity)
+    }
+
+    override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.removeAttributeModifiers(entity, attributes, amplifier)
+        if (!entity.hasEffect(this)) FrozenBodies.thaw(entity)
+    }
+
+    companion object {
+        /** Accumulated freeze ticks at which Cold freezes a target solid. */
+        const val THRESHOLD = 600
+    }
+}
+
+/** Void: the target is out of the world; see [Absence]. */
+class AbsentEffect : MobEffect(MobEffectCategory.HARMFUL, Element.VOID.color) {
+    init {
+        addAttributeModifier(Attributes.MOVEMENT_SPEED, "d7c2b1a0-9e8f-4d3c-b2a1-0f9e8d7c6b04", -1.0, AttributeModifier.Operation.MULTIPLY_TOTAL)
+    }
+
+    override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = true
+
+    override fun applyEffectTick(entity: LivingEntity, amplifier: Int) = Absence.hold(entity)
+
+    override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.addAttributeModifiers(entity, attributes, amplifier)
+        Absence.vanish(entity)
+    }
+
+    override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.removeAttributeModifiers(entity, attributes, amplifier)
+        if (!entity.hasEffect(this)) Absence.reappear(entity)
     }
 }

@@ -26,9 +26,11 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.CampfireBlock
 import net.minecraft.world.level.block.WeatheringCopper
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.item.ShipCloakingTracker
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
@@ -169,15 +171,33 @@ object NamedEffects {
         }
     }
 
-    fun purity(ctx: SpellContext, delivery: Delivery) {
+    fun purity(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
         val level = ctx.level
-        // Reveal: Invisibility breaks.
+        // Reveal: Invisibility breaks, and concealed ships the spell reaches stutter.
         for (target in delivery.living(ctx)) target.removeEffect(MobEffects.INVISIBILITY)
+        reveal(ctx, delivery, magnitude)
         // Restore: copper loses oxidation and wax; mossy and cracked blocks come clean.
         for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
             val restored = restored(state) ?: continue
             ctx.setBlock(pos, restored)
+        }
+    }
+
+    /** Reveal on a Staff of Concealment cloak: the ship flickers in and out of sight for
+     *  3 + magnitude s instead of staying hidden. */
+    private fun reveal(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
+        val level = ctx.level
+        val bounds = delivery.bounds()
+        val ticks = SpellCurves.ticks(3f, 1f, magnitude)
+        for (ship in level.shipObjectWorld.loadedShips) {
+            if (!ShipCloakingTracker.isCloaking(ship.id) || ship.chunkClaimDimension != level.dimensionId) continue
+            val box = ship.worldAABB
+            val shipBox = AABB(box.minX(), box.minY(), box.minZ(), box.maxX(), box.maxY(), box.maxZ())
+            val touches = if (delivery is Delivery.Line) {
+                shipBox.contains(delivery.from) || shipBox.clip(delivery.from, delivery.to).isPresent
+            } else shipBox.intersects(bounds)
+            if (touches) SpellNetwork.broadcastStutter(level, ship.id, ticks)
         }
     }
 

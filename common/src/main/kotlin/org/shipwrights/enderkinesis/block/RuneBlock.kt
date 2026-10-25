@@ -33,6 +33,7 @@ import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
+import org.shipwrights.enderkinesis.spell.AbyssalPockets
 import org.shipwrights.enderkinesis.spell.RuneTriggers
 import java.util.Optional
 
@@ -102,6 +103,8 @@ class RuneBlock(properties: Properties) : BaseEntityBlock(properties), LiquidBlo
     @Deprecated("Deprecated in Java")
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         if (level !is ServerLevel || entity.isSpectator) return
+        // A rune phased by an Abyssal Pocket is out of reach.
+        if (AbyssalPockets.isPhased(level, pos)) return
         val decal = SHAPES.getValue(state.getValue(FACING)).bounds().move(pos)
         if (entity.boundingBox.intersects(decal)) RuneTriggers.trigger(level, pos)
     }

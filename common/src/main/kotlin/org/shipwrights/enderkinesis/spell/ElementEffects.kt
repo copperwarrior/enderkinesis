@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.effect.FrozenEffect
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import kotlin.math.roundToInt
@@ -144,6 +145,11 @@ object ElementEffects {
                 living.convertTo(EntityType.STRAY, true) ?: living
             } else living
             target.ticksFrozen += dose
+            // Frozen: enough built-up cold freezes the target solid. Vanilla drains the ticks.
+            val frozen = EKEffects.FROZEN.get()
+            if (target.ticksFrozen >= FrozenEffect.THRESHOLD && !target.hasEffect(frozen)) {
+                target.addEffect(MobEffectInstance(frozen, SpellCurves.ticks(3f, 0.5f, magnitude)), ctx.caster)
+            }
             target.hurt(ctx.damage(DamageTypes.FREEZE), ctx.damageAmount(3f, magnitude))
         }
         for (pos in delivery.blocks(level)) {
@@ -207,7 +213,7 @@ object ElementEffects {
                 }
             }
         }
-        NamedEffects.purity(ctx, delivery)
+        NamedEffects.purity(ctx, delivery, magnitude)
         SpellFx.outwardBlast(level, delivery, ParticleTypes.END_ROD, 80, 0.5)
         SpellFx.burst(level, delivery, ParticleTypes.GLOW, 60)
         SpellFx.sound(level, delivery, SoundEvents.AMETHYST_BLOCK_CHIME, pitch = 1.2f)

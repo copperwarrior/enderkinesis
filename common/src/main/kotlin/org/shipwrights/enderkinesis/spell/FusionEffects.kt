@@ -154,7 +154,7 @@ object FusionEffects {
     private const val MIASMA_POISON_TICKS = 100
 
     // -----------------------------------------------------------------------
-    // Void — the Abyss. Singularity, Hollowed. (Absent and Abyssal Pocket come later.)
+    // Void — the Abyss. Singularity, Hollowed, Absent, Abyssal Pocket.
     // -----------------------------------------------------------------------
 
     val VOID = ElementEffect { ctx, delivery, magnitude ->
@@ -163,10 +163,17 @@ object FusionEffects {
         for (target in delivery.living(ctx)) {
             target.addEffect(MobEffectInstance(hollowed, SpellCurves.ticks(4f, 2f, magnitude)), ctx.caster)
         }
-        // Singularity: a vortex at the impact, or on the caster for an Area cast.
         if (delivery is Delivery.Sphere) {
+            // Absent: never the caster.
+            val absent = EKEffects.ABSENT.get()
+            for (target in delivery.living(ctx)) {
+                target.addEffect(MobEffectInstance(absent, SpellCurves.ticks(1.5f, 0.5f, magnitude)), ctx.caster)
+            }
+            // Singularity: a vortex at the impact, or on the caster for an Area cast.
             val radius = 3.0 + 0.5 * magnitude
             level.addFreshEntity(SingularityEntity(level, delivery.anchor, radius, SpellCurves.ticks(3f, 0.5f, magnitude)))
+            // Abyssal Pocket: at a Bolt's impact or a rune, never on an Area cast.
+            if (!delivery.area) AbyssalPockets.open(ctx, delivery.center, magnitude)
         }
         SpellFx.inwardCollapse(level, delivery, ParticleTypes.REVERSE_PORTAL, 120, 1.5)
         SpellFx.sound(level, delivery, SoundEvents.ENDERMAN_TELEPORT, pitch = 0.4f)

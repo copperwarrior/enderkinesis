@@ -16,6 +16,8 @@ import org.shipwrights.enderkinesis.effect.BleedingEffect
 import org.shipwrights.enderkinesis.effect.BloodboundEffect
 import org.shipwrights.enderkinesis.effect.RotEffect
 import org.shipwrights.enderkinesis.effect.HollowedEffect
+import org.shipwrights.enderkinesis.effect.FrozenEffect
+import org.shipwrights.enderkinesis.effect.AbsentEffect
 import org.shipwrights.enderkinesis.effect.OwlsMarkEffect
 import org.shipwrights.enderkinesis.effect.SselithMadnessEffect
 import org.shipwrights.enderkinesis.effect.YgannMadnessEffect
@@ -83,6 +85,12 @@ object EKEffects {
 
     /** Void: no healing from any source. See [HollowedEffect]. */
     val HOLLOWED: RegistrySupplier<MobEffect> = EFFECTS.register("hollowed") { HollowedEffect() }
+
+    /** Cold: frozen solid as a physics object. See [FrozenEffect]. */
+    val FROZEN: RegistrySupplier<MobEffect> = EFFECTS.register("frozen") { FrozenEffect() }
+
+    /** Void: out of the world. See [AbsentEffect]. */
+    val ABSENT: RegistrySupplier<MobEffect> = EFFECTS.register("absent") { AbsentEffect() }
 
     fun register() = EFFECTS.register()
 }
