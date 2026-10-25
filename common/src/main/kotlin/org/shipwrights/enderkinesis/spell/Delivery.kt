@@ -6,7 +6,10 @@ import net.minecraft.util.Mth
 import net.minecraft.util.RandomSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.level.ClipContext
+import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 
 /**
@@ -29,7 +32,7 @@ sealed class Delivery {
     protected abstract fun candidates(ctx: SpellContext): List<Entity>
 
     /** Every block position the delivery touches. */
-    abstract fun blocks(): List<BlockPos>
+    abstract fun blocks(level: Level): List<BlockPos>
 
     /** A one-in-[denominator] roll for scattered block effects (surface fire, bone meal).
      *  A single-block hit always passes, so a spell aimed at one block is never wasted. */
@@ -49,7 +52,7 @@ sealed class Delivery {
 
         /** Sphere-clipped block positions; the squared-radius test culls the AABB corners the
          *  visible sphere wouldn't reach. */
-        override fun blocks(): List<BlockPos> {
+        override fun blocks(level: Level): List<BlockPos> {
             val r = Math.ceil(radius).toInt()
             val cx = Mth.floor(center.x); val cy = Mth.floor(center.y); val cz = Mth.floor(center.z)
             val r2 = radius * radius
@@ -73,7 +76,7 @@ sealed class Delivery {
             }
 
         /** The blocks the ray's centre passes through, sampled every quarter block. */
-        override fun blocks(): List<BlockPos> {
+        override fun blocks(level: Level): List<BlockPos> {
             val length = from.distanceTo(to)
             val steps = Math.ceil(length / STEP).toInt().coerceAtLeast(1)
             val out = LinkedHashSet<BlockPos>()
@@ -86,11 +89,56 @@ sealed class Delivery {
         }
     }
 
+    /** A cone from [origin] along the unit vector [direction], [length] long and [halfAngle]
+     *  radians wide. Only what the origin can see is hit, so a Spray stops at walls. */
+    class Cone(val origin: Vec3, val direction: Vec3, val length: Double, val halfAngle: Double) : Delivery() {
+        override val anchor: Vec3 get() = origin.add(direction.scale(length * 0.5))
+        private val cosHalf = Math.cos(halfAngle)
+
+        fun contains(point: Vec3): Boolean {
+            val to = point.subtract(origin)
+            val dist = to.length()
+            if (dist > length) return false
+            if (dist < 1.0e-3) return true
+            return to.dot(direction) / dist >= cosHalf
+        }
+
+        private fun visible(level: Level, point: Vec3, target: BlockPos?): Boolean {
+            val hit = level.clip(ClipContext(origin, point, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, null))
+            return hit.type == HitResult.Type.MISS || (target != null && hit.blockPos == target)
+        }
+
+        override fun candidates(ctx: SpellContext): List<Entity> =
+            ctx.level.getEntities(null as Entity?, AABB(origin, origin).inflate(length)) {
+                val centre = it.boundingBox.center
+                contains(centre) && visible(ctx.level, centre, null)
+            }
+
+        /** Block positions whose centres lie in the cone, in sight of the origin. */
+        override fun blocks(level: Level): List<BlockPos> {
+            val r = Math.ceil(length).toInt()
+            val o = BlockPos.containing(origin)
+            val out = ArrayList<BlockPos>()
+            for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
+                val pos = o.offset(dx, dy, dz)
+                val centre = Vec3.atCenterOf(pos)
+                if (contains(centre) && visible(level, centre, pos)) out += pos
+            }
+            return out
+        }
+    }
+
+    /** A chosen set of [targets], such as a Chain's. No block effects. */
+    class Group(val targets: List<Entity>, override val anchor: Vec3) : Delivery() {
+        override fun candidates(ctx: SpellContext): List<Entity> = targets
+        override fun blocks(level: Level): List<BlockPos> = emptyList()
+    }
+
     /** One entity, struck directly. No block effects. */
     class SingleEntity(val entity: Entity) : Delivery() {
         override val anchor: Vec3 get() = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
         override fun candidates(ctx: SpellContext): List<Entity> = listOf(entity)
-        override fun blocks(): List<BlockPos> = emptyList()
+        override fun blocks(level: Level): List<BlockPos> = emptyList()
     }
 
     /** One block, struck on [face]. The air in front of the face is included, so effects that
@@ -98,7 +146,7 @@ sealed class Delivery {
     class SingleBlock(val pos: BlockPos, val face: Direction) : Delivery() {
         override val anchor: Vec3 get() = Vec3.atCenterOf(pos).relative(face, 0.5)
         override fun candidates(ctx: SpellContext): List<Entity> = emptyList()
-        override fun blocks(): List<BlockPos> = listOf(pos, pos.relative(face))
+        override fun blocks(level: Level): List<BlockPos> = listOf(pos, pos.relative(face))
         override fun scatterRoll(random: RandomSource, denominator: Int): Boolean = true
     }
 }

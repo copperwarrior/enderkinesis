@@ -159,6 +159,7 @@
   "entity.enderkinesis.shulkonaut.bad_selector": "The Shulkonaut can't parse that page (expected one target selector, e.g. @e[type=enderman])",
   "entity.enderkinesis.shulkonaut.cleared": "The Shulkonaut forgets its orders",
   "entity.enderkinesis.shulkonaut.selector_set": "The Shulkonaut studies the book: targeting %s",
+  "entity.enderkinesis.spell_bolt": "Spell Bolt",
   "entity.enderkinesis.sselith_moth": "Sselith Moth",
   "entity.enderkinesis.wik_lak_host": "Wik-Lak Host",
   "entity.enderkinesis.wohlem": "Wohlem",

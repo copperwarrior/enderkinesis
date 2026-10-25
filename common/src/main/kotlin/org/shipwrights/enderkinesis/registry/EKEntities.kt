@@ -16,6 +16,7 @@ import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
 import org.shipwrights.enderkinesis.entity.MagicMissileEntity
+import org.shipwrights.enderkinesis.entity.SpellBoltEntity
 import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
 import org.shipwrights.enderkinesis.entity.PrismaticGoat
 import org.shipwrights.enderkinesis.entity.SselithMothEntity
@@ -42,6 +43,16 @@ object EKEntities {
     /** Magic Missile — homing projectile spawned by
      *  [org.shipwrights.enderkinesis.item.MagicMissileItem] or via dispenser. See
      *  [MagicMissileEntity] for the homing / target-filter / explosion logic. */
+    /** A Mystic Scroll's Bolt; see [SpellBoltEntity]. */
+    val SPELL_BOLT: RegistrySupplier<EntityType<SpellBoltEntity>> =
+        ENTITIES.register("spell_bolt") {
+            EntityType.Builder.of(::SpellBoltEntity, MobCategory.MISC)
+                .sized(0.3f, 0.3f)
+                .clientTrackingRange(8)
+                .updateInterval(10)
+                .build("spell_bolt")
+        }
+
     val MAGIC_MISSILE: RegistrySupplier<EntityType<MagicMissileEntity>> =
         ENTITIES.register("magic_missile") {
             EntityType.Builder.of(::MagicMissileEntity, MobCategory.MISC)

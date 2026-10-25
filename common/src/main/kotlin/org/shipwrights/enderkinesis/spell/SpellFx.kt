@@ -32,6 +32,20 @@ object SpellFx {
                     level.sendParticles(particle, p.x, p.y, p.z, 1, 0.1, 0.1, 0.1, 0.02)
                 }
             }
+            is Delivery.Cone -> {
+                val points = count.coerceAtLeast(1)
+                repeat(points) {
+                    val t = Math.sqrt(level.random.nextDouble())
+                    val spread = delivery.length * Math.tan(delivery.halfAngle) * t
+                    val p = delivery.origin.add(delivery.direction.scale(delivery.length * t))
+                    level.sendParticles(particle, p.x, p.y, p.z, 1, spread * 0.4, spread * 0.4, spread * 0.4, 0.02)
+                }
+            }
+            is Delivery.Group -> for (target in delivery.targets) {
+                val c = target.position().add(0.0, target.bbHeight * 0.5, 0.0)
+                level.sendParticles(particle, c.x, c.y, c.z, (count / delivery.targets.size).coerceAtLeast(3),
+                    target.bbWidth * 0.5, target.bbHeight * 0.5, target.bbWidth * 0.5, 0.05)
+            }
             is Delivery.SingleEntity -> {
                 val c = delivery.anchor
                 val e = delivery.entity

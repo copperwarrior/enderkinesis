@@ -107,6 +107,11 @@ object EnderkinesisModClient {
         EntityRendererRegistry.register(EKEntities.MAGIC_MISSILE) { ctx ->
             MagicMissileRenderer(ctx)
         }
+
+        // Spell Bolt — its shape element's shard, full-bright.
+        EntityRendererRegistry.register(EKEntities.SPELL_BOLT) { ctx ->
+            net.minecraft.client.renderer.entity.ThrownItemRenderer(ctx, 1.0f, true)
+        }
     }
 
     @JvmStatic

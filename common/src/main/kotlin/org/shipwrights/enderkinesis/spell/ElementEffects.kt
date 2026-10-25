@@ -29,6 +29,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.valkyrienskies.mod.api.isBlockInShipyard
 import kotlin.math.roundToInt
 
 /** One element's effect: what it does to the entities and blocks of a [Delivery] at a given
@@ -75,21 +76,21 @@ object ElementEffects {
         val burnSeconds = (4f * SpellCurves.curve(magnitude)).roundToInt()
         for (target in delivery.living(ctx)) {
             target.setSecondsOnFire(burnSeconds)
-            target.hurt(ctx.damage(DamageTypes.IN_FIRE), SpellCurves.damage(4f, magnitude))
+            target.hurt(ctx.damage(DamageTypes.IN_FIRE), ctx.damageAmount(4f, magnitude))
         }
-        for (pos in delivery.blocks()) {
+        for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
             when {
                 state.hasProperty(CandleBlock.LIT) && !state.getValue(CandleBlock.LIT) ->
-                    level.setBlock(pos, state.setValue(CandleBlock.LIT, true), 3)
+                    ctx.setBlock(pos, state.setValue(CandleBlock.LIT, true))
                 state.hasProperty(CandleCakeBlock.LIT) && !state.getValue(CandleCakeBlock.LIT) ->
-                    level.setBlock(pos, state.setValue(CandleCakeBlock.LIT, true), 3)
+                    ctx.setBlock(pos, state.setValue(CandleCakeBlock.LIT, true))
                 // Sturdy top face below is what BaseFireBlock uses for "can rest here", so the
                 // fire survives at least one tick.
                 state.isAir && delivery.scatterRoll(level.random, SURFACE_FIRE_DENOMINATOR) -> {
                     val below = pos.below()
                     if (level.getBlockState(below).isFaceSturdy(level, below, Direction.UP)) {
-                        level.setBlock(pos, Blocks.FIRE.defaultBlockState(), 3)
+                        ctx.setBlock(pos, Blocks.FIRE.defaultBlockState())
                     }
                 }
             }
@@ -121,11 +122,11 @@ object ElementEffects {
                 living.convertTo(EntityType.STRAY, true) ?: living
             } else living
             target.ticksFrozen += dose
-            target.hurt(ctx.damage(DamageTypes.FREEZE), SpellCurves.damage(3f, magnitude))
+            target.hurt(ctx.damage(DamageTypes.FREEZE), ctx.damageAmount(3f, magnitude))
         }
-        for (pos in delivery.blocks()) {
+        for (pos in delivery.blocks(level)) {
             val frozen = FluidFreezing.frozen(level.getBlockState(pos)) ?: continue
-            level.setBlock(pos, frozen, 3)
+            ctx.setBlock(pos, frozen)
         }
         // SNOWFLAKE carries the visible swirl, TINTED_SNOW dust the cyan-blue tint.
         SpellFx.swirl(level, delivery, ParticleTypes.SNOWFLAKE, 100, 1.0)
@@ -143,8 +144,9 @@ object ElementEffects {
 
     private val GROWTH = ElementEffect { ctx, delivery, _ ->
         val level = ctx.level
-        for (pos in delivery.blocks()) {
+        for (pos in delivery.blocks(level)) {
             if (!delivery.scatterRoll(level.random, BONEMEAL_DENOMINATOR)) continue
+            if (!ctx.mayChange(pos, level.getBlockState(pos))) continue
             BoneMealItem.growCrop(ItemStack(Items.BONE_MEAL), level, pos)
         }
         SpellFx.burst(level, delivery, ParticleTypes.HAPPY_VILLAGER, 80)
@@ -165,15 +167,14 @@ object ElementEffects {
                 ctx.caster,
             )
         }
-        for (pos in delivery.blocks()) {
+        for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
             val transformed = purityTransform(state)
             when {
                 transformed != null -> {
-                    level.setBlock(pos, transformed, 3)
-                    SpellFx.blockMark(level, ParticleTypes.END_ROD, pos)
+                    if (ctx.setBlock(pos, transformed)) SpellFx.blockMark(level, ParticleTypes.END_ROD, pos)
                 }
-                purityDestroys(state) -> {
+                purityDestroys(state) && ctx.mayChange(pos, Blocks.AIR.defaultBlockState()) -> {
                     // dropBlock=false still gives break particles and sound.
                     level.destroyBlock(pos, false)
                     SpellFx.blockMark(level, ParticleTypes.END_ROD, pos)
@@ -297,14 +298,18 @@ object ElementEffects {
             val t = if (len2 < 1.0e-6) 0.0 else (from.subtract(delivery.from).dot(seg) / len2).coerceIn(0.0, 1.0)
             delivery.from.add(seg.scale(t))
         }
-        is Delivery.SingleEntity, is Delivery.SingleBlock -> ctx.castPoint
+        is Delivery.Cone -> delivery.origin
+        is Delivery.SingleEntity, is Delivery.SingleBlock, is Delivery.Group -> ctx.castPoint
     }
 
     /** The struck block falls if it's a full cube, has no block entity, and is breakable. */
-    private fun dropBlock(ctx: SpellContext, pos: BlockPos) {
+    fun dropBlock(ctx: SpellContext, pos: BlockPos) {
         val level = ctx.level
         val state = level.getBlockState(pos)
         if (!canMove(ctx, pos, state) || !state.isCollisionShapeFullBlock(level, pos)) return
+        // A falling block can't leave a ship: it would fall through the shipyard instead.
+        if (level.isBlockInShipyard(pos)) return
+        if (!ctx.mayChange(pos, Blocks.AIR.defaultBlockState())) return
         FallingBlockEntity.fall(level, pos, state)
     }
 
@@ -356,6 +361,7 @@ object ElementEffects {
             if (other == pos) return@repeat
             val otherState = level.getBlockState(other)
             if (otherState == state || !canMove(ctx, other, otherState)) return@repeat
+            if (!ctx.mayChange(pos, otherState) || !ctx.mayChange(other, state)) return
             level.setBlock(pos, otherState, 3)
             level.setBlock(other, state, 3)
             level.sendParticles(ParticleTypes.PORTAL, other.x + 0.5, other.y + 0.5, other.z + 0.5, 20, 0.4, 0.4, 0.4, 0.1)
@@ -384,7 +390,7 @@ object ElementEffects {
             if (target === recipient) continue
             // `hurt` is false for invulnerable, i-framed or immune targets, which then don't
             // count toward the buff.
-            if (target.hurt(ctx.damage(DamageTypes.MAGIC), SpellCurves.damage(DRAIN_DAMAGE, magnitude))) drained++
+            if (target.hurt(ctx.damage(DamageTypes.MAGIC), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drained++
         }
         if (drained == 0) {
             SpellFx.burst(level, delivery, ParticleTypes.SMOKE, 40)

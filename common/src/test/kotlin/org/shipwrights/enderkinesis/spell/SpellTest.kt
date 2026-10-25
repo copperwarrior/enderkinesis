@@ -53,6 +53,13 @@ class SpellTest {
     }
 
     @Test
+    fun `hold limit runs from 10 s at magnitude 1 to 20 s at 7`() {
+        SpellCasting.holdLimitTicks(Spell(listOf(HEAT, GRAVITY))) shouldBe 200
+        SpellCasting.holdLimitTicks(Spell(List(7) { CHAOS })) shouldBe 400
+        SpellCasting.holdLimitTicks(Spell(listOf(PURITY, PURITY, PURITY, PURITY, HEAT))) shouldBe 300
+    }
+
+    @Test
     fun `magnitudes count glyphs`() {
         val spell = Spell(listOf(COLD, COLD, SUNFIRE))
         spell.magnitude(COLD) shouldBe 2f
