@@ -58,10 +58,30 @@ object ElementEffects {
         Element.CHAOS -> CHAOS
         Element.BLOOD -> BLOOD
         // The fusions' and Sundering's effects aren't implemented yet.
-        Element.SUNFIRE, Element.POISON, Element.VOID, Element.SUNDERING -> NONE
+        Element.SUNDERING -> SUNDERING
+        // The fusions' effects aren't implemented yet.
+        Element.SUNFIRE, Element.POISON, Element.VOID -> NONE
     }
 
     private val NONE = ElementEffect { _, _, _ -> }
+
+    // -----------------------------------------------------------------------
+    // Sundering — only reaches a spell through a beam merged with the Staff of Sundering's.
+    // Magnitude is the staff's ramp stage, 1–4.
+    // -----------------------------------------------------------------------
+
+    /** Damage per stage each application, about the staff's own half-second at that stage. */
+    private const val SUNDERING_DAMAGE_PER_STAGE = 1.25f
+
+    private val SUNDERING = ElementEffect { ctx, delivery, magnitude ->
+        val level = ctx.level
+        val source = ctx.damage(DamageTypes.INDIRECT_MAGIC)
+        for (target in delivery.entities(ctx)) {
+            target.setSecondsOnFire(magnitude.roundToInt())
+            target.hurt(source, SUNDERING_DAMAGE_PER_STAGE * magnitude)
+        }
+        SpellFx.burst(level, delivery, ParticleTypes.FLAME, 20)
+    }
 
     // -----------------------------------------------------------------------
     // Heat — fire damage and burning, lights candles, sparse surface fire

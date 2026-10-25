@@ -22,6 +22,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.spell.BeamManager
 import java.util.UUID
 
 /** Server-side per-tick logic for the Staff of Sundering.
@@ -251,13 +252,24 @@ object SunderingManager {
 
         // Collect every shield the beam might bounce off — actively
         // wielded Aegis frames plus any debug boxes spawned via
-        // `/aegisbox`. The trace handles the polyline / reflection math.
-        val shields = ArrayList<AegisBox.Frame>()
-        shields.addAll(SunderingBeamTrace.collectWieldedShields(level, player))
-        shields.addAll(
-            org.shipwrights.enderkinesis.command.AegisDebugCommands.allDebugBoxes()
+        // `/aegisbox`. The trace handles the polyline / reflection math, and
+        // ends the beam where it meets itself (a loop ends the hold).
+        val shields = BeamManager.mirrors(level, player)
+        val fullTrace = SunderingBeamTrace.trace(level, player, origin, viewVec, effectiveRange, shields, ENTITY_DAMAGE_RADIUS)
+
+        // Register with the beam manager, which crosses it with other beams; the ramp
+        // stage is its Sundering magnitude. A merged beam takes over past the crossing, so
+        // this beam's own effects stop there.
+        BeamManager.register(
+            BeamManager.Beam(
+                player.uuid, level, player, emptyList(), stageOf(effectiveElapsed).toFloat(),
+                fullTrace, effectiveRange, ENTITY_DAMAGE_RADIUS, fromStaff = true,
+            ) { player.releaseUsingItem() },
         )
-        val trace = SunderingBeamTrace.trace(level, player, origin, viewVec, effectiveRange, shields)
+        val trace = BeamTrace(
+            BeamManager.clip(player.uuid, fullTrace),
+            if (BeamManager.isCut(player.uuid)) null else fullTrace.finalBlockPos,
+        )
 
         // Advance the i-frame-matched damage cadence. Counter starts at 1
         // on the first tick of a wielding session and increments on each

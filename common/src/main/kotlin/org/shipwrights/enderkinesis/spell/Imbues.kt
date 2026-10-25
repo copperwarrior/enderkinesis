@@ -224,9 +224,11 @@ object Imbues {
         return Imbue.load(tag)
     }
 
+    /** The shooter casts. A Staff of Aegis reflection makes its holder the projectile's owner,
+     *  and the imbue, claims included, belongs to them from then on. */
     private fun context(projectile: Projectile, level: ServerLevel, imbue: Imbue): SpellContext {
         val shooter = projectile.owner as? LivingEntity
-        return SpellContext(level, shooter, shooter?.position() ?: projectile.position(), imbue.owner)
+        return SpellContext(level, shooter, shooter?.position() ?: projectile.position(), shooter?.uuid ?: imbue.owner)
     }
 
     /** An imbued projectile's first impact, entity or block, sets the spell off. Loyalty

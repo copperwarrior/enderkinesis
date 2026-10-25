@@ -4,13 +4,16 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.particles.ParticleTypes
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
-import net.minecraft.world.level.ClipContext
 import net.minecraft.world.phys.AABB
-import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.item.AegisBox
+import org.shipwrights.enderkinesis.item.BeamSegment
+import org.shipwrights.enderkinesis.item.BeamTrace
+import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import kotlin.math.roundToInt
 
 /**
@@ -88,17 +91,22 @@ object SpellCasting {
         }
     }
 
-    /** One pulse of a held Beam, Chain or Spray cast from [origin] along the unit vector
-     *  [look]. [ctx] must be pulsed. */
+    /** One pulse of a Chain or Spray cast from [origin] along the unit vector [look], or a
+     *  single application of a Beam (a tap, let go before it was ever held). [ctx] must be
+     *  pulsed. A held Beam goes through [beamTick] instead. */
     fun pulse(ctx: SpellContext, spell: Spell, origin: Vec3, look: Vec3) {
         val shapeElement = spell.shapeElement ?: return
-        val delivery = when (shapeElement.shape) {
-            Shape.BEAM -> beam(ctx, origin, look, spell.magnitude(shapeElement))
-            Shape.SPRAY -> spray(origin, look, spell.magnitude(shapeElement))
-            Shape.CHAIN -> chain(ctx, origin, look, spell.magnitude(shapeElement)) ?: return
+        val magnitude = spell.magnitude(shapeElement)
+        val mirrors = BeamManager.mirrors(ctx.level, ctx.caster)
+        when (shapeElement.shape) {
+            Shape.BEAM -> {
+                val trace = SunderingBeamTrace.trace(ctx.level, ctx.caster, origin, look, beamReach(magnitude), mirrors, BEAM_HALF_WIDTH)
+                for (line in beamLines(trace)) applyAll(ctx, spell, line, 1f)
+            }
+            Shape.SPRAY -> applyAll(ctx, spell, spray(origin, look, magnitude, mirrors), 1f)
+            Shape.CHAIN -> applyAll(ctx, spell, chain(ctx, origin, look, magnitude) ?: return, 1f)
             Shape.BOLT -> return
         }
-        for ((element, magnitude) in spell.magnitudes) ElementEffects.of(element).apply(ctx, delivery, magnitude)
     }
 
     // -----------------------------------------------------------------------
@@ -107,23 +115,45 @@ object SpellCasting {
 
     fun beamReach(magnitude: Float): Double = 10.0 + 5.0 * magnitude
 
-    /** The beam's line: from [origin] to the first block in its way, or its full reach. It
-     *  ends just inside a struck block, so that block takes the block effects. */
-    fun beam(ctx: SpellContext, origin: Vec3, look: Vec3, magnitude: Float): Delivery.Line {
-        val end = origin.add(look.scale(beamReach(magnitude)))
-        val hit = ctx.level.clip(ClipContext(origin, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, null))
-        val to = if (hit.type == HitResult.Type.MISS) end else hit.location.add(look.scale(BLOCK_BITE))
-        return Delivery.Line(origin, to, BEAM_HALF_WIDTH)
+    /**
+     * One tick of a held Beam: traces it from [origin] along [look], mirrored off other
+     * casters' Aegis boxes, and registers it with [BeamManager] for crossings and loops.
+     * When [pulse], every element applies along the beam, up to where it feeds a merged beam.
+     */
+    fun beamTick(ctx: SpellContext, spell: Spell, caster: LivingEntity, origin: Vec3, look: Vec3, pulse: Boolean, trail: Boolean) {
+        val shapeElement = spell.shapeElement ?: return
+        val level = ctx.level
+        val reach = beamReach(spell.magnitude(shapeElement))
+        val trace = SunderingBeamTrace.trace(level, caster, origin, look, reach, BeamManager.mirrors(level, caster), BEAM_HALF_WIDTH)
+        BeamManager.register(
+            BeamManager.Beam(caster.uuid, level, caster, spell.glyphs, 0f, trace, reach, BEAM_HALF_WIDTH, fromStaff = false) {
+                caster.releaseUsingItem()
+            },
+        )
+        val acting = BeamTrace(
+            BeamManager.clip(caster.uuid, trace),
+            if (BeamManager.isCut(caster.uuid)) null else trace.finalBlockPos,
+        )
+        if (pulse) for (line in beamLines(acting)) applyAll(ctx, spell, line, 1f)
+        if (trail) beamTrail(level, acting.segments, spell.tint())
     }
 
-    /** Thin dust along a held beam between pulses, in the shape element's colour. */
-    fun beamTrail(ctx: SpellContext, line: Delivery.Line, element: Element) {
-        val dust = dust(element)
-        val length = line.from.distanceTo(line.to)
-        val steps = (length / TRAIL_SPACING).toInt().coerceAtLeast(1)
-        for (i in 1..steps) {
-            val p = line.from.lerp(line.to, i.toDouble() / steps)
-            ctx.level.sendParticles(dust, p.x, p.y, p.z, 1, 0.02, 0.02, 0.02, 0.0)
+    /** One line per segment of a traced beam. The last ends just inside a struck block, so
+     *  that block takes the block effects. */
+    fun beamLines(trace: BeamTrace): List<Delivery.Line> = trace.segments.mapIndexed { i, seg ->
+        val bite = i == trace.segments.lastIndex && trace.finalBlockPos != null
+        Delivery.Line(seg.start, if (bite) seg.end.add(seg.direction.scale(BLOCK_BITE)) else seg.end, BEAM_HALF_WIDTH)
+    }
+
+    /** Thin dust along a beam between pulses, in [rgb]. */
+    fun beamTrail(level: ServerLevel, segments: List<BeamSegment>, rgb: Int) {
+        val dust = dust(rgb)
+        for (seg in segments) {
+            val steps = (seg.length / TRAIL_SPACING).toInt().coerceAtLeast(1)
+            for (i in 1..steps) {
+                val p = seg.start.lerp(seg.end, i.toDouble() / steps)
+                level.sendParticles(dust, p.x, p.y, p.z, 1, 0.02, 0.02, 0.02, 0.0)
+            }
         }
     }
 
@@ -133,8 +163,9 @@ object SpellCasting {
 
     fun sprayLength(magnitude: Float): Double = 3.0 + magnitude
 
-    fun spray(origin: Vec3, look: Vec3, magnitude: Float): Delivery.Cone =
-        Delivery.Cone(origin, look, sprayLength(magnitude), SPRAY_HALF_ANGLE)
+    /** The Spray's cone. Aegis boxes in [blockers] shadow everything behind them. */
+    fun spray(origin: Vec3, look: Vec3, magnitude: Float, blockers: List<AegisBox.Frame>): Delivery.Cone =
+        Delivery.Cone(origin, look, sprayLength(magnitude), SPRAY_HALF_ANGLE, blockers)
 
     // -----------------------------------------------------------------------
     // Chain
@@ -145,9 +176,11 @@ object SpellCasting {
 
     /** The nearest living target in a cone in front of [origin], then jumps to the nearest
      *  living entity not yet hit near the last one, each in sight of the one before. One
-     *  pulse never hits an entity twice. Null when the cone holds no target. */
+     *  pulse never hits an entity twice. An arc never crosses an Aegis box: it takes the
+     *  nearest target on the near side instead, or stops. Null when no target is reachable. */
     fun chain(ctx: SpellContext, origin: Vec3, look: Vec3, magnitude: Float): Delivery.Group? {
-        val cone = Delivery.Cone(origin, look, CHAIN_RANGE, CHAIN_HALF_ANGLE)
+        val mirrors = BeamManager.mirrors(ctx.level, ctx.caster)
+        val cone = Delivery.Cone(origin, look, CHAIN_RANGE, CHAIN_HALF_ANGLE, mirrors)
         val first = cone.living(ctx).minByOrNull { it.distanceToSqr(origin) } ?: return null
         val targets = chainFrom(ctx, first, magnitude, HashSet())
         chainArcs(ctx, origin, targets.take(1))
@@ -159,12 +192,15 @@ object SpellCasting {
      *  caller's. Empty when [first] was already hit. */
     fun chainFrom(ctx: SpellContext, first: LivingEntity, magnitude: Float, hit: MutableSet<Entity>): List<LivingEntity> {
         if (!hit.add(first)) return emptyList()
+        val mirrors = BeamManager.mirrors(ctx.level, ctx.caster)
         val targets = mutableListOf(first)
         var from: LivingEntity = first
         while (targets.size < chainTargets(magnitude)) {
+            val fromCentre = centre(from)
             val next = ctx.level.getEntitiesOfClass(LivingEntity::class.java, from.boundingBox.inflate(CHAIN_JUMP)) {
                 it.isAlive && !it.isSpectator && it !in hit && !ctx.isCaster(it) &&
-                    it.distanceToSqr(from) <= CHAIN_JUMP * CHAIN_JUMP && from.hasLineOfSight(it)
+                    it.distanceToSqr(from) <= CHAIN_JUMP * CHAIN_JUMP && from.hasLineOfSight(it) &&
+                    !Delivery.shadowed(fromCentre, centre(it), mirrors)
             }.minByOrNull { it.distanceToSqr(from) } ?: break
             hit += next
             targets += next
@@ -187,12 +223,13 @@ object SpellCasting {
         }
     }
 
-    fun dust(element: Element): DustParticleOptions {
-        val c = element.color
-        return DustParticleOptions(
-            Vector3f(((c shr 16) and 0xFF) / 255f, ((c shr 8) and 0xFF) / 255f, (c and 0xFF) / 255f), 1f,
-        )
-    }
+    private fun centre(entity: Entity): Vec3 = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
+
+    fun dust(element: Element): DustParticleOptions = dust(element.color)
+
+    fun dust(rgb: Int): DustParticleOptions = DustParticleOptions(
+        Vector3f(((rgb shr 16) and 0xFF) / 255f, ((rgb shr 8) and 0xFF) / 255f, (rgb and 0xFF) / 255f), 1f,
+    )
 
     private const val BEAM_HALF_WIDTH = 0.5
     private const val BLOCK_BITE = 0.1

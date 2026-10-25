@@ -70,9 +70,12 @@ class MysticScrollItem(properties: Properties) : Item(properties) {
             return
         }
         val ctx = SpellContext(level, entity, origin, pulsed = true)
-        if (held % SpellCasting.PULSE_TICKS == 0) SpellCasting.pulse(ctx, spell, origin, look)
-        if (shapeElement.shape == Shape.BEAM && held % BEAM_TRAIL_TICKS == 0) {
-            SpellCasting.beamTrail(ctx, SpellCasting.beam(ctx, origin, look, spell.magnitude(shapeElement)), shapeElement)
+        val pulse = held % SpellCasting.PULSE_TICKS == 0
+        if (shapeElement.shape == Shape.BEAM) {
+            // Every tick, so the beam stays registered for crossings while held.
+            SpellCasting.beamTick(ctx, spell, entity, origin, look, pulse, held % BEAM_TRAIL_TICKS == 0)
+        } else if (pulse) {
+            SpellCasting.pulse(ctx, spell, origin, look)
         }
     }
 

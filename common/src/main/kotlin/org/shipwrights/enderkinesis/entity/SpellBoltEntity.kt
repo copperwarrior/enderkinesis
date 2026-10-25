@@ -75,7 +75,9 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         super.onHit(result)
         val level = level() as? ServerLevel ?: return
         if (isRemoved) return
-        val ctx = SpellContext(level, owner as? LivingEntity, castPoint, ownerUuid)
+        // A Staff of Aegis reflection makes its holder the owner, for claims too.
+        val caster = owner as? LivingEntity
+        val ctx = SpellContext(level, caster, castPoint, caster?.uuid ?: ownerUuid)
         SpellCasting.burst(ctx, spell, result.location, area = false)
         if (result is BlockHitResult && result.type == HitResult.Type.BLOCK) ElementEffects.dropBlock(ctx, result.blockPos)
         discard()

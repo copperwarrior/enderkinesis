@@ -11,6 +11,7 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.item.AegisBox
 
 /**
  * The region an element's effect lands on. Shapes and cast modes reduce to these four: Area
@@ -90,8 +91,12 @@ sealed class Delivery {
     }
 
     /** A cone from [origin] along the unit vector [direction], [length] long and [halfAngle]
-     *  radians wide. Only what the origin can see is hit, so a Spray stops at walls. */
-    class Cone(val origin: Vec3, val direction: Vec3, val length: Double, val halfAngle: Double) : Delivery() {
+     *  radians wide. Only what the origin can see is hit, so a Spray stops at walls, and
+     *  nothing behind an Aegis box in [blockers] is reached. */
+    class Cone(
+        val origin: Vec3, val direction: Vec3, val length: Double, val halfAngle: Double,
+        val blockers: List<AegisBox.Frame> = emptyList(),
+    ) : Delivery() {
         override val anchor: Vec3 get() = origin.add(direction.scale(length * 0.5))
         private val cosHalf = Math.cos(halfAngle)
 
@@ -104,6 +109,7 @@ sealed class Delivery {
         }
 
         private fun visible(level: Level, point: Vec3, target: BlockPos?): Boolean {
+            if (shadowed(origin, point, blockers)) return false
             val hit = level.clip(ClipContext(origin, point, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, null))
             return hit.type == HitResult.Type.MISS || (target != null && hit.blockPos == target)
         }
@@ -132,6 +138,18 @@ sealed class Delivery {
     class Group(val targets: List<Entity>, override val anchor: Vec3) : Delivery() {
         override fun candidates(ctx: SpellContext): List<Entity> = targets
         override fun blocks(level: Level): List<BlockPos> = emptyList()
+    }
+
+    companion object {
+        /** Whether an Aegis box in [frames] stands between [from] and [to]. */
+        fun shadowed(from: Vec3, to: Vec3, frames: List<AegisBox.Frame>): Boolean {
+            if (frames.isEmpty()) return false
+            val span = to.subtract(from)
+            val dist = span.length()
+            if (dist < 1.0e-6) return false
+            val dir = span.scale(1.0 / dist)
+            return frames.any { frame -> AegisBox.rayIntersect(from, dir, frame)?.let { it.distance < dist } == true }
+        }
     }
 
     /** One entity, struck directly. No block effects. */

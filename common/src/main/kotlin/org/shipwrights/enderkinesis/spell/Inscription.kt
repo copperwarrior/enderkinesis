@@ -36,7 +36,9 @@ object Inscription {
         return if (result.glyphs.size > MAX_GLYPHS) null else result
     }
 
-    private fun resolve(glyphs: List<Element>, shard: Element): Result {
+    /** [inscribe] without the glyph limit, for beams meeting: their glyphs resolve as at
+     *  the altar, but nothing caps them. [shard] must be a shard element. */
+    fun resolve(glyphs: List<Element>, shard: Element): Result {
         val opposite = shard.opposite
         if (opposite != null) {
             val i = glyphs.indexOfLast { opposite in it.components }

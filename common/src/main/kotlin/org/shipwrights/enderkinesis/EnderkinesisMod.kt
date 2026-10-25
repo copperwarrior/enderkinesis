@@ -193,6 +193,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.spell.RuneCollisionRouter.register()
         org.shipwrights.enderkinesis.spell.RuneTriggers.init()
         org.shipwrights.enderkinesis.spell.Imbues.init()
+        org.shipwrights.enderkinesis.spell.BeamManager.init()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
         org.shipwrights.enderkinesis.dimension.SselithMothSpawner.init()
