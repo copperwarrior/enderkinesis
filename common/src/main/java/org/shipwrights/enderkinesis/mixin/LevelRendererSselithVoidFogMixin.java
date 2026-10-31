@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import org.shipwrights.enderkinesis.client.SselithVoidFog;
+import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -18,5 +19,6 @@ public abstract class LevelRendererSselithVoidFogMixin {
         BlockGetter level, BlockPos pos, BlockState oldState, BlockState newState, int flags, CallbackInfo ci
     ) {
         SselithVoidFog.onBlockChanged(pos, oldState, newState);
+        WohlonWaterMurk.onBlockChanged(pos, oldState, newState);
     }
 }

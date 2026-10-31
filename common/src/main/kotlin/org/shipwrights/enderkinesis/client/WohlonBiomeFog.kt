@@ -16,7 +16,7 @@ object WohlonBiomeFog {
 
     private const val PEAK_Y: Double = 64.0
     private const val FALLOFF_Y: Double = 96.0
-    private const val FOG_MIN_DENSITY: Float = 0.30f
+    const val FOG_MIN_DENSITY: Float = 0.30f
 
     /** Exponential low-pass rate. The spatial sample steps by ~20% when a full row of cells
      *  shifts; a linear lerp would visibly stair-step. Exponential α=1−exp(−RATE·dt) makes

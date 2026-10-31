@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
+import net.minecraft.nbt.NbtUtils
 import net.minecraft.nbt.Tag
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
@@ -19,15 +20,18 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.item.ItemMoverTomeOrbBehavior
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
+import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
 import org.shipwrights.enderkinesis.block.OrbRole
 import org.shipwrights.enderkinesis.item.TomeOrbBehavior
 import org.shipwrights.enderkinesis.item.TomeOrbBehaviors
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.isBlockInShipyard
 
 /**
  * Block-entity backing an [OrbOfLinkingBlock]. The orb is a **generic substrate** for the
@@ -58,6 +62,9 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     private val outgoing: MutableMap<LinkKey, LinkData> = LinkedHashMap()
     /** All links where this orb receives from a peer. */
     private val incoming: MutableMap<LinkKey, LinkData> = LinkedHashMap()
+
+    /** Mystic Beam Anchors that bend this orb's beams. Each one lists this orb in its bound orbs. */
+    private val anchors: MutableList<BlockPos> = ArrayList()
 
     /** Signal-tome scratch — strongest neighbour redstone signal last sampled. Lives on the
      *  BE rather than per-link metadata because `neighborChanged` is BE-scoped, not link-
@@ -122,6 +129,26 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         return best
     }
 
+    /** Game time of the last send, arrive and suck sound, by [TRANSFER_SEND] etc. Not saved. */
+    private val lastTransferSound = LongArray(TRANSFER_SOUND_KINDS) { Long.MIN_VALUE }
+
+    /** True at most once each [TRANSFER_SOUND_TICKS] for each [kind]. */
+    fun transferSoundReady(kind: Int, gameTime: Long): Boolean {
+        if (gameTime - lastTransferSound[kind] < TRANSFER_SOUND_TICKS) return false
+        lastTransferSound[kind] = gameTime
+        return true
+    }
+
+    /** Client side. Set by [EVENT_GRIND] from the Disintegration sender. */
+    var grinding: Boolean = false
+        private set
+
+    override fun triggerEvent(id: Int, param: Int): Boolean {
+        if (id != EVENT_GRIND) return super.triggerEvent(id, param)
+        grinding = param != 0
+        return true
+    }
+
     /** Per-tome scratchpad — lazily populated via [TomeOrbBehavior.createState]. Transient,
      *  not persisted. Used by behaviors that need per-orb state outside the per-link maps
      *  (e.g. Transportation's round-robin cursor + in-flight delivery list). */
@@ -137,6 +164,27 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
      *  in an unloaded chunk — without this, the beam disappears the moment the send drifts
      *  out of view distance. */
     fun allIncoming(): Map<LinkKey, LinkData> = incoming
+
+    fun beamAnchors(): List<BlockPos> = anchors
+
+    /** False when the orb already has [MAX_ANCHORS] anchors. Call through [MysticBeamAnchorBlockEntity.claim]. */
+    fun addAnchor(level: ServerLevel, pos: BlockPos): Boolean {
+        if (pos in anchors) return true
+        if (anchors.size >= MAX_ANCHORS) {
+            // An anchor that went while unloaded, or with a stale owner, stays in the list.
+            anchors.removeIf {
+                level.isLoaded(it) && MysticBeamAnchorBlockEntity.loadedAt(level, it)?.boundOrbs()?.contains(blockPos) != true
+            }
+            if (anchors.size >= MAX_ANCHORS) return false
+        }
+        anchors.add(pos)
+        sync()
+        return true
+    }
+
+    fun removeAnchor(pos: BlockPos) {
+        if (anchors.remove(pos)) sync()
+    }
 
     // The tome behaviours read these lists on each tick. They are built again only after a
     // change of the link maps; each change site calls [linksChanged].
@@ -232,6 +280,13 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         return true
     }
 
+    /** The runtime drop of a link that drifted past [MAX_LINK_DISTANCE]. The two ends are far apart, so each snaps. */
+    fun dropOverDistance(level: ServerLevel, tomeKind: ResourceLocation, receiverPos: BlockPos) {
+        if (!removeOutgoingLink(level, tomeKind, receiverPos)) return
+        OrbOfLinkingSounds.play(level, blockPos, EKSounds.ORB_OF_LINKING_SNAP)
+        OrbOfLinkingSounds.play(level, receiverPos, EKSounds.ORB_OF_LINKING_SNAP)
+    }
+
     /** Drop every link for [tomeKind] through this orb, in either direction. The sneak-click
      *  gesture uses this — "the player wants this tome to leave this orb alone". */
     fun removeAllForTome(level: ServerLevel, tomeKind: ResourceLocation) {
@@ -245,16 +300,23 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     /** Block destroyed (or replaced). Clean up every link through this orb across all tomes,
-     *  preserving the symmetric onUnlinking notifications. Each peer also gets a final
-     *  defensive [sync] after the loops — multi-link orbs were losing one of their peer
-     *  packets to whatever delivery quirk eats it, and a second broadcast guarantees the
-     *  client sees the post-cleanup state. */
+     *  preserving the symmetric onUnlinking notifications. */
     fun onBlockDestroyed(level: ServerLevel) {
         // The player gave this book to the orb; the orb's loot table drops only the orb.
         // A ship move copies the block entity with its book, so nothing drops then.
         if (!book.isEmpty && !org.shipwrights.enderkinesis.util.ShipMoves.isMovingBlocks(level)) {
             net.minecraft.world.level.block.Block.popResource(level, blockPos, book)
             book = ItemStack.EMPTY
+        }
+        if ((outgoing.isNotEmpty() || incoming.isNotEmpty()) &&
+            !org.shipwrights.enderkinesis.util.ShipMoves.isMovingBlocks(level)
+        ) {
+            OrbOfLinkingSounds.play(level, blockPos, EKSounds.ORB_OF_LINKING_SNAP)
+        }
+        // The anchors stay as blocks. A ship move copies the list, and the anchors follow.
+        if (!org.shipwrights.enderkinesis.util.ShipMoves.isMovingBlocks(level)) {
+            for (pos in anchors) (level.getBlockEntity(pos) as? MysticBeamAnchorBlockEntity)?.removeOrb(blockPos)
+            anchors.clear()
         }
         val touchedPeers = HashSet<BlockPos>()
 
@@ -284,7 +346,14 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
         val outgoingMoved = followMovedPeers(outgoing, move)
         val incomingMoved = followMovedPeers(incoming, move)
-        if (outgoingMoved || incomingMoved) sync()
+        if (outgoingMoved || incomingMoved) linksChanged()
+        var anchorsMoved = false
+        for (i in anchors.indices) {
+            if (!move.contains(anchors[i])) continue
+            anchors[i] = move.mapBlock(anchors[i])
+            anchorsMoved = true
+        }
+        if (outgoingMoved || incomingMoved || anchorsMoved) sync()
     }
 
     private fun followMovedPeers(links: MutableMap<LinkKey, LinkData>, move: ShipBlockMove): Boolean {
@@ -318,6 +387,27 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         for (kind in outgoingTomes()) {
             TomeOrbBehaviors.behaviorFor(kind)?.serverTick(level, this)
         }
+        if (anchors.isNotEmpty()) dropFarAnchors(level)
+    }
+
+    /** A ship can carry the orb or an anchor past [MAX_LINK_DISTANCE]; that binding snaps. */
+    private fun dropFarAnchors(level: ServerLevel) {
+        val orbOnShip = level.isBlockInShipyard(blockPos)
+        var centre: Vec3? = null
+        var dropped = false
+        for (i in anchors.indices.reversed()) {
+            val pos = anchors[i]
+            if (!orbOnShip && !level.isBlockInShipyard(pos)) continue
+            val anchor = MysticBeamAnchorBlockEntity.loadedAt(level, pos) ?: continue
+            val c = centre ?: worldCenter() ?: return
+            centre = c
+            if (MysticBeamAnchorBlockEntity.inRange(level, c, anchor)) continue
+            anchors.removeAt(i)
+            anchor.removeOrb(blockPos)
+            OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_SNAP)
+            dropped = true
+        }
+        if (dropped) sync()
     }
 
     /** Called by the block's `neighborChanged`. Each outgoing tome's behavior decides whether
@@ -458,6 +548,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         super.saveAdditional(tag)
         if (outgoing.isNotEmpty()) tag.put("Outgoing", writeLinkMap(outgoing))
         if (incoming.isNotEmpty()) tag.put("Incoming", writeLinkMap(incoming))
+        if (anchors.isNotEmpty()) tag.put("Anchors", writeAnchors())
         if (inputSignal != 0) tag.putInt("Input", inputSignal)
         if (!filter.isEmpty) tag.put("Filter", filter.save(CompoundTag()))
         if (!book.isEmpty) tag.put("Book", book.save(CompoundTag()))
@@ -480,6 +571,11 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         // silently. This mod is pre-release; no migration shim.
         if (tag.contains("Outgoing")) readLinkMap(tag.getList("Outgoing", Tag.TAG_COMPOUND.toInt()), outgoing)
         if (tag.contains("Incoming")) readLinkMap(tag.getList("Incoming", Tag.TAG_COMPOUND.toInt()), incoming)
+        anchors.clear()
+        val anchorList = tag.getList("Anchors", Tag.TAG_COMPOUND.toInt())
+        for (i in 0 until minOf(anchorList.size, MAX_ANCHORS)) {
+            anchors.add(NbtUtils.readBlockPos(anchorList.getCompound(i)))
+        }
         inputSignal = if (tag.contains("Input")) tag.getInt("Input") else 0
         filter = if (tag.contains("Filter"))
             ItemStack.of(tag.getCompound("Filter"))
@@ -505,6 +601,12 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             if (!data.metadata.isEmpty) entry.put("Meta", data.metadata)
             list.add(entry)
         }
+        return list
+    }
+
+    private fun writeAnchors(): ListTag {
+        val list = ListTag()
+        for (pos in anchors) list.add(NbtUtils.writeBlockPos(pos))
         return list
     }
 
@@ -571,11 +673,14 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
 
     override fun getUpdateTag(): CompoundTag {
         val tag = super.getUpdateTag()
-        if (outgoing.isNotEmpty()) tag.put("Outgoing", writeLinkMap(outgoing))
+        // Always written: vanilla sends an empty update tag as null and the client then skips
+        // load(), so the last link removed from an orb stayed on the client.
+        tag.put("Outgoing", writeLinkMap(outgoing))
         // Receivers need their incoming set client-side so the beam renderer can draw the
         // link from the RECEIVE end when the SEND end's chunk isn't loaded. Without this,
         // the beam vanishes the moment the send orb drifts out of view distance.
-        if (incoming.isNotEmpty()) tag.put("Incoming", writeLinkMap(incoming))
+        tag.put("Incoming", writeLinkMap(incoming))
+        if (anchors.isNotEmpty()) tag.put("Anchors", writeAnchors())
         // Filter and book both go over the wire so the air-side renderer can show their
         // tumbling indicators.
         if (!filter.isEmpty) tag.put("Filter", filter.save(CompoundTag()))
@@ -600,42 +705,9 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             // too, so a joint callback that comes later drops its joint.
             for (data in outgoing.values) releaseJoint(l, data)
         }
-        if (l.isClientSide) {
-            OrbOfLinkingClientRegistry.unregister(l, this)
-            // A chunk unload removes this block entity too, and the link is still valid then:
-            // the RECEIVE orb must keep it to draw the beam. The client swaps the chunk out
-            // before it removes the block entities, so `hasChunk` is false in that case.
-            if (!l.chunkSource.hasChunk(blockPos.x shr 4, blockPos.z shr 4)) return
-            // Defensive client-side scrub. The server's BE-update packet for each peer
-            // (clearing this orb's link from their incoming/outgoing maps) is sent eagerly
-            // via player.connection.send and *should* arrive before the block-update that
-            // triggered this setRemoved — but in practice the peer's beam can linger when
-            // those packets race. Walk every other loaded orb in this level and drop any
-            // link key whose peer is at OUR position, so the beam renderer (which reads
-            // straight from these maps) drops the dead link the moment we vanish.
-            val myPos = blockPos
-            for (other in OrbOfLinkingClientRegistry.sendOrbs(l)) {
-                if (other === this) continue
-                other.scrubLinksTo(myPos)
-            }
-        }
-    }
-
-    /** Client-side helper: remove every outgoing/incoming entry whose peer is at [otherPos].
-     *  Called from another orb's [setRemoved] when its block became air, so we don't keep
-     *  rendering a beam to a peer that no longer exists.
-     *
-     *  Built with [MutableCollection.removeAll] over a snapshot of matching keys rather
-     *  than `iterator.remove()` because the latter can silently leave entries behind when
-     *  the underlying map type's iterator semantics don't match its key-set view's
-     *  semantics — which is exactly what bit multi-link orbs (multiple keys with the same
-     *  peer position). Snapshotting first eliminates that class of bug. */
-    fun scrubLinksTo(otherPos: BlockPos) {
-        val outDead = outgoing.keys.filter { it.peerPos == otherPos }
-        if (outDead.isNotEmpty()) outgoing.keys.removeAll(outDead.toSet())
-        val inDead = incoming.keys.filter { it.peerPos == otherPos }
-        if (inDead.isNotEmpty()) incoming.keys.removeAll(inDead.toSet())
-        linksChanged()
+        // No client scrub of the peers: a predicted break that the server refuses puts the
+        // orb back without its links, and nothing sent them again. The peer syncs clear them.
+        if (l.isClientSide) OrbOfLinkingClientRegistry.unregister(l, this)
     }
 
     // --- Types ---
@@ -678,10 +750,22 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             data.jointPending = false
         }
 
+        const val TRANSFER_SEND = 0
+        const val TRANSFER_ARRIVE = 1
+        const val TRANSFER_SUCK = 2
+        private const val TRANSFER_SOUND_KINDS = 3
+        private const val TRANSFER_SOUND_TICKS = 4L
+
+        /** Block event: param 1 when the Disintegration beam starts to mine a block, 0 when it stops. */
+        const val EVENT_GRIND = 1
+
         /** Hard cap on world-space link distance (blocks). Measured between orb centres in
          *  world coordinates after the VS2 ship-frame transform. Out-of-range pairs are
          *  refused at link time; runtime drift past this drops the link (joint tomes only). */
         const val MAX_LINK_DISTANCE: Double = 64.0
+
+        /** Bounds the nearest-first route the client builds for each beam on each frame. */
+        const val MAX_ANCHORS: Int = 16
 
         /** Visual offset (blocks) from the block centre toward the active face. The orb's
          *  model is a 12-px cube flush against one face, so its geometric centre sits 4 px

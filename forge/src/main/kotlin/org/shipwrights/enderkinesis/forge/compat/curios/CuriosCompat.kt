@@ -4,7 +4,13 @@ import dev.architectury.platform.Platform
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.item.AccessoryGatherer
+import org.shipwrights.enderkinesis.item.SatchelOfShelvingItem
+import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import top.theillusivec4.curios.api.CuriosApi
+import top.theillusivec4.curios.api.SlotContext
+import top.theillusivec4.curios.api.type.capability.ICurio
+import top.theillusivec4.curios.api.type.capability.ICurioItem
 
 /**
  * Forge-side bridge between Curios and `RobeArmor`'s combined-score calculator. At init we
@@ -21,6 +27,16 @@ object CuriosCompat {
     fun init() {
         if (!Platform.isModLoaded("curios")) return
         AccessoryGatherer.register(::gatherEquippedCurios)
+        EKItems.SATCHEL_OF_SHELVING.listen { CuriosApi.registerCurio(it, SatchelCurio) }
+    }
+
+    private object SatchelCurio : ICurioItem {
+        override fun onEquip(slotContext: SlotContext, prevStack: ItemStack, stack: ItemStack) {
+            SatchelOfShelvingItem.playAccessoryEquip(slotContext.entity(), prevStack)
+        }
+
+        override fun getEquipSound(slotContext: SlotContext, stack: ItemStack): ICurio.SoundInfo =
+            ICurio.SoundInfo(EKSounds.SATCHEL_OF_SHELVING_EQUIP.get(), 1f, 1f)
     }
 
     private fun gatherEquippedCurios(wearer: LivingEntity): List<ItemStack> {

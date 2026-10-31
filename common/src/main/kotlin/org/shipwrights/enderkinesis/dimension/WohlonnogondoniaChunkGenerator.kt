@@ -5,6 +5,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.WorldGenRegion
 import net.minecraft.world.level.LevelHeightAccessor
 import net.minecraft.world.level.NoiseColumn
@@ -54,11 +56,10 @@ private typealias TunnelPath = WohlonnogondoniaSurfaceRoots.TunnelPath
  *
  * ## Threading
  *
- *  All worldgen helpers are pure functions of `(wx, wy, wz)` and the world is
- *  stateless aside from the noise hash, so C2ME can run this concurrently across
- *  many chunks against a single generator instance — no per-chunk scratch on
- *  the generator, no [ThreadLocal] needed. See [[sselith-chunkgen-threading]] for
- *  the cautionary tale.
+ *  C2ME runs this concurrently across many chunks against a single generator
+ *  instance. Per-chunk scratch lives in a [ThreadLocal], and the shared caches
+ *  are concurrent maps where a race only repeats work. See
+ *  [[sselith-chunkgen-threading]].
  */
 class WohlonnogondoniaChunkGenerator(
     biomeSource: BiomeSource,
@@ -92,23 +93,15 @@ class WohlonnogondoniaChunkGenerator(
         val span = maxY - minY
         val featureCache = scratchFeatureCache(span)
 
-        // Mother Tree at origin (touches only chunks within its footprint).
-        //
-        // NOTE: Child Trees *and* surface roots are intentionally *not*
-        // painted here. Both run in [applyBiomeDecoration] after the
-        // vanilla forest features, so they overwrite anything the vanilla
-        // `wogor_forest` placed in their footprint instead of fighting it.
-        // The pipeline is:
-        //   fillFromNoise         → mud hill + Mother Tree
-        //   applyBiomeDecoration  → vanilla forest, then Surface Roots
-        //                           (carve through everything), then Child
-        //                           Trees on top.
+        // Mother Tree at origin (touches only chunks within its footprint). Rivers, child trees
+        // and surface roots paint in [applyBiomeDecoration], before the vanilla features run.
         paintMotherTreeInto(featureCache, chunkX0, chunkZ0, minY, span)
 
         // Root cave sites, hoisted once per chunk: a 16-wide chunk against
         // a 40-block lattice touches only a handful of cells, and looping a
         // flat array per block is what keeps the F3-F1 evaluation affordable.
-        val rootSites = WohlonRootField.sitesForChunk(chunkX0, chunkZ0)
+        val rootBand = paintRootNetwork(chunkX0, chunkZ0)
+        val childHearts = childHeartsNear(chunkX0, chunkZ0)
 
         // 3. Per-column fill: bedrock floor, mud body, water cap (where
         //    applicable), air above, then overlay the feature cache on
@@ -133,10 +126,14 @@ class WohlonnogondoniaChunkGenerator(
                 // Cave is the only per-voxel override — and only inside
                 // its noise-perturbed XZ footprint.
                 val caveXZ = isInsideCaveFootprint(worldX, worldZ)
+                val childHeart = childHeartAt(childHearts, worldX, worldZ)
 
                 // Tracks the surface where it drops below the field's own
                 // ceiling, so tunnels never open into a deep pool floor.
-                val rootCeiling = WohlonRootField.ceilingFor(surface)
+                val rootDead = WohlonRootField.deadness(worldX, worldZ)
+                // Root-tunnel cell just below this one: -1 none, else its kind. Decorations look one cell back.
+                var below = WohlonRootField.SOLID
+                var siltPending = false
 
                 for (i in 0 until span) {
                     val y = minY + i
@@ -145,6 +142,8 @@ class WohlonnogondoniaChunkGenerator(
 
                     val caveOverride = if (caveXZ) {
                         centralCaveBlock(worldX, y, worldZ)
+                    } else if (childHeart != null) {
+                        childChamberBlock(childHeart, worldX, y, worldZ)
                     } else null
 
                     // Cave hollows out everything (including the
@@ -162,33 +161,167 @@ class WohlonnogondoniaChunkGenerator(
                     // globally connected network.
                     val rootCave = if (
                         baseBlock === MUD && feature == null && caveOverride == null &&
-                        y >= WohlonRootField.CAVE_BOTTOM_Y && y <= rootCeiling
+                        y >= WohlonRootField.CAVE_BOTTOM_Y && y <= WohlonRootField.BAND_TOP_Y
                     ) {
-                        WohlonRootField.classify(rootSites, worldX, y, worldZ, rootCeiling)
+                        val painted = rootBand[(localX * 16 + localZ) * WohlonRootField.BAND_HEIGHT +
+                            (y - WohlonRootField.CAVE_BOTTOM_Y)].toInt()
+                        if (painted == WohlonRootField.LINING && !WohlonRootField.liningSurvives(worldX, y, worldZ, rootDead)) {
+                            WohlonRootField.SOLID
+                        } else painted
                     } else WohlonRootField.SOLID
 
+                    val wet = y < SEA_LEVEL_Y
                     val shaft = heartShaftBlock(worldX, y, worldZ)
+                    val anchor = if (caveOverride == null && feature == null) anchorRootBlock(worldX, y, worldZ) else null
 
                     val block = when {
                         baseBlock === BEDROCK -> baseBlock
-                        // The authored descent wins over Mother Tree roots
-                        // and the heart cave alike — it is the one
-                        // guaranteed way down into the root network, and a
-                        // root arm plugging it would strand the player.
+                        // The pool keeps its shape: the shaft's root shell never stands in the cave's water.
+                        caveOverride != null &&
+                            (shaft === ROOT_BLOCK || caveOverride === WATER || caveOverride === AIR || caveOverride === FOUNTAIN) -> caveOverride
+                        // Otherwise the shaft wins over Mother Tree roots and anchors: it is the one
+                        // guaranteed way down into the root network, and a root arm plugging it would strand the player.
                         shaft != null -> shaft
                         caveOverride != null -> caveOverride
                         feature != null -> feature
-                        rootCave == WohlonRootField.TUNNEL -> WATER
+                        anchor != null && y <= surface -> anchor
+                        rootCave == WohlonRootField.TUNNEL -> if (wet) WATER else AIR
                         rootCave == WohlonRootField.LINING -> ROOT_BLOCK
                         else -> baseBlock
                     }
-                    if (block === AIR) continue
-                    chunk.setBlockState(mutable.set(worldX, y, worldZ), block, false)
+                    val kind = if ((block === WATER || block === AIR) && rootCave == WohlonRootField.TUNNEL) WohlonRootField.TUNNEL
+                    else if (block === ROOT_BLOCK) WohlonRootField.LINING else WohlonRootField.SOLID
+                    var siltFloor = false
+                    if (siltPending) {
+                        // Dead channels silt up: the floor cell becomes mud if the tube is taller than one block.
+                        if (kind == WohlonRootField.TUNNEL) {
+                            chunk.setBlockState(mutable.set(worldX, y - 1, worldZ), MUD, false)
+                            siltFloor = true
+                        }
+                        siltPending = false
+                    } else if (below == WohlonRootField.TUNNEL && kind != WohlonRootField.TUNNEL &&
+                        block !== AIR && block !== WATER
+                    ) {
+                        rootCeilingDecor(worldX, y - 1, worldZ, rootDead, y - 1 < SEA_LEVEL_Y)?.let {
+                            chunk.setBlockState(mutable.set(worldX, y - 1, worldZ), it, false)
+                        }
+                    }
+                    var placed = block
+                    if (kind == WohlonRootField.TUNNEL && below != WohlonRootField.TUNNEL) {
+                        if (rootDead > SILT_DEADNESS) siltPending = true
+                        else placed = rootFloorDecor(worldX, y, worldZ, rootDead, wet) ?: block
+                    } else if (siltFloor) {
+                        placed = rootFloorDecor(worldX, y, worldZ, rootDead, wet) ?: block
+                    }
+                    if (placed === block && kind == WohlonRootField.TUNNEL) {
+                        placed = rootWallDecor(rootBand, localX, localZ, worldX, y, worldZ, rootDead, wet) ?: placed
+                    }
+                    below = kind
+                    if (placed === AIR) continue
+                    chunk.setBlockState(mutable.set(worldX, y, worldZ), placed, false)
+                    if (placed.hasBlockEntity()) markBlockEntity(chunk, mutable)
                 }
             }
         }
         return CompletableFuture.completedFuture(chunk)
     }
+
+    /** Every root-network link that can reach this chunk, painted into this thread's band buffer. */
+    private fun paintRootNetwork(chunkX0: Int, chunkZ0: Int): ByteArray {
+        val band = rootBandScratch.get()
+        val cx = Math.floorDiv(chunkX0, WohlonRootField.CELL_SIZE)
+        val cz = Math.floorDiv(chunkZ0, WohlonRootField.CELL_SIZE)
+        val cells = ArrayList<Array<WohlonRootField.Segment>>(ROOT_CELLS_PER_CHUNK)
+        for (dx in -WohlonRootField.CELL_SEARCH..WohlonRootField.CELL_SEARCH + 1) {
+            for (dz in -WohlonRootField.CELL_SEARCH..WohlonRootField.CELL_SEARCH + 1) {
+                val links = rootCell(cx + dx, cz + dz)
+                if (links.isNotEmpty()) cells += links
+            }
+        }
+        WohlonRootField.paintChunk(cells, chunkX0, chunkZ0, band)
+        return band
+    }
+
+    /** Root-network links per cell, per world (the build hashes the world seed). Racing builds are identical. */
+    private val rootCellCache = java.util.concurrent.ConcurrentHashMap<Long, Array<WohlonRootField.Segment>>()
+
+    private fun rootCell(cx: Int, cz: Int): Array<WohlonRootField.Segment> {
+        val key = (cx.toLong() and 0xFFFFFFFFL) shl 32 or (cz.toLong() and 0xFFFFFFFFL)
+        rootCellCache[key]?.let { return it }
+        val built = WohlonRootField.buildCell(cx, cz, ::childHeartNodes)
+        if (rootCellCache.size >= ROOT_CELL_CACHE_CAP) rootCellCache.clear()
+        return rootCellCache.putIfAbsent(key, built) ?: built
+    }
+
+    private val rootBandScratch: ThreadLocal<ByteArray> =
+        ThreadLocal.withInitial { ByteArray(256 * WohlonRootField.BAND_HEIGHT) }
+
+    /** Under a root-tunnel ceiling: hanging roots from living root wood, heartfire on rotting wood. */
+    /**
+     * Under any root-tunnel ceiling: roots dangle through it everywhere, thickest under the tree;
+     * heartfire grows on peat as well as wood, thickest where the wood is rotting.
+     */
+    /**
+     * ProtoChunk.setBlockState makes no block entity. A "DUMMY" entry makes the chunk build one
+     * when it becomes a LevelChunk, as WorldGenRegion.setBlock does.
+     */
+    private fun markBlockEntity(chunk: ChunkAccess, pos: BlockPos) {
+        val tag = CompoundTag()
+        tag.putInt("x", pos.x)
+        tag.putInt("y", pos.y)
+        tag.putInt("z", pos.z)
+        tag.putString("id", "DUMMY")
+        chunk.setBlockEntityNbt(tag)
+    }
+
+    private fun rootCeilingDecor(wx: Int, wy: Int, wz: Int, dead: Double, wet: Boolean): BlockState? {
+        val roll = (hash32(wx, wy * 31 + wz, ROOT_DECOR_SALT) and 0xFFFF) / 65536.0
+        val hanging = ROOT_HANGING_BASE + ROOT_HANGING_NEAR * (1.0 - dead)
+        if (roll < hanging) return if (wet) HANGING_ROOTS_WET else HANGING_ROOTS_DRY
+        if (roll < hanging + heartfireChance(dead) * heartfirePatch(wx, wy, wz)) {
+            return if (wet) HEARTFIRE_CEILING_WET else HEARTFIRE_CEILING_DRY
+        }
+        return null
+    }
+
+    /** On any root-tunnel floor, silt included: heartfire. */
+    private fun rootFloorDecor(wx: Int, wy: Int, wz: Int, dead: Double, wet: Boolean): BlockState? {
+        val roll = (hash32(wx, wy * 31 + wz, ROOT_DECOR_SALT + 1) and 0xFFFF) / 65536.0
+        return if (roll < heartfireChance(dead) * heartfirePatch(wx, wy, wz)) {
+            if (wet) HEARTFIRE_FLOOR_WET else HEARTFIRE_FLOOR_DRY
+        } else null
+    }
+
+    private fun heartfireChance(dead: Double): Double = ROOT_HEARTFIRE_BASE + ROOT_HEARTFIRE_ROTTING * rotting(dead)
+
+    /** Foxfire glows in occasional patches; most stretches have none. 0 outside a patch. */
+    private fun heartfirePatch(wx: Int, wy: Int, wz: Int): Double {
+        val n = WohlonRootField.noise3(wx * HEARTFIRE_PATCH_FREQ, wy * HEARTFIRE_PATCH_FREQ, wz * HEARTFIRE_PATCH_FREQ, 157)
+        return ((n - HEARTFIRE_PATCH_LOW) / HEARTFIRE_PATCH_SPAN).coerceIn(0.0, 1.0)
+    }
+
+    /** Heartfire on the wall beside this tunnel cell; neighbours come from this chunk's band. */
+    private fun rootWallDecor(
+        band: ByteArray, lx: Int, lz: Int, wx: Int, wy: Int, wz: Int, dead: Double, wet: Boolean,
+    ): BlockState? {
+        val roll = (hash32(wx, wy * 31 + wz, ROOT_DECOR_SALT + 2) and 0xFFFF) / 65536.0
+        if (roll >= heartfireChance(dead) * ROOT_HEARTFIRE_WALL_SHARE * heartfirePatch(wx, wy, wz)) return null
+        val start = (hash32(wz, wx, wy) and 3)
+        for (n in 0..3) {
+            val dir = HORIZONTAL_DIRECTIONS[(start + n) and 3]
+            val nx = lx + dir.stepX
+            val nz = lz + dir.stepZ
+            if (nx !in 0..15 || nz !in 0..15) continue
+            val idx = (nx * 16 + nz) * WohlonRootField.BAND_HEIGHT + (wy - WohlonRootField.CAVE_BOTTOM_Y)
+            // Any wall: living or rotting wood, or bare peat where the lining has gone.
+            if (band[idx].toInt() == WohlonRootField.TUNNEL) continue
+            return heartfireOn(dir, wet)
+        }
+        return null
+    }
+
+    /** Foxfire needs wood that is rotting but not gone: it peaks between living and dead. */
+    private fun rotting(dead: Double): Double = 1.0 - Math.abs(dead - 0.5) * 2.0
 
     // ------------------------------------------------------------------------
     //   central geometric features: moat (folded into surface) / cave
@@ -269,21 +402,13 @@ class WohlonnogondoniaChunkGenerator(
      * removed.
      */
     private fun centralCaveBlock(wx: Int, wy: Int, wz: Int): BlockState? {
-        // Per-column ceiling / floor with noise-driven undulation.
-        val floorN = valueNoise2(
-            wx * 0.08 + 17.0, wz * 0.08 + 23.0,
-        ) - 0.5
-        val ceilN = valueNoise2(
-            wx * 0.08 + 53.0, wz * 0.08 + 41.0,
-        ) - 0.5
-        val floorHere = CAVE_FLOOR_BASE_Y + (floorN * 2.0 * CAVE_Y_NOISE_AMP).toInt()
-        val ceilingHere = CAVE_CEILING_BASE_Y + (ceilN * 2.0 * CAVE_Y_NOISE_AMP).toInt()
-        if (wy < floorHere || wy > ceilingHere) return null
-
         val dxz = Math.sqrt(wx.toDouble() * wx + wz.toDouble() * wz)
-        // Origin column — let the centre always be inside the cave.
         if (dxz < 0.5) {
+            if (wy < CAVE_FLOOR_BASE_Y - CAVE_Y_NOISE_AMP.toInt() || wy > CAVE_CEILING_BASE_Y + CAVE_Y_NOISE_AMP.toInt()) {
+                return null
+            }
             if (wx == 0 && wz == 0 && wy == HEART_Y) return MOTHER_HEART
+            if (wx == 0 && wz == 0 && wy == FOUNTAIN_Y) return FOUNTAIN
             return if (wy < SEA_LEVEL_Y) WATER else AIR
         }
         val angle = Math.atan2(wz.toDouble(), wx.toDouble())
@@ -297,9 +422,7 @@ class WohlonnogondoniaChunkGenerator(
             ) - 0.5
         ) * 2.0 * CAVE_BOUNDARY_NOISE_AMP
 
-        // Gaussian bulge toward the heart-tunnel direction. Smoothly
-        // tapers from `CAVE_TUNNEL_BULGE_AMP` at the tunnel angle to
-        // ~0 outside the σ envelope.
+        // Gaussian bulge toward the heart-tunnel direction, so the tunnel mouth blends into the wall.
         var angleDiff = angle - heartTunnelAngleRad
         while (angleDiff > Math.PI) angleDiff -= 2.0 * Math.PI
         while (angleDiff < -Math.PI) angleDiff += 2.0 * Math.PI
@@ -311,16 +434,61 @@ class WohlonnogondoniaChunkGenerator(
         val effRadius = CAVE_BASE_RADIUS + angleNoise + bulge
         if (dxz > effRadius) return null
 
-        // Mother Heart sits at the cave's geometric centre
-        // [HEART_Y] — 4 blocks above sea level — and reads as the
-        // ritual centrepiece raised over the pool. Water still fills
-        // only up to sea level so the cave's pool surface aligns with
-        // the moat / river / heart-tunnel water outside; air fills
-        // the gap between sea level and the heart, then continues
-        // up to the cave ceiling.
+        // The void under the root plate: high over the heart, the ceiling dropping toward the
+        // wall and the floor rising a little, so the chamber is a lens, not a drum.
+        val f = (dxz / effRadius).coerceIn(0.0, 1.0)
+        val floorN = valueNoise2(wx * 0.08 + 17.0, wz * 0.08 + 23.0) - 0.5
+        val ceilN = valueNoise2(wx * 0.08 + 53.0, wz * 0.08 + 41.0) - 0.5
+        val floorHere = CAVE_FLOOR_BASE_Y + (floorN * 2.0 * CAVE_Y_NOISE_AMP + CAVE_BOWL_RISE * f * f).toInt()
+        val ceilingHere = CAVE_CEILING_BASE_Y + (ceilN * 2.0 * CAVE_Y_NOISE_AMP - CAVE_DOME_DROP * f * f).toInt()
+        if (wy < floorHere || wy > ceilingHere + CAVE_ROOF_THICKNESS) return null
+        if (wy > ceilingHere) return WOGOR_WOOD_Y
+
         if (wx == 0 && wz == 0 && wy == HEART_Y) return MOTHER_HEART
+        anchorRootBlock(wx, wy, wz)?.let { return it }
         if (wy < SEA_LEVEL_Y) return WATER
+        if (wy == ceilingHere) {
+            val roll = (hash32(wx, wz, CAVE_DECOR_SALT) and 0xFFFF) / 65536.0
+            if (roll < CAVE_HANGING_CHANCE) return HANGING_ROOTS_DRY
+            if (roll < CAVE_HANGING_CHANCE + CAVE_HEARTFIRE_CHANCE) return HEARTFIRE_CEILING_DRY
+        }
         return AIR
+    }
+
+    /**
+     * Anchor roots: 4–6 thick roots that drop from the root plate through the cave and down into
+     * the flooded network, leaning outward and narrowing as they go, as a cypress's descending
+     * anchor roots do. Wood, or null where there is none.
+     */
+    private fun anchorRootBlock(wx: Int, wy: Int, wz: Int): BlockState? {
+        if (wy < ANCHOR_BOTTOM_Y || wy > CAVE_CEILING_BASE_Y + CAVE_ROOF_THICKNESS) return null
+        if (wx.toLong() * wx + wz.toLong() * wz > ANCHOR_REACH_SQ) return null
+        val depth = (CAVE_CEILING_BASE_Y - wy).coerceAtLeast(0).toDouble()
+        val along = depth / (CAVE_CEILING_BASE_Y - ANCHOR_BOTTOM_Y)
+        for (a in anchorRoots) {
+            val cx = a[0] + a[2] * depth * ANCHOR_LEAN
+            val cz = a[1] + a[3] * depth * ANCHOR_LEAN
+            val r = a[4] * (1.0 - ANCHOR_TAPER * along)
+            val dx = wx + 0.5 - cx
+            val dz = wz + 0.5 - cz
+            if (dx * dx + dz * dz <= r * r) return WOGOR_WOOD_Y
+        }
+        return null
+    }
+
+    /** Per anchor: start x, start z, outward unit x, outward unit z, top radius. Clear of the tunnel mouth. */
+    private val anchorRoots: List<DoubleArray> by lazy {
+        val count = ANCHOR_MIN_COUNT + Math.floorMod(hash32(0, 0, ANCHOR_SALT), ANCHOR_EXTRA_COUNT + 1)
+        val out = ArrayList<DoubleArray>(count)
+        for (i in 0 until count) {
+            val h = hash32(i, 1, ANCHOR_SALT)
+            val angle = heartTunnelAngleRad + ANCHOR_MOUTH_CLEARANCE +
+                (2.0 * Math.PI - 2.0 * ANCHOR_MOUTH_CLEARANCE) * (i + 0.5 + ((h and 0xFF) / 255.0 - 0.5) * 0.6) / count
+            val dist = ANCHOR_MIN_DIST + ((h ushr 8) and 0xFF) / 255.0 * ANCHOR_DIST_SPREAD
+            val r = ANCHOR_MIN_RADIUS + ((h ushr 16) and 0xFF) / 255.0 * ANCHOR_RADIUS_SPREAD
+            out += doubleArrayOf(Math.cos(angle) * dist, Math.sin(angle) * dist, Math.cos(angle), Math.sin(angle), r)
+        }
+        out
     }
 
     /** Heart-tunnel direction in `[0, 2π)`. [hash32] carries the world seed, so each world
@@ -401,6 +569,7 @@ class WohlonnogondoniaChunkGenerator(
         paintHeartTunnelInto(featureCache, chunkX0, chunkZ0, minY, span)
         paintChildTreesInto(featureCache, chunkX0, chunkZ0, minY, span)
         paintSurfaceRootsInto(featureCache, chunkX0, chunkZ0, minY, span)
+        clearChildChambers(featureCache, chunkX0, chunkZ0, minY, span)
 
         // Flush BEFORE vanilla decoration runs so the wogor_forest
         // placement filter sees our painted features as occupied.
@@ -460,8 +629,8 @@ class WohlonnogondoniaChunkGenerator(
      *    Tree mound up to [HILL_PEAK_Y].
      */
     private fun surfaceYAt(wx: Int, wz: Int): Int {
-        val n0 = valueNoise2(wx * 0.045, wz * 0.045)
-        val n1 = valueNoise2(wx * 0.12 + 7.3, wz * 0.12 + 11.1) * 0.5
+        val n0 = valueNoise2(wx * 0.045, wz * 0.045, FINE_SALT)
+        val n1 = valueNoise2(wx * 0.12 + 7.3, wz * 0.12 + 11.1, FINE_SALT + 1) * 0.5
         val noiseFine = (n0 + n1) * FINE_AMPLITUDE
         val d = Math.sqrt((wx.toDouble() * wx + wz.toDouble() * wz))
         val hillLift = if (d >= HILL_RADIUS) 0.0
@@ -470,8 +639,75 @@ class WohlonnogondoniaChunkGenerator(
             val s = t * t * (3.0 - 2.0 * t)
             s * HILL_PEAK_LIFT
         }
-        return (coarseSurfaceY(wx, wz) + noiseFine + hillLift)
+        val shaped = shapeWaterDepth(coarseSurfaceY(wx, wz) + noiseFine)
+        val surface = (shaped + hillLift + reliefLift(wx, wz, shaped))
             .toInt().coerceIn(2, MAX_BUILD_Y - 4)
+        return if (surface in HUMMOCK_MIN_Y..HUMMOCK_MAX_Y && isHummock(wx, wz)) surface + 1 else surface
+    }
+
+    /**
+     * Swamp depth profile: most ground sits at or just above the water, hollows are 1–2 deep,
+     * and only the deepest pools keep their full depth.
+     */
+    private fun shapeWaterDepth(raw: Double): Double = when {
+        raw <= DEPTH_KEEP_Y -> raw
+        raw <= DEPTH_SHELF_Y ->
+            DEPTH_KEEP_Y + (raw - DEPTH_KEEP_Y) * (SHALLOW_FLOOR_Y - DEPTH_KEEP_Y) / (DEPTH_SHELF_Y - DEPTH_KEEP_Y)
+        raw <= DEPTH_SHALLOW_END_Y ->
+            SHALLOW_FLOOR_Y + (raw - DEPTH_SHELF_Y) * (DRY_FLOOR_Y - SHALLOW_FLOOR_Y) / (DEPTH_SHALLOW_END_Y - DEPTH_SHELF_Y)
+        raw <= DEPTH_TOP_ANCHOR_Y ->
+            DRY_FLOOR_Y + (raw - DEPTH_SHALLOW_END_Y) * (DEPTH_TOP_ANCHOR_Y - DRY_FLOOR_Y) / (DEPTH_TOP_ANCHOR_Y - DEPTH_SHALLOW_END_Y)
+        else -> raw
+    }
+
+    /**
+     * Terrain character on top of the swamp: broad areas of rolling hills and of terraced bluffs
+     * with cliffs, the rest left flat. Only dry ground is lifted, so pools and flooded hollows keep
+     * their depth; the centre (mound, moat) is left as authored.
+     */
+    private fun reliefLift(wx: Int, wz: Int, shaped: Double): Double {
+        val dry = smoothstep01((shaped - RELIEF_DRY_FROM) / RELIEF_DRY_SPAN)
+        if (dry <= 0.0) return 0.0
+        val centre = smoothstep01((Math.sqrt(wx.toDouble() * wx + wz.toDouble() * wz) - RELIEF_CENTRE_CLEAR) / RELIEF_CENTRE_FADE)
+        if (centre <= 0.0) return 0.0
+        val hillMask = smoothstep01(
+            (valueNoise2(wx * RELIEF_MASK_FREQ, wz * RELIEF_MASK_FREQ, RELIEF_SALT) - HILL_MASK_LOW) / HILL_MASK_SPAN,
+        )
+        val cliffMask = smoothstep01(
+            (valueNoise2(wx * RELIEF_MASK_FREQ + 41.7, wz * RELIEF_MASK_FREQ + 13.9, RELIEF_SALT + 1) - CLIFF_MASK_LOW) /
+                CLIFF_MASK_SPAN,
+        )
+        var lift = 0.0
+        if (hillMask > 0.0) {
+            val roll = 0.5 + 0.35 * valueNoise2(wx * ROLLING_FREQ, wz * ROLLING_FREQ, RELIEF_SALT + 2) +
+                0.15 * valueNoise2(wx * ROLLING_FREQ_FINE, wz * ROLLING_FREQ_FINE, RELIEF_SALT + 5)
+            lift += hillMask * ROLLING_AMP * roll
+        }
+        if (cliffMask > 0.0) {
+            // Warped so bluff edges wander instead of tracing the noise lattice.
+            val warpX = valueNoise2(wx * BLUFF_WARP_FREQ, wz * BLUFF_WARP_FREQ, RELIEF_SALT + 3) * BLUFF_WARP_AMP
+            val warpZ = valueNoise2(wx * BLUFF_WARP_FREQ + 7.3, wz * BLUFF_WARP_FREQ + 3.1, RELIEF_SALT + 3) * BLUFF_WARP_AMP
+            val level = (0.5 + 0.5 * valueNoise2((wx + warpX) * BLUFF_FREQ, (wz + warpZ) * BLUFF_FREQ, RELIEF_SALT + 4)) *
+                BLUFF_TERRACES
+            val step = Math.floor(level)
+            // Flat terraces joined by short steep risers: the cliffs.
+            val riser = smoothstep01((level - step - (1.0 - BLUFF_RISER_SHARE)) / BLUFF_RISER_SHARE)
+            lift += cliffMask * BLUFF_STEP_HEIGHT * (step + riser)
+        }
+        return lift * dry * centre
+    }
+
+    /** Hummocks sit on a jittered grid, not on noise: wet-swamp hummocks are regularly spaced. */
+    private fun isHummock(wx: Int, wz: Int): Boolean {
+        val cx = Math.floorDiv(wx, HUMMOCK_CELL)
+        val cz = Math.floorDiv(wz, HUMMOCK_CELL)
+        val h = hash32(cx, cz, HUMMOCK_SALT)
+        if ((h ushr 24 and 0xFF) >= HUMMOCK_CELL_FILL) return false
+        // Point offset 0..CELL-2 on x so the optional east neighbour stays inside the cell.
+        val px = cx * HUMMOCK_CELL + Math.floorMod(h, HUMMOCK_CELL - 1)
+        val pz = cz * HUMMOCK_CELL + Math.floorMod(h ushr 8, HUMMOCK_CELL)
+        if (wz != pz) return false
+        return wx == px || (wx == px + 1 && (h and 0x10000) != 0)
     }
 
     /**
@@ -486,17 +722,18 @@ class WohlonnogondoniaChunkGenerator(
      * with low-frequency noise so it reads as a bored root channel rather
      * than a drilled cylinder.
      *
-     * Above [WohlonRootField.CAVE_TOP_Y] it is air (a dry drop out of the
-     * heart cave); below, it is water, matching the flooded network it
-     * opens into. Returns null outside the shaft.
+     * It opens through the floor of the heart cave's pool and is flooded
+     * to the pool's level. Returns null outside the shaft.
      */
     private fun heartShaftBlock(wx: Int, wy: Int, wz: Int): BlockState? {
         if (wy < SHAFT_BOTTOM_Y || wy > SHAFT_TOP_Y) return null
         // Cheap square reject before any noise.
         if (wx < -SHAFT_REJECT || wx > SHAFT_REJECT || wz < -SHAFT_REJECT || wz > SHAFT_REJECT) return null
 
-        val wobbleX = valueNoise2(wy * SHAFT_WOBBLE_FREQ, 13.7) * SHAFT_WOBBLE_AMP
-        val wobbleZ = valueNoise2(41.3, wy * SHAFT_WOBBLE_FREQ) * SHAFT_WOBBLE_AMP
+        // Leans away from the tunnel mouth as it drops, like the anchor roots around it.
+        val lean = (SHAFT_TOP_Y - wy) * SHAFT_LEAN
+        val wobbleX = valueNoise2(wy * SHAFT_WOBBLE_FREQ, 13.7) * SHAFT_WOBBLE_AMP - Math.cos(heartTunnelAngleRad) * lean
+        val wobbleZ = valueNoise2(41.3, wy * SHAFT_WOBBLE_FREQ) * SHAFT_WOBBLE_AMP - Math.sin(heartTunnelAngleRad) * lean
         val dx = wx - wobbleX
         val dz = wz - wobbleZ
         val d = Math.sqrt(dx * dx + dz * dz)
@@ -505,10 +742,11 @@ class WohlonnogondoniaChunkGenerator(
         val flare = if (wy > SHAFT_TOP_Y - SHAFT_FLARE_SPAN) {
             (wy - (SHAFT_TOP_Y - SHAFT_FLARE_SPAN)).toDouble() / SHAFT_FLARE_SPAN * SHAFT_FLARE
         } else 0.0
-        val r = SHAFT_RADIUS + flare
+        val narrowing = 1.0 - SHAFT_TAPER * (SHAFT_TOP_Y - wy) / (SHAFT_TOP_Y - SHAFT_BOTTOM_Y).toDouble()
+        val r = SHAFT_RADIUS * narrowing + flare
         if (d > r + WohlonRootField.ROOT_SHELL) return null
         if (d > r) return ROOT_BLOCK
-        return if (wy <= WohlonRootField.CAVE_TOP_Y) WATER else AIR
+        return if (wy < SEA_LEVEL_Y) WATER else AIR
     }
 
     /** Base-column block at world Y `y`, given the local surface
@@ -608,16 +846,6 @@ class WohlonnogondoniaChunkGenerator(
     // ------------------------------------------------------------------------
 
     /**
-     * For chunk `(nChunkX, nChunkZ)` decide which tree roots it seeds and paint
-     * each tree's blocks into [target] (clipped to the target chunk's
-     * footprint `[chunkX0..+15, chunkZ0..+15]`).
-     *
-     * Seeds `TREES_PER_CHUNK_MIN..TREES_PER_CHUNK_MAX` candidate trunk roots
-     * per chunk; each candidate is independently rejected if it lands in a
-     * pool (surface below sea level) or inside the Mother Tree exclusion
-     * radius. The result is dense dry-land coverage with pools left open.
-     */
-    /**
      * Place **Child Trees** — dispersed scaled-down Mother Trees — across
      * the biome. Deterministic region-grid placement: the world is
      * divided into `CHILD_TREE_REGION_SIZE_CHUNKS × CHILD_TREE_REGION_SIZE_CHUNKS`
@@ -654,20 +882,202 @@ class WohlonnogondoniaChunkGenerator(
             val ddz = nearestZ - treeZ
             if (ddx * ddx + ddz * ddz > CHILD_TREE_MAX_REACH * CHILD_TREE_MAX_REACH) continue
 
-            val skel = getChildTreeSkeleton(treeX, baseY, treeZ, regionSeed)
+            val skel = getChildTreeSkeleton(site)
 
             paintSkeleton(target, chunkX0, chunkZ0, minY, span, skel, WOGOR_WOOD_Y)
-            paintLeafTips(target, chunkX0, chunkZ0, minY, span, skel,
-                blobRxz = 7, blobRy = 4)
-            paintHangingVines(target, chunkX0, chunkZ0, minY, span,
-                treeX, treeZ, skel.maxXZReach + 2,
-                maxLen = 7, seed = regionSeed xor 0x73A1F4C7.toInt())
-            paintChildTreeRoots(target, chunkX0, chunkZ0, minY, span,
-                treeX, treeZ, baseY, regionSeed)
+            if (site.age != AGE_DEAD) {
+                paintLeafTips(target, chunkX0, chunkZ0, minY, span, skel,
+                    blobRxz = 7, blobRy = 4)
+                paintHangingVines(target, chunkX0, chunkZ0, minY, span,
+                    treeX, treeZ, skel.maxXZReach + 2,
+                    maxLen = 7, seed = regionSeed xor 0x73A1F4C7.toInt())
+            }
+            paintChildTreeRoots(target, chunkX0, chunkZ0, minY, span, site)
+            if (site.age >= AGE_OLD) hollowChildTrunk(target, chunkX0, chunkZ0, minY, span, site)
+            paintChildKnees(target, chunkX0, chunkZ0, minY, span, site)
+            if (site.age == AGE_MATURE || site.age == AGE_OLD) paintWeyyePods(target, chunkX0, chunkZ0, minY, span, site)
         }
     }
 
-    private class ChildTreeSite(val x: Int, val z: Int, val baseY: Int, val seed: Int, val coreRadius: Int)
+    /** Child trees whose heart chamber or shaft can reach this chunk. */
+    private fun childHeartsNear(chunkX0: Int, chunkZ0: Int): List<ChildTreeSite> {
+        val regionX = Math.floorDiv(chunkX0 shr 4, CHILD_TREE_REGION_SIZE_CHUNKS)
+        val regionZ = Math.floorDiv(chunkZ0 shr 4, CHILD_TREE_REGION_SIZE_CHUNKS)
+        var out: MutableList<ChildTreeSite>? = null
+        for (dRegX in -1..1) for (dRegZ in -1..1) {
+            val site = childTreeSite(regionX + dRegX, regionZ + dRegZ) ?: continue
+            val reach = site.reach
+            if (site.x + reach < chunkX0 || site.x - reach > chunkX0 + 15) continue
+            if (site.z + reach < chunkZ0 || site.z - reach > chunkZ0 + 15) continue
+            if (out == null) out = ArrayList(2)
+            out += site
+        }
+        return out ?: emptyList()
+    }
+
+    /** The child tree whose chamber footprint covers this column, if any. */
+    private fun childHeartAt(sites: List<ChildTreeSite>, wx: Int, wz: Int): ChildTreeSite? {
+        for (site in sites) {
+            val dx = wx + 0.5 - (site.x + 0.5)
+            val dz = wz + 0.5 - (site.z + 0.5)
+            val reach = site.reach
+            if (dx * dx + dz * dz <= reach * reach) return site
+        }
+        return null
+    }
+
+    /**
+     * A child tree's heart chamber: a small lens under the trunk with a root-plate roof, a regular
+     * Heart of the Wild hung at its centre like the Mother's, and a root-lined shaft down to its junction in the root
+     * network. Flooded below sea level like the Mother's cave. Null outside it.
+     */
+    private fun childChamberBlock(site: ChildTreeSite, wx: Int, wy: Int, wz: Int): BlockState? {
+        if (wx == site.x && wz == site.z && wy == site.chamberY) return if (site.age == AGE_DEAD) null else CHILD_HEART
+        if (insideEntrance(site.entrance, wx + 0.5, wy + 0.5, wz + 0.5)) {
+            return if (wy < SEA_LEVEL_Y) WATER else AIR
+        }
+        // Shaft: winds down from the chamber floor into the network, leaning and narrowing.
+        if (wy >= site.shaftBottomY && wy <= site.chamberY) {
+            val sx = wx + 0.5 - shaftCentreX(site, wy)
+            val sz = wz + 0.5 - shaftCentreZ(site, wy)
+            val sd = sx * sx + sz * sz
+            val drop = (site.chamberY - wy).toDouble() / Math.max(1, site.chamberY - site.shaftBottomY)
+            val r = CHILD_SHAFT_RADIUS * (1.0 - CHILD_SHAFT_TAPER * drop)
+            if (sd <= r * r) return if (wy < SEA_LEVEL_Y) WATER else AIR
+            val shell = r + WohlonRootField.ROOT_SHELL
+            if (sd <= shell * shell && wy < site.chamberY - CHILD_CHAMBER_FLOOR_DROP) return ROOT_BLOCK
+        }
+        val dx = wx + 0.5 - (site.x + 0.5)
+        val dz = wz + 0.5 - (site.z + 0.5)
+        childAnchorBlock(site, dx, wy, dz)?.let { return it }
+        val d = Math.sqrt(dx * dx + dz * dz)
+        val angle = Math.atan2(dz, dx)
+        val wobble = valueNoise2(Math.cos(angle) * 2.0 + site.seed % 97, Math.sin(angle) * 2.0, CHILD_CHAMBER_SALT)
+        val effR = site.chamberR + wobble * CHILD_CHAMBER_WOBBLE
+        if (d > effR) return null
+        val f = d / effR
+        val ceiling = site.chamberY + CHILD_CHAMBER_RISE - (CHILD_CHAMBER_DOME * f * f).toInt()
+        val floor = site.chamberY - CHILD_CHAMBER_FLOOR_DROP + (f * f).toInt()
+        if (wy < floor || wy > ceiling + CAVE_ROOF_THICKNESS) return null
+        if (wy > ceiling) return WOGOR_WOOD_Y
+        val wet = wy < SEA_LEVEL_Y
+        if (wy == ceiling) {
+            val roll = (hash32(wx, wz, CHILD_CHAMBER_SALT) and 0xFFFF) / 65536.0
+            if (roll < CAVE_HANGING_CHANCE) return if (wet) HANGING_ROOTS_WET else HANGING_ROOTS_DRY
+            if (roll < CAVE_HANGING_CHANCE + CAVE_HEARTFIRE_CHANCE) return if (wet) HEARTFIRE_CEILING_WET else HEARTFIRE_CEILING_DRY
+        }
+        return if (wet) WATER else AIR
+    }
+
+    /** Anchor roots: from the chamber roof down past the shaft foot, leaning outward and narrowing. */
+    private fun childAnchorBlock(site: ChildTreeSite, dx: Double, wy: Int, dz: Double): BlockState? {
+        val top = site.chamberY + CHILD_CHAMBER_RISE + CAVE_ROOF_THICKNESS
+        val bottom = site.shaftBottomY - CHILD_ANCHOR_BELOW_SHAFT
+        if (wy > top || wy < bottom) return null
+        val depth = (top - wy).toDouble()
+        val along = depth / (top - bottom)
+        val a = site.anchors
+        for (i in 0 until a.size / 5) {
+            val cx = a[i * 5] + a[i * 5 + 2] * depth * CHILD_ANCHOR_LEAN
+            val cz = a[i * 5 + 1] + a[i * 5 + 3] * depth * CHILD_ANCHOR_LEAN
+            val r = a[i * 5 + 4] * (1.0 - ANCHOR_TAPER * along)
+            val ex = dx - cx
+            val ez = dz - cz
+            if (ex * ex + ez * ez <= r * r) return WOGOR_WOOD_Y
+        }
+        return null
+    }
+
+    private fun shaftCentreX(site: ChildTreeSite, y: Int): Double =
+        site.shaftX + site.shaftLeanX * (site.chamberY - y) * CHILD_SHAFT_LEAN +
+            valueNoise2(y * CHILD_SHAFT_WOBBLE_FREQ, site.seed % 1013 + 0.5, CHILD_CHAMBER_SALT + 1) * CHILD_SHAFT_WOBBLE
+
+    private fun shaftCentreZ(site: ChildTreeSite, y: Int): Double =
+        site.shaftZ + site.shaftLeanZ * (site.chamberY - y) * CHILD_SHAFT_LEAN +
+            valueNoise2(site.seed % 1013 + 0.5, y * CHILD_SHAFT_WOBBLE_FREQ, CHILD_CHAMBER_SALT + 2) * CHILD_SHAFT_WOBBLE
+
+    private fun insideEntrance(pts: DoubleArray, px: Double, py: Double, pz: Double): Boolean {
+        for (i in 0 until pts.size / 3 - 1) {
+            if (insideCapsule(px, py, pz, pts, i * 3, CHILD_ENTRANCE_RADIUS)) return true
+        }
+        return false
+    }
+
+    /** Capsule from the point at [o] to the next point in [c], radius [r]. */
+    private fun insideCapsule(px: Double, py: Double, pz: Double, c: DoubleArray, o: Int, r: Double): Boolean {
+        val ex = c[o + 3] - c[o]; val ey = c[o + 4] - c[o + 1]; val ez = c[o + 5] - c[o + 2]
+        val lenSq = ex * ex + ey * ey + ez * ez
+        val t = if (lenSq < 1e-6) 0.0
+        else (((px - c[o]) * ex + (py - c[o + 1]) * ey + (pz - c[o + 2]) * ez) / lenSq).coerceIn(0.0, 1.0)
+        val dx = px - (c[o] + ex * t); val dy = py - (c[o + 1] + ey * t); val dz = pz - (c[o + 2] + ez * t)
+        return dx * dx + dy * dy + dz * dz <= r * r
+    }
+
+    /** Child trees are painted after the chambers are carved; keep their wood out of the chamber and shaft. */
+    private fun clearChildChambers(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+    ) {
+        val sites = childHeartsNear(chunkX0, chunkZ0)
+        if (sites.isEmpty()) return
+        for (lx in 0..15) {
+            val wx = chunkX0 + lx
+            for (lz in 0..15) {
+                val wz = chunkZ0 + lz
+                val site = childHeartAt(sites, wx, wz) ?: continue
+                val col = target[lx][lz]
+                val topY = Math.max(
+                    site.chamberY + CHILD_CHAMBER_RISE + CAVE_ROOF_THICKNESS,
+                    Math.ceil(site.entrance[site.entrance.size - 2]).toInt() + 2,
+                )
+                for (wy in site.shaftBottomY - CHILD_ANCHOR_BELOW_SHAFT..topY) {
+                    val ly = wy - minY
+                    if (ly !in 0 until span || col[ly] == null) continue
+                    if (childChamberBlock(site, wx, wy, wz) != null) col[ly] = null
+                }
+            }
+        }
+    }
+
+    /** Root-network junctions for the child heart shafts whose foot lies in cell `(cx, cz)`. */
+    private fun childHeartNodes(cx: Int, cz: Int): DoubleArray {
+        val size = WohlonRootField.CELL_SIZE
+        var out = EMPTY_NODES
+        for (rX in Math.floorDiv(cx * size, CHILD_TREE_REGION_SIZE)..Math.floorDiv(cx * size + size - 1, CHILD_TREE_REGION_SIZE)) {
+            for (rZ in Math.floorDiv(cz * size, CHILD_TREE_REGION_SIZE)..Math.floorDiv(cz * size + size - 1, CHILD_TREE_REGION_SIZE)) {
+                val site = childTreeSite(rX, rZ) ?: continue
+                val footX = shaftCentreX(site, site.shaftBottomY)
+                val footZ = shaftCentreZ(site, site.shaftBottomY)
+                if (Math.floorDiv(Math.floor(footX).toInt(), size) != cx) continue
+                if (Math.floorDiv(Math.floor(footZ).toInt(), size) != cz) continue
+                out = out + doubleArrayOf(footX, site.shaftBottomY.toDouble(), footZ, CHILD_NODE_RADIUS)
+            }
+        }
+        return out
+    }
+
+    private class ChildTreeSite(
+        val x: Int, val z: Int, val baseY: Int, val seed: Int, val coreRadius: Int,
+        /** Heart chamber under the trunk: centre height, radius, and the shaft down to the root network. */
+        val chamberY: Int, val chamberR: Double,
+        val shaftX: Double, val shaftZ: Double, val shaftBottomY: Int,
+        /** [AGE_YOUNG] .. [AGE_DEAD]. A dead tree keeps its chamber but has no heart. */
+        val age: Int = AGE_MATURE,
+        /** Size multiplier from age and site quality (water and open ground). */
+        val scale: Double = 1.0,
+        val maxThickness: Int = 0,
+        val buttressFlare: Int = 0,
+        /** Crown shift toward open sky: away from crowding trees, toward water. */
+        val leanX: Double = 0.0, val leanZ: Double = 0.0,
+        /** Packed `[x, z, outX, outZ, r]` per anchor root. */
+        val anchors: DoubleArray = EMPTY_NODES,
+        /** Crawlway to the surface between two buttress roots, as a polyline `[x, y, z]` per point. */
+        val entrance: DoubleArray = EMPTY_NODES,
+        /** The shaft leans this way (unit XZ) as it drops. */
+        val shaftLeanX: Double = 0.0, val shaftLeanZ: Double = 0.0,
+        /** Horizontal reach of chamber, anchors and entrance from the trunk centre. */
+        val reach: Double = 0.0,
+    )
 
     /** Region → its child tree, or [NO_CHILD_TREE]. Pure of caller state, so a race only
      *  repeats work. */
@@ -686,30 +1096,179 @@ class WohlonnogondoniaChunkGenerator(
 
     private fun computeChildTreeSite(rX: Int, rZ: Int): ChildTreeSite? {
         val regionSeed = hash32(rX, rZ, 7777)
-        // ~80 % of regions spawn a child tree (skip when low nibble > 0xC).
-        if ((regionSeed and 0xF) > 0xC) return null
+        if (!isChildTreeCandidate(regionSeed)) return null
         val treeX = rX * CHILD_TREE_REGION_SIZE + childTreeOffset(rX, rZ, 7778)
         val treeZ = rZ * CHILD_TREE_REGION_SIZE + childTreeOffset(rX, rZ, 7779)
 
-        // **Inter-tree spacing rejection.** A neighbour region's
-        // candidate within CHILD_TREE_MIN_SPACING blocks of ours
-        // wins if it has the lower seed — deterministic per region
-        // pair, doesn't depend on iteration order.
+        // A neighbouring candidate too close wins if it has the lower seed: deterministic per pair.
         if (!isChildTreeCandidateAccepted(rX, rZ, treeX, treeZ, regionSeed)) return null
 
-        // Reject if too close to the Mother Tree (with margin).
         val originDistSq = treeX.toLong() * treeX + treeZ.toLong() * treeZ
         if (originDistSq < MOTHER_TREE_EXCLUSION_RADIUS_SQ.toLong() + 100L * 100) return null
 
         val surface = surfaceYAt(treeX, treeZ)
-        // Skip extremely deep pools so the canopy isn't completely
-        // submerged; trees still allowed in shallow water.
+        // Skip extremely deep pools so the canopy isn't completely submerged.
         if (surface < SEA_LEVEL_Y - 12) return null
 
-        // Trunk base radius, by the same formulas as [buildChildTreeSkeleton].
-        val maxThickness = (4.0 + hash01(regionSeed, 0, 1000) * 4.0).toInt()
+        // Trees gather in groves and favour low, wet ground; bluff tops and hilltops are rare.
+        val grove = 0.5 + 0.5 * valueNoise2(rX * GROVE_FREQ, rZ * GROVE_FREQ, GROVE_SALT)
+        val wetness = waterAround(treeX, treeZ)
+        val lowness = (1.0 - (surface - SEA_LEVEL_Y - 2).toDouble() / CHILD_HIGH_GROUND_SPAN).coerceIn(0.15, 1.0)
+        val quality = 0.45 * lowness + 0.55 * wetness
+        val acceptChance = (0.45 + 0.55 * grove) * (0.45 + 0.55 * quality)
+        if (hash01(regionSeed, 1, 1020) > acceptChance) return null
+
+        val ageRoll = hash01(regionSeed, 1, 1021)
+        val age = when {
+            ageRoll < AGE_YOUNG_SHARE -> AGE_YOUNG
+            ageRoll < AGE_YOUNG_SHARE + AGE_MATURE_SHARE -> AGE_MATURE
+            ageRoll < 1.0 - AGE_DEAD_SHARE -> AGE_OLD
+            else -> AGE_DEAD
+        }
+        // Good sites grow bigger trees; young trees are small whatever the site.
+        val scale = (if (age == AGE_YOUNG) YOUNG_SCALE else 1.0) * (0.85 + 0.3 * quality)
+        val maxThickness = ((4.0 + hash01(regionSeed, 0, 1000) * 4.0) * scale).toInt().coerceAtLeast(2)
         val buttressFlare = (maxThickness * (1.6 + hash01(regionSeed, 0, 1005) * 0.6)).toInt()
-        return ChildTreeSite(treeX, treeZ, surface + 1, regionSeed, maxThickness + buttressFlare)
+        val coreRadius = maxThickness + buttressFlare
+
+        val chamberY = surface + 1 - CHILD_CHAMBER_DEPTH
+        val chamberR = (CHILD_CHAMBER_R_MIN + hash01(regionSeed, 0, 1010) * CHILD_CHAMBER_R_SPREAD) *
+            (if (age == AGE_YOUNG) 0.8 else 1.0)
+        // Off-centre, so the heart sits on solid floor beside the shaft mouth.
+        val shaftAngle = hash01(regionSeed, 0, 1011) * 2.0 * Math.PI
+        val shaftX = treeX + 0.5 + Math.cos(shaftAngle) * CHILD_SHAFT_OFFSET
+        val shaftZ = treeZ + 0.5 + Math.sin(shaftAngle) * CHILD_SHAFT_OFFSET
+        val shaftBottomY = (chamberY - CHILD_SHAFT_DROP).coerceIn(CHILD_SHAFT_BOTTOM_MIN, CHILD_SHAFT_BOTTOM_MAX)
+
+        val anchors = childAnchors(regionSeed, shaftAngle, chamberR, age)
+        val entrance = childEntrance(regionSeed, treeX, treeZ, chamberY, chamberR, coreRadius)
+        // Leans outward, away from the heart, like the anchor roots around it.
+        val shaftLeanX = Math.cos(shaftAngle)
+        val shaftLeanZ = Math.sin(shaftAngle)
+        val (leanX, leanZ) = crownLean(rX, rZ, treeX, treeZ)
+
+        val anchorReach = chamberR * ANCHOR_START_SHARE + (chamberY - shaftBottomY + CHILD_CHAMBER_RISE) * CHILD_ANCHOR_LEAN + 2.0
+        var entranceReach = 0.0
+        for (i in 0 until entrance.size / 3) {
+            entranceReach = maxOf(entranceReach, Math.hypot(entrance[i * 3] - treeX, entrance[i * 3 + 2] - treeZ))
+        }
+        entranceReach += CHILD_ENTRANCE_RADIUS + 1.0
+        val shaftReach = CHILD_SHAFT_OFFSET + (chamberY - shaftBottomY) * CHILD_SHAFT_LEAN +
+            CHILD_SHAFT_WOBBLE + CHILD_SHAFT_RADIUS + WohlonRootField.ROOT_SHELL + 1.0
+        val reach = maxOf(chamberR + CHILD_CHAMBER_SLACK, anchorReach, entranceReach, shaftReach)
+
+        return ChildTreeSite(
+            treeX, treeZ, surface + 1, regionSeed, coreRadius,
+            chamberY, chamberR, shaftX, shaftZ, shaftBottomY,
+            age, scale, maxThickness, buttressFlare, leanX, leanZ, anchors, entrance,
+            shaftLeanX, shaftLeanZ, reach,
+        )
+    }
+
+    /** Raw candidate test only (no terrain), so neighbours can be checked without recursion. */
+    private fun isChildTreeCandidate(regionSeed: Int): Boolean = (regionSeed and 0xF) <= 0xC
+
+    /** Share of 16 sampled points around a spot that are open water. */
+    private fun waterAround(x: Int, z: Int): Double {
+        var wet = 0
+        for (i in 0 until 8) {
+            val a = i * Math.PI / 4.0
+            for (dist in WATER_PROBE_DISTANCES) {
+                if (surfaceYAt(x + (Math.cos(a) * dist).toInt(), z + (Math.sin(a) * dist).toInt()) < SEA_LEVEL_Y - 1) wet++
+            }
+        }
+        return wet / (8.0 * WATER_PROBE_DISTANCES.size)
+    }
+
+    /**
+     * Crown lean toward open sky: away from nearby child-tree candidates and toward open water.
+     * Uses raw neighbour candidates, not their full sites, so no site depends on another's.
+     */
+    private fun crownLean(rX: Int, rZ: Int, treeX: Int, treeZ: Int): Pair<Double, Double> {
+        var vx = 0.0
+        var vz = 0.0
+        for (dx in -2..2) for (dz in -2..2) {
+            if (dx == 0 && dz == 0) continue
+            val nrX = rX + dx
+            val nrZ = rZ + dz
+            if (!isChildTreeCandidate(hash32(nrX, nrZ, 7777))) continue
+            val ox = (nrX * CHILD_TREE_REGION_SIZE + childTreeOffset(nrX, nrZ, 7778) - treeX).toDouble()
+            val oz = (nrZ * CHILD_TREE_REGION_SIZE + childTreeOffset(nrX, nrZ, 7779) - treeZ).toDouble()
+            val d = Math.hypot(ox, oz)
+            if (d < 1.0 || d > CROWD_RANGE) continue
+            val push = 1.0 - d / CROWD_RANGE
+            vx -= ox / d * push
+            vz -= oz / d * push
+        }
+        for (i in 0 until 8) {
+            val a = i * Math.PI / 4.0
+            val px = treeX + (Math.cos(a) * LIGHT_PROBE_DISTANCE).toInt()
+            val pz = treeZ + (Math.sin(a) * LIGHT_PROBE_DISTANCE).toInt()
+            if (surfaceYAt(px, pz) < SEA_LEVEL_Y - 1) {
+                vx += Math.cos(a) * WATER_LIGHT_PULL
+                vz += Math.sin(a) * WATER_LIGHT_PULL
+            }
+        }
+        val len = Math.hypot(vx, vz)
+        if (len < 1e-6) return 0.0 to 0.0
+        val strength = Math.min(len, 1.0) / len
+        return vx * strength to vz * strength
+    }
+
+    /** Anchor roots for a chamber: 2–4, clear of the shaft, leaning outward as they descend. */
+    private fun childAnchors(seed: Int, shaftAngle: Double, chamberR: Double, age: Int): DoubleArray {
+        val count = CHILD_ANCHOR_MIN + Math.floorMod(hash32(seed, 2, 1030), CHILD_ANCHOR_EXTRA + 1)
+        val out = DoubleArray(count * 5)
+        for (i in 0 until count) {
+            val angle = shaftAngle + CHILD_ANCHOR_SHAFT_CLEARANCE +
+                (2.0 * Math.PI - 2.0 * CHILD_ANCHOR_SHAFT_CLEARANCE) * (i + 0.5 + (hash01(seed, i, 1031) - 0.5) * 0.5) / count
+            val r = (CHILD_ANCHOR_RADIUS_MIN + hash01(seed, i, 1032) * CHILD_ANCHOR_RADIUS_SPREAD) *
+                (if (age == AGE_YOUNG) 0.7 else 1.0)
+            out[i * 5] = Math.cos(angle) * chamberR * ANCHOR_START_SHARE
+            out[i * 5 + 1] = Math.sin(angle) * chamberR * ANCHOR_START_SHARE
+            out[i * 5 + 2] = Math.cos(angle)
+            out[i * 5 + 3] = Math.sin(angle)
+            out[i * 5 + 4] = r
+        }
+        return out
+    }
+
+    /** A crawlway from the chamber wall up to the ground, midway between two buttress roots. */
+    private fun childEntrance(seed: Int, treeX: Int, treeZ: Int, chamberY: Int, chamberR: Double, coreRadius: Int): DoubleArray {
+        val roots = childRootCount(seed)
+        val slot = Math.floorMod(hash32(seed, 3, 1040), roots)
+        val angle = childRootAngle(seed, slot) + Math.PI / roots
+        val x0 = treeX + 0.5 + Math.cos(angle) * chamberR * 0.7
+        val z0 = treeZ + 0.5 + Math.sin(angle) * chamberR * 0.7
+        val out = coreRadius + CHILD_ENTRANCE_BEYOND_CORE
+        val x1 = treeX + 0.5 + Math.cos(angle) * out
+        val z1 = treeZ + 0.5 + Math.sin(angle) * out
+        val y1 = Math.max(surfaceYAt(Math.floor(x1).toInt(), Math.floor(z1).toInt()), SEA_LEVEL_Y - 1) + 1.0
+        val y0 = chamberY.toDouble()
+        // A sagging, sideways-swinging curve, not a straight bore.
+        val swing = (hash01(seed, 3, 1041) - 0.5) * 2.0 * CHILD_ENTRANCE_SWING
+        val sideX = -Math.sin(angle) * swing
+        val sideZ = Math.cos(angle) * swing
+        val cx = (x0 + x1) * 0.5 + sideX
+        val cz = (z0 + z1) * 0.5 + sideZ
+        val cy = (y0 + y1) * 0.5 - CHILD_ENTRANCE_SAG
+        val n = CHILD_ENTRANCE_POINTS
+        val pts = DoubleArray(n * 3)
+        for (i in 0 until n) {
+            val t = i.toDouble() / (n - 1)
+            val u = 1.0 - t
+            pts[i * 3] = u * u * x0 + 2 * u * t * cx + t * t * x1
+            pts[i * 3 + 1] = u * u * y0 + 2 * u * t * cy + t * t * y1
+            pts[i * 3 + 2] = u * u * z0 + 2 * u * t * cz + t * t * z1
+        }
+        return pts
+    }
+
+    private fun childRootCount(seed: Int): Int = 8 + ((hash32(seed, 0, 51) ushr 1) and 0x3)
+
+    private fun childRootAngle(seed: Int, i: Int): Double {
+        val n = childRootCount(seed)
+        return i * (Math.PI * 2.0 / n) + (hash01(seed, i, 51) - 0.5) * (Math.PI * 2.0 / n) * 0.4
     }
 
     /** Modulo, not a bit mask: the region size is 96, and a mask of 95 never gives 32 to 63. */
@@ -741,14 +1300,12 @@ class WohlonnogondoniaChunkGenerator(
         java.util.concurrent.ConcurrentHashMap<Long, TreeSkeleton> =
             java.util.concurrent.ConcurrentHashMap()
 
-    private fun getChildTreeSkeleton(
-        treeX: Int, baseY: Int, treeZ: Int, seed: Int,
-    ): TreeSkeleton {
-        val key = (treeX.toLong() and 0xFFFFFFFFL) shl 32 or
-            (treeZ.toLong() and 0xFFFFFFFFL)
+    private fun getChildTreeSkeleton(site: ChildTreeSite): TreeSkeleton {
+        val key = (site.x.toLong() and 0xFFFFFFFFL) shl 32 or
+            (site.z.toLong() and 0xFFFFFFFFL)
         childTreeSkeletonCache[key]?.let { return it }
         // No `computeIfAbsent`: the build is long, and it would hold the map bin for all of it.
-        val built = buildChildTreeSkeleton(treeX, baseY, treeZ, seed)
+        val built = buildChildTreeSkeleton(site)
         if (childTreeSkeletonCache.size >= CHILD_TREE_SKELETON_CACHE_CAP) childTreeSkeletonCache.clear()
         return childTreeSkeletonCache.putIfAbsent(key, built) ?: built
     }
@@ -767,7 +1324,7 @@ class WohlonnogondoniaChunkGenerator(
             val nrX = rX + dx
             val nrZ = rZ + dz
             val nSeed = hash32(nrX, nrZ, 7777)
-            if ((nSeed and 0xF) > 0xC) continue
+            if (!isChildTreeCandidate(nSeed)) continue
             val nX = nrX * CHILD_TREE_REGION_SIZE + childTreeOffset(nrX, nrZ, 7778)
             val nZ = nrZ * CHILD_TREE_REGION_SIZE + childTreeOffset(nrX, nrZ, 7779)
             val ddx = (nX - candX).toLong()
@@ -787,12 +1344,11 @@ class WohlonnogondoniaChunkGenerator(
      * range from compact narrow specimens to broad sprawling ones, with
      * different leans and droop characteristics.
      */
-    private fun buildChildTreeSkeleton(
-        treeX: Int, baseY: Int, treeZ: Int, seed: Int,
-    ): TreeSkeleton {
-        val baseX = treeX.toDouble()
-        val baseZ = treeZ.toDouble()
-        val baseYD = baseY.toDouble()
+    private fun buildChildTreeSkeleton(site: ChildTreeSite): TreeSkeleton {
+        val seed = site.seed
+        val baseX = site.x.toDouble()
+        val baseZ = site.z.toDouble()
+        val baseYD = site.baseY.toDouble()
 
         val sizeHash = hash01(seed, 0, 1000)
         val aspectHash = hash01(seed, 0, 1001)
@@ -801,8 +1357,8 @@ class WohlonnogondoniaChunkGenerator(
         val biasHash = hash01(seed, 0, 1004)
         val flareHash = hash01(seed, 0, 1005)
 
-        // Overall scale: 0.55–0.90 of the Mother Tree's canopy radii.
-        val scaleFactor = 0.55 + sizeHash * 0.35
+        // Overall scale: 0.55–0.90 of the Mother Tree's canopy radii, times age and site quality.
+        val scaleFactor = (0.55 + sizeHash * 0.35) * site.scale
         // Aspect: how flat or tall the canopy is. Tall trees have small
         // ryRatio (narrow tall crown); broad trees have larger ratio.
         val ryRatio = 0.18 + aspectHash * 0.22
@@ -815,14 +1371,17 @@ class WohlonnogondoniaChunkGenerator(
         val canopyVolume = 4.19 * canopyRx * canopyRx * canopyRy
         val attractorCount = (canopyVolume / 22.0).toInt().coerceIn(400, 2500)
 
-        val maxThickness = (4.0 + sizeHash * 4.0).toInt()   // 4..8
-        val buttressFlare = (maxThickness * (1.6 + flareHash * 0.6)).toInt()
+        val maxThickness = site.maxThickness
+        val buttressFlare = site.buttressFlare
         val buttressRange = canopyRy * 1.2 + 8.0
+        // Phototropism: the crown sits off-centre toward open sky, and the trunk bends to reach it.
+        val crownX = baseX + site.leanX * canopyRx * CROWN_LEAN_SHARE
+        val crownZ = baseZ + site.leanZ * canopyRx * CROWN_LEAN_SHARE
 
-        return WogorTreeSkeleton.build(
+        val full = WogorTreeSkeleton.build(
             originX = baseX, originY = baseYD, originZ = baseZ,
             attractors = WogorTreeSkeleton.ellipsoidAttractors(
-                cx = baseX, cy = canopyCy, cz = baseZ,
+                cx = crownX, cy = canopyCy, cz = crownZ,
                 rx = canopyRx, ry = canopyRy, rz = canopyRx,
                 count = attractorCount, seed = seed,
             ),
@@ -839,6 +1398,34 @@ class WohlonnogondoniaChunkGenerator(
             trunkLean = 0.20 + leanHash * 0.25,
             gravity = 0.08 + gravityHash * 0.12,
         )
+        if (site.age < AGE_OLD) return full
+        // Old and dead trees have lost the top of the crown (dead ones lose more).
+        val breakShare = if (site.age == AGE_DEAD) DEAD_CROWN_KEEP else OLD_CROWN_KEEP
+        val breakY = baseYD + (canopyCy - baseYD) * breakShare
+        return TreeSkeleton(
+            keepConnected(full.segments, breakY),
+            if (site.age == AGE_DEAD) emptyList() else full.tips.filter { it.y <= breakY },
+            full.maxXZReach,
+        )
+    }
+
+    /**
+     * Segments still joined to the trunk when the crown snaps at [breakY]. A height filter alone
+     * keeps branches that dip back under the break and leaves them floating.
+     * Relies on the skeleton listing each parent's segments before its children's.
+     */
+    private fun keepConnected(segments: List<TreeSegment>, breakY: Double): List<TreeSegment> {
+        if (segments.isEmpty()) return segments
+        val root = segments[0]
+        val joined = HashSet<Triple<Double, Double, Double>>()
+        joined += Triple(root.startX, root.startY, root.startZ)
+        val kept = ArrayList<TreeSegment>(segments.size)
+        for (s in segments) {
+            if (s.startY > breakY || Triple(s.startX, s.startY, s.startZ) !in joined) continue
+            kept += s
+            joined += Triple(s.endX, s.endY, s.endZ)
+        }
+        return kept
     }
 
     /** Hand-coded buttress root arms for Child Trees — a half-scale
@@ -847,20 +1434,33 @@ class WohlonnogondoniaChunkGenerator(
     private fun paintChildTreeRoots(
         target: Array<Array<Array<BlockState?>>>,
         chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
-        treeX: Int, treeZ: Int, baseY: Int, seed: Int,
+        site: ChildTreeSite,
     ) {
-        val rootCount = 8 + ((hash32(seed, 0, 51) ushr 1) and 0x3)   // 8..11
+        val seed = site.seed
+        val treeX = site.x
+        val treeZ = site.z
+        val rootCount = childRootCount(seed)
         val baseXD = treeX.toDouble()
         val baseZD = treeZ.toDouble()
-        val baseYD = baseY.toDouble()
+        val baseYD = site.baseY.toDouble()
+        val rootScale = Math.sqrt(site.scale)
         for (i in 0 until rootCount) {
-            val angleHash = hash01(seed, i, 51)
-            val angle = i * (Math.PI * 2.0 / rootCount) +
-                (angleHash - 0.5) * (Math.PI * 2.0 / rootCount) * 0.4
+            val angle = childRootAngle(seed, i)
             val cosA = Math.cos(angle); val sinA = Math.sin(angle)
             val perpX = -sinA; val perpZ = cosA
 
-            val reach = 25 + (hash32(seed, i, 52) ushr 1) % 19   // 25..43
+            // Hydrotropism: an arm reaches out to water it can find, and falls short on a climb.
+            var reach = ((25 + (hash32(seed, i, 52) ushr 1) % 19) * rootScale).toInt()   // 25..43
+            for (probe in ROOT_WATER_PROBES) {
+                val px = (baseXD + cosA * probe).toInt()
+                val pz = (baseZD + sinA * probe).toInt()
+                if (surfaceYAt(px, pz) < SEA_LEVEL_Y - 1) {
+                    reach = Math.max(reach, Math.min(probe + ROOT_WATER_OVERSHOOT, ROOT_MAX_REACH))
+                    break
+                }
+            }
+            val climb = surfaceYAt((baseXD + cosA * ROOT_CLIMB_PROBE).toInt(), (baseZD + sinA * ROOT_CLIMB_PROBE).toInt()) - site.baseY
+            if (climb > ROOT_CLIMB_LIMIT) reach = (reach * ROOT_CLIMB_SHRINK).toInt()
             val plungeDepth = 18 + ((hash32(seed, i, 53) ushr 1) and 0xF) // 18..33
             val wobblePhase = hash01(seed, i, 55) * Math.PI * 2.0
             val wobbleAmp = 1.0 + hash01(seed, i, 56) * 1.5
@@ -875,7 +1475,7 @@ class WohlonnogondoniaChunkGenerator(
 
             val steps = reach
             var prevX = startX; var prevY = startY; var prevZ = startZ
-            var prevR = CHILD_TREE_ROOT_BASE_RADIUS
+            var prevR = CHILD_TREE_ROOT_BASE_RADIUS * rootScale
             for (s in 1..steps) {
                 val t = s.toDouble() / steps
                 val r = t * reach
@@ -889,7 +1489,8 @@ class WohlonnogondoniaChunkGenerator(
                         startY + 2.5 * (1.0 - (1.0 - rT) * (1.0 - rT))
                     }
                     t < walkEnd -> {
-                        val hillY = effectiveSurfaceYAt(px.toInt(), pz.toInt()).toDouble()
+                        // Over water the arm arches at the water line instead of sinking to the bed.
+                        val hillY = Math.max(effectiveSurfaceYAt(px.toInt(), pz.toInt()), SEA_LEVEL_Y - 1).toDouble()
                         val wT = (t - riseEnd) / (walkEnd - riseEnd)
                         val bumpRaw = Math.sin(wT * Math.PI * 5.0 + walkUndulationPhase)
                         val bump = Math.max(0.0, bumpRaw) * 4.0
@@ -902,18 +1503,134 @@ class WohlonnogondoniaChunkGenerator(
                     }
                 }
 
+                val baseR = CHILD_TREE_ROOT_BASE_RADIUS * rootScale
                 val curR = when {
-                    t < walkEnd * 0.5 -> CHILD_TREE_ROOT_BASE_RADIUS
-                    t < walkEnd -> CHILD_TREE_ROOT_BASE_RADIUS *
-                        (1.0 - (t - walkEnd * 0.5) / (walkEnd * 0.5) * 0.4)
-                    else -> CHILD_TREE_ROOT_BASE_RADIUS * 0.6 *
-                        (1.0 - (t - walkEnd) / (1.0 - walkEnd) * 0.9)
+                    t < walkEnd * 0.5 -> baseR
+                    t < walkEnd -> baseR * (1.0 - (t - walkEnd * 0.5) / (walkEnd * 0.5) * 0.4)
+                    else -> baseR * 0.6 * (1.0 - (t - walkEnd) / (1.0 - walkEnd) * 0.9)
                 }
 
                 paintTreeSegment(target, chunkX0, chunkZ0, minY, span,
                     TreeSegment(prevX, prevY, prevZ, px, py, pz, prevR, curR),
                     WOGOR_WOOD_Y)
                 prevX = px; prevY = py; prevZ = pz; prevR = curR
+            }
+        }
+    }
+
+    /**
+     * Old and dead trees go hollow at the base: a rough cavity that narrows to a dome, with an
+     * arched, ragged opening on one side.
+     */
+    private fun hollowChildTrunk(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+        site: ChildTreeSite,
+    ) {
+        val coreR = site.maxThickness * HOLLOW_CORE_SHARE
+        val height = HOLLOW_MIN_HEIGHT + Math.floorMod(hash32(site.seed, 4, 1050), HOLLOW_EXTRA_HEIGHT + 1)
+        val openAngle = hash01(site.seed, 4, 1051) * 2.0 * Math.PI
+        val openX = Math.cos(openAngle)
+        val openZ = Math.sin(openAngle)
+        val openHeight = HOLLOW_OPENING_HEIGHT + hash01(site.seed, 4, 1052) * HOLLOW_OPENING_EXTRA
+        val salt = Math.floorMod(site.seed, 9973)
+        // The opening must cut through the whole buttress flare, not just the trunk.
+        val reach = site.coreRadius + 1
+        for (wx in Math.max(site.x - reach, chunkX0)..Math.min(site.x + reach, chunkX0 + 15)) {
+            for (wz in Math.max(site.z - reach, chunkZ0)..Math.min(site.z + reach, chunkZ0 + 15)) {
+                val col = target[wx - chunkX0][wz - chunkZ0]
+                for (wy in site.baseY..site.baseY + height) {
+                    val ly = wy - minY
+                    if (ly !in 0 until span || col[ly] !== WOGOR_WOOD_Y) continue
+                    val rise = (wy - site.baseY).toDouble()
+                    // The cavity drifts a little with height, so its walls are not a straight tube.
+                    val cx = site.x + HOLLOW_DRIFT * WohlonRootField.noise3(rise * HOLLOW_DRIFT_FREQ, 0.0, salt.toDouble(), 401)
+                    val cz = site.z + HOLLOW_DRIFT * WohlonRootField.noise3(salt.toDouble(), 0.0, rise * HOLLOW_DRIFT_FREQ, 402)
+                    val dx = wx - cx
+                    val dz = wz - cz
+                    val d = Math.hypot(dx, dz)
+                    val rough = 1.0 + HOLLOW_ROUGHNESS * WohlonRootField.noise3(wx * HOLLOW_ROUGH_FREQ, wy * HOLLOW_ROUGH_FREQ, wz * HOLLOW_ROUGH_FREQ, 403)
+                    val t = rise / height
+                    val cavityR = coreR * Math.sqrt((1.0 - t * t).coerceAtLeast(0.0)) * rough
+                    val along = dx * openX + dz * openZ
+                    val across = Math.abs(-dx * openZ + dz * openX)
+                    val archT = rise / openHeight
+                    val archHalf = HOLLOW_OPENING_HALF_WIDTH * Math.sqrt((1.0 - archT * archT).coerceAtLeast(0.0)) * rough
+                    val inOpening = along > 0 && across <= archHalf
+                    if (d <= cavityR || inOpening) col[ly] = AIR
+                }
+            }
+        }
+    }
+
+    /** A wide ring of cypress knees around the trunk, only where the ground is wet. */
+    private fun paintChildKnees(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+        site: ChildTreeSite,
+    ) {
+        val count = ((CHILD_KNEES_MIN + Math.floorMod(hash32(site.seed, 5, 1060), CHILD_KNEES_EXTRA + 1)) * site.scale).toInt()
+        for (k in 0 until count) {
+            val angle = hash01(site.seed, k, 1061) * 2.0 * Math.PI
+            val dist = site.coreRadius + CHILD_KNEE_GAP + hash01(site.seed, k, 1062) * CHILD_KNEE_SPREAD
+            val kx = site.x + Math.round(Math.cos(angle) * dist).toInt()
+            val kz = site.z + Math.round(Math.sin(angle) * dist).toInt()
+            val tip = SEA_LEVEL_Y + Math.floorMod(hash32(site.seed, k, 1063), 3)
+            val wide = hash01(site.seed, k, 1064) < CHILD_KNEE_WIDE_SHARE
+            for (ox in 0..(if (wide) 1 else 0)) for (oz in 0..(if (wide) 1 else 0)) {
+                val lx = kx + ox - chunkX0
+                val lz = kz + oz - chunkZ0
+                if (lx !in 0..15 || lz !in 0..15) continue
+                val ground = effectiveSurfaceYAt(kx + ox, kz + oz)
+                if (ground > SEA_LEVEL_Y) continue
+                val col = target[lx][lz]
+                for (wy in ground + 1..tip) {
+                    val ly = wy - minY
+                    if (ly !in 0 until span) continue
+                    if (col[ly] != null && col[ly] !== WATER) break
+                    col[ly] = WOGOR_WOOD_Y
+                }
+            }
+        }
+    }
+
+    /**
+     * Wey'ye fruit grows straight from the trunk of a living, mature child tree, cacao-style:
+     * low on the trunk in the shade of its own crown, in loose clusters.
+     */
+    private fun paintWeyyePods(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+        site: ChildTreeSite,
+    ) {
+        val reach = site.maxThickness + 3
+        val pod = EKBlocks.WEYYE_FRUIT_POD.get().defaultBlockState()
+        for (wx in Math.max(site.x - reach, chunkX0)..Math.min(site.x + reach, chunkX0 + 15)) {
+            for (wz in Math.max(site.z - reach, chunkZ0)..Math.min(site.z + reach, chunkZ0 + 15)) {
+                val lx = wx - chunkX0
+                val lz = wz - chunkZ0
+                val col = target[lx][lz]
+                val surface = effectiveSurfaceYAt(wx, wz)
+                for (wy in site.baseY + WEYYE_MIN_HEIGHT..site.baseY + WEYYE_MAX_HEIGHT) {
+                    val ly = wy - minY
+                    if (ly !in 0 until span) continue
+                    val cell = col[ly]
+                    if (!(cell === AIR || (cell == null && wy > surface && wy >= SEA_LEVEL_Y))) continue
+                    val cluster = 0.5 + 0.5 * valueNoise2(wy * WEYYE_CLUSTER_FREQ, Math.atan2((wz - site.z).toDouble(), (wx - site.x).toDouble()) * 2.0, WEYYE_SALT)
+                    val roll = (hash32(wx, wy * 31 + wz, WEYYE_SALT) and 0xFFFF) / 65536.0
+                    if (roll >= WEYYE_CHANCE * cluster * cluster) continue
+                    for (dir in HORIZONTAL_DIRECTIONS) {
+                        val nx = lx + dir.stepX
+                        val nz = lz + dir.stepZ
+                        if (nx !in 0..15 || nz !in 0..15) continue
+                        if (target[nx][nz][ly] !== WOGOR_WOOD_Y) continue
+                        val ageRoll = (hash32(wz, wx, wy) and 0xFF) / 256.0
+                        val age = if (ageRoll < WEYYE_RIPE_SHARE) 2 else if (ageRoll < 0.6) 1 else 0
+                        col[ly] = pod.setValue(net.minecraft.world.level.block.CocoaBlock.FACING, dir)
+                            .setValue(net.minecraft.world.level.block.CocoaBlock.AGE, age)
+                        break
+                    }
+                }
             }
         }
     }
@@ -1464,7 +2181,7 @@ class WohlonnogondoniaChunkGenerator(
      *
      * Each chunk scans the ±[TUNNEL_REGION_SEARCH] regions around it
      * (the worst-case reach of a path can stretch that far), fetches
-     * the cached path, and rasterises a radius-[ROOT_TUBE_RADIUS]
+     * the cached path, and rasterises a tapered
      * sphere at every path point that falls within an AABB of this
      * chunk. Points outside the AABB are O(1) rejected.
      *
@@ -1524,179 +2241,15 @@ class WohlonnogondoniaChunkGenerator(
             yMin = 2,
             yMax = MAX_BUILD_Y - 2,
             motherTreeExclusionSq = TUNNEL_MOTHER_TREE_EXCLUSION_SQ,
+            waterTopY = SEA_LEVEL_Y - 1,
         )
         if (tunnelPathCache.size >= TUNNEL_PATH_CACHE_CAP) tunnelPathCache.clear()
         return tunnelPathCache.putIfAbsent(key, built) ?: built
     }
 
-    @Suppress("unused")
-    private fun LEGACY_buildTunnelPaths(regionX: Int, regionZ: Int): Array<TunnelPath> {
-        val seed = hash32(regionX, regionZ, 0x70F1FA52.toInt())
-        if ((seed and 0xF) == 0) return EMPTY_TUNNEL_ARRAY   // ~6 % blank
-
-        // Start XZ uniformly within the region.
-        val startWX = regionX * TUNNEL_REGION_SIZE +
-            (hash32(regionX, regionZ, 1) and (TUNNEL_REGION_SIZE - 1))
-        val startWZ = regionZ * TUNNEL_REGION_SIZE +
-            (hash32(regionX, regionZ, 2) and (TUNNEL_REGION_SIZE - 1))
-
-        // Tunnels never originate inside the Mother Tree exclusion — that
-        // column belongs to the trunk + canopy painting in fillFromNoise.
-        val startDistSq = startWX.toLong() * startWX + startWZ.toLong() * startWZ
-        if (startDistSq < TUNNEL_MOTHER_TREE_EXCLUSION_SQ) return EMPTY_TUNNEL_ARRAY
-
-        val startSurface = surfaceYAt(startWX, startWZ)
-        val startX = startWX.toDouble() + 0.5
-        val startY = startSurface.toDouble()
-        val startZ = startWZ.toDouble() + 0.5
-        val startYaw = hash01(seed, 3, 0) * Math.PI * 2.0
-        val startPitch = (hash01(seed, 4, 0) - 0.5) * 0.4
-
-        val main = walkPath(
-            regionX, regionZ, pathIdx = 0,
-            startX, startY, startZ, startYaw, startPitch,
-            maxSteps = TUNNEL_MAX_STEPS,
-        )
-
-        // Try to fork a branch every TUNNEL_BRANCH_STRIDE main-path
-        // steps after a small warm-up. Each candidate's seed gates
-        // whether it actually spawns and supplies the new direction,
-        // so branches are deterministic in both presence and shape.
-        val results = ArrayList<TunnelPath>(1 + TUNNEL_MAX_STEPS / TUNNEL_BRANCH_STRIDE)
-        results.add(main)
-        val mainPts = main.points
-        var stepIdx = TUNNEL_BRANCH_FIRST_STEP
-        var branchIdx = 0
-        while (stepIdx < main.count - 4) {
-            val branchSeed = hash32(regionX, regionZ, 300 + branchIdx)
-            // Roughly 1-in-4 candidate steps spawn a branch — enough to
-            // make the network feel branched without flooding the chunk
-            // with redundant tube paint.
-            if ((branchSeed and 0x3) == 0) {
-                val bx = mainPts[stepIdx * 3 + 0].toDouble() + 0.5
-                val by = mainPts[stepIdx * 3 + 1].toDouble()
-                val bz = mainPts[stepIdx * 3 + 2].toDouble() + 0.5
-
-                // Local direction of main path AT this step (use the
-                // segment to the next point). Branch fans off with a
-                // hard yaw offset of ±π/3 .. ±2π/3 so it visibly
-                // diverges from the trunk rather than running parallel.
-                val nx = mainPts[(stepIdx + 1) * 3 + 0]
-                val nz = mainPts[(stepIdx + 1) * 3 + 2]
-                val baseYaw = Math.atan2(
-                    (nz - mainPts[stepIdx * 3 + 2]).toDouble(),
-                    (nx - mainPts[stepIdx * 3 + 0]).toDouble(),
-                )
-                val sign = if ((branchSeed and 0x10) == 0) 1.0 else -1.0
-                val yawOffset = sign * (Math.PI / 3.0 +
-                    ((branchSeed ushr 5) and 0xFF) / 256.0 * (Math.PI / 3.0))
-                val branchYaw = baseYaw + yawOffset
-                val branchPitch = (((branchSeed ushr 13) and 0xFFFF) /
-                    65536.0 - 0.5) * 0.4
-
-                val branchLen = TUNNEL_BRANCH_MIN_STEPS +
-                    ((branchSeed ushr 21) and 0xFF) %
-                    (TUNNEL_BRANCH_MAX_STEPS - TUNNEL_BRANCH_MIN_STEPS + 1)
-
-                results.add(
-                    walkPath(
-                        regionX, regionZ, pathIdx = 1 + branchIdx,
-                        bx, by, bz, branchYaw, branchPitch,
-                        maxSteps = branchLen,
-                    )
-                )
-            }
-            stepIdx += TUNNEL_BRANCH_STRIDE
-            branchIdx++
-        }
-        return results.toTypedArray()
-    }
-
     /**
-     * Walk one tunnel path from a starting position + direction.
-     * Extracted so the main path and each branch share the exact same
-     * step semantics — they differ only in start state and length.
-     *
-     * `pathIdx` distinguishes the different paths within the same
-     * region for the per-step turn-nudge hash so two paths sharing the
-     * same region don't replay identical direction wobbles.
-     *
-     * The Y soft-target oscillation has its **amplitude, period, and
-     * phase varied per-path** via a seed derived from
-     * `(regionX, regionZ, pathIdx)`. Tunnels therefore reach a range of
-     * heights instead of all tracing the same sine wave — some stay
-     * mostly buried, some arc much higher than the canopy, and they
-     * peak at different positions along their length.
-     */
-    private fun walkPath(
-        regionX: Int, regionZ: Int, pathIdx: Int,
-        startX: Double, startY: Double, startZ: Double,
-        startYaw: Double, startPitch: Double,
-        maxSteps: Int,
-    ): TunnelPath {
-        // Per-path Y oscillation parameters. Amplitude 12..43, period
-        // 30..61 steps, phase 0..2π — generous spread so adjacent
-        // tunnels' Y profiles never line up.
-        val paramSeed = hash32(regionX, regionZ, 0x57F1CE17.toInt() xor pathIdx)
-        val yAmp = 12.0 + (paramSeed and 0x1F)
-        val yPeriod = 30.0 + ((paramSeed ushr 5) and 0x1F)
-        val yPhase = ((paramSeed ushr 10) and 0xFF) / 256.0 * 2.0 * Math.PI
-
-        var x = startX
-        var y = startY
-        var z = startZ
-        var yaw = startYaw
-        var pitch = startPitch.coerceIn(-TUNNEL_PITCH_LIMIT, TUNNEL_PITCH_LIMIT)
-
-        val points = IntArray(maxSteps * 3)
-        var count = 0
-        for (step in 0 until maxSteps) {
-            val cosp = Math.cos(pitch)
-            x += Math.cos(yaw) * cosp * TUNNEL_STEP_LEN
-            y += Math.sin(pitch) * TUNNEL_STEP_LEN
-            z += Math.sin(yaw) * cosp * TUNNEL_STEP_LEN
-
-            // Per-step turn nudge — vanilla-CaveWorldCarver-style smooth
-            // random walk. The hash mixes pathIdx so the main path and
-            // each branch have independent turn sequences.
-            val turnSeed = hash32(
-                regionX * 31 + pathIdx, regionZ, 100 + step,
-            )
-            yaw += ((turnSeed and 0xFFFF) / 65536.0 - 0.5) * TUNNEL_YAW_TURN
-            pitch = (
-                pitch + (((turnSeed ushr 16) and 0xFFFF) / 65536.0 - 0.5) * TUNNEL_PITCH_TURN
-                ).coerceIn(-TUNNEL_PITCH_LIMIT, TUNNEL_PITCH_LIMIT)
-
-            val localSurface = surfaceYAt(x.toInt(), z.toInt())
-            val targetY = localSurface + Math.sin(
-                yPhase + step * (2.0 * Math.PI / yPeriod)
-            ) * yAmp
-            y += (targetY - y) * TUNNEL_Y_TRACK_BIAS
-
-            points[count * 3 + 0] = x.toInt()
-            points[count * 3 + 1] = y.toInt().coerceIn(2, MAX_BUILD_Y - 2)
-            points[count * 3 + 2] = z.toInt()
-            count++
-        }
-
-        // Tip-in-open detection: if the final point sits *above* the
-        // local effective surface, the root tip is emerging into air
-        // or water rather than burrowing through mud. Such tips taper
-        // to a point so the open end reads as a thinned root rather
-        // than a hard stub.
-        val tipX = points[(count - 1) * 3 + 0]
-        val tipY = points[(count - 1) * 3 + 1]
-        val tipZ = points[(count - 1) * 3 + 2]
-        val tipSurface = surfaceYAt(tipX, tipZ)
-        val taperTail = if (tipY > tipSurface) ROOT_TIP_TAPER_STEPS else 0
-
-        return TunnelPath(points, count, taperTailSteps = taperTail)
-    }
-
-    /**
-     * Rasterise a sphere of [ROOT_TUBE_RADIUS] at every path point,
-     * applying the path's tip-taper window if its tip emerges into
-     * open air or water. Points whose XZ AABB misses the chunk are
+     * Rasterise a sphere at every path point, at the shared tapered radius
+     * ([WohlonnogondoniaSurfaceRoots.radiusAt]). Points whose XZ AABB misses the chunk are
      * O(1) rejected before the inner loop. Path points inside the
      * Mother Tree exclusion are skipped per-point so a tunnel that
      * wanders through the trunk doesn't gouge it.
@@ -1706,13 +2259,13 @@ class WohlonnogondoniaChunkGenerator(
         chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
         path: TunnelPath,
     ) {
-        val baseR = ROOT_TUBE_RADIUS
         val pts = path.points
         val n = path.count
         val ring = rootRingScratch.get()
         for (i in 0 until n) {
-            val r = heartPathRadiusAt(path, baseR, i)
-            val rSqMax = r * r
+            val rD = WohlonnogondoniaSurfaceRoots.radiusAt(path, i)
+            val rSqMax = rD * rD
+            val r = Math.ceil(rD).toInt()
             val px = pts[i * 3 + 0]
             val py = pts[i * 3 + 1]
             val pz = pts[i * 3 + 2]
@@ -1748,7 +2301,7 @@ class WohlonnogondoniaChunkGenerator(
                     val dxzSq = dxSq + dz * dz
                     if (dxzSq > rSqMax) continue
                     if (lx !in 0..15 || lz !in 0..15) {
-                        val topDy = Math.sqrt((rSqMax - dxzSq).toDouble()).toInt()
+                        val topDy = Math.sqrt(rSqMax - dxzSq).toInt()
                         val topLy = Math.min(py + topDy, MAX_BUILD_Y - 1) - minY
                         val idx = ringIndex(lx, lz)
                         if (topLy in 0 until span && topLy > ring[idx]) ring[idx] = topLy
@@ -1782,181 +2335,242 @@ class WohlonnogondoniaChunkGenerator(
         }
     }
 
-    /** Aliased to the source-of-truth [WohlonnogondoniaSurfaceRoots.TunnelPath]
-     *  so legacy chunkgen call sites (rivers, heart tunnel) keep working
-     *  unchanged. */
-    private val EMPTY_TUNNEL_ARRAY: Array<TunnelPath> = WohlonnogondoniaSurfaceRoots.EMPTY_PATHS
 
     // ------------------------------------------------------------------------
     //   rivers radiating from the moat
     // ------------------------------------------------------------------------
 
     /**
-     * [RIVER_COUNT] deterministic water channels radiating from the moat
-     * outward. Each one starts at a point on `MOAT_OUTER_R` evenly spaced
-     * around the circle, walks outward with a soft pull toward the
-     * radial direction (so the river generally heads away from origin),
-     * and meanders with a per-step yaw random walk. The path is painted
-     * as a chain of water/air spheres of radius [RIVER_RADIUS]: water
-     * below sea level, air above, so the river cuts a clean swim-
-     * through channel through whatever terrain it crosses.
+     * [RIVER_COUNT] channels radiating from the moat, plus tributaries and oxbow lakes.
+     * Main rivers meander on a sine whose wavelength is tied to channel width (about 12×,
+     * as in alluvial rivers), vary in width, and thin out into the swamp at their ends.
      *
-     * Lazy-initialised so the paths are built once on first chunk-decoration
-     * and reused for every subsequent chunk. C2ME workers race harmlessly
-     * on the lazy delegate's synchronized init.
+     * Lazy-initialised once; C2ME workers race harmlessly on the synchronized init.
      */
-    private val rivers: Array<TunnelPath> by lazy {
-        Array(RIVER_COUNT) { idx -> buildRiverPath(idx) }
+    private val rivers: Array<RiverPath> by lazy { buildRiverNetwork() }
+
+    /** Furthest any river column (bank included) reaches from origin, squared. */
+    private val riverReachSq: Long by lazy {
+        var max = 0.0
+        for (river in rivers) {
+            for (i in 0 until river.count) {
+                val d = Math.hypot(river.x[i].toDouble(), river.z[i].toDouble()) + river.r[i]
+                if (d > max) max = d
+            }
+        }
+        val reach = (max + RIVER_BANK_WINDOW + 2).toLong()
+        reach * reach
     }
 
-    /** Build one river path starting on the moat's outer rim at angle
-     *  `idx * 2π / RIVER_COUNT` and walking outward. */
-    private fun buildRiverPath(idx: Int): TunnelPath {
-        val angle = idx * (2.0 * Math.PI / RIVER_COUNT)
-        // Start just outside the moat's outer rim so the river visibly
-        // emerges from the ring rather than overlapping it.
-        val startRadius = MOAT_OUTER_R + 2.0
-        var x = startRadius * Math.cos(angle)
-        var y = (SEA_LEVEL_Y - 1).toDouble()
-        var z = startRadius * Math.sin(angle)
-        var yaw = angle
-
-        val points = IntArray(RIVER_MAX_STEPS * 3)
-        var count = 0
-        for (step in 0 until RIVER_MAX_STEPS) {
-            // Step forward. Pitch is fixed at 0 — rivers stay flat,
-            // their Y is controlled by [RIVER_Y_TRACK_BIAS] instead.
-            x += Math.cos(yaw) * RIVER_STEP_LEN
-            z += Math.sin(yaw) * RIVER_STEP_LEN
-
-            // Soft pull toward sea level − 1 so accumulated drift never
-            // moves the river vertically. Strong tracking bias because
-            // rivers shouldn't carve up/down between sphere centres.
-            val targetY = (SEA_LEVEL_Y - 1).toDouble()
-            y += (targetY - y) * RIVER_Y_TRACK_BIAS
-
-            // Yaw random walk gives meander, then a soft pull back
-            // toward the outward radial direction so the river doesn't
-            // curl back toward origin.
-            val turnSeed = hash32(idx, 0, 100 + step)
-            yaw += ((turnSeed and 0xFFFF) / 65536.0 - 0.5) * RIVER_YAW_TURN
-            val radialYaw = Math.atan2(z, x)
-            var diff = radialYaw - yaw
-            // Wrap angle diff to [-π, π] so the bias pulls the short way.
-            while (diff > Math.PI) diff -= 2.0 * Math.PI
-            while (diff < -Math.PI) diff += 2.0 * Math.PI
-            yaw += diff * RIVER_RADIAL_BIAS
-
-            points[count * 3 + 0] = x.toInt()
-            points[count * 3 + 1] = y.toInt().coerceIn(2, MAX_BUILD_Y - 2)
-            points[count * 3 + 2] = z.toInt()
-            count++
+    private fun buildRiverNetwork(): Array<RiverPath> {
+        val out = ArrayList<RiverPath>()
+        for (idx in 0 until RIVER_COUNT) {
+            val seed = hash32(idx, 0, RIVER_SALT)
+            val jitter = (unit(seed) - 0.5) * 2.0 * RIVER_ANGLE_JITTER
+            val angle = idx * (2.0 * Math.PI / RIVER_COUNT) + jitter
+            val start = MOAT_OUTER_R + 2.0
+            val steps = RIVER_MIN_STEPS + Math.floorMod(seed ushr 8, RIVER_EXTRA_STEPS)
+            val baseR = RIVER_MIN_RADIUS + unit(seed ushr 16) * RIVER_RADIUS_SPREAD
+            val main = buildMeanderPath(
+                idx * 97, start * Math.cos(angle), start * Math.sin(angle), angle, steps, baseR,
+                radialBias = true, levee = true,
+            )
+            out += main
+            addTributaries(out, main, idx, seed)
+            addOxbows(out, main, idx, seed, baseR)
         }
-        return TunnelPath(points, count)
+        return out.toTypedArray()
+    }
+
+    private fun addTributaries(out: MutableList<RiverPath>, main: RiverPath, idx: Int, seed: Int) {
+        val count = 1 + Math.floorMod(seed ushr 4, RIVER_MAX_TRIBUTARIES)
+        for (t in 0 until count) {
+            val ts = hash32(idx, t, RIVER_SALT + 1)
+            val at = (main.count * (TRIBUTARY_START_MIN + unit(ts) * TRIBUTARY_START_SPAN)).toInt()
+            val tangent = main.tangent(at)
+            val side = if ((ts and 1) == 0) 1.0 else -1.0
+            val heading = tangent + side * (TRIBUTARY_ANGLE_MIN + unit(ts ushr 8) * TRIBUTARY_ANGLE_SPAN)
+            val steps = TRIBUTARY_MIN_STEPS + Math.floorMod(ts ushr 12, TRIBUTARY_EXTRA_STEPS)
+            val baseR = TRIBUTARY_MIN_RADIUS + unit(ts ushr 20) * TRIBUTARY_RADIUS_SPREAD
+            out += buildMeanderPath(
+                idx * 97 + 11 + t, main.x[at].toDouble(), main.z[at].toDouble(), heading, steps, baseR,
+                radialBias = false, levee = true,
+            )
+        }
+    }
+
+    /** Cut-off meander bends: crescents beside an apex of the channel, not joined to it. */
+    private fun addOxbows(out: MutableList<RiverPath>, main: RiverPath, idx: Int, seed: Int, mainR: Double) {
+        val count = Math.floorMod(seed ushr 6, RIVER_MAX_OXBOWS + 1)
+        val wavelength = MEANDER_WAVELENGTH_PER_RADIUS * mainR
+        val amplitude = MEANDER_AMPLITUDE_RATIO * wavelength
+        for (o in 0 until count) {
+            val os = hash32(idx, o, RIVER_SALT + 2)
+            val at = (main.count * (OXBOW_START_MIN + unit(os) * OXBOW_START_SPAN)).toInt()
+            val tangent = main.tangent(at)
+            val side = if ((os and 1) == 0) 1.0 else -1.0
+            val nx = -Math.sin(tangent) * side
+            val nz = Math.cos(tangent) * side
+            val arcR = OXBOW_ARC_RADIUS_RATIO * wavelength
+            val offset = arcR + mainR + OXBOW_RADIUS + OXBOW_CLEARANCE + amplitude * 0.5
+            val cx = main.x[at] + nx * offset
+            val cz = main.z[at] + nz * offset
+            val facing = Math.atan2(-nz, -nx)
+            val n = OXBOW_POINTS
+            val xs = FloatArray(n)
+            val zs = FloatArray(n)
+            val rs = FloatArray(n)
+            for (i in 0 until n) {
+                val a = facing + (i.toDouble() / (n - 1) - 0.5) * OXBOW_ARC_SPAN
+                xs[i] = (cx + Math.cos(a) * arcR).toFloat()
+                zs[i] = (cz + Math.sin(a) * arcR).toFloat()
+                val taper = Math.sin(Math.PI * i / (n - 1)).coerceAtLeast(0.35)
+                rs[i] = (OXBOW_RADIUS * taper).toFloat()
+            }
+            out += RiverPath(xs, zs, rs, n, levee = false)
+        }
     }
 
     /**
-     * Paint every river that overlaps this chunk as a vanilla-style 2D
-     * water channel: for each path point we rasterise a *2D circle* in
-     * XZ (radius [RIVER_RADIUS]) and fill the full column from
-     * [RIVER_BED_Y] up to [SEA_LEVEL_Y] with water, plus an air buffer
-     * from [SEA_LEVEL_Y]+1 up to [RIVER_TOP_Y] to carve through any
-     * minor ridges the meander crosses. Above the air buffer the
-     * natural terrain is untouched, so banks emerge naturally.
+     * A base walk (gentle yaw drift, optional outward pull) displaced sideways by a sine whose
+     * wavelength scales with [baseR]. Width varies along the path; the last stretch narrows so
+     * the channel thins out into the swamp instead of stopping.
+     */
+    private fun buildMeanderPath(
+        id: Int, startX: Double, startZ: Double, startYaw: Double, steps: Int, baseR: Double,
+        radialBias: Boolean, levee: Boolean,
+    ): RiverPath {
+        val wavelength = MEANDER_WAVELENGTH_PER_RADIUS * baseR
+        val amplitude = MEANDER_AMPLITUDE_RATIO * wavelength
+        val phase = unit(hash32(id, 1, RIVER_SALT + 3)) * 2.0 * Math.PI
+        val xs = FloatArray(steps)
+        val zs = FloatArray(steps)
+        val rs = FloatArray(steps)
+        var bx = startX
+        var bz = startZ
+        var yaw = startYaw
+        for (step in 0 until steps) {
+            bx += Math.cos(yaw) * RIVER_STEP_LEN
+            bz += Math.sin(yaw) * RIVER_STEP_LEN
+            yaw += (unit(hash32(id, step, RIVER_SALT + 4)) - 0.5) * RIVER_YAW_TURN
+            if (radialBias) {
+                var diff = Math.atan2(bz, bx) - yaw
+                while (diff > Math.PI) diff -= 2.0 * Math.PI
+                while (diff < -Math.PI) diff += 2.0 * Math.PI
+                yaw += diff * RIVER_RADIAL_BIAS
+            }
+            val s = step * RIVER_STEP_LEN
+            // Ramp the sine in so every river leaves its source on the base line.
+            val ramp = (s / wavelength).coerceAtMost(1.0)
+            val lateral = Math.sin(2.0 * Math.PI * s / wavelength + phase) * amplitude * ramp
+            xs[step] = (bx - Math.sin(yaw) * lateral).toFloat()
+            zs[step] = (bz + Math.cos(yaw) * lateral).toFloat()
+            val widthNoise = valueNoise2(s * RIVER_WIDTH_NOISE_FREQ, id * 13.1, RIVER_SALT + 5)
+            val tail = ((steps - step).toDouble() / (steps * RIVER_TAIL_FRACTION)).coerceAtMost(1.0)
+            val r = baseR * (1.0 + RIVER_WIDTH_VARIATION * widthNoise) * (0.4 + 0.6 * tail)
+            rs[step] = r.coerceAtLeast(RIVER_MIN_PAINT_RADIUS).toFloat()
+        }
+        return RiverPath(xs, zs, rs, steps, levee)
+    }
+
+    /**
+     * Paint every river near this chunk as a channel cross-section: a U-shaped bed, a levee of
+     * +1–2 along the bank on near-water ground, and banks graded at about 1:1 where the river
+     * cuts through higher ground, so it never leaves a slot under an overhang.
      */
     private fun paintRiversInto(
         target: Array<Array<Array<BlockState?>>>,
         chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
     ) {
-        // Chunk-AABB-vs-origin reject: rivers can't reach further than
-        // [RIVER_REACH_PLUS_PAD_SQ] from origin.
-        val nearestCornerX = if (chunkX0 + 15 < 0) chunkX0 + 15
-        else if (chunkX0 > 0) chunkX0
-        else 0
-        val nearestCornerZ = if (chunkZ0 + 15 < 0) chunkZ0 + 15
-        else if (chunkZ0 > 0) chunkZ0
-        else 0
-        val cornerDistSq =
-            nearestCornerX.toLong() * nearestCornerX +
-            nearestCornerZ.toLong() * nearestCornerZ
-        if (cornerDistSq > RIVER_REACH_PLUS_PAD_SQ) return
+        val nearestCornerX = if (chunkX0 + 15 < 0) chunkX0 + 15 else if (chunkX0 > 0) chunkX0 else 0
+        val nearestCornerZ = if (chunkZ0 + 15 < 0) chunkZ0 + 15 else if (chunkZ0 > 0) chunkZ0 else 0
+        val cornerDistSq = nearestCornerX.toLong() * nearestCornerX + nearestCornerZ.toLong() * nearestCornerZ
+        if (cornerDistSq > riverReachSq) return
 
-        val R = RIVER_RADIUS
-        val rSqMax = R * R
-        // Pre-compute Y windows in cache coordinates. waterTopLY is the
-        // *topmost water block*, one below SEA_LEVEL_Y, so the water
-        // surface sits at the SEA_LEVEL_Y line — matching baseColumnBlock,
-        // the moat, the cave pool, and the heart tunnel.
-        val waterTopLY = (SEA_LEVEL_Y - 1) - minY
-        val waterBottomLY = RIVER_BED_Y - minY
-        val airTopLY = RIVER_TOP_Y - minY
+        val scratch = riverScratch.get()
+        java.util.Arrays.fill(scratch.edge, Float.MAX_VALUE)
+        var touched = false
         for (river in rivers) {
-            val pts = river.points
-            val n = river.count
-            for (i in 0 until n) {
-                val px = pts[i * 3 + 0]
-                val pz = pts[i * 3 + 2]
-                if (px + R < chunkX0 || px - R > chunkX0 + 15) continue
-                if (pz + R < chunkZ0 || pz - R > chunkZ0 + 15) continue
+            for (i in 0 until river.count) {
+                val px = river.x[i]
+                val pz = river.z[i]
+                val r = river.r[i]
+                val reach = r + RIVER_BANK_WINDOW
+                if (px + reach < chunkX0 || px - reach > chunkX0 + 15) continue
+                if (pz + reach < chunkZ0 || pz - reach > chunkZ0 + 15) continue
+                touched = true
+                for (lx in 0..15) {
+                    val dx = chunkX0 + lx - px
+                    for (lz in 0..15) {
+                        val dz = chunkZ0 + lz - pz
+                        val e = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat() - r
+                        val k = lx * 16 + lz
+                        if (e < scratch.edge[k]) {
+                            scratch.edge[k] = e
+                            scratch.radius[k] = r
+                            scratch.levee[k] = river.levee
+                        }
+                    }
+                }
+            }
+        }
+        if (!touched) return
 
-                for (dx in -R..R) {
-                    val nx = px + dx
-                    val lx = nx - chunkX0
-                    if (lx !in 0..15) continue
-                    val dxSq = dx * dx
-                    for (dz in -R..R) {
-                        val nz = pz + dz
-                        val lz = nz - chunkZ0
-                        if (lz !in 0..15) continue
-                        val dxzSq = dxSq + dz * dz
-                        if (dxzSq > rSqMax) continue
-                        val col = target[lx][lz]
-                        // Water column: bed → sea level.
-                        val waterLo = Math.max(0, waterBottomLY)
-                        val waterHi = Math.min(span - 1, waterTopLY)
-                        for (ly in waterLo..waterHi) col[ly] = WATER
-                        // Air buffer above water — carves through low
-                        // ridges so the channel reads as open river.
-                        val airLo = Math.max(0, waterTopLY + 1)
-                        val airHi = Math.min(span - 1, airTopLY)
-                        for (ly in airLo..airHi) col[ly] = AIR
+        for (lx in 0..15) {
+            for (lz in 0..15) {
+                val k = lx * 16 + lz
+                val e = scratch.edge[k]
+                if (e > RIVER_BANK_WINDOW) continue
+                val wx = chunkX0 + lx
+                val wz = chunkZ0 + lz
+                val natural = effectiveSurfaceYAt(wx, wz)
+                val shaped = riverSurface(wx, wz, natural, e, scratch.radius[k], scratch.levee[k])
+                if (shaped == natural) continue
+                val col = target[lx][lz]
+                if (shaped < natural) {
+                    for (y in shaped + 1..natural) {
+                        val ly = y - minY
+                        if (ly in 0 until span) col[ly] = if (y < SEA_LEVEL_Y) WATER else AIR
+                    }
+                } else {
+                    for (y in natural + 1..shaped) {
+                        val ly = y - minY
+                        if (ly in 0 until span) col[ly] = MUD
                     }
                 }
             }
         }
     }
 
-    /**
-     * Heart-tunnel skeleton, built in the same spirit as the Mother
-     * Tree's tapered-capsule skeleton — a chain of `(x, y, z, r)`
-     * nodes plus a list of dead-end pool capsules — then rasterised
-     * via the SDF capsule painter ([paintHeartCapsuleSegment]).
-     *
-     * Build algorithm ([buildHeartSkeleton]):
-     *  1. Start at the heart `(0, SEA_LEVEL_Y, 0)` with the
-     *     world-stable random initial yaw used by the cave's
-     *     wall-bulge logic, so the tunnel exits the cave cleanly
-     *     through that bulge.
-     *  2. Each step, generate **two** candidate (yaw, pitch) offsets.
-     *     Toss a coin to pick one as the main continuation; the other
-     *     becomes the seed direction for a rejected-branch pool.
-     *  3. The rejected branch terminates immediately in a craggy
-     *     oblong pool — an elongated SDF capsule with a high
-     *     boundary-noise amp so it reads as a found grotto, not a
-     *     sphere on a stub.
-     *  4. Walk until the main path crosses [MOAT_INNER_R] (so the
-     *     last capsule opens into the moat) or the
-     *     [HEART_SKELETON_MAX_STEPS] safety cap fires.
-     *
-     * Y is clamped to ±[HEART_Y_RANGE] of sea level so the tunnel
-     * meanders vertically without escaping the around-sea-level
-     * band. Radius comes from value noise bounded to
-     * `[HEART_R_MIN, HEART_R_MAX]`; the SDF rasteriser linearly
-     * interpolates radius between adjacent nodes for a smooth taper.
-     *
-     * Cached lazily; concurrent C2ME workers race harmlessly on the
-     * `lazy` delegate's synchronized init.
-     */
+    /** Surface height for a column [edge] blocks outside the nearest channel edge (negative = inside). */
+    private fun riverSurface(wx: Int, wz: Int, natural: Int, edge: Float, radius: Float, levee: Boolean): Int {
+        val waterTop = SEA_LEVEL_Y - 1
+        if (edge <= 0f) {
+            val t = ((edge + radius) / radius).coerceIn(0f, 1f)
+            val maxDepth = (RIVER_DEPTH_BASE + RIVER_DEPTH_PER_RADIUS * radius).coerceAtMost(RIVER_MAX_DEPTH)
+            val depth = Math.max(1, Math.round(maxDepth * (1f - t * t)))
+            return Math.min(natural, waterTop - depth)
+        }
+        var shaped = natural
+        // Levees only form on ground near the water line; a channel through a deep pool gets none.
+        if (levee && natural >= waterTop - 1 && edge <= LEVEE_WIDTH) {
+            val crest = if (valueNoise2(wx * LEVEE_NOISE_FREQ, wz * LEVEE_NOISE_FREQ, RIVER_SALT + 6) > 0.1) 2 else 1
+            val profile = if (edge <= LEVEE_CREST_EDGE) 1.0 else 1.0 - (edge - LEVEE_CREST_EDGE) / (LEVEE_WIDTH - LEVEE_CREST_EDGE)
+            shaped = Math.max(shaped, waterTop + Math.round(crest * profile).toInt())
+        }
+        val bankCap = waterTop + Math.ceil((edge * RIVER_BANK_SLOPE).toDouble()).toInt()
+        return Math.min(shaped, bankCap)
+    }
+
+    private class RiverScratch {
+        val edge = FloatArray(256)
+        val radius = FloatArray(256)
+        val levee = BooleanArray(256)
+    }
+
+    private val riverScratch: ThreadLocal<RiverScratch> = ThreadLocal.withInitial { RiverScratch() }
+
+    /** Built once; C2ME workers race harmlessly on the synchronized lazy init. See [HeartTunnelSkeleton]. */
     private val heartTunnel: HeartTunnelSkeleton.Skeleton by lazy { buildHeartTunnelSkeleton() }
 
     private fun buildHeartTunnelSkeleton(): HeartTunnelSkeleton.Skeleton {
@@ -1998,6 +2612,13 @@ class WohlonnogondoniaChunkGenerator(
             rMin = HEART_R_MIN, rMax = HEART_R_MAX,
             thicknessScale = HEART_THICKNESS_SCALE,
             seaLow = seaLow, seaHigh = seaHigh,
+            shape = HeartTunnelSkeleton.Shape(
+                surfaceAt = { x, z -> effectiveSurfaceYAt(x, z) },
+                moatInnerR = MOAT_INNER_R,
+                minY = SEA_LEVEL_Y - HEART_TUNNEL_BELOW_SEA,
+                maxY = SEA_LEVEL_Y + HEART_TUNNEL_ABOVE_SEA,
+                seed = attractorSeed,
+            ),
         )
     }
 
@@ -2010,8 +2631,7 @@ class WohlonnogondoniaChunkGenerator(
      * tree's [paintTreeSegment] voxel-for-voxel — same tapered-
      * capsule SDF, same bark perturbation — only the writes differ:
      * tree places wood, this carves air/water and paints a wood
-     * shell). At every leaf-tip the chunk generator drops a craggy
-     * pool capsule.
+     * shell). Tip ends and grafts are segments of the skeleton too.
      */
     private fun paintHeartTunnelInto(
         target: Array<Array<Array<BlockState?>>>,
@@ -2031,36 +2651,16 @@ class WohlonnogondoniaChunkGenerator(
         val skel = heartTunnel
         val tunnelShell = HEART_TUNNEL_SHELL_THICK.toDouble()
 
-        // Pass 1 — every segment (trunk + branches) painted with the
-        // tree-style voxeliser: tapered capsule + bark-noise on the
-        // surface, carve interior, line shell with wogor wood.
+        val interior = heartInteriorScratch(span)
+        // Every segment, tip end and graft: tapered capsule + bark noise, carve interior, line the shell.
         for (seg in skel.segments) {
             paintHeartTunnelSegment(
                 target, chunkX0, chunkZ0, minY, span,
-                seg, tunnelShell,
+                seg, tunnelShell, interior,
             )
         }
 
-        // Pass 2 — craggy dead-end pool at every leaf-tip. Anchored
-        // on the tip, extending one [HEART_POOL_LEN_AVG]-ish step in
-        // the tip's forward direction so the chamber sits past the
-        // dead-end rather than concentrically over it.
-        for (tip in skel.tips) {
-            val poolLength = HEART_POOL_LEN_MIN + 0.5 *
-                (HEART_POOL_LEN_MAX - HEART_POOL_LEN_MIN)
-            val poolR = (tip.radius + HEART_POOL_R_BONUS)
-                .coerceIn(HEART_POOL_R_MIN, HEART_POOL_R_MAX)
-            val endX = tip.x + tip.dirX * poolLength
-            val endY = tip.y + tip.dirY * poolLength
-            val endZ = tip.z + tip.dirZ * poolLength
-            paintHeartCapsuleSegment(
-                target, chunkX0, chunkZ0, minY, span,
-                tip.x, tip.y, tip.z, poolR,
-                endX, endY, endZ, poolR,
-                tunnelShell,
-                boundaryNoiseAmp = HEART_POOL_NOISE_AMP,
-            )
-        }
+        paintHeartDecor(target, chunkX0, chunkZ0, minY, span)
 
         // Pass 3 — vines. Scan every voxel in the chunk for the
         // AIR-with-WOGOR_WOOD-above pattern and hang a vine column
@@ -2092,7 +2692,7 @@ class WohlonnogondoniaChunkGenerator(
     private fun paintHeartTunnelSegment(
         target: Array<Array<Array<BlockState?>>>,
         chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
-        seg: HeartTunnelSegment, shellThick: Double,
+        seg: HeartTunnelSegment, shellThick: Double, interior: BooleanArray,
     ) {
         val p0x = seg.startX; val p0y = seg.startY; val p0z = seg.startZ
         val p1x = seg.endX; val p1y = seg.endY; val p1z = seg.endZ
@@ -2103,7 +2703,7 @@ class WohlonnogondoniaChunkGenerator(
 
         // World-space AABB inflated for radius + worst-case bark
         // excursion + shell band.
-        val pad = rMax + barkAmpMax + shellThick + 1.0
+        val pad = (rMax + barkAmpMax + shellThick) * HEART_ELLIPSE + 1.0
         val minWX = Math.floor(Math.min(p0x, p1x) - pad).toInt()
         val maxWX = Math.ceil(Math.max(p0x, p1x) + pad).toInt()
         val minWY = Math.floor(Math.min(p0y, p1y) - pad).toInt()
@@ -2131,6 +2731,10 @@ class WohlonnogondoniaChunkGenerator(
                 val lx = wx - chunkX0
                 val caveXZHere = isInsideCaveFootprint(wx, wz)
                 val surfaceHere = effectiveSurfaceYAt(wx, wz)
+                val dead = smoothstep01(
+                    (Math.sqrt(wx.toDouble() * wx + wz.toDouble() * wz) - HEART_LIVE_RADIUS) /
+                        (HEART_DEAD_RADIUS - HEART_LIVE_RADIUS),
+                )
                 val col = target[lx][lz]
                 for (wy in cMinY..cMaxY) {
                     val vy = wy + 0.5
@@ -2144,7 +2748,7 @@ class WohlonnogondoniaChunkGenerator(
                     val cY = p0y + ey * t
                     val cZ = p0z + ez * t
                     val ddx = vx - cX; val ddy = vy - cY; val ddz = vz - cZ
-                    val distSq = ddx * ddx + ddy * ddy + ddz * ddz
+                    val distSq = ddx * ddx + ddy * ddy * HEART_INV_ELLIPSE_SQ + ddz * ddz
 
                     val r = r0 + (r1 - r0) * t
                     val barkAmp = barkAmplitudeFor(r)
@@ -2175,18 +2779,89 @@ class WohlonnogondoniaChunkGenerator(
                     val rOuter = rInner + shellThick
 
                     if (caveXZHere && centralCaveBlock(wx, wy, wz) != null) continue
+                    if (heartShaftBlock(wx, wy, wz) != null) continue
                     val ly = wy - minY
                     if (ly !in 0 until span) continue
 
-                    if (distSq <= rInner * rInner) {
+                    // Rotting stretches silt up from the floor.
+                    val silted = dead > 0.0 && ddy < -r * HEART_ELLIPSE * (1.0 - HEART_SILT_DEPTH * dead)
+                    if (distSq <= rInner * rInner && !silted) {
                         col[ly] = if (wy < SEA_LEVEL_Y) WATER else AIR
-                    } else if (distSq <= rOuter * rOuter && col[ly] == null && wy <= surfaceHere) {
-                        col[ly] = WOGOR_WOOD_Y
+                        interior[(lx * 16 + lz) * span + ly] = true
+                    } else if (distSq <= rOuter * rOuter && col[ly] == null && wy <= surfaceHere && !silted) {
+                        // Living root wood near the cave; farther out the wall rots away in patches.
+                        val live = valueNoise3D(wx * HEART_LIVE_FREQ, wy * HEART_LIVE_FREQ, wz * HEART_LIVE_FREQ)
+                        if (live >= dead * HEART_ROT_LINING_LOSS) col[ly] = WOGOR_WOOD_Y
                     }
                 }
             }
         }
     }
+
+    /**
+     * Hanging roots under living root-wood ceilings, heartfire on rotting wood floors and ceilings.
+     * Runs over cells the tunnel carved in this chunk only, so river water never gets decorated.
+     */
+    private fun paintHeartDecor(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+    ) {
+        val interior = heartInteriorScratch.get() ?: return
+        for (lx in 0..15) {
+            val wx = chunkX0 + lx
+            for (lz in 0..15) {
+                val wz = chunkZ0 + lz
+                val col = target[lx][lz]
+                val dead = smoothstep01(
+                    (Math.sqrt(wx.toDouble() * wx + wz.toDouble() * wz) - HEART_LIVE_RADIUS) /
+                        (HEART_DEAD_RADIUS - HEART_LIVE_RADIUS),
+                )
+                val rot = 1.0 - Math.abs(dead - 0.5) * 2.0
+                val base = (lx * 16 + lz) * span
+                for (ly in 1 until span - 1) {
+                    if (!interior[base + ly]) continue
+                    val cell = col[ly]
+                    if (cell !== AIR && cell !== WATER) continue
+                    val wet = cell === WATER
+                    val roll = (hash32(wx, (minY + ly) * 31 + wz, HEART_DECOR_SALT) and 0xFFFF) / 65536.0
+                    val fire = HEART_HEARTFIRE_CHANCE * rot * heartfirePatch(wx, minY + ly, wz)
+                    if (col[ly + 1] === WOGOR_WOOD_Y) {
+                        val hanging = HEART_HANGING_CHANCE * (1.0 - dead)
+                        col[ly] = when {
+                            roll < hanging -> if (wet) HANGING_ROOTS_WET else HANGING_ROOTS_DRY
+                            roll < hanging + fire -> if (wet) HEARTFIRE_CEILING_WET else HEARTFIRE_CEILING_DRY
+                            else -> cell
+                        }
+                    } else if (col[ly - 1] === WOGOR_WOOD_Y && roll < fire) {
+                        col[ly] = if (wet) HEARTFIRE_FLOOR_WET else HEARTFIRE_FLOOR_DRY
+                    } else if (roll < fire * 2.0) {
+                        for (dir in HORIZONTAL_DIRECTIONS) {
+                            val nx = lx + dir.stepX
+                            val nz = lz + dir.stepZ
+                            if (nx !in 0..15 || nz !in 0..15) continue
+                            if (target[nx][nz][ly] !== WOGOR_WOOD_Y) continue
+                            col[ly] = heartfireOn(dir, wet)
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** One interior mask per worker thread, cleared for each chunk the tunnel touches. */
+    private fun heartInteriorScratch(span: Int): BooleanArray {
+        var mask = heartInteriorScratch.get()
+        if (mask == null || mask.size != 256 * span) {
+            mask = BooleanArray(256 * span)
+            heartInteriorScratch.set(mask)
+        } else {
+            java.util.Arrays.fill(mask, false)
+        }
+        return mask
+    }
+
+    private val heartInteriorScratch = ThreadLocal<BooleanArray?>()
 
     /**
      * Hang random vine columns from every wogor-wood ceiling cell in
@@ -2333,7 +3008,7 @@ class WohlonnogondoniaChunkGenerator(
             // through to cave / mud inference.
         } else if (isVoxelInsideHeartTunnel(wx + 0.5, wy + 0.5, wz + 0.5)) {
             // Cross-chunk: the global skeleton says this voxel is
-            // inside a tunnel segment or pool capsule. The adjacent
+            // inside a tunnel segment. The adjacent
             // chunk will paint it as carved air/water, so it's NOT
             // a wall — even though our local cave / mud inference
             // would otherwise classify it as mud below the surface.
@@ -2350,21 +3025,9 @@ class WohlonnogondoniaChunkGenerator(
     }
 
     /**
-     * SDF inverse: is voxel centre `(vx, vy, vz)` inside any
-     * heart-tunnel segment's tapered capsule or any leaf-tip's pool
-     * capsule? Used by [isHeartWallAt] to correctly classify
-     * cross-chunk neighbours (whose cache isn't available) instead
-     * of falling back to "mud below surface = wall".
-     *
-     * For the main segments we use the exact same capsule SDF the
-     * painter does, minus the per-voxel bark perturbation — the
-     * extra ±[barkAmplitudeFor] excursion is negligible at the
-     * resolution we care about (one cell of slop near a chunk
-     * boundary is invisible). For pool capsules we use the base
-     * radius PLUS the bulge-noise amplitude — the bulge-only noise
-     * can extend `rEff` up to `r + amp`, so checking against the
-     * outer envelope conservatively classifies bulge-zone voxels
-     * as "could be tunnel" → not wall.
+     * Is voxel centre `(vx, vy, vz)` inside any heart-tunnel segment? Lets [isHeartWallAt] classify
+     * cross-chunk neighbours. Same capsule SDF as the painter minus the bark noise; one cell of slop
+     * at a chunk boundary is invisible.
      */
     private fun isVoxelInsideHeartTunnel(vx: Double, vy: Double, vz: Double): Boolean {
         val skel = heartTunnel
@@ -2374,38 +3037,17 @@ class WohlonnogondoniaChunkGenerator(
                 seg.startX, seg.startY, seg.startZ,
                 seg.endX, seg.endY, seg.endZ,
                 seg.startRadius, seg.endRadius,
-                outerSlack = 0.0,
-            )) return true
-        }
-        val poolLength = HEART_POOL_LEN_MIN + 0.5 *
-            (HEART_POOL_LEN_MAX - HEART_POOL_LEN_MIN)
-        for (tip in skel.tips) {
-            val poolR = (tip.radius + HEART_POOL_R_BONUS)
-                .coerceIn(HEART_POOL_R_MIN, HEART_POOL_R_MAX)
-            val endX = tip.x + tip.dirX * poolLength
-            val endY = tip.y + tip.dirY * poolLength
-            val endZ = tip.z + tip.dirZ * poolLength
-            if (isVoxelInsideCapsule(
-                vx, vy, vz,
-                tip.x, tip.y, tip.z,
-                endX, endY, endZ,
-                poolR, poolR,
-                outerSlack = HEART_POOL_NOISE_AMP,
             )) return true
         }
         return false
     }
 
-    /** Standard tapered-capsule SDF interior test — same projection
-     *  + linear-radius-lerp the painter uses. [outerSlack] is added
-     *  to the effective radius for pool capsules whose bulge-only
-     *  boundary noise can extend the wall outward. */
+    /** Tapered-capsule interior test, with the painter's projection, radius lerp and vertical stretch. */
     private fun isVoxelInsideCapsule(
         vx: Double, vy: Double, vz: Double,
         x0: Double, y0: Double, z0: Double,
         x1: Double, y1: Double, z1: Double,
         r0: Double, r1: Double,
-        outerSlack: Double,
     ): Boolean {
         val ex = x1 - x0; val ey = y1 - y0; val ez = z1 - z0
         val segLenSq = ex * ex + ey * ey + ez * ez
@@ -2418,170 +3060,9 @@ class WohlonnogondoniaChunkGenerator(
         val cY = y0 + ey * t
         val cZ = z0 + ez * t
         val ddx = vx - cX; val ddy = vy - cY; val ddz = vz - cZ
-        val distSq = ddx * ddx + ddy * ddy + ddz * ddz
-        val r = r0 + (r1 - r0) * t + outerSlack
+        val distSq = ddx * ddx + ddy * ddy * HEART_INV_ELLIPSE_SQ + ddz * ddz
+        val r = r0 + (r1 - r0) * t
         return distSq <= r * r
-    }
-
-    /** Compute the effective sphere radius at path step `i` as a
-     *  Double — used by the SDF capsule rasteriser so the radius
-     *  interpolates smoothly along each path segment between
-     *  consecutive steps. Applies the per-path radius noise wobble
-     *  first, then the head + tail tapers (tapers always cap the
-     *  noise so the head still narrows cleanly out of the cave and
-     *  the tail still narrows into a pool / open-air tip). */
-    private fun heartPathRadiusD(path: TunnelPath, baseR: Double, i: Int): Double {
-        var r = baseR
-        if (path.taperHeadSteps > 0 && i < path.taperHeadSteps) {
-            val t = (i + 1).toDouble() / (path.taperHeadSteps + 1)
-            val tapered = (baseR * t).coerceAtLeast(0.5)
-            if (tapered < r) r = tapered
-        }
-        if (path.taperTailSteps > 0) {
-            val fromEnd = path.count - 1 - i
-            if (fromEnd < path.taperTailSteps) {
-                val t = (fromEnd + 1).toDouble() / (path.taperTailSteps + 1)
-                val tapered = (baseR * t).coerceAtLeast(0.5)
-                if (tapered < r) r = tapered
-            }
-        }
-        return r
-    }
-
-    /** Integer wrapper kept for the root-tunnel sphere rasteriser and
-     *  the vine painter, which both want a discrete radius per step. */
-    private fun heartPathRadiusAt(path: TunnelPath, baseR: Int, i: Int): Int =
-        heartPathRadiusD(path, baseR.toDouble(), i).toInt().coerceAtLeast(1)
-
-    /**
-     * SDF-rasterise one tapered-capsule segment of the heart-tunnel
-     * system. Same pattern as the Mother Tree's [paintTreeSegment],
-     * adapted for "carve interior + paint shell" semantics:
-     *
-     *  - Build a world-space AABB around the segment with enough pad
-     *    for the largest endpoint radius + the shell thickness + the
-     *    worst-case boundary-noise excursion.
-     *  - Clip the AABB to this chunk.
-     *  - For each voxel inside the clipped AABB: project the voxel
-     *    centre onto the segment to get the parameter `t ∈ [0, 1]`,
-     *    compute the linearly-interpolated radius
-     *    `r(t) = r0 + (r1 − r0) · t`, optionally perturb by
-     *    [boundaryNoiseAmp], and classify:
-     *      * `dist ≤ r`     → interior → water (below sea level) or air.
-     *      * `r < dist ≤ r + shellThick` → shell → wogor wood, but
-     *                                     only where the cache cell is
-     *                                     still null AND the natural
-     *                                     terrain at this voxel would
-     *                                     be mud. Air-side and
-     *                                     water-side shell voxels stay
-     *                                     untouched so the wood wall
-     *                                     never floats.
-     *      * `dist > r + shellThick` → outside → skip.
-     *
-     * Cells inside the central cave volume are always skipped so the
-     * cave's lantern + water stay intact.
-     */
-    private fun paintHeartCapsuleSegment(
-        target: Array<Array<Array<BlockState?>>>,
-        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
-        x0: Double, y0: Double, z0: Double, r0: Double,
-        x1: Double, y1: Double, z1: Double, r1: Double,
-        shellThick: Double,
-        boundaryNoiseAmp: Double = 0.0,
-    ) {
-        val rMaxOuter = Math.max(r0, r1) + shellThick + boundaryNoiseAmp + 0.5
-        val minWX = Math.floor(Math.min(x0, x1) - rMaxOuter).toInt()
-        val maxWX = Math.ceil(Math.max(x0, x1) + rMaxOuter).toInt()
-        val minWY = Math.floor(Math.min(y0, y1) - rMaxOuter).toInt()
-        val maxWY = Math.ceil(Math.max(y0, y1) + rMaxOuter).toInt()
-        val minWZ = Math.floor(Math.min(z0, z1) - rMaxOuter).toInt()
-        val maxWZ = Math.ceil(Math.max(z0, z1) + rMaxOuter).toInt()
-
-        val cMinX = Math.max(minWX, chunkX0)
-        val cMaxX = Math.min(maxWX, chunkX0 + 15)
-        val cMinZ = Math.max(minWZ, chunkZ0)
-        val cMaxZ = Math.min(maxWZ, chunkZ0 + 15)
-        val cMinY = Math.max(minWY, minY)
-        val cMaxY = Math.min(maxWY, minY + span - 1)
-        if (cMinX > cMaxX || cMinY > cMaxY || cMinZ > cMaxZ) return
-
-        val ex = x1 - x0; val ey = y1 - y0; val ez = z1 - z0
-        val segLenSq = ex * ex + ey * ey + ez * ez
-        val degenerate = segLenSq < 1.0e-6
-
-        for (wz in cMinZ..cMaxZ) {
-            val vz = wz + 0.5
-            val lz = wz - chunkZ0
-            for (wx in cMinX..cMaxX) {
-                val vx = wx + 0.5
-                val lx = wx - chunkX0
-                val caveXZHere = isInsideCaveFootprint(wx, wz)
-                val surfaceHere = effectiveSurfaceYAt(wx, wz)
-                val col = target[lx][lz]
-                for (wy in cMinY..cMaxY) {
-                    val vy = wy + 0.5
-
-                    // Project voxel centre onto segment, clamp t ∈ [0, 1].
-                    val t = if (degenerate) 0.0
-                    else {
-                        val tRaw = ((vx - x0) * ex + (vy - y0) * ey + (vz - z0) * ez) / segLenSq
-                        if (tRaw < 0.0) 0.0 else if (tRaw > 1.0) 1.0 else tRaw
-                    }
-                    val cX = x0 + ex * t
-                    val cY = y0 + ey * t
-                    val cZ = z0 + ez * t
-                    val ddx = vx - cX; val ddy = vy - cY; val ddz = vz - cZ
-                    val distSq = ddx * ddx + ddy * ddy + ddz * ddz
-
-                    val r = r0 + (r1 - r0) * t
-                    // Bulge-only 3D noise on the boundary. Two reasons,
-                    // both about killing the vertical scarring the
-                    // previous (anisotropic, pinch-and-bulge) noise was
-                    // producing inside the pool volume:
-                    //
-                    //  - **3D isotropic** — valueNoise3D samples the
-                    //    same frequency in X, Y, Z so consecutive Y
-                    //    voxels share nearly-identical noise. The
-                    //    previous valueNoise2 with wy×0.17 + wy×0.13
-                    //    perturbation made Y its own noise axis, so
-                    //    rEff could flip from "interior" to "exterior"
-                    //    between adjacent Y voxels at the same XZ —
-                    //    leaving narrow strips of unwritten cache
-                    //    cells that flushed to mud as vertical stripes
-                    //    through the pool ("vertical scarring").
-                    //  - **Bulge-only** — `rEff = r + noiseRaw·amp`
-                    //    where `noiseRaw ∈ [0, 1]`, so the effective
-                    //    radius is always ≥ the base r. The pool core
-                    //    out to r is guaranteed interior regardless of
-                    //    noise; the wall can only stick OUT into the
-                    //    surrounding mud, never pinch IN to create
-                    //    holes inside the pool. The previous
-                    //    `(noise − 0.5) × 2 × amp` allowed pinches as
-                    //    deep as `−amp`, which is what carved the
-                    //    intrusions in the first place.
-                    val noiseOff = if (boundaryNoiseAmp > 0.0) {
-                        valueNoise3D(
-                            wx * HEART_POOL_BOUNDARY_NOISE_FREQ,
-                            wy * HEART_POOL_BOUNDARY_NOISE_FREQ,
-                            wz * HEART_POOL_BOUNDARY_NOISE_FREQ,
-                        ) * boundaryNoiseAmp
-                    } else 0.0
-                    val rEff = (r + noiseOff).coerceAtLeast(0.5)
-                    val outerR = rEff + shellThick
-                    if (distSq > outerR * outerR) continue
-
-                    if (caveXZHere && centralCaveBlock(wx, wy, wz) != null) continue
-                    val ly = wy - minY
-                    if (ly !in 0 until span) continue
-
-                    if (distSq <= rEff * rEff) {
-                        col[ly] = if (wy < SEA_LEVEL_Y) WATER else AIR
-                    } else if (col[ly] == null && wy <= surfaceHere) {
-                        col[ly] = WOGOR_WOOD_Y
-                    }
-                }
-            }
-        }
     }
 
     /**
@@ -3001,6 +3482,53 @@ class WohlonnogondoniaChunkGenerator(
         /** Fine (octave-stack) lift, ±blocks. Keeps the regional surface
          *  from reading as flat plateaus. */
         private const val FINE_AMPLITUDE = 2.0
+        private const val FINE_SALT = 9101
+        private const val WARP_SALT = 9103
+        private const val REGIONAL_WARP_FREQ = 0.008
+        private const val REGIONAL_WARP_AMP = 24.0
+
+        // ---- depth profile (see shapeWaterDepth) ----
+        // Real swamps: >50 % of the floor above the water table, hollows 1–2 m deep.
+        // Raw heights at or under DEPTH_KEEP_Y keep their depth (the deepest pools).
+        private const val DEPTH_KEEP_Y = 52.0
+        private const val DEPTH_SHELF_Y = 55.0
+        private const val DEPTH_SHALLOW_END_Y = 60.5
+        private const val DEPTH_TOP_ANCHOR_Y = 74.0
+        private const val SHALLOW_FLOOR_Y = 61.0
+        private const val DRY_FLOOR_Y = 63.0
+
+        // ---- relief: rolling hills and terraced bluffs on dry ground ----
+        private const val RELIEF_SALT = 9301
+        /** Lift fades in over ground this high above raw and fully applies [RELIEF_DRY_SPAN] higher. */
+        private const val RELIEF_DRY_FROM = 62.5
+        private const val RELIEF_DRY_SPAN = 2.5
+        /** Mound and moat stay as authored; relief fades in past this radius. */
+        private const val RELIEF_CENTRE_CLEAR = 220.0
+        private const val RELIEF_CENTRE_FADE = 120.0
+        /** ~250-block areas of each terrain character. */
+        private const val RELIEF_MASK_FREQ = 0.004
+        private const val HILL_MASK_LOW = -0.25
+        private const val HILL_MASK_SPAN = 0.45
+        private const val CLIFF_MASK_LOW = 0.2
+        private const val CLIFF_MASK_SPAN = 0.25
+        private const val ROLLING_FREQ = 0.02
+        private const val ROLLING_FREQ_FINE = 0.05
+        private const val ROLLING_AMP = 20.0
+        private const val BLUFF_FREQ = 0.012
+        private const val BLUFF_WARP_FREQ = 0.03
+        private const val BLUFF_WARP_AMP = 10.0
+        private const val BLUFF_TERRACES = 3.0
+        private const val BLUFF_STEP_HEIGHT = 8.0
+        /** Share of each terrace span taken by its riser; smaller is steeper. */
+        private const val BLUFF_RISER_SHARE = 0.12
+
+        // ---- hummocks: 1–2 block mounds, +1, on a 3-block jittered grid near the water line ----
+        private const val HUMMOCK_CELL = 3
+        /** Out of 256: share of grid cells that hold a hummock. */
+        private const val HUMMOCK_CELL_FILL = 170
+        private const val HUMMOCK_SALT = 9105
+        private const val HUMMOCK_MIN_Y = SEA_LEVEL_Y - 2
+        private const val HUMMOCK_MAX_Y = SEA_LEVEL_Y
         private const val HILL_RADIUS = 48
         private const val HILL_PEAK_LIFT = 12.0    // peak surface ~y=74
         const val HILL_PEAK_Y = SURFACE_BASE_Y + HILL_PEAK_LIFT.toInt()  // 74
@@ -3071,38 +3599,84 @@ class WohlonnogondoniaChunkGenerator(
          *  diverges — that's how the cave wall blends smoothly into
          *  the tunnel mouth instead of meeting it at a hard joint. */
         private const val CAVE_TUNNEL_BULGE_AMP = 7.0
+        private const val CAVE_DOME_DROP = 9.0
+        private const val CAVE_BOWL_RISE = 2.0
+        /** Root-plate wood over the cave ceiling. */
+        private const val CAVE_ROOF_THICKNESS = 2
+        private const val CAVE_DECOR_SALT = 0xCA7E
+        private const val CAVE_HANGING_CHANCE = 0.18
+        private const val CAVE_HEARTFIRE_CHANCE = 0.02
+
+        /** Under the heart at the pool surface, where a player can reach it; it wells up from the shaft below. */
+        private const val FOUNTAIN_Y = SEA_LEVEL_Y - 1
+        private const val ANCHOR_SALT = 0xA4C4
+        private const val ANCHOR_MIN_COUNT = 4
+        private const val ANCHOR_EXTRA_COUNT = 2
+        private const val ANCHOR_MIN_DIST = 7.0
+        private const val ANCHOR_DIST_SPREAD = 3.0
+        private const val ANCHOR_MIN_RADIUS = 1.6
+        private const val ANCHOR_RADIUS_SPREAD = 0.8
+        private const val ANCHOR_LEAN = 0.25
+        private const val ANCHOR_TAPER = 0.4
+        /** Anchors reach into the root network's upper runners. */
+        private const val ANCHOR_BOTTOM_Y = 24
+        /** Radians kept clear on each side of the tunnel mouth. */
+        private const val ANCHOR_MOUTH_CLEARANCE = 0.6
+        /** Furthest an anchor reaches: start + full lean + radius. */
+        private const val ANCHOR_REACH_SQ = 28L * 28L
 
         // ---- Rivers radiating from the moat ----
-        /** How many evenly-angled rivers spawn off the moat. 8 → one
-         *  river per 45° of the moat circumference. */
         private const val RIVER_COUNT = 8
-        /** Steps per river. 200 · 1.5 = 300 blocks of reach from start. */
-        private const val RIVER_MAX_STEPS = 200
-        private const val RIVER_STEP_LEN = 1.5
-        /** Radius of the 2D water-circle painted at each path point —
-         *  5-block-wide channel, same width as vanilla rivers. */
-        private const val RIVER_RADIUS = 3
-        /** Mud bed Y. Water column runs from here up to [SEA_LEVEL_Y]. */
-        private const val RIVER_BED_Y = SEA_LEVEL_Y - 4
-        /** Air-buffer top Y. Above-water columns are carved out to here
-         *  so low ridges along the meander don't dam the channel. */
-        private const val RIVER_TOP_Y = SEA_LEVEL_Y + 4
-        /** Per-step yaw random-walk amplitude (radians). */
-        private const val RIVER_YAW_TURN = 0.35
-        /** Fraction of the yaw → radial-direction difference applied per
-         *  step. Soft bias — keeps the river heading outward without
-         *  killing the meander. */
+        private const val RIVER_SALT = 9201
+        /** Max deviation (radians) of each river's start angle from an even split. */
+        private const val RIVER_ANGLE_JITTER = 0.3
+        private const val RIVER_MIN_STEPS = 320
+        private const val RIVER_EXTRA_STEPS = 200
+        /** Short steps keep the painted points overlapping through tight meander bends. */
+        private const val RIVER_STEP_LEN = 0.75
+        private const val RIVER_MIN_RADIUS = 2.2
+        private const val RIVER_RADIUS_SPREAD = 1.3
+        private const val RIVER_MIN_PAINT_RADIUS = 1.0
+        private const val RIVER_WIDTH_VARIATION = 0.25
+        private const val RIVER_WIDTH_NOISE_FREQ = 0.02
+        /** Last share of a path over which the channel narrows to 40 % width. */
+        private const val RIVER_TAIL_FRACTION = 0.25
+        /** Alluvial meander wavelength ≈ 12 × width ≈ 24 × radius. */
+        private const val MEANDER_WAVELENGTH_PER_RADIUS = 24.0
+        private const val MEANDER_AMPLITUDE_RATIO = 0.22
+        private const val RIVER_YAW_TURN = 0.12
         private const val RIVER_RADIAL_BIAS = 0.05
-        /** Each step pulls Y toward sea level − 1 by this fraction. */
-        private const val RIVER_Y_TRACK_BIAS = 0.4
+        private const val RIVER_DEPTH_BASE = 1.0f
+        private const val RIVER_DEPTH_PER_RADIUS = 1.2f
+        /** Bed never below y59: the flooded root caves are lined up to y55. */
+        private const val RIVER_MAX_DEPTH = 4.0f
+        /** Horizontal reach past the channel edge that banks and levees can reshape. */
+        private const val RIVER_BANK_WINDOW = 14f
+        private const val RIVER_BANK_SLOPE = 1.0f
+        private const val LEVEE_WIDTH = 6f
+        private const val LEVEE_CREST_EDGE = 2f
+        private const val LEVEE_NOISE_FREQ = 0.05
 
-        /** Reject chunks whose nearest corner is past this squared
-         *  distance from origin — beyond it no river can possibly reach. */
-        private const val RIVER_REACH_PLUS_PAD_SQ: Long =
-            ((MOAT_OUTER_R + 2.0 + RIVER_MAX_STEPS * RIVER_STEP_LEN +
-                RIVER_RADIUS).toLong() + 4) *
-            ((MOAT_OUTER_R + 2.0 + RIVER_MAX_STEPS * RIVER_STEP_LEN +
-                RIVER_RADIUS).toLong() + 4)
+        private const val RIVER_MAX_TRIBUTARIES = 3
+        private const val TRIBUTARY_START_MIN = 0.25
+        private const val TRIBUTARY_START_SPAN = 0.45
+        private const val TRIBUTARY_ANGLE_MIN = 0.7
+        private const val TRIBUTARY_ANGLE_SPAN = 0.5
+        private const val TRIBUTARY_MIN_STEPS = 120
+        private const val TRIBUTARY_EXTRA_STEPS = 120
+        private const val TRIBUTARY_MIN_RADIUS = 1.0
+        private const val TRIBUTARY_RADIUS_SPREAD = 0.6
+
+        private const val RIVER_MAX_OXBOWS = 2
+        private const val OXBOW_START_MIN = 0.2
+        private const val OXBOW_START_SPAN = 0.6
+        private const val OXBOW_ARC_RADIUS_RATIO = 0.18
+        private const val OXBOW_ARC_SPAN = 2.4
+        private const val OXBOW_RADIUS = 2.0
+        private const val OXBOW_CLEARANCE = 4.0
+        private const val OXBOW_POINTS = 40
+
+        private fun unit(h: Int): Double = (h and 0xFFFF) / 65536.0
 
         // ---- Heart tunnel skeleton (cave → moat) ----
         // Space-colonisation algorithm (Runions et al. 2007) — same
@@ -3111,8 +3685,7 @@ class WohlonnogondoniaChunkGenerator(
         // around sea level. The trunk grows from the heart at world
         // origin toward an attractor cloud densely packed around
         // the moat ring; branches emerge naturally where intermediate
-        // attractors pull tips sideways, and dead-end tips host
-        // craggy pool chambers.
+        // attractors pull tips sideways.
         //
         // See [HeartTunnelSkeleton] for the algorithm.
 
@@ -3182,49 +3755,28 @@ class WohlonnogondoniaChunkGenerator(
          *  a sparse RNG roll) is a single number-change. */
         private const val HEART_STARTER_MAX_RADIUS = 25.0
 
-        /** Minimum tunnel radius (blocks). The pipe-model rule
-         *  clamps every node's radius to `[rMin, rMax]`; tips end
-         *  up at `rMin`, the trunk at `rMax`. */
-        private const val HEART_R_MIN = 3.0
-        /** Maximum tunnel radius (blocks). The trunk saturates here. */
-        private const val HEART_R_MAX = 5.5
-        /** Multiplier applied to the raw `√(descendantLeaves)`
-         *  pipe-model radius before [HEART_R_MIN]..[HEART_R_MAX]
-         *  clamping. Set so the trunk saturates and tips clamp up
-         *  from below — values < 1 widen the radius range, values
-         *  > 1 push more nodes to the upper clamp. */
+        /** Smallest walkable radius at the tips; the trunk is capped at [HEART_R_MAX]. */
+        private const val HEART_R_MIN = 1.6
+        private const val HEART_R_MAX = 6.5
+        /** Scales the area-preserving `√(descendantLeaves)` radius. */
         private const val HEART_THICKNESS_SCALE = 1.4
-
-        /** Thickness of the wogor-wood shell painted just outside the
-         *  carved interior (in blocks of distance). 1 → the wall is
-         *  one block thick. */
+        /** Tunnels near the moat sit low enough to break through its bank as outlets. */
+        private const val HEART_TUNNEL_BELOW_SEA = 4.0
+        private const val HEART_TUNNEL_ABOVE_SEA = 14.0
         private const val HEART_TUNNEL_SHELL_THICK = 1
-
-        // ---- Dead-end pool chambers ----
-        /** Length of the pool capsule past each leaf-tip's dead-end. */
-        private const val HEART_POOL_LEN_MIN = 5.0
-        private const val HEART_POOL_LEN_MAX = 10.0
-        /** Pool radius range. Pool radius is computed as the tip's
-         *  own radius + [HEART_POOL_R_BONUS], clamped here, so the
-         *  chamber is a visible widening of the passage rather than
-         *  a giant cavern. */
-        private const val HEART_POOL_R_MIN = 3.0
-        private const val HEART_POOL_R_MAX = 5.5
-        /** Bonus added to the leaf-tip's radius to compute the pool
-         *  capsule radius. */
-        private const val HEART_POOL_R_BONUS = 1.5
-        /** Per-voxel boundary-noise amplitude on the pool capsule
-         *  SDF. With the noise now applied **bulge-only** (see
-         *  [paintHeartCapsuleSegment]), the effective radius rides
-         *  in `[r, r + amp]` — the pool wall sticks out by up to
-         *  3 blocks but never pinches inward, so the inner volume
-         *  is solid carve with no vertical-scarring mud intrusions. */
-        private const val HEART_POOL_NOISE_AMP = 3.0
-        /** Frequency of the pool boundary noise (in voxel units).
-         *  0.18 → wavelength ≈ 5–6 blocks, so the wall shows broad
-         *  lobes rather than tight ripples. Isotropic (same in X, Y,
-         *  Z) via [valueNoise3D]. */
-        private const val HEART_POOL_BOUNDARY_NOISE_FREQ = 0.18
+        /** Sections run taller than wide, like peat-pipe outlets. */
+        private const val HEART_ELLIPSE = 1.35
+        private const val HEART_INV_ELLIPSE_SQ = 1.0 / (HEART_ELLIPSE * HEART_ELLIPSE)
+        /** Root wood is alive near the cave and rots toward the moat. */
+        private const val HEART_LIVE_RADIUS = 40.0
+        private const val HEART_DEAD_RADIUS = 160.0
+        private const val HEART_LIVE_FREQ = 0.08
+        /** At full rot this share of the wall is gone, and the floor silts this far up the section. */
+        private const val HEART_ROT_LINING_LOSS = 0.7
+        private const val HEART_SILT_DEPTH = 0.45
+        private const val HEART_DECOR_SALT = 0x4EA7
+        private const val HEART_HANGING_CHANCE = 0.2
+        private const val HEART_HEARTFIRE_CHANCE = 0.1
 
         // ---- Vines ----
         /** Per-cell density threshold (0..255). Lower → sparser
@@ -3233,25 +3785,19 @@ class WohlonnogondoniaChunkGenerator(
          *  drape. */
         private const val HEART_VINE_DENSITY_THRESHOLD = 80
 
-        // ---- World-span root tip taper ----
-        /** Number of trailing path steps over which the tip taper
-         *  shrinks the sphere radius from full down to 1 voxel. */
-        private const val ROOT_TIP_TAPER_STEPS = 8
-
         /** Reject chunks past this squared distance from origin.
          *  SCA grows to wherever attractors live; the moat ring
          *  attractors cap the network at `MOAT_OUTER_R`. Worst
          *  case: trunk reaches a moat-ring attractor at
          *  `MOAT_OUTER_R + HEART_KILL_DIST` (a node within kill
          *  distance of an outer-ring attractor), plus the tunnel's
-         *  own [HEART_R_MAX] radius, plus the pool extending
-         *  `HEART_POOL_LEN_MAX` past that with [HEART_POOL_R_MAX]
-         *  of additional radius. Padded an extra 16 for safety. */
+         *  own [HEART_R_MAX] radius (stretched by [HEART_ELLIPSE]),
+         *  plus an outlet reaching past the tip. Padded an extra 16. */
         private const val HEART_TUNNEL_REACH_PLUS_PAD_SQ: Long =
-            ((MOAT_OUTER_R + HEART_KILL_DIST + HEART_R_MAX +
-                HEART_POOL_LEN_MAX + HEART_POOL_R_MAX).toLong() + 16) *
-            ((MOAT_OUTER_R + HEART_KILL_DIST + HEART_R_MAX +
-                HEART_POOL_LEN_MAX + HEART_POOL_R_MAX).toLong() + 16)
+            ((MOAT_OUTER_R + HEART_KILL_DIST + HeartTunnelSkeleton.OUTLET_LENGTH +
+                HEART_R_MAX * HEART_ELLIPSE).toLong() + 16) *
+            ((MOAT_OUTER_R + HEART_KILL_DIST + HeartTunnelSkeleton.OUTLET_LENGTH +
+                HEART_R_MAX * HEART_ELLIPSE).toLong() + 16)
 
         // ---- Child Tree dispersal ----
         /** Region grid in chunks. Each `N × N` region of chunks may host
@@ -3269,7 +3815,13 @@ class WohlonnogondoniaChunkGenerator(
         private const val CHILD_TREE_CORE_BELOW = 8
         private const val CHILD_TREE_CORE_ABOVE = 24
 
-        private val NO_CHILD_TREE = ChildTreeSite(0, 0, 0, 0, 0)
+        // Before NO_CHILD_TREE: companion fields initialise in order, and its defaults read this.
+        private val EMPTY_NODES = DoubleArray(0)
+        private val NO_CHILD_TREE = ChildTreeSite(0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0)
+        private const val AGE_YOUNG = 0
+        private const val AGE_MATURE = 1
+        private const val AGE_OLD = 2
+        private const val AGE_DEAD = 3
         /** Worst-case XZ extent of a Child Tree (canopy reach + buttress
          *  + root walk) for the per-chunk AABB reject. */
         const val CHILD_TREE_MAX_REACH = 80
@@ -3277,7 +3829,7 @@ class WohlonnogondoniaChunkGenerator(
          *  adjacent regions. Closer-than-this candidates are rejected via
          *  the lower-seed-wins rule, so child trees stay visually
          *  separated even when adjacent regions both spawn one. */
-        const val CHILD_TREE_MIN_SPACING = 90
+        const val CHILD_TREE_MIN_SPACING = 60
         /** Continuous radius of each Child Tree root arm at its trunk
          *  end. Scaled to overlap the buttressed trunk so the root
          *  blends in cleanly. */
@@ -3350,76 +3902,9 @@ class WohlonnogondoniaChunkGenerator(
          *  to this many blocks above the hill surface periodically. */
         const val GNARLY_BUMP_AMP = 10.0
 
-        // ---- surface-root tunnel carvers ----
-        /** Radius (in blocks) of the sphere rasterised at every path step.
-         *  3 → tubes are ~7 voxels across, comparable to a vanilla
-         *  cave-carver passage. With [TUNNEL_STEP_LEN] = 1.5 every pair of
-         *  adjacent path steps' spheres overlaps by ~60 % of volume — that
-         *  overlap is what makes the painted tube *continuous*. */
-        private const val ROOT_TUBE_RADIUS = 3
-
-        /** Region tile size in chunks. The world is tiled by this-sized
-         *  squares and every region deterministically spawns one tunnel.
-         *  3 chunks (48 blocks) keeps the tunnel network dense enough
-         *  that every chunk gets touched by at least one path while still
-         *  paying a manageable cache footprint. */
-        private const val TUNNEL_REGION_SIZE_CHUNKS = 3
-        /** Region tile size in *blocks*. Power-of-2-friendly width (48 →
-         *  64 alignment isn't important here — we use the value to mask the
-         *  start offset, see [buildTunnelPaths]). */
-        private const val TUNNEL_REGION_SIZE = TUNNEL_REGION_SIZE_CHUNKS * 16
-        /** How many adjacent regions a chunk must scan to find every
-         *  tunnel that could possibly touch it. Worst-case reach is
-         *  `TUNNEL_MAX_STEPS · TUNNEL_STEP_LEN + TUNNEL_BRANCH_MAX_STEPS
-         *  · TUNNEL_STEP_LEN ≈ 120 + 60 = 180 blocks` ⇒ 3.75 regions →
-         *  round up to 4. */
-        private const val TUNNEL_REGION_SEARCH = 4
-
-        /** Number of forward steps in each tunnel path. 80 · 1.5 ≈ 120
-         *  blocks total length — long enough to bridge several neighbour
-         *  regions, short enough that the cached `IntArray` is small. */
-        private const val TUNNEL_MAX_STEPS = 80
-        /** Distance moved per step (blocks). Combined with [ROOT_TUBE_RADIUS]
-         *  this controls the sphere overlap that produces continuity. */
-        private const val TUNNEL_STEP_LEN = 1.5
-
-        /** Per-step yaw random-walk amplitude (radians). ±0.20 is the
-         *  same order vanilla `CaveWorldCarver` uses for its angle nudges. */
-        private const val TUNNEL_YAW_TURN = 0.40
-        /** Per-step pitch random-walk amplitude (radians). Smaller than
-         *  yaw so tunnels lean toward staying near horizontal — Y is
-         *  mostly driven by [TUNNEL_Y_TRACK_BIAS] instead. */
-        private const val TUNNEL_PITCH_TURN = 0.12
-        /** Hard limit on the pitch magnitude so a tunnel never points
-         *  straight up or down. */
-        private const val TUNNEL_PITCH_LIMIT = 0.5
-
-        /** Each step pulls Y toward its sine target by this fraction. A
-         *  small bias gives smooth elastic tracking instead of clamped
-         *  snapping — the tunnel curves into and out of the target Y
-         *  rather than oscillating around it stiffly. The sine
-         *  amplitude, period, and phase are picked per-path inside
-         *  `walkPath` so different tunnels reach different heights at
-         *  different rates. */
-        private const val TUNNEL_Y_TRACK_BIAS = 0.07
-
-        // ---- Branching ----
-        /** Step index at which branch attempts begin — small warm-up so
-         *  branches don't spawn right at the trunk's mouth. */
-        private const val TUNNEL_BRANCH_FIRST_STEP = 12
-        /** Branch attempts happen every this-many main-path steps. With
-         *  [TUNNEL_MAX_STEPS] = 80 and stride 16, that's ~4 candidate
-         *  spawn points along each main path; roughly 1 in 4 actually
-         *  branches, so each region averages ~1 branch — adds variety
-         *  without overwhelming the chunk paint budget. */
-        private const val TUNNEL_BRANCH_STRIDE = 16
-        /** Lower bound on branch length, in steps. */
-        private const val TUNNEL_BRANCH_MIN_STEPS = 20
-        /** Upper bound on branch length, in steps. 40 · 1.5 = 60 blocks
-         *  — long enough to feel like a real fork rather than a stub,
-         *  short enough to stay roughly within its parent region's
-         *  neighbours. */
-        private const val TUNNEL_BRANCH_MAX_STEPS = 40
+        // ---- surface roots: geometry lives in WohlonnogondoniaSurfaceRoots, shared with the Overworld grower ----
+        private const val TUNNEL_REGION_SIZE_CHUNKS = WohlonnogondoniaSurfaceRoots.TUNNEL_REGION_SIZE_CHUNKS
+        private const val TUNNEL_REGION_SEARCH = WohlonnogondoniaSurfaceRoots.TUNNEL_REGION_SEARCH
 
         /** Squared radius around world origin where tunnels are
          *  suppressed — both as a start exclusion and per-point inside
@@ -3646,7 +4131,133 @@ class WohlonnogondoniaChunkGenerator(
         // ---- block constants ----
         private val AIR: BlockState = Blocks.AIR.defaultBlockState()
         private val BEDROCK: BlockState = Blocks.BEDROCK.defaultBlockState()
-        private val MUD: BlockState = Blocks.MUD.defaultBlockState()
+        private val MUD: BlockState = EKBlocks.WOHLON_MUD.get().defaultBlockState()
+        private val HANGING_ROOTS_WET: BlockState = EKBlocks.WOHLON_HANGING_ROOTS.get().defaultBlockState()
+            .setValue(BlockStateProperties.WATERLOGGED, true)
+        private val HANGING_ROOTS_DRY: BlockState = EKBlocks.WOHLON_HANGING_ROOTS.get().defaultBlockState()
+        private val HEARTFIRE_CEILING_WET: BlockState = EKBlocks.HEARTFIRE.get().defaultBlockState()
+            .setValue(BlockStateProperties.UP, true).setValue(BlockStateProperties.WATERLOGGED, true)
+        private val HEARTFIRE_FLOOR_WET: BlockState = EKBlocks.HEARTFIRE.get().defaultBlockState()
+            .setValue(BlockStateProperties.DOWN, true).setValue(BlockStateProperties.WATERLOGGED, true)
+        private val HEARTFIRE_CEILING_DRY: BlockState = EKBlocks.HEARTFIRE.get().defaultBlockState()
+            .setValue(BlockStateProperties.UP, true)
+        private val HEARTFIRE_FLOOR_DRY: BlockState = EKBlocks.HEARTFIRE.get().defaultBlockState()
+            .setValue(BlockStateProperties.DOWN, true)
+        private const val ROOT_DECOR_SALT = 0x5EED_0F
+        private const val ROOT_CELLS_PER_CHUNK = 64
+
+        // ---- child heart chambers ----
+        private val CHILD_HEART: BlockState = EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState()
+        /** Chamber centre this far under the trunk base, so the roof sits just below the ground. */
+        private const val CHILD_CHAMBER_DEPTH = 6
+        private const val CHILD_CHAMBER_R_MIN = 4.5
+        private const val CHILD_CHAMBER_R_SPREAD = 1.5
+        private const val CHILD_CHAMBER_WOBBLE = 0.8
+        /** Past the radius: wobble plus a block of margin for the footprint tests. */
+        private const val CHILD_CHAMBER_SLACK = 2.0
+        private const val CHILD_CHAMBER_RISE = 3
+        private const val CHILD_CHAMBER_DOME = 2.5
+        private const val CHILD_CHAMBER_FLOOR_DROP = 2
+        private const val CHILD_CHAMBER_SALT = 0xC41D
+        private const val CHILD_SHAFT_OFFSET = 2.5
+        private const val CHILD_SHAFT_RADIUS = 1.8
+        private const val CHILD_SHAFT_TAPER = 0.25
+        private const val CHILD_SHAFT_LEAN = 0.3
+        private const val CHILD_SHAFT_WOBBLE = 1.8
+        private const val CHILD_SHAFT_WOBBLE_FREQ = 0.12
+        private const val CHILD_SHAFT_DROP = 12
+        /** The shaft's foot is a root-network junction, so it must sit inside the network band. */
+        private const val CHILD_SHAFT_BOTTOM_MIN = 10
+        private const val CHILD_SHAFT_BOTTOM_MAX = 44
+        private const val CHILD_NODE_RADIUS = 3.0
+        private const val CHILD_ANCHOR_MIN = 2
+        private const val CHILD_ANCHOR_EXTRA = 2
+        private const val CHILD_ANCHOR_RADIUS_MIN = 1.1
+        private const val CHILD_ANCHOR_RADIUS_SPREAD = 0.5
+        private const val CHILD_ANCHOR_LEAN = 0.2
+        /** Anchors reach this far below the shaft foot, into the root network. */
+        private const val CHILD_ANCHOR_BELOW_SHAFT = 4
+        /** Radians kept clear on each side of the shaft. */
+        private const val CHILD_ANCHOR_SHAFT_CLEARANCE = 0.7
+        private const val ANCHOR_START_SHARE = 0.6
+        private const val CHILD_ENTRANCE_RADIUS = 1.4
+        /** The crawlway surfaces this far past the buttress flare. */
+        private const val CHILD_ENTRANCE_BEYOND_CORE = 4
+        private const val CHILD_ENTRANCE_POINTS = 10
+        private const val CHILD_ENTRANCE_SWING = 4.0
+        private const val CHILD_ENTRANCE_SAG = 2.5
+
+        // ---- child tree placement and growth ----
+        private const val GROVE_SALT = 9401
+        /** Grove patches span a few regions. */
+        private const val GROVE_FREQ = 0.25
+        /** Ground this far above the water reads as high and dry: fewer, smaller trees. */
+        private const val CHILD_HIGH_GROUND_SPAN = 14.0
+        private val WATER_PROBE_DISTANCES = intArrayOf(12, 24)
+        private const val AGE_YOUNG_SHARE = 0.25
+        private const val AGE_MATURE_SHARE = 0.54
+        private const val AGE_DEAD_SHARE = 0.06
+        private const val YOUNG_SCALE = 0.55
+        private const val OLD_CROWN_KEEP = 0.75
+        private const val DEAD_CROWN_KEEP = 0.6
+        private const val CROWD_RANGE = 160.0
+        private const val LIGHT_PROBE_DISTANCE = 30
+        private const val WATER_LIGHT_PULL = 0.5
+        /** Crown shift at full lean, as a share of the canopy radius. */
+        private const val CROWN_LEAN_SHARE = 0.25
+        private val ROOT_WATER_PROBES = intArrayOf(10, 20, 30, 40)
+        private const val ROOT_WATER_OVERSHOOT = 8
+        private const val ROOT_MAX_REACH = 55
+        private const val ROOT_CLIMB_PROBE = 25
+        private const val ROOT_CLIMB_LIMIT = 5
+        private const val ROOT_CLIMB_SHRINK = 0.7
+        private const val HOLLOW_CORE_SHARE = 0.45
+        private const val HOLLOW_MIN_HEIGHT = 6
+        private const val HOLLOW_EXTRA_HEIGHT = 4
+        private const val HOLLOW_OPENING_HALF_WIDTH = 1.6
+        private const val HOLLOW_OPENING_HEIGHT = 3.0
+        private const val HOLLOW_OPENING_EXTRA = 2.0
+        private const val HOLLOW_DRIFT = 0.7
+        private const val HOLLOW_DRIFT_FREQ = 0.25
+        private const val HOLLOW_ROUGHNESS = 0.3
+        private const val HOLLOW_ROUGH_FREQ = 0.45
+        private const val CHILD_KNEES_MIN = 14
+        private const val CHILD_KNEES_EXTRA = 16
+        private const val CHILD_KNEE_GAP = 2.0
+        private const val CHILD_KNEE_SPREAD = 8.0
+        private const val CHILD_KNEE_WIDE_SHARE = 0.3
+        private const val WEYYE_SALT = 0x3E77E
+        private const val WEYYE_MIN_HEIGHT = 2
+        private const val WEYYE_MAX_HEIGHT = 12
+        private const val WEYYE_CHANCE = 0.03
+        private const val WEYYE_CLUSTER_FREQ = 0.4
+        private const val WEYYE_RIPE_SHARE = 0.2
+        private const val ROOT_CELL_CACHE_CAP = 4096
+        /** Hanging roots on any ceiling, plus extra under the living roots near the tree. */
+        private const val ROOT_HANGING_BASE = 0.08
+        private const val ROOT_HANGING_NEAR = 0.2
+        /** Heartfire on any surface, plus extra where the root wood is rotting. */
+        private const val ROOT_HEARTFIRE_BASE = 0.03
+        private const val ROOT_HEARTFIRE_ROTTING = 0.07
+        /** Patch field for heartfire: ~20 % of tunnel space lies in a patch. */
+        private const val HEARTFIRE_PATCH_FREQ = 0.07
+        private const val HEARTFIRE_PATCH_LOW = 0.3
+        private const val HEARTFIRE_PATCH_SPAN = 0.3
+        /** Walls are rolled per tunnel cell, so they take a larger share than floors and ceilings. */
+        private const val ROOT_HEARTFIRE_WALL_SHARE = 1.0
+        private val HORIZONTAL_DIRECTIONS = arrayOf(Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST)
+        private val HEARTFIRE_BY_FACE: Array<Array<BlockState>> = Array(2) { wet ->
+            Array(Direction.values().size) { d ->
+                EKBlocks.HEARTFIRE.get().defaultBlockState()
+                    .setValue(net.minecraft.world.level.block.MultifaceBlock.getFaceProperty(Direction.values()[d]), true)
+                    .setValue(BlockStateProperties.WATERLOGGED, wet == 1)
+            }
+        }
+
+        /** Heartfire attached to the wall on side [dir] of its cell. */
+        private fun heartfireOn(dir: Direction, wet: Boolean): BlockState = HEARTFIRE_BY_FACE[if (wet) 1 else 0][dir.ordinal]
+        /** Past this deadness a channel is a silted dead root rather than rotting wood. */
+        private const val SILT_DEADNESS = 0.8
         // ---- heart-cave -> root-cave descent ----
         /** Bottom of the shaft. Reaches well past the root network's y54
          *  ceiling — the coarse lattice's vertical cell is 16 blocks, so
@@ -3664,7 +4275,11 @@ class WohlonnogondoniaChunkGenerator(
         private const val SHAFT_FLARE = 2.5
         private const val SHAFT_FLARE_SPAN = 6
         /** Square pre-reject bound: radius + flare + wobble + shell. */
-        private const val SHAFT_REJECT = 11
+        /** Covers lean + wobble + radius + flare + lining. */
+        private const val SHAFT_REJECT = 15
+        private const val SHAFT_LEAN = 0.15
+        /** The shaft narrows by this share from top to bottom. */
+        private const val SHAFT_TAPER = 0.25
 
         /** Lining of every root-cave tunnel — see [WohlonRootField]. */
         private val ROOT_BLOCK: BlockState = EKBlocks.WOHLON_ROOT.get().defaultBlockState()
@@ -3697,6 +4312,8 @@ class WohlonnogondoniaChunkGenerator(
          *  [org.shipwrights.enderkinesis.block.HeartOfTheWildBlock]
          *  destroy guards + catastrophe trigger arm. Lazy for the
          *  same reason as the rest of these EK block constants. */
+        private val FOUNTAIN: BlockState by lazy { EKBlocks.FOUNTAIN_OF_BLESSING.get().defaultBlockState() }
+
         private val MOTHER_HEART: BlockState by lazy {
             EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState()
                 .setValue(org.shipwrights.enderkinesis.block.HeartOfTheWildBlock.MOTHER, true)
@@ -3778,21 +4395,26 @@ class WohlonnogondoniaChunkGenerator(
         }
 
         /** Base + regional terms of [surfaceYAt], without the fine and hill terms. */
-        internal fun coarseSurfaceY(wx: Int, wz: Int): Double =
-            SURFACE_BASE_Y + valueNoise2(wx * 0.015, wz * 0.015) * REGIONAL_AMPLITUDE
+        private fun coarseSurfaceY(wx: Int, wz: Int): Double {
+            // Domain warp bends the regional lattice so pools and bars stop lining up with the axes.
+            val warpX = valueNoise2(wx * REGIONAL_WARP_FREQ, wz * REGIONAL_WARP_FREQ, WARP_SALT) * REGIONAL_WARP_AMP
+            val warpZ = valueNoise2(wx * REGIONAL_WARP_FREQ + 31.7, wz * REGIONAL_WARP_FREQ + 17.3, WARP_SALT) *
+                REGIONAL_WARP_AMP
+            return SURFACE_BASE_Y + valueNoise2((wx + warpX) * 0.015, (wz + warpZ) * 0.015) * REGIONAL_AMPLITUDE
+        }
 
         /** [-1, 1] valley noise via bilinear interpolation of per-lattice hashes. */
-        private fun valueNoise2(x: Double, z: Double): Double {
+        private fun valueNoise2(x: Double, z: Double, salt: Int = 1): Double {
             val ix = Math.floor(x).toInt()
             val iz = Math.floor(z).toInt()
             val fx = x - ix
             val fz = z - iz
             val sx = fx * fx * (3.0 - 2.0 * fx)
             val sz = fz * fz * (3.0 - 2.0 * fz)
-            val a = (hash32(ix, iz, 1) and 0xFFFF) / 32768.0 - 1.0
-            val b = (hash32(ix + 1, iz, 1) and 0xFFFF) / 32768.0 - 1.0
-            val c = (hash32(ix, iz + 1, 1) and 0xFFFF) / 32768.0 - 1.0
-            val d = (hash32(ix + 1, iz + 1, 1) and 0xFFFF) / 32768.0 - 1.0
+            val a = (hash32(ix, iz, salt) and 0xFFFF) / 32768.0 - 1.0
+            val b = (hash32(ix + 1, iz, salt) and 0xFFFF) / 32768.0 - 1.0
+            val c = (hash32(ix, iz + 1, salt) and 0xFFFF) / 32768.0 - 1.0
+            val d = (hash32(ix + 1, iz + 1, salt) and 0xFFFF) / 32768.0 - 1.0
             val ab = a + (b - a) * sx
             val cd = c + (d - c) * sx
             return ab + (cd - ab) * sz
@@ -3805,5 +4427,21 @@ class WohlonnogondoniaChunkGenerator(
                         .forGetter(WohlonnogondoniaChunkGenerator::getBiomeSourceForCodec),
                 ).apply(instance, ::WohlonnogondoniaChunkGenerator)
             }
+    }
+}
+
+/** River centreline points with a per-point channel radius. */
+private class RiverPath(
+    @JvmField val x: FloatArray,
+    @JvmField val z: FloatArray,
+    @JvmField val r: FloatArray,
+    @JvmField val count: Int,
+    @JvmField val levee: Boolean,
+) {
+    /** Heading (radians) of the path at [i], from its neighbours. */
+    fun tangent(i: Int): Double {
+        val a = (i - 1).coerceIn(0, count - 1)
+        val b = (i + 1).coerceIn(0, count - 1)
+        return Math.atan2((z[b] - z[a]).toDouble(), (x[b] - x[a]).toDouble())
     }
 }

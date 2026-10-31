@@ -32,6 +32,8 @@
     "minecraft:cobbled_deepslate",
     "minecraft:terracotta",
     "minecraft:red_sandstone",
-    "minecraft:sandstone"
+    "minecraft:sandstone",
+    "enderkinesis:wohlon_mud",
+    "enderkinesis:wohlon_moss"
   ]
 }

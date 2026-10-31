@@ -7,6 +7,10 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.tags.TagKey
 import net.minecraft.world.item.BlockItem
+import net.minecraft.world.item.DoubleHighBlockItem
+import net.minecraft.world.item.HangingSignItem
+import net.minecraft.world.item.PlaceOnWaterBlockItem
+import net.minecraft.world.item.SignItem
 import net.minecraft.world.item.Instrument
 import net.minecraft.world.item.InstrumentItem
 import net.minecraft.world.item.Item
@@ -29,6 +33,7 @@ import org.shipwrights.enderkinesis.item.MysticOnyxItem
 import org.shipwrights.enderkinesis.item.MysticSpinelItem
 import org.shipwrights.enderkinesis.item.EideticBookmarkItem
 import org.shipwrights.enderkinesis.item.OldPaperItem
+import org.shipwrights.enderkinesis.item.SatchelOfShelvingItem
 import org.shipwrights.enderkinesis.item.SselithBookItem
 import org.shipwrights.enderkinesis.item.RobeArmorMaterial
 import org.shipwrights.enderkinesis.item.ScalingRobeArmorItem
@@ -41,6 +46,7 @@ import org.shipwrights.enderkinesis.item.StaffOfConcealmentItem
 import org.shipwrights.enderkinesis.item.StaffOfDensityItem
 import org.shipwrights.enderkinesis.item.StaffOfFusionItem
 import org.shipwrights.enderkinesis.item.StaffOfScalesItem
+import org.shipwrights.enderkinesis.item.GrandStaffOfTheDeadItem
 import org.shipwrights.enderkinesis.item.StaffOfSunderingItem
 import org.shipwrights.enderkinesis.item.TomeOfBindingItem
 import org.shipwrights.enderkinesis.item.TomeOfChainingItem
@@ -59,6 +65,7 @@ import org.shipwrights.enderkinesis.item.TomeOfVacuumItem
 import org.shipwrights.enderkinesis.item.TomeOfVentriloquismItem
 import org.shipwrights.enderkinesis.item.WaybreadItem
 import org.shipwrights.enderkinesis.item.WeyyeFruitItem
+import org.shipwrights.enderkinesis.item.WogorBoatItem
 import org.shipwrights.enderkinesis.item.WyllandTomeItem
 
 /**
@@ -136,6 +143,8 @@ object EKItems {
 
     /** Ancrite scrap — raw item form of the ender-metal "ancrite". */
     val ANCRITE_SCRAP: RegistrySupplier<Item> = ITEMS.register("ancrite_scrap") { Item(props()) }
+
+    val YGANN_ACUUL: RegistrySupplier<Item> = ITEMS.register("ygann_acuul") { Item(props()) }
 
     /** Wey'ye fruit — fully restores hunger + saturation (even when
      *  full) and irreversibly inflicts the permanent Ambrosial Craving
@@ -296,6 +305,8 @@ object EKItems {
         ITEMS.register("staff_of_aegis") { StaffOfAegisItem(props().stacksTo(1)) }
     val STAFF_OF_SUNDERING: RegistrySupplier<Item> =
         ITEMS.register("staff_of_sundering") { StaffOfSunderingItem(props().stacksTo(1)) }
+    val GRAND_STAFF_OF_THE_DEAD: RegistrySupplier<Item> =
+        ITEMS.register("grand_staff_of_the_dead") { GrandStaffOfTheDeadItem(props().stacksTo(1)) }
 
     /** Mystic Gems — right-click triggers a 7-block-diameter themed burst centred on the
      *  holder; per-stack 10-second cooldown, item is not consumed. See [MysticGemItem]
@@ -361,16 +372,22 @@ object EKItems {
         ITEMS.register("old_paper") { OldPaperItem(props().stacksTo(16)) }
 
     val SSELITH_BOOK: RegistrySupplier<Item> =
-        ITEMS.register("sselith_book") { SselithBookItem(props().stacksTo(16)) }
+        ITEMS.register("sselith_book") { SselithBookItem(props()) }
 
     val WAYBREAD: RegistrySupplier<Item> =
         ITEMS.register("waybread") { WaybreadItem(props()) }
 
+    val BLESSED_RAZOR: RegistrySupplier<Item> =
+        ITEMS.register("blessed_razor") { Item(props().stacksTo(1)) }
+
     val EIDETIC_BOOKMARK: RegistrySupplier<Item> =
         ITEMS.register("eidetic_bookmark") { EideticBookmarkItem(props().stacksTo(1)) }
 
+    val SATCHEL_OF_SHELVING: RegistrySupplier<Item> =
+        ITEMS.register("satchel_of_shelving") { SatchelOfShelvingItem(props().stacksTo(1)) }
+
     val PENFEATHER_OF_THE_ACCURSED_OWL: RegistrySupplier<Item> =
-        ITEMS.register("penfeather_of_the_accursed_owl") { Item(props().stacksTo(1)) }
+        ITEMS.register("penfeather_of_the_accursed_owl") { Item(props().durability(org.shipwrights.enderkinesis.blockentity.OarscribeBlockEntity.PENFEATHER_DURABILITY)) }
 
     val ICHAERIC_INK_BOTTLE: RegistrySupplier<Item> =
         ITEMS.register("ichaeric_ink_bottle") { Item(props().stacksTo(16)) }
@@ -384,6 +401,8 @@ object EKItems {
     val INEGRIC_RETORT_ITEM = blockItem("inegric_retort", EKBlocks.INEGRIC_RETORT)
 
     val SCRIBES_DESK_ITEM = blockItem("scribes_desk", EKBlocks.SCRIBES_DESK)
+    val OARSCRIBE_ITEM = blockItem("oarscribe", EKBlocks.OARSCRIBE)
+    val JAR_RECEPTACLE_ITEM = blockItem("jar_receptacle", EKBlocks.JAR_RECEPTACLE)
 
     val FORGOTTEN_ITEM_ITEM: RegistrySupplier<Item> = ITEMS.register("forgotten_item") {
         org.shipwrights.enderkinesis.item.ForgottenItemBlockItem(EKBlocks.FORGOTTEN_ITEM.get(), props())
@@ -442,6 +461,9 @@ object EKItems {
     val SSELITH_LECTERN_ITEM = blockItem("sselith_lectern", EKBlocks.SSELITH_LECTERN)
     val ORB_OF_LINKING_ITEM = blockItem("orb_of_linking", EKBlocks.ORB_OF_LINKING)
     val ORB_OF_SCRYING_ITEM = blockItem("orb_of_scrying", EKBlocks.ORB_OF_SCRYING)
+    val MYSTIC_BEAM_ANCHOR_ITEM = ITEMS.register("mystic_beam_anchor") {
+        org.shipwrights.enderkinesis.item.MysticBeamAnchorItem(EKBlocks.MYSTIC_BEAM_ANCHOR.get(), props())
+    }
     val HEART_OF_THE_WILD_ITEM = ITEMS.register("heart_of_the_wild") { org.shipwrights.enderkinesis.item.HeartOfTheWildBlockItem(EKBlocks.HEART_OF_THE_WILD.get(), props()) }
     val CRYSTAL_EXPLOSIVE_ITEM = blockItem("crystal_explosive", EKBlocks.CRYSTAL_EXPLOSIVE)
     val HEART_CANDLE_ITEM = blockItem("heart_candle", EKBlocks.HEART_CANDLE)
@@ -462,6 +484,41 @@ object EKItems {
     val WOGOR_WOOD_WALL_ITEM = blockItem("wogor_wood_wall", EKBlocks.WOGOR_WOOD_WALL)
     val WOGOR_WOOD_PANE_ITEM = blockItem("wogor_wood_pane", EKBlocks.WOGOR_WOOD_PANE)
     val WOGOR_WOOD_BUTTON_ITEM = blockItem("wogor_wood_button", EKBlocks.WOGOR_WOOD_BUTTON)
+    val STRIPPED_WOGOR_LOG_ITEM = blockItem("stripped_wogor_log", EKBlocks.STRIPPED_WOGOR_LOG)
+    val STRIPPED_WOGOR_WOOD_ITEM = blockItem("stripped_wogor_wood", EKBlocks.STRIPPED_WOGOR_WOOD)
+    val WOGOR_DOOR_ITEM = ITEMS.register("wogor_door") { DoubleHighBlockItem(EKBlocks.WOGOR_DOOR.get(), props()) }
+    val WOGOR_TRAPDOOR_ITEM = blockItem("wogor_trapdoor", EKBlocks.WOGOR_TRAPDOOR)
+    val WOGOR_SIGN_ITEM = ITEMS.register("wogor_sign") {
+        SignItem(props().stacksTo(16), EKBlocks.WOGOR_SIGN.get(), EKBlocks.WOGOR_WALL_SIGN.get())
+    }
+    val WOGOR_HANGING_SIGN_ITEM = ITEMS.register("wogor_hanging_sign") {
+        HangingSignItem(EKBlocks.WOGOR_HANGING_SIGN.get(), EKBlocks.WOGOR_WALL_HANGING_SIGN.get(), props().stacksTo(16))
+    }
+    val WOGOR_BOAT = ITEMS.register("wogor_boat") { WogorBoatItem(false, props().stacksTo(1)) }
+    val WOGOR_CHEST_BOAT = ITEMS.register("wogor_chest_boat") { WogorBoatItem(true, props().stacksTo(1)) }
+
+    val WOHLON_MUD_ITEM = blockItem("wohlon_mud", EKBlocks.WOHLON_MUD)
+    val WOHLON_MOSS_ITEM = blockItem("wohlon_moss", EKBlocks.WOHLON_MOSS)
+    val WOHLON_MOSS_CARPET_ITEM = blockItem("wohlon_moss_carpet", EKBlocks.WOHLON_MOSS_CARPET)
+    val WOHLON_FERN_ITEM = blockItem("wohlon_fern", EKBlocks.WOHLON_FERN)
+    val WOHLON_GRASS_ITEM = blockItem("wohlon_grass", EKBlocks.WOHLON_GRASS)
+    val WOHLON_LICHEN_ITEM = blockItem("wohlon_lichen", EKBlocks.WOHLON_LICHEN)
+    val WOHLON_REED_ITEM =
+        ITEMS.register("wohlon_reed") { DoubleHighBlockItem(EKBlocks.WOHLON_REED.get(), props()) }
+    val WOHLON_LILY_PAD_ITEM =
+        ITEMS.register("wohlon_lily_pad") { PlaceOnWaterBlockItem(EKBlocks.WOHLON_LILY_PAD.get(), props()) }
+    val WOHLON_DUCKWEED_ITEM =
+        ITEMS.register("wohlon_duckweed") { PlaceOnWaterBlockItem(EKBlocks.WOHLON_DUCKWEED.get(), props()) }
+    val WOHLON_LEAF_LITTER_ITEM = blockItem("wohlon_leaf_litter", EKBlocks.WOHLON_LEAF_LITTER)
+    val HEARTFIRE_ITEM = blockItem("heartfire", EKBlocks.HEARTFIRE)
+    val WOHLON_HANGING_ROOTS_ITEM = blockItem("wohlon_hanging_roots", EKBlocks.WOHLON_HANGING_ROOTS)
+    val WOHLON_LUMPY_MUSHROOM_ITEM = blockItem("wohlon_lumpy_mushroom", EKBlocks.WOHLON_LUMPY_MUSHROOM)
+    val WOHLON_CUP_MUSHROOM_ITEM = blockItem("wohlon_cup_mushroom", EKBlocks.WOHLON_CUP_MUSHROOM)
+    val WOHLON_LUMPY_MUSHROOM_BLOCK_ITEM = blockItem("wohlon_lumpy_mushroom_block", EKBlocks.WOHLON_LUMPY_MUSHROOM_BLOCK)
+    val WOHLON_CUP_MUSHROOM_BLOCK_ITEM = blockItem("wohlon_cup_mushroom_block", EKBlocks.WOHLON_CUP_MUSHROOM_BLOCK)
+    val WOHLON_MUSHROOM_STEM_ITEM = blockItem("wohlon_mushroom_stem", EKBlocks.WOHLON_MUSHROOM_STEM)
+    val WOHLON_TALL_FERN_ITEM =
+        ITEMS.register("wohlon_tall_fern") { DoubleHighBlockItem(EKBlocks.WOHLON_TALL_FERN.get(), props()) }
 
     /** Binding Roots block item — places the pillar block, which on
      *  player-placement registers itself with `BindingRootsMerger`'s scanner.

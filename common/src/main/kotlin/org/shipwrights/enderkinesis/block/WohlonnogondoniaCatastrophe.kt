@@ -56,7 +56,7 @@ object WohlonnogondoniaCatastrophe {
 
     private const val RAIDS_DATA_PREFIX = "raids"
 
-    private val GODLY_INTERVENTION: ResourceKey<DamageType> =
+    internal val GODLY_INTERVENTION: ResourceKey<DamageType> =
         ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("godly_intervention"))
 
     private val KICK_MESSAGE: Component =

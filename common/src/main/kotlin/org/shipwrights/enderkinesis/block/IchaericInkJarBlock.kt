@@ -81,17 +81,19 @@ class IchaericInkJarBlock(properties: Properties) : Block(properties) {
         tooltip.add(Component.translatable(CONTENTS_KEY, bottlesOf(stack), MAX_BOTTLES))
     }
 
-    override fun getCloneItemStack(level: BlockGetter, pos: BlockPos, state: BlockState): ItemStack {
-        val stack = super.getCloneItemStack(level, pos, state)
-        val bottles = state.getValue(BOTTLES)
-        if (bottles > 0) stack.getOrCreateTagElement(BlockItem.BLOCK_STATE_TAG).putString(BOTTLES.name, bottles.toString())
-        return stack
-    }
+    override fun getCloneItemStack(level: BlockGetter, pos: BlockPos, state: BlockState): ItemStack =
+        withBottles(super.getCloneItemStack(level, pos, state), state.getValue(BOTTLES))
 
     companion object {
         const val MAX_BOTTLES = 6
         const val CONTENTS_KEY = "message.enderkinesis.ichaeric_ink_jar.contents"
         val BOTTLES: IntegerProperty = IntegerProperty.create("bottles", 0, MAX_BOTTLES)
+
+        /** Marks a jar [stack] as holding [bottles], as the placed block will. */
+        fun withBottles(stack: ItemStack, bottles: Int): ItemStack {
+            if (bottles > 0) stack.getOrCreateTagElement(BlockItem.BLOCK_STATE_TAG).putString(BOTTLES.name, bottles.toString())
+            return stack
+        }
 
         @JvmStatic
         fun bottlesOf(stack: ItemStack): Int =

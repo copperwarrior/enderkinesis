@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.block
 import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.LongArrayList
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.Registries
@@ -89,6 +90,12 @@ object HeartOfTheWildManager : ShipMoveListener {
      *  consumer's next fire. */
     private val nextWorldGrowTick: MutableMap<ResourceKey<Level>, Long> = HashMap()
 
+    /** World pool keys whose chunk was loaded at the last refresh, so a consumer fire does not
+     *  walk the unloaded pools. Server thread only. */
+    private val loadedWorldPools: MutableMap<ResourceKey<Level>, LongArrayList> = HashMap()
+    private val loadedWorldPoolsRefreshAt: MutableMap<ResourceKey<Level>, Long> = HashMap()
+    private const val LOADED_POOL_REFRESH_TICKS: Long = 20L
+
     /** Pick the next inter-fire delay (game ticks). Uniform over
      *  `[GROW_PERIOD_MIN_TICKS, GROW_PERIOD_MAX_TICKS]`. */
     fun nextGrowPeriod(random: net.minecraft.util.RandomSource): Long {
@@ -101,6 +108,8 @@ object HeartOfTheWildManager : ShipMoveListener {
         LifecycleEvent.SERVER_STOPPED.register { _ ->
             shipHearts.clear()
             nextWorldGrowTick.clear()
+            loadedWorldPools.clear()
+            loadedWorldPoolsRefreshAt.clear()
         }
         // Block-destruction registration is driven by
         // org.shipwrights.enderkinesis.mixin.LevelChunkWildHeartDestroyMixin
@@ -153,10 +162,12 @@ object HeartOfTheWildManager : ShipMoveListener {
             data.ships.getOrPut(shipId) { HashMap() }
         } else {
             if (server.dimension() != Wohlonnogondonia.LEVEL_KEY) return
+            // The outline shape, not collision: mud collides 14/16 high so entities sink in.
+            if (!Block.isShapeFullBlock(oldState.getShape(server, pos))) return
             data = regrowth(server)
             data.world
         }
-        addPosition(scopeMap, pos.immutable())
+        addPosition(server, ship == null, scopeMap, pos.immutable())
         data.setDirty()
 
         // Shape-preserving regrow: [WogorBudBlock.tick] consumes the target. Only positions in
@@ -172,7 +183,7 @@ object HeartOfTheWildManager : ShipMoveListener {
         if (server.random.nextFloat() < SPREAD_CHANCE) {
             val spread = pickRandomAdjacentReplaceable(server, pos)
             if (spread != null) {
-                addPosition(scopeMap, spread)
+                addPosition(server, ship == null, scopeMap, spread)
             }
         }
     }
@@ -181,10 +192,20 @@ object HeartOfTheWildManager : ShipMoveListener {
      *  per-chunk pool on first add. Pool semantics ⇒ adding the
      *  same position twice is a no-op. */
     private fun addPosition(
+        level: ServerLevel,
+        worldScope: Boolean,
         scopeMap: MutableMap<Long, PositionPool>,
         pos: BlockPos,
     ) {
-        scopeMap.getOrPut(chunkKey(pos)) { PositionPool() }.add(pos)
+        val key = chunkKey(pos)
+        val existing = scopeMap[key]
+        if (existing != null) {
+            existing.add(pos)
+            return
+        }
+        scopeMap[key] = PositionPool().also { it.add(pos) }
+        // The break happened in this chunk, so it is loaded.
+        if (worldScope) loadedWorldPools[level.dimension()]?.add(key)
     }
 
 
@@ -204,7 +225,7 @@ object HeartOfTheWildManager : ShipMoveListener {
             }
             if (level.gameTime < scheduled) return
             val data = regrowth(level)
-            if (consumeScope(level, data.world)) data.setDirty()
+            if (consumeWorldScope(level, data.world)) data.setDirty()
             nextWorldGrowTick[key] = level.gameTime + nextGrowPeriod(level.random)
         } catch (t: Throwable) {
             LOG.error("WildHeart: dimension consumer threw; rescheduling", t)
@@ -218,8 +239,52 @@ object HeartOfTheWildManager : ShipMoveListener {
     fun tickHeart(level: ServerLevel, heartPos: BlockPos) {
         val ship = level.getLoadedShipManagingPos(heartPos)
         val data = regrowth(level)
-        val scopeMap = (if (ship != null) data.ships[ship.id] else data.world) ?: return
-        if (consumeScope(level, scopeMap)) data.setDirty()
+        val changed = if (ship != null) {
+            consumeScope(level, data.ships[ship.id] ?: return)
+        } else {
+            consumeWorldScope(level, data.world)
+        }
+        if (changed) data.setDirty()
+    }
+
+    /** [consumeScope] for the world scope, over the loaded pools only. */
+    private fun consumeWorldScope(level: ServerLevel, world: MutableMap<Long, PositionPool>): Boolean {
+        if (world.isEmpty()) return false
+        val keys = loadedWorldPoolKeys(level, world)
+        val chunkSource = level.chunkSource
+        var changed = false
+        var i = 0
+        while (i < keys.size) {
+            val chunkKey = keys.getLong(i)
+            val pool = world[chunkKey]
+            if (pool != null) {
+                if (chunkSource.getChunkNow(ChunkPos.getX(chunkKey), ChunkPos.getZ(chunkKey)) != null &&
+                    tryGrowInChunk(level, pool)
+                ) changed = true
+                if (!pool.isEmpty()) {
+                    i++
+                    continue
+                }
+                world.remove(chunkKey)
+            }
+            // Swap-remove, so a pool made again for this chunk adds its key only once.
+            keys.set(i, keys.getLong(keys.size - 1))
+            keys.removeLong(keys.size - 1)
+        }
+        return changed
+    }
+
+    private fun loadedWorldPoolKeys(level: ServerLevel, world: Map<Long, PositionPool>): LongArrayList {
+        val dim = level.dimension()
+        val keys = loadedWorldPools.getOrPut(dim) { LongArrayList() }
+        if (level.gameTime < (loadedWorldPoolsRefreshAt[dim] ?: 0L)) return keys
+        loadedWorldPoolsRefreshAt[dim] = level.gameTime + LOADED_POOL_REFRESH_TICKS
+        keys.clear()
+        val chunkSource = level.chunkSource
+        for (chunkKey in world.keys) {
+            if (chunkSource.getChunkNow(ChunkPos.getX(chunkKey), ChunkPos.getZ(chunkKey)) != null) keys.add(chunkKey)
+        }
+        return keys
     }
 
     /** Run one prune-and-pick pass for each loaded chunk in [scopeMap]. True when a pool changed. */

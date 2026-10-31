@@ -3,7 +3,6 @@ package org.shipwrights.enderkinesis.block
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
@@ -24,8 +23,8 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.saveddata.SavedData
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
-import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
+import org.shipwrights.enderkinesis.util.ClassWarmup
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.tags.BlockTags
@@ -107,60 +106,8 @@ object WohlonnogondoniaPortalManager {
      *  cell". */
     private const val MOTHER_TELEPORT_RADIUS: Double = 1.5
 
-    /** Number of converging-sphere particles emitted per portal
-     *  per server tick. Bumped from 2 → 10 for a denser halo. */
-    private const val PARTICLES_PER_TICK: Int = 10
-
-    /** Number of outward-up plume particles emitted per portal
-     *  per server tick. Continuous (every tick) at this density
-     *  rather than the previous 1-in-N gate. */
-    private const val OUTWARD_PER_TICK: Int = 3
-
-    /** Radius of the sphere where converging particles spawn (in
-     *  blocks). Set just outside the ritual portal's teleport AABB
-     *  (0.7) so the visible halo sits flush with the trigger
-     *  volume. */
-    private const val SPHERE_RADIUS: Double = 0.9
-
-    /** Inward velocity applied to converging particles. ~22 ticks
-     *  to cross [SPHERE_RADIUS], so the arc is visible. */
-    private const val INWARD_SPEED: Double = 0.04
-
-    /** Mother-portal halo scaling factor. Multiplies [SPHERE_RADIUS],
-     *  [INWARD_SPEED], [PARTICLES_PER_TICK], and [OUTWARD_PER_TICK]
-     *  so the halo around the Mother heart matches its enlarged
-     *  [MOTHER_TELEPORT_RADIUS] trigger volume (and the 2× heart's
-     *  visual presence) rather than reading as a tiny dot at the
-     *  centre of a big AABB. Inward speed scales with the sphere
-     *  so the cross-time (22 ticks) stays constant — the arc reads
-     *  identically on both portal sizes. Particle counts scale
-     *  *linearly* (not by area) so the density falls off slightly
-     *  on the bigger halo; full area-scaling at this size produced
-     *  a particle cloud dense enough to obscure the heart. */
-    private const val MOTHER_PARTICLE_SCALE: Double =
-        MOTHER_TELEPORT_RADIUS / TELEPORT_RADIUS
-
-    /** Horizontal drift speed of the outward-up plume. */
-    private const val OUTWARD_HORIZ_SPEED: Double = 0.05
-
-    /** Vertical lift speed of the outward-up plume. */
-    private const val OUTWARD_UP_SPEED: Double = 0.18
-
-    /** Y of the visual convergence point inside the portal's
-     *  voxel, in block-space. Centred (0.5) — the portal voxel
-     *  is a clear-air slot 2 blocks above the heart candle and
-     *  the converging-sphere effect reads cleanest when it
-     *  collapses to the geometric centre of that voxel rather
-     *  than tracking the candle's flame down below. */
-    private const val PORTAL_Y_OFFSET: Double = 0.5
-
-    /** Particle palette for the portal halo + plume. One picked
-     *  per particle so the cloud reads as multicoloured. */
-    private val COLOURS: List<Vector3f> = listOf(
-        Vector3f(0.50f, 0.80f, 1.00f),  // light blue
-        Vector3f(0.10f, 0.70f, 0.70f),  // teal
-        Vector3f(0.00f, 1.00f, 1.00f),  // cyan
-    )
+    /** Size of the Mother portal's visuals relative to a ritual portal, so they match the trigger volume. */
+    const val MOTHER_VISUAL_SCALE: Double = MOTHER_TELEPORT_RADIUS / TELEPORT_RADIUS
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
@@ -185,6 +132,8 @@ object WohlonnogondoniaPortalManager {
      *  Wohlon-dim tick. Small so a backlog of portals doesn't stall
      *  the tick; the per-portal budget recovers across ticks. */
     private const val SEARCH_ATTEMPTS_PER_TICK: Int = 5
+
+    fun warmClasses() = ClassWarmup.load(PendingPortalSearch::class.java)
 
     private data class PendingPortalSearch(
         val sourceDim: ResourceKey<Level>,
@@ -359,6 +308,23 @@ object WohlonnogondoniaPortalManager {
      *  squared-XZ-distance comparison and a Y-range check; no
      *  storage allocation. The exclusion zone is a vertical cylinder
      *  centred on the portal anchor. */
+    /** The ritual tree portal nearest to [pos] in XZ. */
+    fun nearestPortal(level: ServerLevel, pos: BlockPos): BlockPos? {
+        val data = level.dataStorage.get({ tag -> PortalSavedData.load(tag) }, DATA_NAME) ?: return null
+        var best: Long? = null
+        var bestSq = Long.MAX_VALUE
+        for (packed in data.positions) {
+            val dx = (BlockPos.getX(packed) - pos.x).toLong()
+            val dz = (BlockPos.getZ(packed) - pos.z).toLong()
+            val distSq = dx * dx + dz * dz
+            if (distSq <= bestSq) {
+                bestSq = distSq
+                best = packed
+            }
+        }
+        return best?.let(BlockPos::of)
+    }
+
     @JvmStatic
     fun isInsideAnyTreeBounds(level: ServerLevel, pos: BlockPos): Boolean {
         val data = level.dataStorage.get(
@@ -473,10 +439,8 @@ object WohlonnogondoniaPortalManager {
                 }
             }
         }
-        for (packed in data.positions) {
-            val pos = BlockPos.of(packed)
-            emitParticles(level, pos)
-            if (doTeleport) scanAndTeleport(level, pos)
+        if (doTeleport) {
+            for (packed in data.positions) scanAndTeleport(level, BlockPos.of(packed))
         }
         if (gameTime % WohlonPortalNetwork.SYNC_INTERVAL_TICKS == 0L) {
             val mother = if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) HEART_RETURN_PORTAL_POS else null
@@ -488,7 +452,6 @@ object WohlonnogondoniaPortalManager {
         // `PortalSavedData` since it's deterministic per
         // dimension, not built by the player.
         if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) {
-            emitParticles(level, HEART_RETURN_PORTAL_POS, MOTHER_PARTICLE_SCALE)
             if (doTeleport) scanAndTeleportHeart(level, HEART_RETURN_PORTAL_POS)
             // Pending-portal landing searches run in the Wohlon dim
             // because that's the dim being scanned. Each pending
@@ -518,10 +481,7 @@ object WohlonnogondoniaPortalManager {
         if (pendingSearches.isEmpty()) return
         val server = wohlonLevel.server
         val random = wohlonLevel.random
-        if (wohlonLevel.gameTime >= landingTicketRefreshAt) {
-            wohlonLevel.chunkSource.addRegionTicket(LANDING_TICKET, ChunkPos.ZERO, LANDING_TICKET_RADIUS, ChunkPos.ZERO)
-            landingTicketRefreshAt = wohlonLevel.gameTime + LANDING_TICKET_REFRESH_TICKS
-        }
+        holdLandingArea(wohlonLevel)
         synchronized(pendingSearches) {
             val iter = pendingSearches.iterator()
             while (iter.hasNext()) {
@@ -561,6 +521,13 @@ object WohlonnogondoniaPortalManager {
                 }
             }
         }
+    }
+
+    /** Keep the landing ring loaded for [LANDING_TICKET_TIMEOUT_TICKS] more. */
+    fun holdLandingArea(wohlonLevel: ServerLevel) {
+        if (wohlonLevel.gameTime < landingTicketRefreshAt) return
+        wohlonLevel.chunkSource.addRegionTicket(LANDING_TICKET, ChunkPos.ZERO, LANDING_TICKET_RADIUS, ChunkPos.ZERO)
+        landingTicketRefreshAt = wohlonLevel.gameTime + LANDING_TICKET_REFRESH_TICKS
     }
 
     /** `getChunkNow`, not `hasChunk`: `hasChunk` is true for a chunk that still generates. */
@@ -609,53 +576,6 @@ object WohlonnogondoniaPortalManager {
             }
         }
         return true
-    }
-
-    private fun emitParticles(level: ServerLevel, pos: BlockPos, scale: Double = 1.0) {
-        val random = level.random
-        val cx = pos.x + 0.5
-        val cy = pos.y + PORTAL_Y_OFFSET
-        val cz = pos.z + 0.5
-
-        val sphereRadius = SPHERE_RADIUS * scale
-        val inwardSpeed = INWARD_SPEED * scale
-        val convergeCount = (PARTICLES_PER_TICK * scale).toInt()
-        val plumeCount = (OUTWARD_PER_TICK * scale).toInt()
-
-        repeat(convergeCount) {
-            val theta = random.nextDouble() * 2.0 * Math.PI
-            val phi = Math.acos(2.0 * random.nextDouble() - 1.0)
-            val sx = Math.sin(phi) * Math.cos(theta)
-            val sy = Math.cos(phi)
-            val sz = Math.sin(phi) * Math.sin(theta)
-            val color = COLOURS[random.nextInt(COLOURS.size)]
-            val options = DustParticleOptions(color, 1.0f)
-            // count=0 + non-zero dx/dy/dz tells the client to
-            // spawn ONE particle with that exact velocity rather
-            // than `count` particles with a random spread. The
-            // last param (`speed`) multiplies the velocity.
-            level.sendParticles(
-                options,
-                cx + sx * sphereRadius, cy + sy * sphereRadius, cz + sz * sphereRadius,
-                0,
-                -sx * inwardSpeed, -sy * inwardSpeed, -sz * inwardSpeed,
-                1.0,
-            )
-        }
-
-        repeat(plumeCount) {
-            val outTheta = random.nextDouble() * 2.0 * Math.PI
-            val color = COLOURS[random.nextInt(COLOURS.size)]
-            level.sendParticles(
-                DustParticleOptions(color, 1.0f),
-                cx, cy, cz,
-                0,
-                Math.cos(outTheta) * OUTWARD_HORIZ_SPEED,
-                OUTWARD_UP_SPEED,
-                Math.sin(outTheta) * OUTWARD_HORIZ_SPEED,
-                1.0,
-            )
-        }
     }
 
     private fun scanAndTeleport(level: ServerLevel, pos: BlockPos) {

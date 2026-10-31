@@ -8,20 +8,36 @@ import net.minecraft.network.chat.Component
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
 import net.minecraft.world.entity.player.Player
+import net.minecraft.world.InteractionResult
+import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Items
 import net.minecraft.world.item.TooltipFlag
+import net.minecraft.world.item.context.UseOnContext
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.client.OldPaperClient
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.sselith.BookPaginator
 
-/** Reads written-book NBT (`title`, `author`, `pages`). The pages must have serif page breaks. */
+/**
+ * Without `pages` this is a blank book that the enchanting table treats as [Items.BOOK]. With `pages` it reads
+ * written-book NBT (`title`, `author`, `pages`), and the pages must have serif page breaks.
+ */
 class SselithBookItem(properties: Properties) : TomeItem(properties) {
 
     override fun isFoil(stack: ItemStack): Boolean = false
 
+    // Enchanting would discard the text, so only a blank book is enchantable.
+    override fun isEnchantable(stack: ItemStack): Boolean = stack.count == 1 && isBlank(stack)
+
+    override fun getEnchantmentValue(): Int = ENCHANTABILITY
+
+    override fun useOn(context: UseOnContext): InteractionResult =
+        if (isBlank(context.itemInHand)) InteractionResult.PASS else super.useOn(context)
+
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
+        if (isBlank(stack)) return InteractionResultHolder.pass(stack)
         if (level.isClientSide) OldPaperClient.openSselithBook(writtenBook(stack))
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide)
     }
@@ -61,6 +77,21 @@ class SselithBookItem(properties: Properties) : TomeItem(properties) {
         const val AUTHOR = "author"
         const val PAGES = "pages"
         private const val TITLE = "Sselith Book"
+        private const val ENCHANTABILITY = 25
+        private const val WRITTEN_MAX_STACK = 1
+
+        @JvmStatic
+        fun isBlank(stack: ItemStack): Boolean = stack.tag?.getList(PAGES, Tag.TAG_STRING.toInt())?.isEmpty() ?: true
+
+        /** True when vanilla's `is(Items.BOOK)` check must also accept [stack]. */
+        @JvmStatic
+        fun countsAsBook(stack: ItemStack, item: Item): Boolean =
+            item === Items.BOOK && stack.item is SselithBookItem && isBlank(stack)
+
+        /** Written copies do not stack, but the item stacks to 64 so that blank books stack as vanilla books do. */
+        @JvmStatic
+        fun maxStackSize(stack: ItemStack, original: Int): Int =
+            if (stack.item is SselithBookItem && !isBlank(stack)) WRITTEN_MAX_STACK else original
 
         /** [pages] are plain text with serif page breaks, as [BookPaginator.paginate] gives. */
         fun of(title: String, author: String, pages: List<String>): ItemStack {

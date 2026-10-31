@@ -98,6 +98,7 @@ object FusionManager {
         /** The tick of the last weld, or of the landing; [teleport] starts after a long gap. */
         var lastWeldTick: Int = startTick + THROW_TICKS.toInt()
         val teleport: FusionTeleport = FusionTeleport()
+        val summon: FusionSummon = FusionSummon()
         /** Each lifted ship's pull target, kept for the cast. */
         val pullTargets: Long2ObjectOpenHashMap<HoldPoint> = Long2ObjectOpenHashMap()
         val neighbors: Long2ObjectOpenHashMap<Neighbor> = Long2ObjectOpenHashMap()
@@ -146,20 +147,26 @@ object FusionManager {
             bubble.nextRefreshTick = now + REFRESH_INTERVAL_TICKS
         }
         val lifted = bubble.lifted
+        bubble.summon.update(level, lifted, center, now)
         // A lone ship has nothing to fuse with.
-        if (lifted.size < 2) return
+        if (lifted.size < 2) {
+            // The last parts of a summon can be on the kept ship alone.
+            if (bubble.summon.active) teleportBlock(level, bubble, lifted, now)
+            return
+        }
         bubble.pulling = true
         applyForces(level, bubble, lifted, center)
         val fused = fuseTouching(level, bubble, lifted, now)
         if (fused) {
             bubble.lastWeldTick = now
             bubble.teleport.reset()
+            bubble.summon.invalidate()
         } else {
             teleportBlock(level, bubble, lifted, now)
         }
         if (fused) {
-            // The weld deleted a ship and moved its blocks, so the scan and the lifted set are stale.
-            bubble.blocks.clear()
+            // Only the welded ships changed; the deleted source is dropped from the lifted set at the refresh.
+            for (id in bubble.welded) bubble.blocks.remove(id)
             bubble.nextRefreshTick = now + 1
         }
     }
@@ -194,6 +201,11 @@ object FusionManager {
             ShipGravityHold.hold(level, entry.ship)
             val attachment = entry.ship.getOrPutAttachment { FusionPullAttachment() }
             attachment.pullToward(hold.current, entry.share, entry.centroid)
+            val slot = bubble.summon.slot(entry.ship.id)
+            if (slot != null) {
+                attachment.attractTo(slot.anchor.id, slot.partCenter, slot.cellCenter)
+                continue
+            }
             val neighbor = bubble.neighbors.get(entry.ship.id) ?: continue
             if (lifted.any { it.ship.id == neighbor.otherId }) {
                 attachment.attractTo(neighbor.otherId, neighbor.ownBlock, neighbor.otherBlock)
@@ -202,7 +214,11 @@ object FusionManager {
     }
 
     private fun teleportBlock(level: ServerLevel, bubble: Bubble, lifted: List<Lifted>, now: Int) {
-        val move = bubble.teleport.tick(level, lifted, bubble.lastWeldTick, now) ?: return
+        val move = bubble.teleport.tick(level, lifted, bubble.summon, bubble.lastWeldTick, now) ?: return
+        applyMove(level, bubble, move, now)
+    }
+
+    private fun applyMove(level: ServerLevel, bubble: Bubble, move: FusionTeleport.Move, now: Int) {
         playWeld(level, move.point, move.state)
         FusionNetwork.broadcastWeld(level, move.point)
         // A moved block leaves the scans nearly right; only a deleted ship makes the lifted set stale.
@@ -334,6 +350,9 @@ object FusionManager {
                 if (!FusionGeometry.sameScale(FusionGeometry.uniformScale(a)!!, FusionGeometry.uniformScale(b)!!)) continue
                 if (!FusionGeometry.aabbsTouch(a, b)) continue
                 if (bubble.welded.contains(a.id) || bubble.welded.contains(b.id)) continue
+                // During a summon, the only weld is a lone part ship into its cell on the anchor.
+                val slot = bubble.summon.slotFor(a.id, b.id)
+                if (slot == null && bubble.summon.active) continue
                 val aJointed = isJointed(level, a)
                 val bJointed = isJointed(level, b)
                 if (aJointed && bJointed) continue
@@ -345,23 +364,26 @@ object FusionManager {
                     val point = worldCentre(a, contact.a)
                     playAt(level, point.x, point.y, point.z, EKSounds.FUSION_CONTACT.get())
                 }
-                val aIsTarget = prefersAsTarget(a, aJointed, b, bJointed)
+                val aIsTarget = if (slot != null) slot.anchor === a else prefersAsTarget(a, aJointed, b, bJointed)
                 val target = if (aIsTarget) a else b
                 val source = if (aIsTarget) b else a
-                val alignment = FusionGeometry.alignment(target, source)
+                val alignment = FusionGeometry.alignment(target, source, slot?.head == true)
                 source.getOrPutAttachment { FusionPullAttachment() }.alignTo(alignment.goal)
                 target.getOrPutAttachment { FusionPullAttachment() }.holdSteady()
-                if (now < bubble.refusedUntil.getOrDefault(key, Int.MIN_VALUE) || contact.snap > MAX_SNAP) continue
+                if (now < bubble.refusedUntil.getOrDefault(key, Int.MIN_VALUE) || slot?.open == false) continue
+                if ((slot?.snap() ?: contact.snap) > MAX_SNAP) continue
                 val aligned = alignment.error <= ALIGN_TOLERANCE ||
                     now - bubble.contactSince.get(key) >= ALIGN_TIMEOUT_TICKS
                 if (!aligned) continue
-                val targetPos = if (aIsTarget) contact.a else contact.b
-                val sourcePos = if (aIsTarget) contact.b else contact.a
+                val targetPos = slot?.parent ?: if (aIsTarget) contact.a else contact.b
+                val sourcePos = slot?.part ?: if (aIsTarget) contact.b else contact.a
                 // The weld moves the source ship's blocks, so read the states and the point first.
                 val aState = level.getBlockState(contact.a)
                 val bState = level.getBlockState(contact.b)
                 val point = worldCentre(a, contact.a)
+                val last = slot != null && bubble.summon.isLast(level, slot.cell)
                 if (tryWeld(level, bubble, key, target, targetPos, source, sourcePos, alignment.relative, now)) {
+                    if (slot != null) bubble.summon.placed(level, slot.cell, last)
                     playWeld(level, point, aState, bState)
                     FusionNetwork.broadcastWeld(level, point)
                     bubble.welded.add(a.id)
@@ -407,6 +429,21 @@ object FusionManager {
                 (type.volume + 1f) / 2f, type.pitch * 0.8f,
             )
         }
+    }
+
+    /** The ship that a weld would keep: jointed, then static, then the heaviest. */
+    internal fun keptShip(level: ServerLevel, lifted: List<Lifted>): LoadedServerShip? {
+        var best: LoadedServerShip? = null
+        var bestJointed = false
+        for (entry in lifted) {
+            val jointed = isJointed(level, entry.ship)
+            val current = best
+            if (current == null || prefersAsTarget(entry.ship, jointed, current, bestJointed)) {
+                best = entry.ship
+                bestJointed = jointed
+            }
+        }
+        return best
     }
 
     /** A jointed ship stays, as VS2 cannot move it; then a static ship; otherwise the heavier ship. */

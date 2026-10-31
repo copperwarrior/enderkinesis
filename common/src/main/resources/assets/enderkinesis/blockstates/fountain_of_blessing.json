@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "waterlogged=true": { "model": "enderkinesis:block/fountain_of_blessing" },
+    "waterlogged=false": { "model": "enderkinesis:block/fountain_of_blessing" }
+  }
+}

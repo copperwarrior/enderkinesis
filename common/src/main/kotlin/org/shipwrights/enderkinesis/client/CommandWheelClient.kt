@@ -39,6 +39,8 @@ object CommandWheelClient {
      *  dropped packet desync the wheel forever. */
     private const val PREDICT_WINDOW_MS: Long = 1000L
 
+    private val RAISED_SKELETON_KEY: String = org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity.ID.toString()
+
     private var animIndex: Float = 0f
     @Volatile private var predictedKey: String? = null
     @Volatile private var predictedAtMs: Long = 0L
@@ -107,6 +109,7 @@ object CommandWheelClient {
         if (key == StaffOfCommandItem.CONSTRILIAR_ID.toString()) {
             return ItemStack(EKItems.SCROLL_OF_ANIMATION.get())
         }
+        if (key == RAISED_SKELETON_KEY) return ItemStack(EKItems.GRAND_STAFF_OF_THE_DEAD.get())
         val id = ResourceLocation.tryParse(key) ?: return ItemStack(Items.BARRIER)
         val item = BuiltInRegistries.ITEM.get(id)
         return if (item == Items.AIR) ItemStack(Items.BARRIER) else ItemStack(item)
@@ -119,6 +122,9 @@ object CommandWheelClient {
     private fun labelFor(key: String): net.minecraft.network.chat.Component {
         if (key == StaffOfCommandItem.CONSTRILIAR_ID.toString()) {
             return org.shipwrights.enderkinesis.registry.EKEntities.CONSTRILIAR.get().description
+        }
+        if (key == RAISED_SKELETON_KEY) {
+            return org.shipwrights.enderkinesis.registry.EKEntities.RAISED_SKELETON.get().description
         }
         return iconFor(key).hoverName
     }

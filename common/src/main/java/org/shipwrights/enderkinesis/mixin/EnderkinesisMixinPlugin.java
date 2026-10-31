@@ -32,19 +32,27 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
     // Embeddium 0.3.x keeps the Sodium package names but ships its own config name.
     private static final String EMBEDDIUM_PRESENCE_MARKER = "embeddium.mixins.json";
 
+    private static final String CREATE_PRESENCE_MARKER = "create.mixins.json";
+
     private boolean sodiumPresent = false;
+    private boolean createPresent = false;
     private boolean embeddiumPresent = false;
 
     @Override
     public void onLoad(String mixinPackage) {
         sodiumPresent = getClass().getClassLoader().getResource(SODIUM_PRESENCE_MARKER) != null;
         embeddiumPresent = getClass().getClassLoader().getResource(EMBEDDIUM_PRESENCE_MARKER) != null;
+        createPresent = getClass().getClassLoader().getResource(CREATE_PRESENCE_MARKER) != null;
     }
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         // Only filter the explicit Sodium-bridge mixins. Everything
         // else applies normally.
+        if (mixinClassName.endsWith(".WindmillBearingWindMixin")
+            || mixinClassName.endsWith(".ControlledContraptionEntityAccessor")) {
+            return createPresent;
+        }
         if (mixinClassName.endsWith(".SodiumLightPipelineSselithMixin")) {
             return sodiumPresent || embeddiumPresent;
         }
@@ -53,7 +61,8 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
         }
         // Sodium's WorldSlice doesn't exist without Sodium — gate the
         // ambient-floor mirror so a non-Sodium runtime doesn't fail PREPARE.
-        if (mixinClassName.endsWith(".WorldSliceWohlonAmbientMixin")) {
+        if (mixinClassName.endsWith(".WorldSliceWohlonAmbientMixin")
+            || mixinClassName.endsWith(".BiomeSliceAccessor")) {
             return sodiumPresent || embeddiumPresent;
         }
         // Same WorldSlice target as Wohlon — the orb dynamic-light

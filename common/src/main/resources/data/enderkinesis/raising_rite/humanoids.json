@@ -1,0 +1,21 @@
+{
+  "entities": [
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:wither_skeleton",
+    "minecraft:villager",
+    "minecraft:wandering_trader",
+    "minecraft:pillager",
+    "minecraft:vindicator",
+    "minecraft:evoker",
+    "minecraft:illusioner",
+    "minecraft:witch",
+    "minecraft:enderman",
+    "enderkinesis:cataloger",
+    "enderkinesis:wik_lak_host"
+  ],
+  "equipment": {
+    "mainhand": "inherit",
+    "offhand": "inherit"
+  }
+}

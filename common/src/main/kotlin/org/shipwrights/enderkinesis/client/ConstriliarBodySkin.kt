@@ -73,7 +73,7 @@ object ConstriliarBodySkin {
         partialTick: Float,
         light: Int,
     ) {
-        var skinTexture = if (entity.isBlinking()) BLINK else TEXTURE
+        var skinTexture = if (entity.isBlinking() || entity.isStrained()) BLINK else TEXTURE
         var skinAlpha = 1f
         var drawModel = true
         if (animT >= 0f) {

@@ -187,6 +187,12 @@ class TightRobeArmorRenderer {
         return WindVector(forward = ambientForward + mysticBoost, lateral = ambientLateral)
     }
 
+    /** The magnitude of [computeWind] at the end of the tick. */
+    fun windStrength(entity: LivingEntity): Double {
+        val wind = computeWind(entity, 1f)
+        return Math.sqrt(wind.forward * wind.forward + wind.lateral * wind.lateral)
+    }
+
     private fun gatherJiggleInputs(entity: LivingEntity): JiggleInputs {
         val partialTick = Minecraft.getInstance().frameTime
         val partialD = partialTick.toDouble()

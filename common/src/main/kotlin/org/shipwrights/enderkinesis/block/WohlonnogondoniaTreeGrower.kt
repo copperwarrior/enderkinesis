@@ -3,6 +3,8 @@ package org.shipwrights.enderkinesis.block
 import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongArrayList
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.registries.Registries
@@ -10,13 +12,11 @@ import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.NbtUtils
 import net.minecraft.nbt.Tag
-import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.TagKey
-import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.LeavesBlock
@@ -24,13 +24,17 @@ import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.saveddata.SavedData
+import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
 import org.shipwrights.enderkinesis.dimension.TreeSegment
+import org.shipwrights.enderkinesis.dimension.TreeTip
+import org.shipwrights.enderkinesis.util.ClassWarmup
 import org.shipwrights.enderkinesis.dimension.WogorTreeSkeleton
 import org.shipwrights.enderkinesis.dimension.WohlonnogondoniaChunkGenerator
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.BitSet
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
@@ -134,11 +138,22 @@ object WohlonnogondoniaTreeGrower {
     private const val HOLLOW_RY = 3.5
     private const val HOLLOW_RZ = 4.5
 
-    /** Length in blocks of the 2×2 exit tunnel carved horizontally
-     *  out from the candle bubble in a random yaw direction.
-     *  ≥ max canopyRx (55 × 0.9 ≈ 50) so the tunnel always exits
-     *  the tree's footprint at the far end. */
-    private const val TUNNEL_LENGTH = 55
+    // Exit passage: the most it may run, in blocks, and how far past the last wood it goes before it ends.
+    private const val TUNNEL_MAX_LENGTH = 70
+    private const val TUNNEL_CLEAR_RUN = 3.0
+    private const val TUNNEL_STEP = 0.5
+    // The floor rises or falls at most this much for each block along, so it stays walkable.
+    private const val TUNNEL_SLOPE = 0.5
+    // Meander: radians of drift from the ritual's heading, on two slow waves (blocks per wave).
+    private const val TUNNEL_MEANDER = 0.55
+    private const val TUNNEL_WAVE_LONG = 22.0
+    private const val TUNNEL_WAVE_SHORT = 9.0
+    // Half width and full height, in blocks; both vary along the passage and flare at the mouth.
+    private const val TUNNEL_HALF_WIDTH = 1.25
+    private const val TUNNEL_HEIGHT = 2.8
+    private const val TUNNEL_SIZE_JITTER = 0.25
+    private const val TUNNEL_MOUTH_FLARE = 1.35
+    private const val TUNNEL_MOUTH_RUN = 6.0
 
     /** Bark / leaf noise constants — chunkgen companion
      *  `private const val`s, inlined here. */
@@ -246,9 +261,27 @@ object WohlonnogondoniaTreeGrower {
     private val buildsInFlight: MutableSet<TreeBuildParams> =
         java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
 
+    /** Game tick of each fresh ignite, by portal, until its build installs. Server thread only. */
+    private val igniteTicks = Long2LongOpenHashMap().apply { defaultReturnValue(NO_IGNITE) }
+    private const val NO_IGNITE = Long.MIN_VALUE
+    private const val TICKS_PER_SECOND = 20.0
+
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
-        LifecycleEvent.SERVER_STOPPED.register { _ -> buildsInFlight.clear() }
+        LifecycleEvent.SERVER_STOPPED.register { _ ->
+            buildsInFlight.clear()
+            igniteTicks.clear()
+        }
+        // The first ritual of a session loaded these on its ignite tick.
+        LifecycleEvent.SERVER_STARTED.register { _ ->
+            ClassWarmup.load(
+                TreeBuildParams::class.java, WohlonTreeSite::class.java, TreeJob::class.java, TreeJobsData::class.java,
+                WohlonnogondoniaPortalRitual::class.java, WohlonRitualNetwork::class.java, WohlonRitualTimeline::class.java,
+                org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity::class.java,
+            )
+            WohlonnogondoniaSpreader.warmClasses()
+            WohlonnogondoniaPortalManager.warmClasses()
+        }
     }
 
     @JvmStatic
@@ -297,17 +330,164 @@ object WohlonnogondoniaTreeGrower {
         val data = getData(level)
         data.pending.add(params)
         data.setDirty()
-        launchBuild(level, params)
+        igniteTicks.put(portalPos.asLong(), level.gameTime)
+        launchBuild(level, params, announce = true)
     }
 
-    private fun launchBuild(level: ServerLevel, params: TreeBuildParams) {
+    /** Floats for each ghost segment: start, end, start radius, end radius, and 1 for a root. */
+    const val GHOST_SEGMENT_FLOATS = 9
+    // Keeps the ghost packet well under the payload limit; a tree has some hundreds to a few thousand.
+    private const val MAX_GHOST_SEGMENTS = 6000
+    private const val MAX_GHOST_TIPS = 2000
+
+    private fun ghostSegments(
+        canopy: List<TreeSegment>, roots: List<TreeSegment>, ox: Double, oy: Double, oz: Double,
+    ): FloatArray {
+        val count = minOf(canopy.size + roots.size, MAX_GHOST_SEGMENTS)
+        val out = FloatArray(count * GHOST_SEGMENT_FLOATS)
+        var i = 0
+        fun put(seg: TreeSegment, root: Boolean) {
+            if (i >= count) return
+            val b = i++ * GHOST_SEGMENT_FLOATS
+            out[b] = (seg.startX - ox).toFloat(); out[b + 1] = (seg.startY - oy).toFloat(); out[b + 2] = (seg.startZ - oz).toFloat()
+            out[b + 3] = (seg.endX - ox).toFloat(); out[b + 4] = (seg.endY - oy).toFloat(); out[b + 5] = (seg.endZ - oz).toFloat()
+            out[b + 6] = seg.startRadius.toFloat(); out[b + 7] = seg.endRadius.toFloat()
+            out[b + 8] = if (root) 1f else 0f
+        }
+        for (seg in roots) put(seg, true)
+        for (seg in canopy) put(seg, false)
+        return out
+    }
+
+    private fun ghostTips(tips: List<TreeTip>, candle: BlockPos): IntArray {
+        val count = minOf(tips.size, MAX_GHOST_TIPS)
+        val out = IntArray(count * 3)
+        for (i in 0 until count) {
+            out[i * 3] = tips[i].x - candle.x
+            out[i * 3 + 1] = tips[i].y - candle.y
+            out[i * 3 + 2] = tips[i].z - candle.z
+        }
+        return out
+    }
+
+    /** Placed part of each growth phase (roots, wood, leaves) of the job at [trunk], or null. */
+    fun progress(level: ServerLevel, trunk: Long, out: FloatArray): Boolean {
+        val data = level.dataStorage.get({ tag -> TreeJobsData.load(tag) }, DATA_NAME) ?: return false
+        val job = data.jobs.firstOrNull { it.trunk == trunk } ?: return false
+        val total = job.voxels.size
+        val rootEnd = job.isRoot.nextClearBit(0).coerceAtMost(total)
+        val leafStart = job.isLeaf.nextSetBit(0).let { if (it < 0) total else it }
+        out[0] = placedFraction(job.placed, 0, rootEnd)
+        out[1] = placedFraction(job.placed, rootEnd, leafStart)
+        out[2] = placedFraction(job.placed, leafStart, total)
+        return true
+    }
+
+    private fun placedFraction(placed: java.util.BitSet, from: Int, to: Int): Float =
+        if (to <= from) 1f else placed.get(from, to).cardinality().toFloat() / (to - from)
+
+    // Site survey: blocks copied below and above the candle; the deepest root plunge and the crown top fit inside.
+    private const val SITE_BELOW = 48
+    private const val SITE_ABOVE = 128
+    // A root arm may turn this share of its slot either way, so the arms keep apart.
+    private const val ROOT_TURN_SHARE = 0.45
+    private const val ROOT_WATER_ARCH = 2.0
+    // A drop past the walk's bump and arch is a wall or cliff: the arm crawls down its face.
+    private const val CASCADE_MIN_DROP = 7.0
+    private const val CASCADE_STEP = 2.0
+    private const val CASCADE_THIN = 0.55
+    private const val CASCADE_FOOT = 1.3
+    private const val CASCADE_SWAY_PER_BLOCK = 0.1
+    private const val CASCADE_SWAY_MAX = 2.5
+    // Elevation over the ground ring at which the trunk flare starts to shrink, and is down to RAISED_FLARE_SHARE.
+    private const val RAISED_MIN = 6.0
+    private const val RAISED_FULL = 24.0
+    private const val RAISED_FLARE_SHARE = 0.25
+    // The crown leans this far, as a share of its radius, for each unit of uneven light; at most LEAN_MAX.
+    private const val LEAN_PER_LIGHT = 0.15
+    private const val LEAN_MAX = 0.3
+    // An attractor in a dark sector stays with this chance; a fully lit one always stays.
+    private const val KEEP_IN_SHADE = 0.3
+    private const val KEEP_AT_LEAST = 0.4
+    // Growth rate over the build: slow as a seedling, fastest at half grown, slow near full size.
+    // RATE_MIN + RATE_SPAN · p(1 − p): the mean of 1 / rate over p is 1, so at quality 1 the whole growth takes as long as before.
+    private const val RATE_MIN = 0.396f
+    private const val RATE_SPAN = 4.41f
+    private const val QUALITY_MIN = 0.7f
+    private const val QUALITY_MAX = 1.3f
+    private const val QUALITY_RADIUS = 40
+
+    private fun crownLean(light: DoubleArray, canopyRx: Double): DoubleArray {
+        val mean = light.average()
+        var vx = 0.0; var vz = 0.0
+        for (s in light.indices) {
+            val a = (s + 0.5) * 2.0 * PI / light.size
+            vx += (light[s] - mean) * cos(a)
+            vz += (light[s] - mean) * sin(a)
+        }
+        val len = sqrt(vx * vx + vz * vz)
+        val shift = minOf(len * LEAN_PER_LIGHT, LEAN_MAX) * canopyRx
+        return if (len < 1.0e-6) doubleArrayOf(0.0, 0.0) else doubleArrayOf(vx / len * shift, vz / len * shift)
+    }
+
+    private fun keepLitAttractors(points: DoubleArray, light: DoubleArray, baseX: Double, baseZ: Double, seed: Int): DoubleArray {
+        val count = points.size / 3
+        val kept = DoubleArray(points.size)
+        var n = 0
+        for (i in 0 until count) {
+            val x = points[i * 3]; val z = points[i * 3 + 2]
+            val angle = (atan2(z - baseZ, x - baseX) + 2.0 * PI) % (2.0 * PI)
+            val sector = (angle / (2.0 * PI) * light.size).toInt().coerceIn(0, light.size - 1)
+            if (hash01(seed, i, 77) >= KEEP_IN_SHADE + (1.0 - KEEP_IN_SHADE) * light[sector]) continue
+            kept[n * 3] = x; kept[n * 3 + 1] = points[i * 3 + 1]; kept[n * 3 + 2] = z
+            n++
+        }
+        // A site shaded all round still grows a crown, only a smaller one.
+        return if (n < count * KEEP_AT_LEAST) points else kept.copyOf(n * 3)
+    }
+
+    /** Water near the trunk and open sky make a good site, which grows faster. */
+    private fun siteQuality(site: WohlonTreeSite, light: DoubleArray, baseX: Double, baseZ: Double): Float {
+        var wet = 0; var all = 0
+        for (dz in -QUALITY_RADIUS..QUALITY_RADIUS step 4) for (dx in -QUALITY_RADIUS..QUALITY_RADIUS step 4) {
+            if (dx * dx + dz * dz > QUALITY_RADIUS * QUALITY_RADIUS) continue
+            all++
+            if (site.isWater((baseX + dx).toInt(), (baseZ + dz).toInt())) wet++
+        }
+        val wetShare = if (all == 0) 0.0 else wet.toDouble() / all
+        val q = 0.7 + 0.35 * minOf(1.0, wetShare * 4.0) + 0.25 * light.average()
+        return q.toFloat().coerceIn(QUALITY_MIN, QUALITY_MAX)
+    }
+
+    private fun placeBudgetFor(job: TreeJob): Int {
+        val p = job.placed.cardinality().toFloat() / job.voxels.size.coerceAtLeast(1)
+        val rate = (RATE_MIN + RATE_SPAN * p * (1f - p)) * job.quality
+        val budget = MAX_PLACES_PER_TICK * rate + job.placeCarry
+        val whole = budget.toInt()
+        job.placeCarry = budget - whole
+        return whole
+    }
+
+    // What even roots cannot break; the branches and roots bend around it. Off-thread: reads only the state.
+    @Suppress("DEPRECATION") // blocksMotion is the vanilla heightmap predicate; Mojang marks it internal only.
+    private fun isBendObstacle(state: BlockState): Boolean = state.blocksMotion() && !isRootReplaceable(state)
+
+    /** The ignite tendrils reach the root tips first; the roots then grow along them. */
+    private fun holdForIgniteAnimation(level: ServerLevel, job: TreeJob, igniteTick: Long) {
+        val sinceIgnite = (level.gameTime - igniteTick) / TICKS_PER_SECOND
+        val end = WohlonRitualTimeline.animationEnd(WohlonRitualTimeline.spreadStart(sinceIgnite))
+        job.startTick = level.gameTime + Math.ceil((end - sinceIgnite) * TICKS_PER_SECOND).toLong()
+    }
+
+    /** [announce] sends the root tips to the clients for the ignite tendrils; a resumed build has no ignite. */
+    private fun launchBuild(level: ServerLevel, params: TreeBuildParams, announce: Boolean) {
         buildsInFlight.add(params)
         // Heightmap cache for the root painter — pre-cached on
         // main thread so the off-thread paint doesn't need to
         // touch the level. `paintChildTreeRoots` queries surface
         // height at each step along each arc arm, well inside
         // the [HEIGHTMAP_PRECACHE_RADIUS] disc.
-        val heightCache = preCacheSurfaceY(level, params.candlePos, HEIGHTMAP_PRECACHE_RADIUS)
+        val site = WohlonTreeSite.survey(level, params.candlePos, HEIGHTMAP_PRECACHE_RADIUS, SITE_BELOW, SITE_ABOVE)
 
         // ============================================================
         //   Off-thread phase — skeleton + SDF paint + sort + job
@@ -316,7 +496,7 @@ object WohlonnogondoniaTreeGrower {
         val server = level.server
         BACKGROUND_EXECUTOR.execute {
             val job = try {
-                buildTreeJob(params, heightCache)
+                buildTreeJob(params, site)
             } catch (t: Throwable) {
                 LOG.error("WohlonTree: off-thread build failed at {}", params.candlePos, t)
                 null
@@ -331,7 +511,15 @@ object WohlonnogondoniaTreeGrower {
                 val data = getData(level)
                 data.pending.remove(params)
                 data.setDirty()
-                if (job != null) installTreeJob(level, params, job)
+                val ignite = igniteTicks.remove(params.portalPos.asLong())
+                if (job != null) {
+                    if (announce && ignite != NO_IGNITE) holdForIgniteAnimation(level, job, ignite)
+                    installTreeJob(level, params, job)
+                    if (announce) {
+                        WohlonRitualNetwork.sendRoots(level, params.portalPos, job.rootTips)
+                        WohlonRitualNetwork.sendGhost(level, params.portalPos, params.candlePos, job.ghostSegments, job.ghostTips)
+                    }
+                }
             }
         }
     }
@@ -347,7 +535,7 @@ object WohlonnogondoniaTreeGrower {
                     c.x + HEIGHTMAP_PRECACHE_RADIUS, c.z + HEIGHTMAP_PRECACHE_RADIUS,
                 )
             ) continue
-            launchBuild(level, params)
+            launchBuild(level, params, announce = false)
         }
     }
 
@@ -422,39 +610,10 @@ object WohlonnogondoniaTreeGrower {
      *  of [radius] around [center]. Stored as packed `(x,z) →
      *  surfaceY` so the off-thread root painter can do constant-
      *  time lookups without touching the level. */
-    private fun preCacheSurfaceY(level: ServerLevel, center: BlockPos, radius: Int): HeightmapCache {
-        val r2 = radius * radius
-        val cache = HeightmapCache((r2 * 4))
-        for (dx in -radius..radius) {
-            for (dz in -radius..radius) {
-                if (dx * dx + dz * dz > r2) continue
-                val x = center.x + dx
-                val z = center.z + dz
-                val surfaceY = level.getHeight(
-                    Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z,
-                ) - 1
-                cache.put(x, z, surfaceY)
-            }
-        }
-        return cache
-    }
-
-    /** Packed `(x, z) → surfaceY` cache. Used by the off-thread
-     *  root painter as a stand-in for `level.getHeight`. */
-    private class HeightmapCache(initialCapacity: Int) {
-        private val data = HashMap<Long, Int>(initialCapacity)
-        fun put(x: Int, z: Int, y: Int) {
-            data[(x.toLong() shl 32) or (z.toLong() and 0xFFFFFFFFL)] = y
-        }
-        fun get(x: Int, z: Int): Int {
-            return data[(x.toLong() shl 32) or (z.toLong() and 0xFFFFFFFFL)] ?: 0
-        }
-    }
-
     /** All the heavy work: skeleton build + SDF paint of canopy /
      *  roots / leaves + hollow carve + three-phase sort + job
      *  construction. Runs entirely off-thread. No level access. */
-    private fun buildTreeJob(params: TreeBuildParams, heightCache: HeightmapCache): TreeJob? {
+    private fun buildTreeJob(params: TreeBuildParams, site: WohlonTreeSite): TreeJob? {
         val candlePos = params.candlePos
         val portalPos = params.portalPos
         val baseX = candlePos.x.toDouble()
@@ -479,7 +638,10 @@ object WohlonnogondoniaTreeGrower {
         // up through the same centerline → rings outward wave the rest
         // of the trunk uses, so the flared bottom emerges naturally
         // rather than popping into existence.
-        val buttressFlare = (maxThickness * (1.6 + params.flareHash * 0.6)).toInt()
+        // A trunk flares where it meets the ground; on a raised site the roots flare at their feet instead.
+        val raised = ((site.elevation(baseX, baseZ, params.baseY - 1) - RAISED_MIN) / (RAISED_FULL - RAISED_MIN)).coerceIn(0.0, 1.0)
+        val flareShare = 1.0 - raised * (1.0 - RAISED_FLARE_SHARE)
+        val buttressFlare = (maxThickness * (1.6 + params.flareHash * 0.6) * flareShare).toInt()
         val buttressRange = canopyRy * 1.2 + 8.0
         val attractionDist = 14.0 + scaleFactor * 10.0
         val killDist = 3.0 + scaleFactor * 2.0
@@ -489,11 +651,17 @@ object WohlonnogondoniaTreeGrower {
         val trunkLean = 0.20 + params.leanHash * 0.25
         val gravity = 0.08 + params.gravityHash * 0.12
 
-        val attractors = WogorTreeSkeleton.ellipsoidAttractors(
-            cx = baseX, cy = canopyCy, cz = baseZ,
-            rx = canopyRx, ry = canopyRy, rz = canopyRx,
-            count = attractorCount,
-            seed = seed,
+        // Phototropism: the crown leans to the open sky and grows little into shaded sectors.
+        val light = site.sectorLight(baseX, baseZ, canopyCy - canopyRy)
+        val lean = crownLean(light, canopyRx)
+        val attractors = keepLitAttractors(
+            WogorTreeSkeleton.ellipsoidAttractors(
+                cx = baseX + lean[0], cy = canopyCy, cz = baseZ + lean[1],
+                rx = canopyRx, ry = canopyRy, rz = canopyRx,
+                count = attractorCount,
+                seed = seed,
+            ),
+            light, baseX, baseZ, seed,
         )
         val canopy = WogorTreeSkeleton.build(
             originX = baseX, originY = baseYD, originZ = baseZ,
@@ -513,8 +681,12 @@ object WohlonnogondoniaTreeGrower {
         )
 
         // ----- Paint canopy + trunk + roots + leaves -----
+        // Grow around what even roots cannot break: the branches bend away, and their children follow.
+        val bent = site.bendAround(canopy.segments, canopy.tips, ::isBendObstacle)
+        val canopySegments = bent.first
+        val canopyTips = bent.second
         val woodVoxels = HashSet<Long>(1 shl 15)
-        for (seg in canopy.segments) paintSegmentSdf(seg, woodVoxels)
+        for (seg in canopySegments) paintSegmentSdf(seg, woodVoxels)
         // Child-tree buttress roots — 8..11 hand-coded arc arms,
         // chunkgen `paintChildTreeRoots`. Painted into a
         // separate set first so we can flag each root voxel
@@ -526,14 +698,12 @@ object WohlonnogondoniaTreeGrower {
         // one wood pass.
         val rootPositions = HashSet<Long>()
         val rootSegments = mutableListOf<TreeSegment>()
-        paintChildTreeRoots(
-            { x, z -> heightCache.get(x, z) },
-            baseX, baseYD, baseZ, seed, rootPositions, rootSegments,
-        )
+        val rootTips = LongArrayList()
+        paintChildTreeRoots(site, baseX, baseYD, baseZ, seed, rootPositions, rootSegments, rootTips)
         woodVoxels.addAll(rootPositions)
 
         val leafVoxels = HashSet<Long>(1 shl 15)
-        for (tip in canopy.tips) {
+        for (tip in canopyTips) {
             paintLeafBlobSdf(tip.x, tip.y, tip.z, LEAF_BLOB_RXZ, LEAF_BLOB_RY, leafVoxels)
         }
         leafVoxels.removeAll(woodVoxels)
@@ -549,15 +719,9 @@ object WohlonnogondoniaTreeGrower {
         // out of the alcove's edge instead of from the trunk
         // base inside it.
         val carved = carveHollow(woodVoxels, leafVoxels, portalPos)
-        // Exit tunnel: 2×2 cross-section, [TUNNEL_LENGTH] blocks long,
-        // extending from the candle bubble outward in
-        // `params.tunnelYaw`. Removes tree-voxels in the path; the
-        // returned cells are applied as air at install time so any
-        // existing terrain in the path is cleared too (the off-thread
-        // build can't touch the level).
-        val tunnelPositions = carveExitTunnel(
-            woodVoxels, leafVoxels, candlePos, params.tunnelYaw,
-        )
+        // The cells are applied as air at install time, so terrain in the path is cleared too
+        // (the off-thread build can't touch the level).
+        val tunnelPositions = carveExitTunnel(woodVoxels, leafVoxels, candlePos, params.tunnelYaw, seed, site)
         // The carve removes voxels from `woodVoxels` but not
         // from `rootPositions`. Any root-side voxel that landed
         // inside the hollow OR the tunnel needs to come off
@@ -699,7 +863,7 @@ object WohlonnogondoniaTreeGrower {
         //   [63:48]  segment distSq (16 bits)
         //   [47:32]  origin distSq  (16 bits, capped at 0x7FFF)
         //   [31: 0]  original index (32 bits)
-        val woodSegments = canopy.segments
+        val woodSegments = canopySegments
         val woodPacked = LongArray(nonRootWoodCount)
         for (i in 0 until nonRootWoodCount) {
             val pos = BlockPos.of(nonRootWoodList[i])
@@ -720,7 +884,7 @@ object WohlonnogondoniaTreeGrower {
 
         val leafList = leafVoxels.toLongArray()
         val leafPacked = LongArray(leafCount)
-        val segments = canopy.segments
+        val segments = canopySegments
         for (i in 0 until leafCount) {
             val pos = BlockPos.of(leafList[i])
             val px = pos.x + 0.5; val py = pos.y + 0.5; val pz = pos.z + 0.5
@@ -798,6 +962,10 @@ object WohlonnogondoniaTreeGrower {
             layerEnds = layerEnds,
             tunnelCarvePositions = tunnelPositions.toLongArray(),
             trunk = portalPos.asLong(),
+            rootTips = rootTips.toLongArray(),
+            ghostSegments = ghostSegments(canopySegments, rootSegments, baseX, baseYD, baseZ),
+            ghostTips = ghostTips(canopyTips, candlePos),
+            quality = siteQuality(site, light, baseX, baseZ),
         )
         // Builds the position→index map and the initial
         // frontier from the painted set. Pure data work, no
@@ -856,6 +1024,7 @@ object WohlonnogondoniaTreeGrower {
         // `(0, HEART_Y, 0)`); putting it here would arm the
         // dim-wipe catastrophe trigger on every ritual portal.
         level.setBlock(params.portalPos, EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState(), 3)
+        level.blockEvent(params.portalPos, EKBlocks.HEART_OF_THE_WILD.get(), HeartOfTheWildBlockEntity.EVENT_GROW, 0)
         playAt(level, params.portalPos.asLong(), EKSounds.WOHLON_RITUAL_HEART_ARRIVE.get(), HEART_ARRIVE_VOLUME, 1f)
     }
 
@@ -892,55 +1061,80 @@ object WohlonnogondoniaTreeGrower {
         return removed
     }
 
-    /** Carve a 2×2 cross-section tunnel from [candlePos] outward in
-     *  the [yawRadians] horizontal direction for [TUNNEL_LENGTH]
-     *  blocks. Tunnel floor is at `candlePos.y`, ceiling at
-     *  `candlePos.y + 1` (two-tall). Width is two voxels
-     *  perpendicular to the yaw, centred on the axis.
+    /**
+     * A winding passage out of the heart chamber, like a hollow between roots. It starts at the candle,
+     * drifts on two slow waves about the ritual's heading, and keeps a walkable floor that follows the
+     * ground outside the tree. The rounded, arched section varies in size and flares at the mouth. It
+     * ends once it is out of the wood and back at the ground, or at [TUNNEL_MAX_LENGTH].
      *
-     *  Removes every tunnel cell from [woodVoxels] and [leafVoxels]
-     *  so the tree won't place there. Returns the set of cells —
-     *  the caller hands these to [installTreeJob] which applies
-     *  air at install time, so any existing terrain in the path is
-     *  carved out too (the off-thread build has no level access). */
+     * Removes every passage cell from [woodVoxels] and [leafVoxels]; returns the cells, which
+     * [installTreeJob] sets to air.
+     */
+    @Suppress("LongParameterList", "LongMethod") // One walk along the passage; the state is local to it.
     private fun carveExitTunnel(
         woodVoxels: MutableSet<Long>,
         leafVoxels: MutableSet<Long>,
         candlePos: BlockPos,
         yawRadians: Double,
+        seed: Int,
+        site: WohlonTreeSite,
     ): HashSet<Long> {
-        val cells = HashSet<Long>(TUNNEL_LENGTH * 8)
-        val fx = cos(yawRadians)
-        val fz = sin(yawRadians)
-        // Perpendicular horizontal (90° CCW from forward).
-        val rx = -fz
-        val rz = fx
-        val cx = candlePos.x + 0.5
-        val cz = candlePos.z + 0.5
-        val cy = candlePos.y
-        // Step along the axis at 0.5 to catch every voxel even when
-        // the yaw is diagonal. The HashSet dedupes overlapping samples.
+        val cells = HashSet<Long>(TUNNEL_MAX_LENGTH * 40)
+        val phaseLong = hash01(seed, 0, 90) * 2.0 * PI
+        val phaseShort = hash01(seed, 0, 91) * 2.0 * PI
+        val phaseSize = hash01(seed, 0, 92) * 2.0 * PI
+        var x = candlePos.x + 0.5
+        var z = candlePos.z + 0.5
+        var floorY = candlePos.y.toDouble()
+        var clearRun = 0.0
+        var mouthAt = -1.0
         var t = 0.0
-        while (t <= TUNNEL_LENGTH) {
-            val baseX = cx + fx * t
-            val baseZ = cz + fz * t
-            for (w in 0..1) {
-                // Perpendicular offset of (-0.5, +0.5) keeps the two-
-                // voxel cross-section centred on the axis.
-                val offset = w - 0.5
-                val wx = baseX + rx * offset
-                val wz = baseZ + rz * offset
-                val voxelX = floor(wx).toInt()
-                val voxelZ = floor(wz).toInt()
-                for (h in 0..1) {
-                    cells.add(BlockPos.asLong(voxelX, cy + h, voxelZ))
-                }
-            }
-            t += 0.5
+        while (t <= TUNNEL_MAX_LENGTH) {
+            val heading = yawRadians + TUNNEL_MEANDER *
+                (0.6 * sin(t * 2.0 * PI / TUNNEL_WAVE_LONG + phaseLong) + 0.4 * sin(t * 2.0 * PI / TUNNEL_WAVE_SHORT + phaseShort))
+            val fx = cos(heading); val fz = sin(heading)
+            val rx = -fz; val rz = fx
+
+            // Through the trunk the floor keeps the chamber's level; outside it follows the ground.
+            val ground = site.groundY(floor(x).toInt(), floor(z).toInt()) + 1.0
+            val inWood = woodVoxels.contains(BlockPos.asLong(floor(x).toInt(), floor(floorY).toInt() + 1, floor(z).toInt()))
+            val target = if (inWood) floorY else ground
+            floorY += (target - floorY).coerceIn(-TUNNEL_SLOPE * TUNNEL_STEP, TUNNEL_SLOPE * TUNNEL_STEP)
+
+            val size = 1.0 + TUNNEL_SIZE_JITTER * sin(t * 2.0 * PI / (TUNNEL_WAVE_SHORT * 1.3) + phaseSize)
+            val mouth = if (mouthAt < 0.0) 1.0 else 1.0 + (TUNNEL_MOUTH_FLARE - 1.0) * ((t - mouthAt) / TUNNEL_MOUTH_RUN).coerceIn(0.0, 1.0)
+            carveSection(cells, x, floorY, z, rx, rz, TUNNEL_HALF_WIDTH * size * mouth, TUNNEL_HEIGHT * (0.9 + 0.1 * size) * mouth)
+
+            // Out of the wood and down at the ground: the passage has reached the open, so it ends.
+            val open = !inWood && floorY <= ground + 0.5
+            clearRun = if (open) clearRun + TUNNEL_STEP else 0.0
+            if (open && mouthAt < 0.0) mouthAt = t
+            if (!open) mouthAt = -1.0
+            if (clearRun >= TUNNEL_CLEAR_RUN + TUNNEL_MOUTH_RUN) break
+            x += fx * TUNNEL_STEP
+            z += fz * TUNNEL_STEP
+            t += TUNNEL_STEP
         }
         woodVoxels.removeAll(cells)
         leafVoxels.removeAll(cells)
         return cells
+    }
+
+    /** A rounded arch on a flat floor: half an ellipse over the floor, across the passage. */
+    private fun carveSection(
+        cells: MutableSet<Long>, x: Double, floorY: Double, z: Double, rx: Double, rz: Double, halfWidth: Double, height: Double,
+    ) {
+        val baseY = floor(floorY).toInt()
+        var w = -halfWidth
+        while (w <= halfWidth) {
+            val across = w / halfWidth
+            // The roof falls toward the walls; the floor stays flat for walking.
+            val roof = height * sqrt(maxOf(0.0, 1.0 - across * across))
+            val vx = floor(x + rx * w).toInt()
+            val vz = floor(z + rz * w).toInt()
+            for (h in 0 until maxOf(2, ceil(roof).toInt())) cells.add(BlockPos.asLong(vx, baseY + h, vz))
+            w += TUNNEL_STEP
+        }
     }
 
     // ===================================================
@@ -958,6 +1152,8 @@ object WohlonnogondoniaTreeGrower {
         var changed = false
         while (iter.hasNext()) {
             val job = iter.next()
+            // Not growing yet, so the grow loop does not start either.
+            if (level.gameTime < job.startTick) continue
             // The scan reads each frontier voxel and its neighbours; a read loads its chunk.
             if (!isAreaLoaded(level, job.minX - 1, job.minZ - 1, job.maxX + 1, job.maxZ + 1)) continue
             job.lastGrowTick = level.gameTime
@@ -1036,9 +1232,13 @@ object WohlonnogondoniaTreeGrower {
      *  neighbour checks start passing for voxels further from
      *  the origin, the wave propagates outward. */
     private fun tickJob(level: ServerLevel, job: TreeJob): Boolean {
+        // Architectury's RegistrySupplier.get checks the registry on each call; once per tick, not once per voxel.
+        val wood = EKBlocks.WOGOR_WOOD.get()
+        val leaves = EKBlocks.WOGOR_LEAVES.get()
+        val bud = EKBlocks.WOGOR_BUD.get()
         var changed = false
         var scanBudget = MAX_SCAN_PER_TICK
-        var placeBudget = MAX_PLACES_PER_TICK
+        var placeBudget = placeBudgetFor(job)
         val newlyPlaced = ArrayList<Int>(64)
         // Scratch: the scan runs up to [MAX_SCAN_PER_TICK] times each tick.
         val pos = BlockPos.MutableBlockPos()
@@ -1063,8 +1263,8 @@ object WohlonnogondoniaTreeGrower {
                 for (dir in SIX_DIRECTIONS) {
                     val nState = level.getBlockState(nPos.setWithOffset(pos, dir))
                     if (
-                        nState.`is`(EKBlocks.WOGOR_WOOD.get()) ||
-                        nState.`is`(EKBlocks.WOGOR_LEAVES.get())
+                        nState.`is`(wood) ||
+                        nState.`is`(leaves)
                     ) {
                         hasNeighbour = true
                         break
@@ -1073,7 +1273,7 @@ object WohlonnogondoniaTreeGrower {
                 if (hasNeighbour) {
                     val existing = level.getBlockState(pos)
                     if (isTreeReplaceable(existing)) {
-                        val state = EKBlocks.WOGOR_LEAVES.get().defaultBlockState()
+                        val state = leaves.defaultBlockState()
                             .setValue(LeavesBlock.PERSISTENT, true)
                         // Flag 2 (UPDATE_CLIENTS only) — leaves
                         // are persistent and have no canSurvive
@@ -1148,7 +1348,7 @@ object WohlonnogondoniaTreeGrower {
                 for (dir in SIX_DIRECTIONS) {
                     nPos.setWithOffset(pos, dir)
                     val nState = level.getBlockState(nPos)
-                    if (nState.`is`(EKBlocks.WOGOR_WOOD.get())) {
+                    if (nState.`is`(wood)) {
                         supportDir = dir
                         break
                     }
@@ -1244,11 +1444,11 @@ object WohlonnogondoniaTreeGrower {
                             }
                         }
                         val state = if (plantingBud) {
-                            EKBlocks.WOGOR_BUD.get().defaultBlockState()
+                            bud.defaultBlockState()
                                 .setValue(WogorBudBlock.AGE, 0)
                                 .setValue(WogorBudBlock.FACING, supportDir)
                         } else {
-                            EKBlocks.WOGOR_WOOD.get().defaultBlockState()
+                            wood.defaultBlockState()
                         }
                         // Flag 2 (UPDATE_CLIENTS only) on both
                         // paths — same reason as the leaves'
@@ -1400,7 +1600,7 @@ object WohlonnogondoniaTreeGrower {
      *  reads the same on both growers: the tree pushes the dirt
      *  out of the way rather than vaporising it. */
     private fun tryDisplaceToAdjacentAir(level: ServerLevel, pos: BlockPos): Boolean {
-        val mud = Blocks.MUD.defaultBlockState()
+        val mud = EKBlocks.WOHLON_MUD.get().defaultBlockState()
         for (dir in SIX_DIRECTIONS) {
             val adj = pos.relative(dir)
             if (!level.getBlockState(adj).isAir) continue
@@ -1603,20 +1803,29 @@ object WohlonnogondoniaTreeGrower {
      *  (3.5 vs 9.0), tighter emergence offset (3 vs 7 blocks
      *  from the trunk centre). */
     private fun paintChildTreeRoots(
-        heightAt: (Int, Int) -> Int,
+        site: WohlonTreeSite,
         baseX: Double, baseY: Double, baseZ: Double, seed: Int,
         out: MutableSet<Long>,
         segmentsOut: MutableList<TreeSegment>,
+        tipsOut: LongArrayList,
     ) {
         val rootCount = 8 + ((hash32(seed, 0, 51) ushr 1) and 0x3)
+        val share = PI * 2.0 / rootCount
+        // Painted after the bend, so the arms go round what they cannot break.
+        val armSegments = ArrayList<TreeSegment>()
         for (i in 0 until rootCount) {
             val angleHash = hash01(seed, i, 51)
-            val angle = i * (PI * 2.0 / rootCount) +
-                (angleHash - 0.5) * (PI * 2.0 / rootCount) * 0.4
+            val baseAngle = i * share + (angleHash - 0.5) * share * 0.4
+            // Hydrotropism: each arm turns, inside its own share, toward water and lower ground.
+            val arm = site.rootArm(
+                baseX, baseZ, baseY.toInt(), baseAngle, share * ROOT_TURN_SHARE,
+                25 + ((hash32(seed, i, 52) ushr 1) and 0x13),
+            )
+            val angle = arm[0]
             val cosA = cos(angle); val sinA = sin(angle)
             val perpX = -sinA; val perpZ = cosA
 
-            val reach = 25 + ((hash32(seed, i, 52) ushr 1) and 0x13)
+            val reach = arm[1].toInt()
             val plungeDepth = 18 + ((hash32(seed, i, 53) ushr 1) and 0xF)
             val wobblePhase = hash01(seed, i, 55) * PI * 2.0
             val wobbleAmp = 1.0 + hash01(seed, i, 56) * 1.5
@@ -1632,6 +1841,10 @@ object WohlonnogondoniaTreeGrower {
             val steps = reach
             var prevX = startX; var prevY = startY; var prevZ = startZ
             var prevR = CHILD_TREE_ROOT_BASE_RADIUS
+            // Off a narrow ledge the rise starts again from the foot of the wall.
+            var riseBase = startY
+            // The last surface point before the plunge: the visible tip of the arm.
+            var tipX = startX; var tipY = startY; var tipZ = startZ
             for (s in 1..steps) {
                 val t = s.toDouble() / steps
                 val r = t * reach
@@ -1639,20 +1852,29 @@ object WohlonnogondoniaTreeGrower {
                 val px = startX + r * cosA + perpX * wob
                 val pz = startZ + r * sinA + perpZ * wob
 
+                val footY = site.groundY(px.toInt(), pz.toInt()) + 1.0
+                if (t < walkEnd && prevY - footY > CASCADE_MIN_DROP) {
+                    val foot = cascadeDown(prevX, prevY, prevZ, prevR, px, footY, pz, perpX, perpZ, wobblePhase, armSegments)
+                    prevX = px; prevY = footY; prevZ = pz; prevR = foot
+                    riseBase = footY
+                }
+
                 val py = when {
                     t < riseEnd -> {
                         val rT = t / riseEnd
-                        startY + 2.5 * (1.0 - (1.0 - rT) * (1.0 - rT))
+                        riseBase + 2.5 * (1.0 - (1.0 - rT) * (1.0 - rT))
                     }
                     t < walkEnd -> {
-                        val hillY = heightAt(px.toInt(), pz.toInt()).toDouble()
+                        val hillY = site.groundY(px.toInt(), pz.toInt()).toDouble()
                         val wT = (t - riseEnd) / (walkEnd - riseEnd)
                         val bumpRaw = sin(wT * PI * 5.0 + walkUndulationPhase)
                         val bump = max(0.0, bumpRaw) * 4.0
-                        hillY + 1.0 + bump
+                        // Over water the arm arches clear of the surface, as a prop root does.
+                        val arch = if (site.isWater(px.toInt(), pz.toInt())) ROOT_WATER_ARCH else 0.0
+                        hillY + 1.0 + bump + arch
                     }
                     else -> {
-                        val hillHere = heightAt(px.toInt(), pz.toInt()).toDouble()
+                        val hillHere = site.groundY(px.toInt(), pz.toInt()).toDouble()
                         val pT = (t - walkEnd) / (1.0 - walkEnd)
                         hillHere + 1.0 - pT * pT * plungeDepth
                     }
@@ -1666,12 +1888,48 @@ object WohlonnogondoniaTreeGrower {
                         (1.0 - (t - walkEnd) / (1.0 - walkEnd) * 0.9)
                 }
 
-                val seg = TreeSegment(prevX, prevY, prevZ, px, py, pz, prevR, curR)
-                segmentsOut.add(seg)
-                paintSegmentSdf(seg, out)
+                armSegments.add(TreeSegment(prevX, prevY, prevZ, px, py, pz, prevR, curR))
                 prevX = px; prevY = py; prevZ = pz; prevR = curR
+                if (t < walkEnd) {
+                    tipX = px; tipY = py; tipZ = pz
+                }
             }
+            tipsOut.add(BlockPos.asLong(floor(tipX).toInt(), floor(tipY).toInt(), floor(tipZ).toInt()))
         }
+        for (seg in site.bendAround(armSegments, emptyList(), ::isBendObstacle).first) {
+            segmentsOut.add(seg)
+            paintSegmentSdf(seg, out)
+        }
+    }
+
+    /**
+     * Segments from the edge at ([x0], [y0], [z0]) down a wall face to [footY] at ([x1], [z1]), as roots
+     * grow down over ruins and rock: thin and swaying on the face, thick at the foot where the root meets
+     * soil. Returns the foot radius.
+     */
+    private fun cascadeDown(
+        x0: Double, y0: Double, z0: Double, r0: Double,
+        x1: Double, footY: Double, z1: Double,
+        perpX: Double, perpZ: Double, phase: Double,
+        out: MutableList<TreeSegment>,
+    ): Double {
+        val drop = y0 - footY
+        val steps = ceil(drop / CASCADE_STEP).toInt().coerceAtLeast(2)
+        val faceR = r0 * CASCADE_THIN
+        val footR = r0 * CASCADE_FOOT
+        val sway = min(CASCADE_SWAY_MAX, drop * CASCADE_SWAY_PER_BLOCK)
+        var px = x0; var py = y0; var pz = z0; var pr = r0
+        for (k in 1..steps) {
+            val f = k.toDouble() / steps
+            val side = sin(f * PI * 2.0 + phase) * sway * sin(f * PI)
+            val nx = x1 + perpX * side
+            val nz = z1 + perpZ * side
+            val ny = y0 - drop * f
+            val nr = if (k == steps) footR else faceR
+            out.add(TreeSegment(px, py, pz, nx, ny, nz, pr, nr))
+            px = nx; py = ny; pz = nz; pr = nr
+        }
+        return footR
     }
 
     /** Squared distance from a point `(px, py, pz)` (typically a
@@ -1810,6 +2068,14 @@ object WohlonnogondoniaTreeGrower {
         val tunnelCarvePositions: LongArray = LongArray(0),
         /** The heart position. Null for a job saved before this field. Then the job plays no loop or finish sound. */
         val trunk: Long? = null,
+        /** Visible end of each root arm, for the ignite tendrils. Not saved. */
+        val rootTips: LongArray = LongArray(0),
+        /** Site quality from water and light: scales the growth rate. 1 for a job saved before this field. */
+        val quality: Float = 1f,
+        /** Skeleton for the client growth ghost: [GHOST_SEGMENT_FLOATS] floats a segment, from the candle. Not saved. */
+        val ghostSegments: FloatArray = FloatArray(0),
+        /** Leaf blob centres for the growth ghost, 3 ints each, from the candle. Not saved. */
+        val ghostTips: IntArray = IntArray(0),
     ) {
         // Runtime-only — rebuilt on construction / save load.
         val voxelIdx: HashMap<Long, Int> = HashMap(voxels.size + voxels.size / 2)
@@ -1818,6 +2084,10 @@ object WohlonnogondoniaTreeGrower {
         var idleTicks = 0
         /** The game time of the last tick with the area loaded. */
         var lastGrowTick = Long.MIN_VALUE
+        /** No growth before this game tick: the ignite animation plays first. Not saved; a reload grows at once. */
+        var startTick = Long.MIN_VALUE
+        /** The fraction of a placement left over from the last tick, so a rate below 1 a tick still grows. */
+        var placeCarry = 0f
         /** A voxel that [tickJob] put into the level this tick, or -1. */
         var lastSetIdx = -1
         var detailCountdown = 0
@@ -1889,6 +2159,7 @@ object WohlonnogondoniaTreeGrower {
                 t.putInt("layer", job.currentLayer)
                 t.putInt("layerTimer", job.layerTimer)
                 job.trunk?.let { t.putLong("trunk", it) }
+                t.putFloat("quality", job.quality)
                 jobsList.add(t)
             }
             tag.put("jobs", jobsList)
@@ -1928,6 +2199,7 @@ object WohlonnogondoniaTreeGrower {
                         currentLayer = t.getInt("layer"),
                         layerTimer = t.getInt("layerTimer"),
                         trunk = if (t.contains("trunk", Tag.TAG_LONG.toInt())) t.getLong("trunk") else null,
+                        quality = if (t.contains("quality", Tag.TAG_FLOAT.toInt())) t.getFloat("quality") else 1f,
                     )
                     job.rebuildRuntimeState()
                     data.jobs.add(job)
@@ -1936,8 +2208,4 @@ object WohlonnogondoniaTreeGrower {
             }
         }
     }
-
-    @Suppress("unused")
-    private fun unusedReferenceForImportSurvival(level: Level, key: ResourceKey<Level>): Boolean =
-        level.dimension() == key
 }

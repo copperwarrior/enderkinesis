@@ -18,7 +18,11 @@ import net.minecraft.client.renderer.block.model.ItemTransforms
 import net.minecraft.client.renderer.entity.ItemRenderer
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.client.resources.model.SimpleBakedModel
+import com.google.gson.JsonParser
 import net.minecraft.core.Direction
+import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.world.inventory.InventoryMenu
+import org.joml.Matrix4f
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.packs.resources.ResourceProvider
 import net.minecraft.world.item.Item
@@ -35,7 +39,24 @@ object StaffGemGlow {
 
     enum class Spin { NONE, SHAFT_AXIS, TUMBLE }
 
-    class Style(color: Int, val spin: Spin = Spin.NONE, val dark: Boolean = false) {
+    /** Turns a [Spin.SHAFT_AXIS] gem away from its spin. [pose] maps the gem's model space to view space.
+     *  Writes the gem's rotation about its centre into [out]; `out.rotationY(spinYaw)` keeps the plain spin. */
+    fun interface Aim {
+        fun rotation(
+            stack: ItemStack, pose: Matrix4f, centerX: Float, centerY: Float, centerZ: Float, spinYaw: Float, out: Quaternionf,
+        ): Quaternionf
+    }
+
+    /** [gemElement] names the model element that is the gem, for a model whose gem shares the body's texture. */
+    class Style(
+        color: Int,
+        val spin: Spin = Spin.NONE,
+        val dark: Boolean = false,
+        val shaftPeriodMs: Long = SHAFT_PERIOD_MS,
+        val gemElement: String? = null,
+        val noCull: Boolean = false,
+        val aim: Aim? = null,
+    ) {
         val red = (color shr 16 and 0xFF) / 255f
         val green = (color shr 8 and 0xFF) / 255f
         val blue = (color and 0xFF) / 255f
@@ -49,9 +70,19 @@ object StaffGemGlow {
         private val radius: Float,
     ) {
         /** [clockMs] sets the spin phase. A caller can advance it at a different rate. */
-        fun spin(style: Style, poseStack: PoseStack, clockMs: Double = Util.getMillis().toDouble()) {
+        fun spin(
+            style: Style, poseStack: PoseStack, clockMs: Double = Util.getMillis().toDouble(), stack: ItemStack? = null,
+        ) {
             val rotation = when (style.spin) {
-                Spin.SHAFT_AXIS -> scratchRotation.rotationY(turn(clockMs, SHAFT_PERIOD_MS))
+                Spin.SHAFT_AXIS -> {
+                    val spinYaw = turn(clockMs, style.shaftPeriodMs)
+                    val aim = style.aim
+                    if (aim != null && stack != null) {
+                        aim.rotation(stack, poseStack.last().pose(), centerX, centerY, centerZ, spinYaw, scratchRotation)
+                    } else {
+                        scratchRotation.rotationY(spinYaw)
+                    }
+                }
                 Spin.TUMBLE -> scratchRotation.rotationYXZ(
                     turn(clockMs, TUMBLE_Y_PERIOD_MS),
                     turn(clockMs, TUMBLE_X_PERIOD_MS),
@@ -83,23 +114,33 @@ object StaffGemGlow {
     class Parts internal constructor(val body: BakedModel, private val gem: Gem, private val style: Style) {
         val gemModel: BakedModel get() = gem.model
 
-        fun spin(poseStack: PoseStack) = gem.spin(style, poseStack)
+        fun spin(stack: ItemStack, poseStack: PoseStack) = gem.spin(style, poseStack, stack = stack)
 
         /** Draws the halo after the staff body. Returns the consumer to use for the gem. */
         fun emitHalo(
             stack: ItemStack, poseStack: PoseStack, buffers: MultiBufferSource, vertexConsumer: VertexConsumer,
         ): VertexConsumer {
-            if (shaderInstance == null) return vertexConsumer
-            val source = buffers as? MultiBufferSource.BufferSource ?: return vertexConsumer
+            val itemBatchEnded = drawHalo(stack, poseStack, buffers)
+            return when {
+                style.noCull -> ItemRenderer.getFoilBufferDirect(buffers, NO_CULL_GEM, true, stack.hasFoil())
+                // endBatch ended the item builder, so the caller's consumer is stale.
+                itemBatchEnded -> ItemRenderer.getFoilBufferDirect(
+                    buffers, ItemBlockRenderTypes.getRenderType(stack, true), true, stack.hasFoil(),
+                )
+                else -> vertexConsumer
+            }
+        }
+
+        /** Returns true when it ended the item batch. */
+        private fun drawHalo(stack: ItemStack, poseStack: PoseStack, buffers: MultiBufferSource): Boolean {
+            if (shaderInstance == null) return false
+            val source = buffers as? MultiBufferSource.BufferSource ?: return false
             // ItemRenderer.render uses this same type for an item that is not a BlockItem.
-            val itemType = ItemBlockRenderTypes.getRenderType(stack, true)
             // The halo shader reads the body depth, so the body must draw first.
-            source.endBatch(itemType)
-            val haloType = gem.queueHalo(style, poseStack, source) ?: return vertexConsumer
+            source.endBatch(ItemBlockRenderTypes.getRenderType(stack, true))
             // Draw the halo now: the gem draws later, on top, so the halo does not wash it out.
-            source.endBatch(haloType)
-            // endBatch ended the item builder, so the caller's consumer is stale.
-            return ItemRenderer.getFoilBufferDirect(source, itemType, true, stack.hasFoil())
+            gem.queueHalo(style, poseStack, source)?.let(source::endBatch)
+            return true
         }
     }
 
@@ -114,6 +155,9 @@ object StaffGemGlow {
     }
 
     private var shaderInstance: ShaderInstance? = null
+
+    // Same sheet as the item's own translucent type, without the back-face cull.
+    private val NO_CULL_GEM: RenderType = RenderType.entityTranslucent(InventoryMenu.BLOCK_ATLAS)
 
     private val ADDITIVE_HALO = haloType("additive", RenderStateShard.LIGHTNING_TRANSPARENCY)
 
@@ -172,6 +216,14 @@ object StaffGemGlow {
             put(EKItems.STAFF_OF_FUSION.get(), Style(0x7B0AFB))
             put(EKItems.STAFF_OF_AEGIS.get(), Style(0x6B6B6B, Spin.SHAFT_AXIS))
             put(EKItems.STAFF_OF_SUNDERING.get(), Style(0x7E5014))
+            // The skull is bone grey; its glow is the Sselith glyph yellow.
+            put(
+                EKItems.GRAND_STAFF_OF_THE_DEAD.get(),
+                Style(
+                    0xE6C333, Spin.SHAFT_AXIS, shaftPeriodMs = GRAND_STAFF_PERIOD_MS,
+                    gemElement = "skull_emoji", noCull = true, aim = GrandStaffClient,
+                ),
+            )
         }
     }
 
@@ -185,22 +237,56 @@ object StaffGemGlow {
     @JvmStatic
     fun partsOf(stack: ItemStack, model: BakedModel): Parts? {
         val style = styles[stack.item] ?: return null
-        return partsByModel.getOrPut(model) { split(model, style) }
+        return partsByModel.getOrPut(model) { split(model, style, stack.item) }
     }
 
     /** A whole model as one gem, for a renderer that keeps its gem in a separate model. */
     fun gemOf(model: BakedModel): Gem =
         gemsByModel.getOrPut(model) { gem(model, BakedItemModels.quadsOf(model)) }
 
-    private fun split(model: BakedModel, style: Style): Parts {
+    private fun split(model: BakedModel, style: Style, item: Item): Parts {
+        val box = style.gemElement?.let { elementBox(item, it) }
         val (gemQuads, bodyQuads) = BakedItemModels.quadsOf(model).partition {
+            if (box != null) return@partition centroidInside(it, box)
             val name = it.sprite.contents().name()
             name.namespace == EnderkinesisMod.MOD_ID && name.path.startsWith(GEM_SPRITE_PREFIX)
         }
         return Parts(partModel(model, bodyQuads), gem(partModel(model, gemQuads), gemQuads), style)
     }
 
+    /** The named element's from/to box in baked units (block / 16), ignoring its rotation. Null when absent. */
+    private fun elementBox(item: Item, element: String): FloatArray? {
+        val id = BuiltInRegistries.ITEM.getKey(item)
+        val location = ResourceLocation(id.namespace, "models/item/${id.path}.json")
+        val resource = Minecraft.getInstance().resourceManager.getResource(location).orElse(null) ?: return null
+        val json = resource.openAsReader().use { JsonParser.parseReader(it).asJsonObject }
+        for (entry in json.getAsJsonArray("elements") ?: return null) {
+            val obj = entry.asJsonObject
+            if (obj.get("name")?.asString != element) continue
+            val from = obj.getAsJsonArray("from")
+            val to = obj.getAsJsonArray("to")
+            return FloatArray(BOX_FLOATS) { i ->
+                val axis = i % AXES
+                (if (i < AXES) from[axis] else to[axis]).asFloat / MODEL_UNITS
+            }
+        }
+        LOG.warn("Staff model {} has no element named {}", location, element)
+        return null
+    }
+
+    private fun centroidInside(quad: BakedQuad, box: FloatArray): Boolean {
+        val vertices = quad.vertices
+        for (axis in 0 until AXES) {
+            var sum = 0f
+            for (i in 0 until VERTICES_PER_QUAD) sum += Float.fromBits(vertices[i * VERTEX_STRIDE + axis])
+            val c = sum / VERTICES_PER_QUAD
+            if (c < box[axis] - BOX_EPSILON || c > box[axis + AXES] + BOX_EPSILON) return false
+        }
+        return true
+    }
+
     private fun gem(model: BakedModel, gemQuads: List<BakedQuad>): Gem {
+        if (gemQuads.isEmpty()) return Gem(model, 0f, 0f, 0f, 0f)
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var minZ = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
         for (quad in gemQuads) {
@@ -241,8 +327,14 @@ object StaffGemGlow {
     // DefaultVertexFormat.BLOCK: 8 ints for each vertex.
     private const val VERTEX_STRIDE = 8
     private const val TAU = (Math.PI * 2.0).toFloat()
+    private const val AXES = 3
+    private const val BOX_FLOATS = 6
+    private const val MODEL_UNITS = 16f
+    private const val BOX_EPSILON = 0.01f
+    private val LOG = com.mojang.logging.LogUtils.getLogger()
 
     private const val SHAFT_PERIOD_MS = 4000L
+    private const val GRAND_STAFF_PERIOD_MS = 12000L
     private const val TUMBLE_Y_PERIOD_MS = 5000L
     private const val TUMBLE_X_PERIOD_MS = 7000L
     private const val TUMBLE_Z_PERIOD_MS = 11000L

@@ -14,7 +14,7 @@
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:book",
+          "name": "enderkinesis:sselith_book",
           "weight": 3
         },
         {

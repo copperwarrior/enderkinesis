@@ -3,6 +3,7 @@
   "values": [
     "enderkinesis:wogor_wood",
     "enderkinesis:wogor_log",
-    "minecraft:mud"
+    "minecraft:mud",
+    "enderkinesis:wohlon_mud"
   ]
 }

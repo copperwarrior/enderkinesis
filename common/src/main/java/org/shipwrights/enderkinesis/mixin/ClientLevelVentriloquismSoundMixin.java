@@ -53,7 +53,7 @@ public abstract class ClientLevelVentriloquismSoundMixin {
         Holder<SoundEvent> sound, SoundSource source, float volume, float pitch, long seed,
         CallbackInfo ci
     ) {
-        if (!enderkinesis$mirrorsChannel(source)) return;
+        if (!enderkinesis$mirrorsChannel(source) || VentriloquismNetwork.isOrbSound(sound)) return;
         if (enderkinesis$insideAnyBubble(x, y, z)) ci.cancel();
     }
 
@@ -67,7 +67,7 @@ public abstract class ClientLevelVentriloquismSoundMixin {
         Holder<SoundEvent> sound, SoundSource source, float volume, float pitch, long seed,
         CallbackInfo ci
     ) {
-        if (!enderkinesis$mirrorsChannel(source)) return;
+        if (!enderkinesis$mirrorsChannel(source) || VentriloquismNetwork.isOrbSound(sound)) return;
         if (enderkinesis$insideAnyBubble(entity.getX(), entity.getY(), entity.getZ())) ci.cancel();
     }
 

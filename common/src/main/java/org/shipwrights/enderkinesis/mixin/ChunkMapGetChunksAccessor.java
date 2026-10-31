@@ -11,10 +11,8 @@ import org.spongepowered.asm.mixin.gen.Invoker;
  * package-private in 1.20.1 (annotated {@code @VisibleForDebug}), which Kotlin reports
  * as "protected" and refuses to call.
  *
- * Used by
- * {@link org.shipwrights.enderkinesis.block.WohlonnogondoniaSpreader}
- * to find Wohlon biome cells across all loaded chunks of a non-Wohlon dimension every
- * spread tick, and to random-tick converts-tag blocks every server tick.
+ * Used by {@link org.shipwrights.enderkinesis.block.WohlonnogondoniaSpreader} to find
+ * tainted chunks that loaded, when the tainted set is larger than the loaded set.
  */
 @Mixin(ChunkMap.class)
 public interface ChunkMapGetChunksAccessor {

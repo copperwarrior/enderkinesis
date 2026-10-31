@@ -40,6 +40,11 @@ class ConstriliarPlatformBlockEntity(pos: BlockPos, state: BlockState) :
         level?.sendBlockUpdated(blockPos, blockState, blockState, 3)
     }
 
+    /** Client only: the walker whose synced platform pos is this block owns it. */
+    fun bindClientOwner(entityId: Int) {
+        if (level?.isClientSide == true) ownerEntityId = entityId
+    }
+
     fun setSource(state: BlockState) {
         if (sourceState == state) return
         sourceState = state

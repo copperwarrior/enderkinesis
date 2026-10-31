@@ -1,7 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
 import me.jellysquid.mods.sodium.client.world.WorldSlice;
-import net.minecraft.client.multiplayer.ClientLevel;
+import me.jellysquid.mods.sodium.client.world.biome.BiomeSlice;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.LightLayer;
@@ -34,10 +34,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = WorldSlice.class, remap = false)
 public abstract class WorldSliceWohlonAmbientMixin {
 
+    // The mesh build runs on worker threads, so read the slice snapshot, never the ClientLevel.
     @Shadow @Final
-    private ClientLevel world;
+    private BiomeSlice biomeSlice;
 
     private static final int WOHLON_AMBIENT_BLOCKLIGHT = 5;
+
+    // BiomeSlice holds 3×3×3 sections as 12 quart cells on each axis.
+    private static final int SLICE_QUARTS = 12;
 
     @Inject(
         method = "getBrightness(Lnet/minecraft/world/level/LightLayer;Lnet/minecraft/core/BlockPos;)I",
@@ -53,20 +57,26 @@ public abstract class WorldSliceWohlonAmbientMixin {
         int stored = cir.getReturnValueI();
         if (stored >= WOHLON_AMBIENT_BLOCKLIGHT) return;
 
-        int centreQx = pos.getX() >> 2;
-        int centreQy = pos.getY() >> 2;
-        int centreQz = pos.getZ() >> 2;
+        BiomeSliceAccessor slice = (BiomeSliceAccessor) biomeSlice;
+        Holder<Biome>[] biomes = slice.enderkinesis$getBiomes();
+        int centreQx = (pos.getX() - slice.enderkinesis$getWorldX()) >> 2;
+        int qy = (pos.getY() - slice.enderkinesis$getWorldY()) >> 2;
+        int centreQz = (pos.getZ() - slice.enderkinesis$getWorldZ()) >> 2;
+        if (qy < 0 || qy >= SLICE_QUARTS) return;
         int wohlonCount = 0;
-        int totalCount = 0;
         for (int dqx = -1; dqx <= 1; dqx++) {
+            int qx = centreQx + dqx;
+            if (qx < 0 || qx >= SLICE_QUARTS) continue;
             for (int dqz = -1; dqz <= 1; dqz++) {
-                Holder<Biome> sample = world.getNoiseBiome(centreQx + dqx, centreQy, centreQz + dqz);
-                totalCount++;
-                if (sample.is(Wohlonnogondonia.BIOME_KEY)) wohlonCount++;
+                int qz = centreQz + dqz;
+                if (qz < 0 || qz >= SLICE_QUARTS) continue;
+                Holder<Biome> sample = biomes[(qx * SLICE_QUARTS + qy) * SLICE_QUARTS + qz];
+                if (sample != null && sample.is(Wohlonnogondonia.BIOME_KEY)) wohlonCount++;
             }
         }
         if (wohlonCount == 0) return;
-        int boost = Math.round((float) wohlonCount / (float) totalCount * WOHLON_AMBIENT_BLOCKLIGHT);
+        // Cells outside the slice count as non-Wohlon, so the divisor stays 9 like the vanilla mixin.
+        int boost = Math.round((float) wohlonCount / 9f * WOHLON_AMBIENT_BLOCKLIGHT);
         if (boost > stored) cir.setReturnValue(boost);
     }
 }

@@ -1,0 +1,11 @@
+{
+  "entities": [
+    "minecraft:player",
+    "enderkinesis:player_corpse"
+  ],
+  "wear_skin": true,
+  "flesh": {
+    "item": "minecraft:rotten_flesh"
+  },
+  "flesh_count": 1
+}

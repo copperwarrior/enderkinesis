@@ -18,8 +18,8 @@ import kotlin.math.sqrt
 
 /**
  * The shore of one lattice ocean as a top-down R8 texture over the zone ellipse bounds: the
- * mesh edge alpha (warped coast, tendrils, coves), from the same [LatticeShore] functions
- * that give the wave mesh its edge.
+ * shore alpha (warped coast and falloff), from the same [LatticeShore] functions
+ * that give the wave surface its edge.
  */
 object CrepusculiteLatticeShoreMap {
     private val LOG = LogUtils.getLogger()
@@ -28,7 +28,7 @@ object CrepusculiteLatticeShoreMap {
     private const val MIN_SIZE = 32
     private const val MAX_SIZE = 256
 
-    /** The tendrils move slowly, so the map does not need the frame rate. */
+    /** The coast moves slowly, so the map does not need the frame rate. */
     private const val REBUILD_TICKS = 4.0
     private const val EVICT_FRAMES = 600L
     private const val MAX_ENTRIES = 64
@@ -41,6 +41,7 @@ object CrepusculiteLatticeShoreMap {
         internal var lastBuildTime = Double.NEGATIVE_INFINITY
         internal var lastUsedFrame = 0L
         internal var ready = false
+        internal var textureSize = 0
 
         var textureId = -1
             internal set
@@ -113,7 +114,7 @@ object CrepusculiteLatticeShoreMap {
                         val theta = atan2(nz * zone.az, nx * zone.ax)
                         val rDir = LatticeShore.rDirAt(theta, zone.ax, zone.az)
                         val rWarped = rRaw / LatticeShore.rimWarpAt(theta, rDir, zone.waveTime, circumference)
-                        LatticeShore.shoreEdgeAt(rWarped, theta, rDir, zone.waveTime, circumference)
+                        LatticeShore.shoreEdgeAt(rWarped, rDir)
                     }
                 }
                 out.put(j * size + i, (edge.coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte())
@@ -139,7 +140,12 @@ object CrepusculiteLatticeShoreMap {
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, 0)
         GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, 1)
         data.rewind()
-        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R8, size, size, 0, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
+        if (size == map.textureSize) {
+            GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, size, size, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
+        } else {
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R8, size, size, 0, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
+            map.textureSize = size
+        }
         map.ready = true
     }
 }

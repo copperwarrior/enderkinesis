@@ -31,6 +31,7 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.item.DisintegrationTomeOrbBehavior
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Orb of Linking — the generic substrate the whole tome suite shares.
@@ -184,6 +185,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
                             .withStyle(ChatFormatting.RED),
                         true,
                     )
+                    OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_REFUSE)
                 }
                 return InteractionResult.FAIL
             }
@@ -192,6 +194,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
             val newBook = itemInHand.copy().also { it.count = 1 }
             if (!player.abilities.instabuild) itemInHand.shrink(1)
             be.setBook(newBook)
+            OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_BOOK_SET)
             if (!oldBook.isEmpty && !player.addItem(oldBook)) player.drop(oldBook, false)
             player.displayClientMessage(
                 Component.translatable("item.enderkinesis.orb.book_set").withStyle(ChatFormatting.GRAY),
@@ -204,6 +207,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
             if (level.isClientSide) return InteractionResult.SUCCESS
             val book = be.book.copy()
             be.setBook(ItemStack.EMPTY)
+            OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_BOOK_RELEASE)
             if (!player.addItem(book)) player.drop(book, false)
             player.displayClientMessage(
                 Component.translatable("item.enderkinesis.orb.book_released").withStyle(ChatFormatting.GRAY),
@@ -224,6 +228,8 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
     ): InteractionResult {
         if (level.isClientSide) return InteractionResult.sidedSuccess(true)
         be.setFilter(filterTarget)
+        val sound = if (filterTarget.isEmpty) EKSounds.ORB_OF_LINKING_FILTER_CLEAR else EKSounds.ORB_OF_LINKING_FILTER_SET
+        OrbOfLinkingSounds.play(level, be.blockPos, sound)
         val msg: Component = if (filterTarget.isEmpty) {
             Component.translatable("item.enderkinesis.tome_of_filtering.cleared")
         } else {
@@ -234,6 +240,13 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
             true,
         )
         return InteractionResult.CONSUME
+    }
+
+    /** Block events go to the block, and the block entity keeps the state they carry. */
+    @Deprecated("Deprecated in Java")
+    override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean {
+        super.triggerEvent(state, level, pos, id, param)
+        return level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
     }
 
     /** Forward neighbour changes to every outgoing tome's behavior. */

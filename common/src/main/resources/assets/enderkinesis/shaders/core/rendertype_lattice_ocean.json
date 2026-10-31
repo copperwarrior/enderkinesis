@@ -22,6 +22,17 @@
     { "name": "PrevMaskMat",    "type": "matrix4x4", "count": 16, "values": [ 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 ] },
     { "name": "PrevMaskSize",   "type": "int",       "count": 3,  "values": [ 0, 0, 0 ] },
     { "name": "MaskBlend",      "type": "float",     "count": 1,  "values": [ 1.0 ] },
-    { "name": "SoftEdge",       "type": "float",     "count": 1,  "values": [ 0.0 ] }
+    { "name": "SoftEdge",       "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "ShoreOffset",    "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "ZoneYaw",        "type": "float",     "count": 2,  "values": [ 1.0, 0.0 ] },
+    { "name": "ZoneRadii",      "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "ShoreSafe",      "type": "float",     "count": 1,  "values": [ 2.0 ] },
+    { "name": "ShoreLobes",     "type": "float",     "count": 3,  "values": [ 2.0, 3.0, 5.0 ] },
+    { "name": "ShoreDrift",     "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "CameraOffset",   "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "DeepColor",      "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "TintColor",      "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "FoamColor",      "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "ViewFalloff",    "type": "float",     "count": 1,  "values": [ 1.0 ] }
   ]
 }

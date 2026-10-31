@@ -1,0 +1,36 @@
+{
+  "variants": {
+    "": [
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_1"
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_1",
+        "y": 90
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_1",
+        "y": 180
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_1",
+        "y": 270
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_2"
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_2",
+        "y": 90
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_2",
+        "y": 180
+      },
+      {
+        "model": "enderkinesis:block/wohlon_lily_pad_2",
+        "y": 270
+      }
+    ]
+  }
+}

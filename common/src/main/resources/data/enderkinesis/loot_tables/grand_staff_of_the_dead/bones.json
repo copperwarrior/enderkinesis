@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone",
+          "functions": [
+            {
+              "function": "enderkinesis:scale_count_by_size",
+              "per_volume": 4.0,
+              "max": 64
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

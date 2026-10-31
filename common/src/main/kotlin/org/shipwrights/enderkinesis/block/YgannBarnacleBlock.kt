@@ -89,12 +89,19 @@ class YgannBarnacleBlock(props: Properties) : Block(props), EntityBlock {
             val be = level.getBlockEntity(pos) as? YgannBarnacleBlockEntity
             if (be != null) {
                 org.shipwrights.enderkinesis.barnacle.YgannBarnacleDeathNetwork.broadcastDeath(
-                    level, pos, be.seed, state.getValue(FACING), be.growthPx(level.gameTime, 0f),
+                    level, pos, be.seed, state.getValue(FACING), be.deathReveals(level),
                 )
             }
         }
         @Suppress("DEPRECATION")
         super.onRemove(state, level, pos, newState, moved)
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun attack(state: BlockState, level: Level, pos: BlockPos, player: net.minecraft.world.entity.player.Player) {
+        (level.getBlockEntity(pos) as? YgannBarnacleBlockEntity)?.flinch(level)
+        @Suppress("DEPRECATION")
+        super.attack(state, level, pos, player)
     }
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =

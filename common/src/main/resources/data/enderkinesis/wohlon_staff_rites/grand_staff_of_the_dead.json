@@ -1,0 +1,14 @@
+{
+  "gem": "minecraft:skeleton_skull",
+  "result": "enderkinesis:grand_staff_of_the_dead",
+  "colour": "#D7D3C1",
+  "body_colour": "#F6D03D",
+  "slots": [
+    "minecraft:gold_block",
+    "minecraft:gold_block",
+    "minecraft:gold_block"
+  ],
+  "advancements": [
+    "enderkinesis:sureibjin/knowledge_of_death"
+  ]
+}

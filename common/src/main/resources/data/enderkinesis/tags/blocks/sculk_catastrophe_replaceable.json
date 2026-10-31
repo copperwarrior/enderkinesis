@@ -53,6 +53,23 @@
     "minecraft:hay_block",
     "minecraft:melon",
     "minecraft:pumpkin",
-    "minecraft:carved_pumpkin"
+    "minecraft:carved_pumpkin",
+    "enderkinesis:wohlon_mud",
+    "enderkinesis:wohlon_moss",
+    "enderkinesis:wohlon_fern",
+    "enderkinesis:wohlon_tall_fern",
+    "enderkinesis:wohlon_grass",
+    "enderkinesis:wohlon_lichen",
+    "enderkinesis:wohlon_reed",
+    "enderkinesis:wohlon_lily_pad",
+    "enderkinesis:wohlon_duckweed",
+    "enderkinesis:wohlon_leaf_litter",
+    "enderkinesis:wohlon_lumpy_mushroom",
+    "enderkinesis:wohlon_cup_mushroom",
+    "enderkinesis:wohlon_lumpy_mushroom_block",
+    "enderkinesis:wohlon_cup_mushroom_block",
+    "enderkinesis:wohlon_mushroom_stem",
+    "enderkinesis:heartfire",
+    "enderkinesis:wohlon_hanging_roots"
   ]
 }

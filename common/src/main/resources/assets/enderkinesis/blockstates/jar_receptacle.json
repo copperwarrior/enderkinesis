@@ -1,0 +1,336 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true",
+        "bottles": "1"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_1"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true",
+        "bottles": "2"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_2"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true",
+        "bottles": "3"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_3"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true",
+        "bottles": "4"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_4"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true",
+        "bottles": "5"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_5"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true",
+        "bottles": "6"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_6"
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true",
+        "bottles": "1"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_1",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true",
+        "bottles": "2"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_2",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true",
+        "bottles": "3"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_3",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true",
+        "bottles": "4"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_4",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true",
+        "bottles": "5"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_5",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true",
+        "bottles": "6"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_6",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true",
+        "bottles": "1"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_1",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true",
+        "bottles": "2"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_2",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true",
+        "bottles": "3"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_3",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true",
+        "bottles": "4"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_4",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true",
+        "bottles": "5"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_5",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true",
+        "bottles": "6"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_6",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true",
+        "bottles": "1"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_1",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true",
+        "bottles": "2"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_2",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true",
+        "bottles": "3"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_3",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true",
+        "bottles": "4"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_4",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true",
+        "bottles": "5"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_5",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true",
+        "bottles": "6"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_ink_6",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "north"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle"
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "jar": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_jar"
+      }
+    },
+    {
+      "when": {
+        "facing": "east"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "jar": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_jar",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "south"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "jar": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_jar",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "west"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "jar": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/jar_receptacle_jar",
+        "y": 270
+      }
+    }
+  ]
+}

@@ -6,9 +6,9 @@
     "sky_color": 5799564,
     "fog_color": 5799564,
     "water_color": 991270,
-    "water_fog_color": 991270,
-    "foliage_color": 3034457,
-    "grass_color": 3034457,
+    "water_fog_color": 2379866,
+    "foliage_color": 4226427,
+    "grass_color": 4226427,
     "music": {
       "sound": "enderkinesis:music.wohlonnogondonia",
       "min_delay": 12000,
@@ -55,7 +55,7 @@
     [],
     [],
     [],
-    [ "enderkinesis:wogor_forest", "enderkinesis:wogor_forest_water" ],
+    [ "enderkinesis:wogor_forest", "enderkinesis:wogor_forest_water", "enderkinesis:wogor_forest_deep", "enderkinesis:wogor_poles", "enderkinesis:wohlon_trunk_bases", "enderkinesis:wohlon_deadwood", "enderkinesis:wohlon_huge_fungi", "enderkinesis:wohlon_understory" ],
     []
   ]
 }

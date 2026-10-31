@@ -3,44 +3,13 @@ package org.shipwrights.enderkinesis.dimension
 import kotlin.math.sqrt
 
 /**
- * Heart-tunnel skeleton builder — **space colonization** algorithm
- * (Runions, Lane, Prusinkiewicz 2007), the same body of code the Mother
- * Tree uses ([WogorTreeSkeleton]) but tuned for an underground tunnel
- * network that grows from the heart cave at world origin out to the
- * moat ring, branches naturally where attractor clusters pull tips in
- * diverging directions, and dies out at tips where the chunks of
- * attractor-space deplete.
+ * Heart-tunnel skeleton: the hollow lateral roots of the Mother Tree, grown by space colonisation
+ * (Runions et al. 2007) from the heart cave out to the moat, then shaped after real root systems:
+ * area-preserving branching with a rapid near-trunk taper, a few blocks under the ground and rising
+ * toward the tips, curved runs, grafts where branches meet, and tips that end as moat outlets,
+ * sinkholes or silt pinch-outs.
  *
- * Identical mechanics to the tree:
- *
- *  1. Scatter attractor points in the volume the tunnel network should
- *     cover — for us, a dense ring around the moat plus a sparse
- *     intermediate scattering through the mound interior. All
- *     attractors are constrained to a horizontal band `[seaLow, seaHigh]`
- *     so the resulting tunnel stays within ±[yRange] of sea level.
- *  2. Plant one node at the heart `(0, SEA_LEVEL_Y, 0)`.
- *  3. Each iteration:
- *      - every attractor finds its nearest node within [attractionDist];
- *      - every node accumulates the unit directions to its attributed
- *        attractors, blends in [bias], grows one [stepSize] new child
- *        in that averaged direction (Y clamped to the band);
- *      - any attractor within [killDist] of any node is consumed.
- *  4. After growth, walk the tree to count descendant leaves per node
- *     and assign radius ≈ √(descendantLeaves) (Cepero's pipe model,
- *     after da Vinci), clamped to `[rMin, rMax]`. **The trunk —
- *     covering the most descendants — comes out thickest naturally;
- *     leaf-tips come out thinnest.**
- *
- * The output is a flat list of parent→child [HeartTunnelSegment]s plus
- * the list of leaf [HeartTunnelTip]s (where the chunk generator will
- * place craggy dead-end pool chambers). Voxelisation lives in the
- * chunk generator's `paintHeartTunnelSegment`, which mirrors
- * `paintTreeSegment` voxel-for-voxel — same tapered-capsule SDF, same
- * bark perturbation — but writes air / water for the interior and a
- * thin wogor-wood shell band for the wall, instead of solid wood.
- *
- * Pure of caller state — same `seed` + same attractor cloud →
- * identical skeleton. Safe to call from worldgen worker threads
+ * Pure: the same seed and attractors give the same skeleton, so worldgen threads may build it
  * concurrently.
  */
 internal object HeartTunnelSkeleton {
@@ -126,6 +95,7 @@ internal object HeartTunnelSkeleton {
         rMin: Double, rMax: Double,
         thicknessScale: Double,
         seaLow: Double, seaHigh: Double,
+        shape: Shape,
     ): Skeleton {
         val root = Node(originX, originY, originZ, parent = null)
         val nodes = ArrayList<Node>(attractors.size / 3 + 8)
@@ -217,55 +187,202 @@ internal object HeartTunnelSkeleton {
             if (!anyKilled && influence.isEmpty()) break
         }
 
-        // Pipe-model thickness: radius ≈ √(descendantLeaves) ·
-        // thicknessScale, clamped. Trunk (many descendants) saturates
-        // toward rMax; tips (1 descendant) sit at rMin.
         countLeavesRecursive(root)
+        smooth(nodes)
+        assignPathDistance(root)
+        followTerrain(root, shape)
         for (n in nodes) {
-            val raw = sqrt(n.descendantLeaves.toDouble())
-            n.radius = (raw * thicknessScale).coerceIn(rMin, rMax)
+            // Area-preserving branching (r² ∝ leaves) with the rapid taper real lateral roots show
+            // in their first 10–20 m, then a slow one.
+            val taper = (TAPER_FLOOR + (1.0 - TAPER_FLOOR) * Math.exp(-n.pathDist / TAPER_NEAR_LENGTH)) *
+                (1.0 - TAPER_FAR_PER_BLOCK * n.pathDist).coerceAtLeast(TAPER_FAR_FLOOR)
+            n.radius = (sqrt(n.descendantLeaves.toDouble()) * thicknessScale * taper).coerceIn(rMin, rMax)
         }
 
-        // Emit segments + tips. A tip's forward direction is the
-        // unit vector from its parent — used by the pool painter to
-        // extend the chamber a little further past the dead-end.
-        val segments = ArrayList<HeartTunnelSegment>(nodes.size)
-        val tips = ArrayList<HeartTunnelTip>()
+        val segments = ArrayList<HeartTunnelSegment>(nodes.size * 2)
         var maxReachSq = 0.0
         for (n in nodes) {
             val ddx = n.x - originX
             val ddz = n.z - originZ
-            val rSq = ddx * ddx + ddz * ddz
-            if (rSq > maxReachSq) maxReachSq = rSq
-            if (n.children.isEmpty() && n.parent != null) {
-                val p = n.parent
-                val tdx = n.x - p.x
-                val tdy = n.y - p.y
-                val tdz = n.z - p.z
-                val tmag = sqrt(tdx * tdx + tdy * tdy + tdz * tdz)
-                val (dxN, dyN, dzN) = if (tmag > 1e-6) {
-                    Triple(tdx / tmag, tdy / tmag, tdz / tmag)
-                } else {
-                    Triple(1.0, 0.0, 0.0)
-                }
-                tips.add(HeartTunnelTip(n.x, n.y, n.z, n.radius, dxN, dyN, dzN))
-            }
-            for (c in n.children) {
-                segments.add(HeartTunnelSegment(
-                    n.x, n.y, n.z, c.x, c.y, c.z,
-                    n.radius, c.radius,
-                ))
-            }
+            maxReachSq = maxOf(maxReachSq, ddx * ddx + ddz * ddz)
+            for (c in n.children) addSinuous(segments, n, c, shape.seed)
+            if (n.children.isEmpty() && n.parent != null) addEnd(segments, n, shape)
         }
-        return Skeleton(segments, tips, sqrt(maxReachSq).toInt())
+        addGrafts(segments, nodes, shape.seed)
+        return Skeleton(segments, sqrt(maxReachSq).toInt())
     }
 
-    /** Result bundle — segments + tips + outermost XZ reach. */
+    /** Terrain and moat inputs for shaping, from the chunk generator. */
+    class Shape(
+        val surfaceAt: (Int, Int) -> Int,
+        val moatInnerR: Double,
+        val minY: Double,
+        val maxY: Double,
+        val seed: Int,
+    )
+
+    /** Laplacian smoothing of chain nodes only, so branch points and tips stay where they grew. */
+    private fun smooth(nodes: List<Node>) {
+        repeat(SMOOTH_PASSES) {
+            for (n in nodes) {
+                val p = n.parent ?: continue
+                if (n.children.size != 1) continue
+                val c = n.children[0]
+                n.x = 0.5 * n.x + 0.25 * (p.x + c.x)
+                n.z = 0.5 * n.z + 0.25 * (p.z + c.z)
+            }
+        }
+    }
+
+    private fun assignPathDistance(root: Node) {
+        val stack = ArrayDeque<Node>()
+        stack.addLast(root)
+        while (stack.isNotEmpty()) {
+            val n = stack.removeLast()
+            for (c in n.children) {
+                c.pathDist = n.pathDist + sqrt((c.x - n.x) * (c.x - n.x) + (c.z - n.z) * (c.z - n.z))
+                stack.addLast(c)
+            }
+        }
+    }
+
+    /**
+     * Plate roots run a few blocks under the ground and rise toward their tips, the furthest
+     * roots being the shallowest. Parents are visited first so each step eases toward its target.
+     */
+    private fun followTerrain(root: Node, shape: Shape) {
+        val stack = ArrayDeque<Node>()
+        stack.addLast(root)
+        while (stack.isNotEmpty()) {
+            val n = stack.removeLast()
+            val p = n.parent
+            if (p != null) {
+                val depth = DEPTH_FAR + (DEPTH_NEAR - DEPTH_FAR) * Math.exp(-n.pathDist / DEPTH_FALLOFF)
+                val target = (shape.surfaceAt(Math.floor(n.x).toInt(), Math.floor(n.z).toInt()) - depth)
+                    .coerceIn(shape.minY, shape.maxY)
+                val run = sqrt((n.x - p.x) * (n.x - p.x) + (n.z - p.z) * (n.z - p.z))
+                val step = ((target - p.y) * TERRAIN_EASE).coerceIn(-run * MAX_SLOPE, run * MAX_SLOPE)
+                n.y = p.y + step
+            }
+            for (c in n.children) stack.addLast(c)
+        }
+    }
+
+    /** Parent→child as two segments with a sideways-displaced midpoint, so long runs curve. */
+    private fun addSinuous(out: MutableList<HeartTunnelSegment>, a: Node, b: Node, seed: Int) {
+        val dx = b.x - a.x
+        val dz = b.z - a.z
+        val len = sqrt(dx * dx + dz * dz)
+        if (len < 1e-6) {
+            out += HeartTunnelSegment(a.x, a.y, a.z, b.x, b.y, b.z, a.radius, b.radius)
+            return
+        }
+        val offset = (hash01(seed, Math.floor(a.x * 7.0).toInt(), Math.floor(b.z * 7.0).toInt()) - 0.5) *
+            2.0 * SINUOSITY * (len / SINUOSITY_REFERENCE_LENGTH).coerceAtMost(1.0)
+        val mx = (a.x + b.x) * 0.5 - dz / len * offset
+        val mz = (a.z + b.z) * 0.5 + dx / len * offset
+        val my = (a.y + b.y) * 0.5
+        val mr = (a.radius + b.radius) * 0.5
+        out += HeartTunnelSegment(a.x, a.y, a.z, mx, my, mz, a.radius, mr)
+        out += HeartTunnelSegment(mx, my, mz, b.x, b.y, b.z, mr, b.radius)
+    }
+
+    /**
+     * How a root tip ends. Near the moat it breaks out of the bank as a pipe outlet; elsewhere it
+     * either collapses to the surface as a sinkhole (light and a way in) or pinches out in silt.
+     * Never a dead-end chamber.
+     */
+    private fun addEnd(out: MutableList<HeartTunnelSegment>, n: Node, shape: Shape) {
+        val p = n.parent ?: return
+        var dx = n.x - p.x
+        var dz = n.z - p.z
+        val len = sqrt(dx * dx + dz * dz)
+        if (len > 1e-6) { dx /= len; dz /= len } else { dx = 1.0; dz = 0.0 }
+        val radial = sqrt(n.x * n.x + n.z * n.z)
+        if (radial >= shape.moatInnerR - OUTLET_REACH) {
+            out += HeartTunnelSegment(n.x, n.y, n.z, n.x + dx * OUTLET_LENGTH, n.y, n.z + dz * OUTLET_LENGTH,
+                n.radius, n.radius * OUTLET_FLARE)
+            return
+        }
+        val surface = shape.surfaceAt(Math.floor(n.x).toInt(), Math.floor(n.z).toInt())
+        if (hash01(shape.seed, Math.floor(n.x).toInt(), Math.floor(n.z).toInt()) < SINKHOLE_SHARE && surface > n.y + n.radius) {
+            out += HeartTunnelSegment(n.x, n.y, n.z, n.x + dx * SINKHOLE_DRIFT, surface + SINKHOLE_OVERSHOOT, n.z + dz * SINKHOLE_DRIFT,
+                n.radius, n.radius + SINKHOLE_FLARE)
+            return
+        }
+        out += HeartTunnelSegment(n.x, n.y, n.z, n.x + dx * PINCH_LENGTH, n.y, n.z + dz * PINCH_LENGTH,
+            n.radius, PINCH_END_RADIUS)
+    }
+
+    /** Root grafts: two branches that pass close fuse, closing loops in the network. */
+    private fun addGrafts(out: MutableList<HeartTunnelSegment>, nodes: List<Node>, seed: Int) {
+        var grafts = 0
+        val graftSq = GRAFT_DISTANCE * GRAFT_DISTANCE
+        for (i in nodes.indices) {
+            val a = nodes[i]
+            if (a.radius < GRAFT_MIN_RADIUS) continue
+            for (j in i + 1 until nodes.size) {
+                val b = nodes[j]
+                if (b.radius < GRAFT_MIN_RADIUS) continue
+                val dx = a.x - b.x
+                val dy = a.y - b.y
+                val dz = a.z - b.z
+                if (dx * dx + dy * dy + dz * dz > graftSq) continue
+                if (treeDistance(a, b) < GRAFT_MIN_TREE_DISTANCE) continue
+                if (hash01(seed, i, j) >= GRAFT_CHANCE) continue
+                val r = minOf(a.radius, b.radius) * GRAFT_RADIUS_SHARE
+                out += HeartTunnelSegment(a.x, a.y, a.z, b.x, b.y, b.z, r, r)
+                if (++grafts >= GRAFT_MAX) return
+            }
+        }
+    }
+
+    /** Distance along the tree between two nodes, through their lowest common ancestor. */
+    private fun treeDistance(a: Node, b: Node): Double {
+        val ancestors = HashSet<Node>()
+        var cur: Node? = a
+        while (cur != null) { ancestors += cur; cur = cur.parent }
+        cur = b
+        while (cur != null && cur !in ancestors) cur = cur.parent
+        val lca = cur ?: return Double.MAX_VALUE
+        return a.pathDist + b.pathDist - 2.0 * lca.pathDist
+    }
+
     class Skeleton(
         val segments: List<HeartTunnelSegment>,
-        val tips: List<HeartTunnelTip>,
         val maxXZReach: Int,
     )
+
+    private const val SMOOTH_PASSES = 3
+    /** Radius keeps this share far from the trunk; the rest is lost in the first ~[TAPER_NEAR_LENGTH]. */
+    private const val TAPER_FLOOR = 0.55
+    private const val TAPER_NEAR_LENGTH = 12.0
+    /** About 4 % per 10 blocks after the near taper. */
+    private const val TAPER_FAR_PER_BLOCK = 0.004
+    private const val TAPER_FAR_FLOOR = 0.6
+    private const val DEPTH_NEAR = 9.0
+    private const val DEPTH_FAR = 4.0
+    private const val DEPTH_FALLOFF = 60.0
+    private const val TERRAIN_EASE = 0.6
+    /** Rise per horizontal block, so the tunnel floor stays walkable. */
+    private const val MAX_SLOPE = 0.5
+    private const val SINUOSITY = 1.6
+    private const val SINUOSITY_REFERENCE_LENGTH = 8.0
+    private const val OUTLET_REACH = 10.0
+    const val OUTLET_LENGTH = 10.0
+    private const val OUTLET_FLARE = 1.1
+    private const val SINKHOLE_SHARE = 0.35
+    private const val SINKHOLE_DRIFT = 2.0
+    private const val SINKHOLE_OVERSHOOT = 2.0
+    private const val SINKHOLE_FLARE = 1.5
+    private const val PINCH_LENGTH = 6.0
+    private const val PINCH_END_RADIUS = 0.6
+    private const val GRAFT_DISTANCE = 6.0
+    private const val GRAFT_MIN_RADIUS = 2.0
+    private const val GRAFT_MIN_TREE_DISTANCE = 40.0
+    private const val GRAFT_CHANCE = 0.5
+    private const val GRAFT_RADIUS_SHARE = 0.8
+    private const val GRAFT_MAX = 6
 
     private fun countLeavesRecursive(n: Node): Int {
         if (n.children.isEmpty()) {
@@ -300,24 +417,14 @@ internal data class HeartTunnelSegment(
     val endRadius: Double,
 )
 
-/** A leaf-tip — where the chunk generator places a craggy dead-end
- *  pool chamber. The forward direction is the unit vector from the
- *  tip's parent to the tip itself, so the pool can extend past the
- *  tip along that heading instead of just plopping a sphere at the
- *  exact dead-end. */
-internal data class HeartTunnelTip(
-    val x: Double, val y: Double, val z: Double,
-    val radius: Double,
-    val dirX: Double, val dirY: Double, val dirZ: Double,
-)
-
 /** Internal node used during growth — mutable to support the
  *  pipe-model radius post-pass. */
 private class Node(
-    val x: Double, val y: Double, val z: Double,
+    var x: Double, var y: Double, var z: Double,
     val parent: Node?,
 ) {
     val children: MutableList<Node> = ArrayList(2)
     var radius: Double = 1.0
     var descendantLeaves: Int = 0
+    var pathDist: Double = 0.0
 }

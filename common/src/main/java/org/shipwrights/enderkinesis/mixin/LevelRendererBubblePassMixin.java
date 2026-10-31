@@ -16,8 +16,23 @@ import org.shipwrights.enderkinesis.client.ConcealmentPostEffect;
 import org.shipwrights.enderkinesis.client.ConcealmentShipFB;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderType;
+import org.shipwrights.enderkinesis.client.OrbLinkVolume;
+import org.shipwrights.enderkinesis.client.WindConeVolume;
+import org.shipwrights.enderkinesis.client.OarscribeGlyphLight;
 import org.shipwrights.enderkinesis.client.ScryingClient;
+import org.shipwrights.enderkinesis.client.SselithEclipseGlow;
 import org.shipwrights.enderkinesis.client.SselithVoidFog;
+import org.shipwrights.enderkinesis.client.WohlonFogWisps;
+import org.shipwrights.enderkinesis.client.WohlonPortalVisuals;
+import org.shipwrights.enderkinesis.client.WohlonTreeGhost;
+import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
+import org.shipwrights.enderkinesis.client.HeartOfTheWildTendrils;
+import org.shipwrights.enderkinesis.client.FountainOfBlessingDome;
+import org.shipwrights.enderkinesis.client.FountainOfBlessingVolume;
+import org.shipwrights.enderkinesis.client.GrandStaffClient;
+import org.shipwrights.enderkinesis.client.WohlonRitualTendrils;
+import org.shipwrights.enderkinesis.client.WohlonRitePedestalVisuals;
+import org.shipwrights.enderkinesis.client.WohlonStaffGhost;
 import org.shipwrights.enderkinesis.client.SureibjinDreamVignette;
 import org.shipwrights.enderkinesis.client.SureibjinWaterFilm;
 import org.shipwrights.enderkinesis.client.TomeSummonOverlay;
@@ -108,6 +123,27 @@ public abstract class LevelRendererBubblePassMixin {
         }
 
         SureibjinWaterFilm.render(poseStack, camera, partialTick);
+
+        // Before the fog, so the fog covers far beams.
+        OrbLinkVolume.render(poseStack, projectionMatrix, camera);
+        OarscribeGlyphLight.render(poseStack, projectionMatrix, camera, partialTick);
+        WindConeVolume.render(poseStack, projectionMatrix, camera, partialTick);
+
+        // Before the fog, like the orb links.
+        SselithEclipseGlow.render(poseStack, projectionMatrix, camera, partialTick);
+        // Under the fog and portal volumes, which draw over the water.
+        WohlonWaterMurk.render(poseStack, projectionMatrix, camera);
+        WohlonPortalVisuals.render(poseStack, projectionMatrix, camera);
+        WohlonRitualTendrils.render(poseStack, projectionMatrix, camera);
+        WohlonRitePedestalVisuals.render(poseStack, projectionMatrix, camera);
+        WohlonStaffGhost.render(poseStack, projectionMatrix, camera);
+        HeartOfTheWildTendrils.render(poseStack, projectionMatrix, camera);
+        GrandStaffClient.render(poseStack, projectionMatrix, camera);
+        // The dome goes after the water murk, and the upwelling's mist over the dome.
+        FountainOfBlessingDome.render(poseStack, camera);
+        FountainOfBlessingVolume.render(poseStack, projectionMatrix, camera);
+        WohlonTreeGhost.render(poseStack, projectionMatrix, camera);
+        WohlonFogWisps.render(poseStack, projectionMatrix, camera);
 
         // World-space fog goes under the screen-space overlays below.
         SselithVoidFog.render(poseStack, projectionMatrix, camera, partialTick);

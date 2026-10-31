@@ -1,0 +1,6 @@
+{
+  "ingredient": { "item": "enderkinesis:blessed_razor" },
+  "outcomes": [
+    { "type": "enchant", "enchantments": { "enderkinesis:love_of_the_mother": 1 } }
+  ]
+}

@@ -5,15 +5,18 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.BlockTags
 import net.minecraft.tags.TagKey
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.biome.Biome
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.CandleBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Ritual logic + teleport target picker for the Heart Candle ⇒
@@ -27,7 +30,7 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
  *    are (dx, dz) where dz<0 is north, dz>0 is south.
  *  - [checkPattern] — verifies every [PATTERN] slot.
  *  - [VALID_BIOMES_TAG] / [isBiomeValid] — the heart candle's local
- *    biome must be in this tag (data file: plains + forest to start).
+ *    biome must be in this tag.
  *  - [pickLandingSpot] / [teleportToMotherTree] — pick a random open
  *    ground voxel in a ring around Wohlon's origin (the Mother
  *    Tree's footprint) and move the entity there, handling
@@ -40,7 +43,7 @@ object WohlonnogondoniaPortalRitual {
      *  the heart candle (X east, Z south) and the exact candle
      *  count required at that slot. All slots must hold a LIT
      *  light_blue_candle with the specified CANDLES value. */
-    data class PatternSlot(val dx: Int, val dz: Int, val count: Int)
+    data class PatternSlot(val dx: Int, val dz: Int, val count: Int, val candle: Block = Blocks.LIGHT_BLUE_CANDLE)
 
     /** Ritual pattern (top is north, bottom is south):
      *  ```
@@ -77,11 +80,13 @@ object WohlonnogondoniaPortalRitual {
      *  form, the "1" lives on the east side and the "4" on the
      *  west side; the *shape* of the ring rotates with the
      *  player's framing, not the numbers. */
-    val ROTATIONS: List<List<PatternSlot>> = listOf(
-        PATTERN,                                                              // 0°   (canonical, north-up)
-        PATTERN.map { PatternSlot(-it.dz,  it.dx, it.count) },                // 90°  CW
-        PATTERN.map { PatternSlot(-it.dx, -it.dz, it.count) },                // 180°
-        PATTERN.map { PatternSlot( it.dz, -it.dx, it.count) },                // 270° CW (90° CCW)
+    val ROTATIONS: List<List<PatternSlot>> = rotations(PATTERN)
+
+    fun rotations(pattern: List<PatternSlot>): List<List<PatternSlot>> = listOf(
+        pattern,                                                   // 0°   (canonical, north-up)
+        pattern.map { it.copy(dx = -it.dz, dz = it.dx) },          // 90°  CW
+        pattern.map { it.copy(dx = -it.dx, dz = -it.dz) },         // 180°
+        pattern.map { it.copy(dx = it.dz, dz = -it.dx) },          // 270° CW (90° CCW)
     )
 
     /** Biome tag enumerating the overworld biomes in which the
@@ -98,9 +103,11 @@ object WohlonnogondoniaPortalRitual {
      *  count. Short-circuits as soon as one rotation matches.
      *  Y stays equal to the heart candle's Y — the pattern is a
      *  flat ring on the same plane. */
-    fun checkPattern(level: ServerLevel, heartPos: BlockPos): Boolean {
-        for (rotation in ROTATIONS) {
-            if (matchesRotation(level, heartPos, rotation)) return true
+    fun checkPattern(level: ServerLevel, heartPos: BlockPos): Boolean = matchesAny(level, heartPos, ROTATIONS)
+
+    fun matchesAny(level: ServerLevel, center: BlockPos, rotations: List<List<PatternSlot>>): Boolean {
+        for (rotation in rotations) {
+            if (matchesRotation(level, center, rotation)) return true
         }
         return false
     }
@@ -117,7 +124,7 @@ object WohlonnogondoniaPortalRitual {
         for (slot in rotation) {
             val pos = heartPos.offset(slot.dx, 0, slot.dz)
             val state = level.getBlockState(pos)
-            if (!state.`is`(Blocks.LIGHT_BLUE_CANDLE)) return false
+            if (!state.`is`(slot.candle)) return false
             if (state.getValue(CandleBlock.CANDLES) != slot.count) return false
             if (!state.getValue(CandleBlock.LIT)) return false
         }
@@ -135,12 +142,9 @@ object WohlonnogondoniaPortalRitual {
      *
      *  Constraints (informed by the v1 freeze + Y 37 landing bug):
      *
-     *  - **Bounded chunk count.** The scan stays inside a 4-chunk
-     *    window around the dimension origin: chunks `(-1..0,
-     *    -1..0)`. These get pre-loaded once at the top of the
-     *    function so the per-voxel `getBlockState` calls don't
-     *    trigger one-chunk-at-a-time sync chunkgen mid-scan,
-     *    which was freezing the server thread on first portal use.
+     *  - **No chunk generation.** A column in a chunk that is not
+     *    loaded is skipped; the landing ticket loads the ring off
+     *    the server thread, and the caller tries again later.
      *  - **Tight horizontal ring.** Random (x, z) in an 8–12
      *    block radius from origin — just outside the Mother
      *    Tree's typical trunk, under the canopy.
@@ -155,17 +159,8 @@ object WohlonnogondoniaPortalRitual {
      *    and "found" mud underneath, but the skipped log was
      *    still physically present in the player's body space. */
     fun pickLandingSpot(wohlonLevel: ServerLevel): Vec3? {
-        // Pre-load a wider patch so the ring at 35-50 blocks out
-        // (past the Mother Tree's trunk + buttress, into the open
-        // swamp surface) has chunks ready. Each `getChunk` runs the
-        // chunkgen pipeline synchronously; subsequent reads in the
-        // same chunk are O(1) array lookups.
-        for (cx in -3..3) {
-            for (cz in -3..3) {
-                wohlonLevel.getChunk(cx, cz)
-            }
-        }
-
+        WohlonnogondoniaPortalManager.holdLandingArea(wohlonLevel)
+        val chunkSource = wohlonLevel.chunkSource
         val random = wohlonLevel.random
         repeat(50) {
             val theta = random.nextDouble() * 2.0 * Math.PI
@@ -178,6 +173,7 @@ object WohlonnogondoniaPortalRitual {
             val r = 35.0 + random.nextDouble() * 15.0
             val x = (Math.cos(theta) * r).toInt()
             val z = (Math.sin(theta) * r).toInt()
+            if (chunkSource.getChunkNow(x shr 4, z shr 4) == null) return@repeat
             // Wider Y sweep so we don't miss the actual surface if
             // it sits outside the old narrow band.
             for (y in 150 downTo 0) {
@@ -250,8 +246,7 @@ object WohlonnogondoniaPortalRitual {
         val target: Vec3 = if (stored != null) {
             Vec3(stored.x + 0.5, (stored.y + 1).toDouble(), stored.z + 0.5)
         } else {
-            // The live pick generates 49 chunks on the server thread. While the search can
-            // still give a landing, the entity waits in the portal for the next scan.
+            // While the search can still give a landing, the entity waits in the portal for the next scan.
             if (sourcePortalPos != null &&
                 WohlonnogondoniaPortalManager.isSearchPending(currentLevel.dimension(), sourcePortalPos)
             ) return
@@ -268,6 +263,7 @@ object WohlonnogondoniaPortalRitual {
             )
         }
 
+        playTravel(currentLevel, entity.x, entity.y, entity.z)
         // Unified teleport via `Entity.teleportTo(ServerLevel, ...)`.
         // Avoids `Entity.changeDimension`, whose vanilla
         // `findDimensionEntryPoint` returns null for any dim that
@@ -282,6 +278,7 @@ object WohlonnogondoniaPortalRitual {
             java.util.Collections.emptySet(),
             entity.yRot, entity.xRot,
         )
+        playTravel(wohlonLevel, target.x, target.y, target.z)
     }
 
     /** Heart return-portal dispatch.
@@ -315,7 +312,9 @@ object WohlonnogondoniaPortalRitual {
                     // source-dim scan that fires next tick sees it.
                     WohlonnogondoniaPortalManager.noteReturnedEntity(entity.uuid, now)
                     val spot = WohlonnogondoniaPortalManager.findReturnSpot(targetLevel, record.pos)
+                    playTravel(currentLevel, entity.x, entity.y, entity.z)
                     entity.teleportTo(targetLevel, spot.x, spot.y, spot.z, entity.yRot, entity.xRot)
+                    playTravel(targetLevel, spot.x, spot.y, spot.z)
                     return
                 }
             }
@@ -333,6 +332,7 @@ object WohlonnogondoniaPortalRitual {
         val tz = spot.z
 
         WohlonnogondoniaPortalManager.noteReturnedEntity(entity.uuid, now)
+        playTravel(currentLevel, entity.x, entity.y, entity.z)
         // Unified teleport — see comment in `teleportToMotherTree`.
         entity.teleportTo(
             targetLevel,
@@ -340,5 +340,10 @@ object WohlonnogondoniaPortalRitual {
             java.util.Collections.emptySet(),
             entity.yRot, entity.xRot,
         )
+        playTravel(targetLevel, tx, ty, tz)
+    }
+
+    private fun playTravel(level: ServerLevel, x: Double, y: Double, z: Double) {
+        level.playSound(null, x, y, z, EKSounds.WOHLON_PORTAL_TRAVEL.get(), SoundSource.BLOCKS, 1f, 1f)
     }
 }

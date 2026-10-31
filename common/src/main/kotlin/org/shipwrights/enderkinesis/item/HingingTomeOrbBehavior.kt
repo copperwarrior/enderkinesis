@@ -6,7 +6,9 @@ import net.minecraft.server.level.ServerLevel
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.internal.joints.VSJoint
@@ -70,6 +72,12 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
     override fun onNeighborChanged(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
         val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return
+        val brake = when {
+            sampled > sendBe.inputSignal -> EKSounds.ORB_OF_LINKING_BRAKE_ON
+            sampled == 0 -> EKSounds.ORB_OF_LINKING_BRAKE_OFF
+            else -> null
+        }
+        if (brake != null) OrbOfLinkingSounds.play(level, sendBe.blockPos, brake)
         sendBe.inputSignal = sampled
         for (receiverPos in sendBe.outgoingPeers(tomeKind)) {
             releaseJoint(level, sendBe, receiverPos)
@@ -95,7 +103,7 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
             val dy = recvCentre.y - sendCentre.y
             val dz = recvCentre.z - sendCentre.z
             if (dx * dx + dy * dy + dz * dz > maxSq) {
-                sendBe.removeOutgoingLink(level, tomeKind, receiverPos)
+                sendBe.dropOverDistance(level, tomeKind, receiverPos)
                 continue
             }
             if (sendBe.getJointId(tomeKind, receiverPos) < 0 &&

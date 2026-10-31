@@ -42,7 +42,7 @@ public abstract class ItemRendererStaffGemMixin {
         }
         original.call(renderer, parts.getBody(), stack, packedLight, packedOverlay, poseStack, vertexConsumer);
         poseStack.pushPose();
-        parts.spin(poseStack);
+        parts.spin(stack, poseStack);
         VertexConsumer gemConsumer = parts.emitHalo(stack, poseStack, buffers, vertexConsumer);
         original.call(renderer, parts.getGemModel(), stack, LightTexture.FULL_BRIGHT, packedOverlay, poseStack, gemConsumer);
         poseStack.popPose();

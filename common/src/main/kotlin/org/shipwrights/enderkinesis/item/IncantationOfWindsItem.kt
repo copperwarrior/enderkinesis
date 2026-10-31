@@ -1,6 +1,8 @@
 package org.shipwrights.enderkinesis.item
 
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
 import net.minecraft.world.entity.LivingEntity
@@ -10,34 +12,39 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.UseAnim
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
+import net.minecraft.world.entity.projectile.Projectile
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.compat.create.CreateWindmillWind
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 
-/** Incantation of Winds — hold right-click to blast a gale forward.
+/** Incantation of Winds — hold right-click to blast a gale along a cone from the caster's view.
  *
- *  While held down, every ship whose AABB overlaps a wide box projected
- *  along the player's look direction is pushed forward (along the look
- *  vector, mass-relative force via the GTPA — same bridge the Staff of
- *  Aegis push uses), with yellow sselith dust blasting downrange. The
- *  ship the player is riding, and everything joint-connected to it, is
- *  excluded so you can't sail your own wind.
+ *  Ships and entities in the cone get a push along the ray from the eye through their contact point,
+ *  weaker with distance; on ships it is applied at that point. The wind also turns fireballs, blows smoke off
+ *  fire (and sometimes puts it out), puts out candles, strips snow ([WindBlockEffects]) and speeds up Create windmills. The stream visuals are client-side, in
+ *  [org.shipwrights.enderkinesis.client.IncantationOfWindsClient].
  *
- *  Costs 1 XP per second in survival (half a heart per second once XP
- *  runs dry — the cast never refuses, it just feeds on the caster);
- *  free in creative. The item renders
- *  as an empty hand (scale-0 hand display transforms) — the rising hand
- *  dust from [org.shipwrights.enderkinesis.client.IncantationOfWindsClient]
- *  is the only tell. */
+ *  Costs 1 XP per second in survival (half a heart per second once XP runs dry); free in creative. */
 class IncantationOfWindsItem(properties: Properties) : Item(properties) {
 
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
         player.startUsingItem(hand)
+        if (!level.isClientSide) playAtCaster(level, player, EKSounds.INCANTATION_OF_WINDS_START.get())
         return InteractionResultHolder.consume(stack)
+    }
+
+    override fun releaseUsing(stack: ItemStack, level: Level, entity: LivingEntity, timeLeft: Int) {
+        if (!level.isClientSide) playAtCaster(level, entity, EKSounds.INCANTATION_OF_WINDS_STOP.get())
+    }
+
+    private fun playAtCaster(level: Level, caster: LivingEntity, sound: SoundEvent) {
+        level.playSound(null, caster.x, caster.y, caster.z, sound, SoundSource.PLAYERS, 1f, 1f)
     }
 
     override fun getUseDuration(stack: ItemStack): Int = Int.MAX_VALUE
@@ -60,58 +67,67 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
                 }
             }
         }
-        // Wind direction is yaw-locked: derived from the head yaw only, so
-        // looking up or down never aims the gale vertically — the wind
-        // always blows level.
-        val yawRad = Math.toRadians(entity.yRot.toDouble())
-        val look = net.minecraft.world.phys.Vec3(-kotlin.math.sin(yawRad), 0.0, kotlin.math.cos(yawRad))
+        val look = entity.lookAngle
         val eye = entity.eyePosition
-        // Wind volume: from BEHIND_RANGE behind the eye to RANGE ahead,
-        // inflated wide laterally and tall vertically.
-        val bounds = AABB(eye.subtract(look.scale(BEHIND_RANGE)), eye.add(look.scale(RANGE)))
-            .inflate(HALF_WIDTH, HALF_HEIGHT, HALF_WIDTH)
-        pushShips(level, entity, bounds, look)
-        pushEntities(level, entity, bounds, look)
-        blastParticles(level, entity, bounds, look)
+        val radius = RANGE * TAN_HALF_ANGLE
+        val bounds = AABB(eye, eye.add(look.scale(RANGE))).inflate(radius)
+        pushShips(level, bounds, eye, look)
+        pushEntities(level, entity, bounds, eye, look)
+        WindBlockEffects.blow(level, entity, eye, look)
     }
 
     private fun hasXp(player: Player): Boolean =
         player.experienceLevel > 0 || player.experienceProgress > 0f
 
-    private fun pushShips(level: ServerLevel, player: Player, bounds: AABB, look: net.minecraft.world.phys.Vec3) {
+    private fun pushShips(
+        level: ServerLevel,
+        bounds: AABB,
+        eye: net.minecraft.world.phys.Vec3,
+        look: net.minecraft.world.phys.Vec3,
+    ) {
         val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
-        // Exclude the ridden ship plus everything joint-connected to it —
-        // otherwise the player could push the deck they stand on.
-        val excluded: Set<Long> = currentlyDraggingShip(player)?.let { ridden ->
-            val ids = HashSet<Long>()
-            ids.add(ridden.id)
-            ids.addAll(gtpa.getAllConnectedShips(ridden.id))
-            ids
-        } ?: emptySet()
         val dim = level.dimensionId
         for (ship in level.shipObjectWorld.loadedShips) {
             val srv = ship as? LoadedServerShip ?: continue
-            if (srv.id in excluded || srv.chunkClaimDimension != dim) continue
+            if (srv.chunkClaimDimension != dim) continue
             val sa = srv.worldAABB
             if (sa.maxX() < bounds.minX || sa.minX() > bounds.maxX) continue
             if (sa.maxY() < bounds.minY || sa.minY() > bounds.maxY) continue
             if (sa.maxZ() < bounds.minZ || sa.minZ() > bounds.maxZ) continue
-            val mass = srv.inertiaData.mass.coerceAtLeast(1.0)
-            val mag = (PUSH_FORCE_PER_MASS * mass).coerceAtLeast(PUSH_MIN_FORCE)
-            gtpa.applyInvariantForce(srv.id, Vector3d(look.x * mag, look.y * mag, look.z * mag))
+            val contact = coneContact(eye, look, sa.minX(), sa.minY(), sa.minZ(), sa.maxX(), sa.maxY(), sa.maxZ())
+                ?: continue
+            val wind = windAt(eye, look, contact)
+            val mag = (PUSH_FORCE_PER_MASS * srv.inertiaData.mass.coerceAtLeast(1.0)).coerceAtLeast(PUSH_MIN_FORCE)
+            gtpa.applyWorldForce(srv.id, wind.mul(mag), contact)
         }
     }
 
-    /** All live entities in the wind volume (except the caster and their
-     *  mount) get accelerated along the look direction each tick. Same
-     *  motion-sync handling as the Aegis push — ServerPlayers need the
-     *  explicit motion packet or the client never feels it. */
-    private fun pushEntities(level: ServerLevel, player: Player, bounds: AABB, look: net.minecraft.world.phys.Vec3) {
+    /** ServerPlayers need the explicit motion packet or the client never feels the push. */
+    private fun pushEntities(
+        level: ServerLevel,
+        player: Player,
+        bounds: AABB,
+        eye: net.minecraft.world.phys.Vec3,
+        look: net.minecraft.world.phys.Vec3,
+    ) {
         val entities = level.getEntities(player, bounds) { e ->
             e.isAlive && !e.isSpectator && e !== player.vehicle
         }
         for (entity in entities) {
-            entity.deltaMovement = entity.deltaMovement.add(look.scale(ENTITY_PUSH_SPEED))
+            val b = entity.boundingBox
+            val contact = coneContact(eye, look, b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ) ?: continue
+            val wind = windAt(eye, look, contact)
+            if (entity.isOnFire) entity.clearFire()
+            when (entity) {
+                is AbstractHurtingProjectile -> turnFireball(entity, player, wind)
+                is Projectile -> entity.deltaMovement = entity.deltaMovement.add(
+                    wind.x * PROJECTILE_PUSH_SPEED, wind.y * PROJECTILE_PUSH_SPEED, wind.z * PROJECTILE_PUSH_SPEED,
+                )
+                else -> entity.deltaMovement = entity.deltaMovement.add(
+                    wind.x * ENTITY_PUSH_SPEED, wind.y * ENTITY_PUSH_SPEED, wind.z * ENTITY_PUSH_SPEED,
+                )
+            }
+            if (CREATE_LOADED) CreateWindmillWind.blow(entity, wind.length().toFloat(), level.gameTime)
             entity.hasImpulse = true
             if (entity is net.minecraft.server.level.ServerPlayer) {
                 entity.hurtMarked = true
@@ -122,93 +138,79 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
         }
     }
 
-    private fun blastParticles(level: ServerLevel, player: Player, bounds: AABB, look: net.minecraft.world.phys.Vec3) {
-        val rnd = level.random
-        // Stream pouring from the casting hand (raised up-and-forward —
-        // mirrors the client's third-person cast pose anchor). Each gust
-        // launches along the player's TRUE view direction (pitch included,
-        // fanned on a randomized cone) — the initial blast goes where the
-        // hand points; the particle itself then flattens into the
-        // yaw-locked wind (see WindDustParticle's GUST vertical decay).
-        val view = player.lookAngle
-        val hand = castingHandPosition(player)
-        repeat(HAND_STREAM_PARTICLES_PER_TICK) {
-            val dir = view.add(
-                (rnd.nextDouble() - 0.5) * FAN_SPREAD,
-                (rnd.nextDouble() - 0.5) * FAN_SPREAD,
-                (rnd.nextDouble() - 0.5) * FAN_SPREAD,
-            )
-            level.sendParticles(
-                EKParticles.windGust(),
-                hand.x + (rnd.nextDouble() - 0.5) * 0.3,
-                hand.y + (rnd.nextDouble() - 0.5) * 0.3,
-                hand.z + (rnd.nextDouble() - 0.5) * 0.3,
-                0,
-                dir.x, dir.y, dir.z,
-                BLAST_PARTICLE_SPEED,
-            )
-        }
-        // Sparse fill across the FULL wind volume (including behind the
-        // player) so the gale reads as a moving air mass, not a muzzle jet.
-        repeat(VOLUME_PARTICLES_PER_TICK) {
-            level.sendParticles(
-                EKParticles.windGust(),
-                bounds.minX + rnd.nextDouble() * (bounds.maxX - bounds.minX),
-                bounds.minY + rnd.nextDouble() * (bounds.maxY - bounds.minY),
-                bounds.minZ + rnd.nextDouble() * (bounds.maxZ - bounds.minZ),
-                0,
-                look.x, look.y, look.z,
-                VOLUME_PARTICLE_SPEED,
-            )
-        }
+    /** Same as a melee hit on a fireball in vanilla: it takes the new heading and the caster as owner. */
+    private fun turnFireball(fireball: AbstractHurtingProjectile, player: Player, wind: Vector3d) {
+        val len = wind.length()
+        if (len < 1.0e-6) return
+        val dx = wind.x / len
+        val dy = wind.y / len
+        val dz = wind.z / len
+        fireball.deltaMovement = net.minecraft.world.phys.Vec3(dx, dy, dz)
+        fireball.xPower = dx * FIREBALL_POWER
+        fireball.yPower = dy * FIREBALL_POWER
+        fireball.zPower = dz * FIREBALL_POWER
+        fireball.owner = player
     }
 
-    /** Where the caster SEES their hand: a camera-frame anchor built from
-     *  the true view direction (pitch included) matching the first-person
-     *  cast pose at full draw — forward push, raise, and side offset. The
-     *  old body-yaw approximation drifted well off the on-screen hand,
-     *  especially when looking up or down. */
-    private fun castingHandPosition(player: Player): net.minecraft.world.phys.Vec3 {
-        val arm = if (player.usedItemHand == InteractionHand.MAIN_HAND) {
-            player.mainArm
-        } else {
-            player.mainArm.opposite
-        }
-        val side = if (arm == net.minecraft.world.entity.HumanoidArm.RIGHT) 1.0 else -1.0
-        val fwd = player.lookAngle
-        val yawRad = Math.toRadians(player.yRot.toDouble())
-        val right = net.minecraft.world.phys.Vec3(
-            -kotlin.math.cos(yawRad), 0.0, -kotlin.math.sin(yawRad),
-        )
-        val up = right.cross(fwd)
-        return player.eyePosition
-            .add(fwd.scale(CAST_HAND_FORWARD))
-            .add(right.scale(CAST_HAND_SIDE * side))
-            .add(up.scale(CAST_HAND_UP))
+    /** Wind at a contact point: a unit vector along the ray from the apex through the point, scaled by the
+     *  distance falloff. */
+    private fun windAt(
+        apex: net.minecraft.world.phys.Vec3,
+        axis: net.minecraft.world.phys.Vec3,
+        contact: Vector3d,
+    ): Vector3d {
+        val ray = Vector3d(contact.x - apex.x, contact.y - apex.y, contact.z - apex.z)
+        val along = ray.x * axis.x + ray.y * axis.y + ray.z * axis.z
+        val falloff = 1.0 - (along / RANGE).coerceIn(0.0, 1.0) * (1.0 - FAR_FORCE_FRACTION)
+        val dist = ray.length()
+        if (dist < MIN_RAY_LENGTH) ray.set(axis.x, axis.y, axis.z) else ray.div(dist)
+        return ray.mul(falloff)
     }
 
-    private fun currentlyDraggingShip(player: Player): LoadedServerShip? {
-        val info = (player as? org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider)
-            ?.draggingInformation ?: return null
-        val shipId = info.lastShipStoodOn ?: return null
-        return player.level().shipObjectWorld.loadedShips.getById(shipId) as? LoadedServerShip
+    /** Approximate cone-vs-box test: the box point nearest to the cone axis must lie inside the cone.
+     *  Returns that point in world space, or null on a miss. Big ships that only graze the cone edge
+     *  with a corner can miss; that is acceptable. */
+    @Suppress("LongParameterList") // Raw bounds: no box allocation for each target.
+    private fun coneContact(
+        apex: net.minecraft.world.phys.Vec3,
+        axis: net.minecraft.world.phys.Vec3,
+        minX: Double, minY: Double, minZ: Double,
+        maxX: Double, maxY: Double, maxZ: Double,
+    ): Vector3d? {
+        val cx = (minX + maxX) * 0.5 - apex.x
+        val cy = (minY + maxY) * 0.5 - apex.y
+        val cz = (minZ + maxZ) * 0.5 - apex.z
+        val t = (cx * axis.x + cy * axis.y + cz * axis.z).coerceIn(0.0, RANGE)
+        val qx = (apex.x + axis.x * t).coerceIn(minX, maxX) - apex.x
+        val qy = (apex.y + axis.y * t).coerceIn(minY, maxY) - apex.y
+        val qz = (apex.z + axis.z * t).coerceIn(minZ, maxZ) - apex.z
+        val along = qx * axis.x + qy * axis.y + qz * axis.z
+        if (along < 0.0 || along > RANGE) return null
+        val lateralSq = qx * qx + qy * qy + qz * qz - along * along
+        val coneRadius = along * TAN_HALF_ANGLE + CONE_APEX_RADIUS
+        if (lateralSq > coneRadius * coneRadius) return null
+        return Vector3d(apex.x + qx, apex.y + qy, apex.z + qz)
     }
 
     companion object {
-        /** Reach of the wind box along the look direction, in blocks. */
-        private const val RANGE = 48.0
+        /** Cone reach along the view, blocks. The client stream reads it too. */
+        const val RANGE = 24.0
 
-        /** The box also reaches this far BEHIND the eye, so ships and
-         *  entities beside/behind the caster still catch the gale. */
-        private const val BEHIND_RANGE = 8.0
+        private const val HALF_ANGLE_DEG = 25.0
+        val TAN_HALF_ANGLE = kotlin.math.tan(Math.toRadians(HALF_ANGLE_DEG))
 
-        /** Lateral half-width of the wind box. */
-        private const val HALF_WIDTH = 18.0
+        /** Gives the cone a rounded tip so entities that touch the caster still catch the wind. */
+        private const val CONE_APEX_RADIUS = 1.0
 
-        /** Vertical half-height of the wind box. */
-        private const val HALF_HEIGHT = 14.0
+        private val CREATE_LOADED = dev.architectury.platform.Platform.isModLoaded("create")
 
-        /** Blocks/tick of acceleration for entities caught in the wind. */
+        /** Blocks/tick of acceleration for projectiles, before the distance falloff; strong enough to bend an arrow. */
+        private const val PROJECTILE_PUSH_SPEED = 0.25
+
+        /** Vanilla's fireball acceleration after a melee hit. */
+        private const val FIREBALL_POWER = 0.1
+
+        /** Blocks/tick of acceleration for entities caught in the wind, before the distance falloff. */
         private const val ENTITY_PUSH_SPEED = 0.06
 
         /** N per kg of ship mass — mass-relative so every ship feels the
@@ -219,22 +221,11 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
         /** Floor so near-massless ships still visibly move. */
         private const val PUSH_MIN_FORCE = 1_000.0
 
-        private const val HAND_STREAM_PARTICLES_PER_TICK = 2
-        private const val VOLUME_PARTICLES_PER_TICK = 4
-        private const val BLAST_PARTICLE_SPEED = 1.4
-        private const val VOLUME_PARTICLE_SPEED = 0.9
+        /** Share of the full force left at [RANGE]; the force falls off linearly from the apex. */
+        private const val FAR_FORCE_FRACTION = 0.25
 
-        /** Per-component velocity jitter on the hand stream (±0.45 against
-         *  a unit look vector ≈ a ~25° cone) — sized so the stream's spread
-         *  at RANGE roughly matches the box's lateral half-extents. */
-        private const val FAN_SPREAD = 0.9
-
-        /** Camera-frame offsets of the on-screen casting hand at full draw
-         *  (first-person anchor 0.55 fwd/0.32 side/−0.28 up, plus the cast
-         *  push, raise, and correction offsets). */
-        private const val CAST_HAND_FORWARD = 1.1
-        private const val CAST_HAND_SIDE = 0.5
-        private const val CAST_HAND_UP = -0.05
+        /** Below this apex-to-contact distance the ray direction is unstable, so the look vector is used. */
+        private const val MIN_RAY_LENGTH = 0.1
 
         /** Half a heart per second while casting with no XP left. */
         private const val NO_XP_HEALTH_COST = 1.0f

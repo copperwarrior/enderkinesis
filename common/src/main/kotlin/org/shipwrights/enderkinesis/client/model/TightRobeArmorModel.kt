@@ -30,14 +30,14 @@ object TightRobeArmorModel {
      *  model space. Reference points: vanilla player inner skin is `0.0`, the outer
      *  "jacket" overlay layer is `+0.25`, vanilla armor body is `+0.5`. `0.3f` clears the
      *  jacket overlay by a thin gap while still being 40% tighter than vanilla armor. */
-    private const val BODY_DEFORMATION = 0.3f
+    const val BODY_DEFORMATION = 0.3f
 
     /** Leggings-layer body dilation. Sits **inside** [BODY_DEFORMATION] so the chestplate
      *  body cube occludes the leggings body cube when both are worn — same trick vanilla
      *  uses with `1.0` outer / `0.5` inner. The 0.15 gap is half of [BODY_DEFORMATION]
      *  (proportionally identical to vanilla's `0.5` gap on `1.0`), large enough to clear
      *  any floating-point z-fight at any reasonable camera distance. */
-    private const val LEGGINGS_BODY_DEFORMATION = 0.15f
+    const val LEGGINGS_BODY_DEFORMATION = 0.15f
 
     /** Head + hat deformation. Vanilla armor's helmet uses `1.0f` on the head cube and
      *  `1.5f` on the hat overlay (`CubeDeformation(1.0).extend(0.5)`); we keep both at

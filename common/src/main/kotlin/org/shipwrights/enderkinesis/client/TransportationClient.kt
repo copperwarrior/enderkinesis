@@ -69,6 +69,18 @@ object TransportationClient {
             val totalTicks = buf.readVarInt()
             Minecraft.getInstance().execute { addFlight(sendPos, recvPos, stack, totalTicks) }
         }
+        NetworkManager.registerReceiver(
+            NetworkManager.Side.S2C,
+            TransportationNetwork.CANCEL,
+        ) { buf, _ ->
+            val a = buf.readBlockPos()
+            val b = buf.readBlockPos()
+            Minecraft.getInstance().execute {
+                flights.values.removeIf {
+                    (it.sendPos == a && it.recvPos == b) || (it.sendPos == b && it.recvPos == a)
+                }
+            }
+        }
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel { level -> tick(level) })
     }
 

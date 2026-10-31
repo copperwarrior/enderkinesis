@@ -154,7 +154,7 @@ object OrbBeamLineRenderer {
      *  A beam renders if **either** endpoint is in range — that way a beam to a far-off
      *  orb still draws as long as the near orb is visible, which is what players actually
      *  expect when standing next to one end. */
-    private const val ENDPOINT_VIEW_DISTANCE_SQR: Float = 64f * 64f
+    internal const val ENDPOINT_VIEW_DISTANCE_SQR: Float = 64f * 64f
 
     /** Hard sanity cap on rendered beam length. The number of visible pulses per beam is
      *  `len / PULSE_SPACING`, and each pulse emits a fixed quad budget — so total vertex
@@ -166,7 +166,7 @@ object OrbBeamLineRenderer {
      *  Runtime link distance is capped at [org.shipwrights.enderkinesis.blockentity.
      *  OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE] = 64; anything past a generous multiple
      *  of that is malformed and we just don't render it. */
-    private const val MAX_RENDERED_BEAM_LENGTH: Float = 256f
+    internal const val MAX_RENDERED_BEAM_LENGTH: Float = 256f
 
     /** Arrhythmic phase warp evaluated at the **advected time** `t − L / v` — the wall-
      *  clock moment when the pulse currently at position L was released from the SEND
@@ -234,6 +234,14 @@ object OrbBeamLineRenderer {
      *  fills [pairBins]; emptied by [renderAll]'s clear. */
     private val concealedPairBins: MutableMap<PairKey, BeamBin> = HashMap()
 
+    /** Bins kept across frames, so their lists and sorted tome order are reused. */
+    private val binPool: MutableMap<PairKey, BeamBin> = HashMap()
+    private var frame: Long = 0L
+    private val profileScratch = ArrayList<TomePulseProfile>()
+
+    /** This frame's uncloaked bins, filled by [renderAll]; [OrbLinkVolume] reads them later in the frame. */
+    internal val visibleBins: Collection<BeamBin> get() = pairBins.values
+
     /** Reusable scratch — sample alphas (0..1). Resized on demand. */
     private var sampleAlphas: FloatArray = FloatArray(0)
 
@@ -265,6 +273,7 @@ object OrbBeamLineRenderer {
         seenTriples.clear()
         pairBins.clear()
         concealedPairBins.clear()
+        frame++
 
         for (orb in OrbOfLinkingClientRegistry.sendOrbs(level)) {
             val orbPos = orb.blockPos
@@ -275,6 +284,7 @@ object OrbBeamLineRenderer {
                 collect(level, linkKey.peerPos, orbPos, linkKey.tomeKind)
             }
         }
+        if (binPool.size > pairBins.size + concealedPairBins.size) binPool.values.removeIf { it.frame != frame }
         if (pairBins.isEmpty()) return
 
         val consumer = bufferSource.getBuffer(OrbBeamLineRenderType.BEAM_LINE)
@@ -337,13 +347,15 @@ object OrbBeamLineRenderer {
             // First visit decides direction. The orb direction-commitment rule says all
             // links between a given pair flow the same way, so any subsequent collect for
             // the same pair will use the same (send, recv) ordering.
+            val pooled = binPool.getOrPut(pairKey) { BeamBin(timeOffsetFor(pairKey)) }
             val s = OrbClientGeometry.worldCenter(level, sendPos) ?: Vec3.atCenterOf(sendPos)
             val r = OrbClientGeometry.worldCenter(level, recvPos) ?: Vec3.atCenterOf(recvPos)
-            BeamBin(
-                sendPos = sendPos, recvPos = recvPos,
-                sendCentre = s, recvCentre = r,
-                timeOffset = timeOffsetFor(pairKey),
-            )
+            OrbBeamRoute.build(level, sendPos, s, recvPos, r, pooled.pieces, pooled.points)
+            pooled.sendPos = sendPos
+            pooled.recvPos = recvPos
+            pooled.tomes.clear()
+            pooled.frame = frame
+            pooled
         }
         val packed = TomeBeamPalette.colorFor(tomeKind) ?: DEFAULT_PALETTE
         bin.tomes[tomeKind] = packed
@@ -373,14 +385,47 @@ object OrbBeamLineRenderer {
         cameraX: Double, cameraY: Double, cameraZ: Double,
         tSec: Double,
     ) {
-        // Camera-relative endpoint coords. SEND first, RECV last — forward-train pulses
+        bin.sortTomes()
+        val kinds = bin.sortedKinds
+        val profiles = profileScratch
+        profiles.clear()
+        for (i in kinds.indices) profiles.add(TomePulseProfiles.resolve(kinds[i], level, bin.sendPos, bin.recvPos))
+        val points = bin.points
+        var pathLen = 0.0
+        for (i in 0 until points.size - 1) pathLen += points[i].distanceTo(points[i + 1])
+        val tEff = tSec + bin.timeOffset
+        // Pulse phase runs on the path length, so a pulse goes on through an anchor.
+        var pathOffset = 0.0
+        for (i in 0 until points.size - 1) {
+            val segLen = points[i].distanceTo(points[i + 1])
+            emitSegment(
+                consumer, matrix, kinds, bin.sortedColours, profiles, points[i], points[i + 1],
+                pathOffset, pathLen - pathOffset - segLen, cameraX, cameraY, cameraZ, tEff,
+            )
+            pathOffset += segLen
+        }
+    }
+
+    @Suppress("LongMethod") // The basis build and the train loop share the per-segment scratch.
+    private fun emitSegment(
+        consumer: com.mojang.blaze3d.vertex.VertexConsumer,
+        matrix: org.joml.Matrix4f,
+        kinds: List<ResourceLocation>,
+        colours: IntArray,
+        profiles: List<TomePulseProfile>,
+        start: Vec3, end: Vec3,
+        forwardOffset: Double, reverseOffset: Double,
+        cameraX: Double, cameraY: Double, cameraZ: Double,
+        tEff: Double,
+    ) {
+        // Camera-relative endpoint coords. SEND side first, RECV side last — forward-train pulses
         // flow start→end; reverse-train pulses (reciprocal tomes) get these swapped.
-        val sx = (bin.sendCentre.x - cameraX).toFloat()
-        val sy = (bin.sendCentre.y - cameraY).toFloat()
-        val sz = (bin.sendCentre.z - cameraZ).toFloat()
-        val rx = (bin.recvCentre.x - cameraX).toFloat()
-        val ry = (bin.recvCentre.y - cameraY).toFloat()
-        val rz = (bin.recvCentre.z - cameraZ).toFloat()
+        val sx = (start.x - cameraX).toFloat()
+        val sy = (start.y - cameraY).toFloat()
+        val sz = (start.z - cameraZ).toFloat()
+        val rx = (end.x - cameraX).toFloat()
+        val ry = (end.y - cameraY).toFloat()
+        val rz = (end.z - cameraZ).toFloat()
 
         // BE-render-distance cull — skip beams whose both endpoints are past the orb BER's
         // view distance from the camera. See [ENDPOINT_VIEW_DISTANCE_SQR].
@@ -445,18 +490,10 @@ object OrbBeamLineRenderer {
             samplePosZ = FloatArray(SAMPLES_PER_PULSE_WITH_CAP)
         }
 
-        val tEff = tSec + bin.timeOffset
-
-        // One pulse train per tome (× 2 if reciprocal). Sorted by tome ResourceLocation so
-        // the iteration is stable across frames — reciprocal-tome direction labels never
-        // swap mid-session.
-        val sortedTomes = bin.tomes.entries.asSequence()
-            .sortedBy { it.key.toString() }
-            .toList()
-        for (entry in sortedTomes) {
-            val tomeKind = entry.key
-            val colour = entry.value
-            val profile = TomePulseProfiles.resolve(tomeKind, level, bin.sendPos, bin.recvPos)
+        for (index in kinds.indices) {
+            val tomeKind = kinds[index]
+            val colour = colours[index]
+            val profile = profiles[index]
             val spacing = (BASE_PULSE_SPACING / profile.frequency.coerceAtLeast(0.05))
                 .coerceIn(MIN_PULSE_SPACING, BASE_PULSE_SPACING * 20.0)
             val speed = (BASE_PULSE_SPEED * profile.progression.coerceAtLeast(0.05))
@@ -468,7 +505,7 @@ object OrbBeamLineRenderer {
             emitTrain(
                 consumer, matrix, tEff,
                 spacing, speed, wanderAmp, colour, tomeSeed,
-                sx, sy, sz, rx, ry, rz, len,
+                sx, sy, sz, rx, ry, rz, len, forwardOffset,
                 n1x, n1y, n1z, n2x, n2y, n2z, rrx, rry, rrz,
             )
 
@@ -480,7 +517,7 @@ object OrbBeamLineRenderer {
                 emitTrain(
                     consumer, matrix, tEff,
                     spacing, speed, wanderAmp, colour, tomeSeed xor REVERSE_ANGLE_TAG,
-                    rx, ry, rz, sx, sy, sz, len,
+                    rx, ry, rz, sx, sy, sz, len, reverseOffset,
                     n1x, n1y, n1z, n2x, n2y, n2z, rrx, rry, rrz,
                 )
             }
@@ -502,20 +539,23 @@ object OrbBeamLineRenderer {
         tEff: Double,
         spacing: Double, speed: Double, wanderAmp: Double, colour: Int, angleSeed: Long,
         sx: Float, sy: Float, sz: Float, rx: Float, ry: Float, rz: Float, len: Float,
+        pathOffset: Double,
         n1x: Float, n1y: Float, n1z: Float, n2x: Float, n2y: Float, n2z: Float,
         rrx: Float, rry: Float, rrz: Float,
     ) {
         val timePhase = speed * tEff
-        // phase(L, t) = (L − v·t)/s + warp. Pulse K's leading edge at phase = K+1, trailing
-        // at phase = K. Visible K: those whose [L_tail, L_lead] intersects [0, len].
-        val phaseAt0 = -timePhase / spacing + phaseWarp(tEff)
-        val phaseAtLen = (len - timePhase) / spacing + phaseWarp(tEff - len / speed)
+        // phase(L, t) = (L − v·t)/s + warp, with L along the whole path. Pulse K's leading edge
+        // at phase = K+1, trailing at phase = K. Visible K: those whose [L_tail, L_lead]
+        // intersects this segment, [pathOffset, pathOffset + len].
+        val segEnd = pathOffset + len
+        val phaseAt0 = (pathOffset - timePhase) / spacing + phaseWarp(tEff - pathOffset / speed)
+        val phaseAtLen = (segEnd - timePhase) / spacing + phaseWarp(tEff - segEnd / speed)
         val kMin = Math.floor(Math.min(phaseAt0, phaseAtLen)).toLong() - 1
         val kMax = Math.floor(Math.max(phaseAt0, phaseAtLen)).toLong() + 1
 
         for (k in kMin..kMax) {
             emitPulse(
-                consumer, matrix, k, tEff, timePhase, len,
+                consumer, matrix, k, tEff, timePhase, len, pathOffset,
                 sx, sy, sz, rx, ry, rz,
                 n1x, n1y, n1z, n2x, n2y, n2z,
                 rrx, rry, rrz,
@@ -533,7 +573,7 @@ object OrbBeamLineRenderer {
     private fun emitPulse(
         consumer: com.mojang.blaze3d.vertex.VertexConsumer,
         matrix: org.joml.Matrix4f,
-        k: Long, tEff: Double, timePhase: Double, len: Float,
+        k: Long, tEff: Double, timePhase: Double, len: Float, pathOffset: Double,
         sx: Float, sy: Float, sz: Float, rx: Float, ry: Float, rz: Float,
         n1x: Float, n1y: Float, n1z: Float, n2x: Float, n2y: Float, n2z: Float,
         rrx: Float, rry: Float, rrz: Float,
@@ -544,8 +584,9 @@ object OrbBeamLineRenderer {
         // a pulse traverses its own length in a fraction of a second).
         val tailApprox = k * spacing + timePhase
         val leadApprox = tailApprox + spacing
-        val tailL = tailApprox - spacing * phaseWarp(tEff - tailApprox / speed)
-        val leadL = leadApprox - spacing * phaseWarp(tEff - leadApprox / speed)
+        // Segment-local from here on; the taper below pins each pulse to the axis at an anchor.
+        val tailL = tailApprox - spacing * phaseWarp(tEff - tailApprox / speed) - pathOffset
+        val leadL = leadApprox - spacing * phaseWarp(tEff - leadApprox / speed) - pathOffset
         // Skip pulses entirely off the beam.
         if (leadL < 0.0 || tailL > len) return
         val renderTail = Math.max(0.0, tailL)
@@ -688,12 +729,40 @@ object OrbBeamLineRenderer {
      *  world Vec3 for rendering and BlockPos for the per-tome profile adjuster lookup)
      *  plus the per-tome palette: each entry is a (kind → packed-RGB) pair that becomes its
      *  own pulse train in [emitBeam]. */
-    private class BeamBin(
-        val sendPos: BlockPos, val recvPos: BlockPos,
-        val sendCentre: Vec3, val recvCentre: Vec3,
-        val timeOffset: Double,
-    ) {
+    internal class BeamBin(val timeOffset: Double) {
+        var sendPos: BlockPos = BlockPos.ZERO
+        var recvPos: BlockPos = BlockPos.ZERO
+        /** Points along the beam, SEND first and RECV last. Two points or more. */
+        val points: MutableList<Vec3> = ArrayList(2)
+        /** The same beam as quadratic pieces, for [OrbLinkVolume]. */
+        val pieces: MutableList<BeamPiece> = ArrayList(1)
+        val sendCentre: Vec3 get() = points.first()
+        val recvCentre: Vec3 get() = points.last()
         val tomes: MutableMap<ResourceLocation, Int> = HashMap()
+        /** The frame that last filled this bin. */
+        var frame: Long = 0L
+
+        /** [tomes] keys sorted by their string form, so reciprocal-tome direction labels never swap mid-session. */
+        val sortedKinds: MutableList<ResourceLocation> = ArrayList()
+        /** The palette colour of each of [sortedKinds]. */
+        var sortedColours: IntArray = IntArray(0)
+            private set
+
+        fun sortTomes() {
+            if (!sortedMatchesTomes()) {
+                sortedKinds.clear()
+                sortedKinds.addAll(tomes.keys)
+                sortedKinds.sortBy { it.toString() }
+            }
+            if (sortedColours.size < sortedKinds.size) sortedColours = IntArray(sortedKinds.size)
+            for (i in sortedKinds.indices) sortedColours[i] = checkNotNull(tomes[sortedKinds[i]])
+        }
+
+        private fun sortedMatchesTomes(): Boolean {
+            if (sortedKinds.size != tomes.size) return false
+            for (i in sortedKinds.indices) if (!tomes.containsKey(sortedKinds[i])) return false
+            return true
+        }
     }
 
     /** Canonical unordered pair of orb positions. */

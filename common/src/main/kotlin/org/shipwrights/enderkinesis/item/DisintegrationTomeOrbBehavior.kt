@@ -122,13 +122,33 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val dropQueue: ArrayDeque<ItemStack> = ArrayDeque()
         /** Accumulated mining ticks per block currently being chewed. Cleared on destroy. */
         val mining: MutableMap<BlockPos, Float> = HashMap()
+        var minedThisTick: Boolean = false
+        /** The last grind state sent to the clients. */
+        var grinding: Boolean = false
     }
 
     override fun createState(): Any = DisintegrationState()
 
+    override fun onUnlinking(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
+        super.onUnlinking(level, sendBe, receiverPos)
+        val state = sendBe.tomeState(this) as? DisintegrationState ?: return
+        // The last link goes, so serverTick stops and cannot send the stop.
+        if (state.grinding && sendBe.outgoingPeers(tomeKind).size <= 1) sendGrinding(level, sendBe, state, false)
+    }
+
+    private fun sendGrinding(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: DisintegrationState, grinding: Boolean,
+    ) {
+        state.grinding = grinding
+        val param = if (grinding) 1 else 0
+        level.blockEvent(sendBe.blockPos, sendBe.blockState.block, OrbOfLinkingBlockEntity.EVENT_GRIND, param)
+    }
+
     override fun serverTick(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
         val state = sendBe.tomeState(this) as? DisintegrationState ?: return
+        state.minedThisTick = false
         runBeam(level, sendBe, state)
+        if (state.minedThisTick != state.grinding) sendGrinding(level, sendBe, state, state.minedThisTick)
         super.serverTick(level, sendBe)
         // All drops of this tick go to the receiver in this tick, one flight for each stack.
         // The orb does not buffer: a stack that no receiver takes (full, filtered out, not
@@ -420,6 +440,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
             if (efficiencyLevel <= 0) 1.0f
             else 1.0f + (efficiencyLevel * efficiencyLevel + 1).toFloat()
         val ticksRequired = (target.hardness * MINING_TICKS_PER_HARDNESS) / efficiencyMultiplier
+        state.minedThisTick = true
         val progressed = state.mining.getOrDefault(target.pos, 0f) + 1f
         if (progressed >= ticksRequired) {
             val drops = Block.getDrops(
@@ -697,6 +718,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
 
     /** A burst of drops in one tick must not hit the base cap of 16 flights. */
     override val maxInFlightPerSend: Int = 4096
+    override val transferSounds: Boolean = false
 
     override fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
         val state = sendBe.tomeState(this) as? DisintegrationState ?: return null

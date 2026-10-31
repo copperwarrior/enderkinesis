@@ -81,6 +81,9 @@ object WohlonnogondoniaWorldRootGrower {
         Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST,
     )
 
+    /** Region key of a reaching root leg: no packed region can hold it. */
+    const val REACHING_REGION = Long.MIN_VALUE
+
     private const val MARCHES_DATA_NAME = "enderkinesis_wohlon_world_root_marches"
     private const val GROWN_DATA_NAME = "enderkinesis_wohlon_world_root_grown_regions"
 
@@ -245,15 +248,9 @@ object WohlonnogondoniaWorldRootGrower {
         val paths = WohlonnogondoniaSurfaceRoots.buildPaths(
             regionX, regionZ, heightAt, yMin, yMax,
             motherTreeExclusionSq = 0L,
-            // Spread-driven world roots are no longer ground-locked
-            // — letting the path's Y wander above the surface gives
-            // the roots the same arc-and-plunge silhouette the
-            // chunkgen Mother Tree's roots use, instead of clinging
-            // flat to the heightmap. Roots that drift up still wrap
-            // back down through the painted sphere geometry, so the
-            // final voxel set still anchors to terrain at most
-            // points.
             groundOnly = false,
+            // Same half-buried, water-bridging roots as the Wohlon chunkgen.
+            waterTopY = level.seaLevel - 1,
         )
         if (paths.isEmpty()) {
             getGrownData(level).markGrown(regionPacked)
@@ -286,17 +283,31 @@ object WohlonnogondoniaWorldRootGrower {
         // system emerging from its own centre and growing outward in
         // all directions". Recomputed via the same public hash so we
         // don't need to thread the value through `buildPaths`.
-        val raw = voxelSet.toLongArray()
         val hubWX = regionX * REGION_SIZE + WohlonnogondoniaSurfaceRoots.regionStartOffset(regionX, regionZ, 1)
         val hubWZ = regionZ * REGION_SIZE + WohlonnogondoniaSurfaceRoots.regionStartOffset(regionX, regionZ, 2)
         val hubY = heightAt(hubWX, hubWZ)
 
+        val root = MarchingRoot(
+            regionPacked = regionPacked,
+            anchorX = hubWX, anchorY = hubY, anchorZ = hubWZ,
+            voxels = sortedOutward(voxelSet, hubWX, hubY, hubWZ),
+            placed = BitSet(voxelSet.size),
+            scanCursor = 0,
+        )
+        marches.heads.add(root)
+        marches.setDirty()
+
+    }
+
+    /** Voxels nearest the hub first, so the root reads as growing out of it. */
+    fun sortedOutward(voxelSet: Set<Long>, hubX: Int, hubY: Int, hubZ: Int): LongArray {
+        val raw = voxelSet.toLongArray()
         val keyed = LongArray(raw.size)
         for (i in raw.indices) {
             val pos = BlockPos.of(raw[i])
-            val dx = pos.x - hubWX
+            val dx = pos.x - hubX
             val dy = pos.y - hubY
-            val dz = pos.z - hubWZ
+            val dz = pos.z - hubZ
             val distSq = (dx * dx + dy * dy + dz * dz).coerceAtMost(0x7FFFFFFF)
             keyed[i] = (distSq.toLong() shl 32) or (i.toLong() and 0xFFFFFFFFL)
         }
@@ -305,17 +316,7 @@ object WohlonnogondoniaWorldRootGrower {
         for (i in keyed.indices) {
             voxels[i] = raw[(keyed[i] and 0xFFFFFFFFL).toInt()]
         }
-
-        val root = MarchingRoot(
-            regionPacked = regionPacked,
-            anchorX = hubWX, anchorY = hubY, anchorZ = hubWZ,
-            voxels = voxels,
-            placed = BitSet(voxels.size),
-            scanCursor = 0,
-        )
-        marches.heads.add(root)
-        marches.setDirty()
-
+        return voxels
     }
 
     private fun tickMarches(level: ServerLevel) {
@@ -338,7 +339,7 @@ object WohlonnogondoniaWorldRootGrower {
         if (changed) marches.setDirty()
     }
 
-    private data class TickResult(val changed: Boolean, val completed: Boolean)
+    data class TickResult(val changed: Boolean, val completed: Boolean)
 
     /** Place at most one voxel this tick. Scans from `scanCursor`,
      *  advancing past any already-placed entries (which can happen
@@ -348,7 +349,7 @@ object WohlonnogondoniaWorldRootGrower {
      *  voxel becomes eligible. Voxels whose intended position is
      *  occupied by a structure get a horizontal-deflect attempt via
      *  [tryPlaceWithSidestep] before being given up on. */
-    private fun tickRoot(level: ServerLevel, root: MarchingRoot): TickResult {
+    fun tickRoot(level: ServerLevel, root: MarchingRoot): TickResult {
         if (level.gameTime < root.nextScanGameTime) return TickResult(false, false)
         while (root.scanCursor < root.voxels.size && root.placed.get(root.scanCursor)) {
             root.scanCursor++
@@ -361,7 +362,7 @@ object WohlonnogondoniaWorldRootGrower {
             if (root.placed.get(i)) { i++; continue }
             val pos = BlockPos.of(root.voxels[i])
             if (!isReachLoaded(level, pos)) { open = true; i++; continue }
-            if (WohlonnogondoniaPortalManager.isInsideAnyTreeBounds(level, pos)) {
+            if (!root.reaching && WohlonnogondoniaPortalManager.isInsideAnyTreeBounds(level, pos)) {
                 root.placed.set(i)
                 i++
                 continue
@@ -375,7 +376,7 @@ object WohlonnogondoniaWorldRootGrower {
                 continue
             }
             val isSeed = !root.hasSeed
-            val warp = tryPlaceWithSidestep(level, pos, isSeed)
+            val warp = tryPlaceWithSidestep(level, pos, isSeed, root.reaching)
             if (warp.placedAt != null) {
                 root.placed.set(i)
                 if (isSeed) root.hasSeed = true
@@ -437,11 +438,11 @@ object WohlonnogondoniaWorldRootGrower {
      *  enclosed room) returns gaveUp=true and the voxel is abandoned —
      *  the path visibly stops at the obstruction rather than burrowing
      *  through. */
-    private fun tryPlaceWithSidestep(level: ServerLevel, pos: BlockPos, isSeed: Boolean): WarpAttempt {
+    private fun tryPlaceWithSidestep(level: ServerLevel, pos: BlockPos, isSeed: Boolean, reaching: Boolean): WarpAttempt {
         // Try the intended position first.
         val originalState = level.getBlockState(pos)
         if (isRootReplaceable(originalState)) {
-            val placed = placeOneWood(level, pos, isSeed)
+            val placed = placeOneWood(level, pos, isSeed, reaching)
             if (placed != null) return WarpAttempt(pos, gaveUp = false)
             // Replaceable but no support — leave for cascade. Airborne
             // voxels wait for adjacent buds to mature into wood that
@@ -461,7 +462,7 @@ object WohlonnogondoniaWorldRootGrower {
                 )
                 val tryState = level.getBlockState(tryPos)
                 if (!isRootReplaceable(tryState)) continue
-                val placed = placeOneWood(level, tryPos, isSeed)
+                val placed = placeOneWood(level, tryPos, isSeed, reaching)
                 if (placed != null) return WarpAttempt(tryPos, gaveUp = false)
                 // Replaceable but no support — fall through to next
                 // candidate. Don't return early; another sidestep
@@ -471,14 +472,15 @@ object WohlonnogondoniaWorldRootGrower {
         return WarpAttempt(null, gaveUp = true)
     }
 
-    private fun placeOneWood(level: ServerLevel, pos: BlockPos, isSeed: Boolean): BlockState? {
+    // A reaching root leaves its own tree and crosses land the biome has not reached, so it skips both gates.
+    private fun placeOneWood(level: ServerLevel, pos: BlockPos, isSeed: Boolean, reaching: Boolean): BlockState? {
         // Tree-bounds exclusion: the world-root grower must not paint
         // inside the cylinder around any registered ritual portal.
         // Trees and world roots are separate systems with their own
         // shapes; overlap reads as incoherent "tumour" growth. The
         // voxel stays in the queue but never qualifies — it's just
         // permanently dropped from this march.
-        if (WohlonnogondoniaPortalManager.isInsideAnyTreeBounds(level, pos)) return null
+        if (!reaching && WohlonnogondoniaPortalManager.isInsideAnyTreeBounds(level, pos)) return null
 
         // Bulk gate: roots are only allowed inside biome *interior*, not
         // on the leading edge. The voxel's own cell plus all six
@@ -490,7 +492,7 @@ object WohlonnogondoniaWorldRootGrower {
         val qx = pos.x shr 2
         val qy = pos.y shr 2
         val qz = pos.z shr 2
-        if (!isCellInBulkWohlon(level, qx, qy, qz)) return null
+        if (!reaching && !isCellInBulkWohlon(level, qx, qy, qz)) return null
 
         var supportDir: Direction? = null
         for (dir in SIX_DIRECTIONS) {
@@ -569,7 +571,7 @@ object WohlonnogondoniaWorldRootGrower {
      *  Returns true if a destination was found.
      */
     private fun tryDisplaceToAdjacentAir(level: ServerLevel, pos: BlockPos): Boolean {
-        val mud = Blocks.MUD.defaultBlockState()
+        val mud = EKBlocks.WOHLON_MUD.get().defaultBlockState()
         // Pass 1: supported air.
         for (dir in SIX_DIRECTIONS) {
             val adj = pos.relative(dir)
@@ -636,7 +638,7 @@ object WohlonnogondoniaWorldRootGrower {
         return false
     }
 
-    private class MarchingRoot(
+    class MarchingRoot(
         val regionPacked: Long,
         val anchorX: Int, val anchorY: Int, val anchorZ: Int,
         val voxels: LongArray,
@@ -644,6 +646,7 @@ object WohlonnogondoniaWorldRootGrower {
         var scanCursor: Int,
         var hasSeed: Boolean = false,
         var nextScanGameTime: Long = 0L,
+        val reaching: Boolean = false,
     )
 
     private fun getMarchesData(level: ServerLevel): MarchesData {

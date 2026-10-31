@@ -1,7 +1,6 @@
 package org.shipwrights.enderkinesis.item
 
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.tags.ItemTags
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EquipmentSlot
@@ -16,6 +15,7 @@ import net.minecraft.world.item.enchantment.Enchantment
 import net.minecraft.world.item.enchantment.EnchantmentHelper
 import net.minecraft.world.item.enchantment.Enchantments
 import net.minecraft.world.level.Level
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.UUID
 
 /**
@@ -30,7 +30,7 @@ import java.util.UUID
  *    designed to soak enchantments.
  *  - **Repair = any-colour wool** — vanilla `minecraft:wool` item tag.
  */
-class RobeArmorMaterial(private val materialName: String) : ArmorMaterial {
+class RobeArmorMaterial(private val materialName: String, val sounds: EKSounds.RobeSet) : ArmorMaterial {
     override fun getDurabilityForType(type: ArmorItem.Type): Int = when (type) {
         ArmorItem.Type.HELMET -> 110
         ArmorItem.Type.CHESTPLATE -> 160
@@ -39,16 +39,17 @@ class RobeArmorMaterial(private val materialName: String) : ArmorMaterial {
     }
     override fun getDefenseForType(type: ArmorItem.Type): Int = 0
     override fun getEnchantmentValue(): Int = 30
-    override fun getEquipSound(): SoundEvent = SoundEvents.ARMOR_EQUIP_LEATHER
+    /** [ScalingRobeArmorItem.getEquipSound] picks the event by piece. */
+    override fun getEquipSound(): SoundEvent = sounds.equipTop.get()
     override fun getRepairIngredient(): Ingredient = Ingredient.of(ItemTags.WOOL)
     override fun getName(): String = materialName
     override fun getToughness(): Float = 0f
     override fun getKnockbackResistance(): Float = 0f
 
     companion object {
-        val END_CULT = RobeArmorMaterial("end_cult")
-        val SCHOLAR = RobeArmorMaterial("scholar")
-        val BLUE_WITCH = RobeArmorMaterial("blue_witch")
+        val END_CULT = RobeArmorMaterial("end_cult", EKSounds.ROBES_END_CULT)
+        val SCHOLAR = RobeArmorMaterial("scholar", EKSounds.ROBES_SCHOLAR)
+        val BLUE_WITCH = RobeArmorMaterial("blue_witch", EKSounds.ROBES_BLUE_WITCH)
     }
 }
 
@@ -77,10 +78,10 @@ class RobeArmorMaterial(private val materialName: String) : ArmorMaterial {
  * hasn't changed.
  */
 class ScalingRobeArmorItem(
-    material: ArmorMaterial,
+    val robeMaterial: RobeArmorMaterial,
     type: ArmorItem.Type,
     properties: Properties,
-) : ArmorItem(material, type, properties) {
+) : ArmorItem(robeMaterial, type, properties) {
 
     override fun inventoryTick(
         stack: ItemStack, level: Level, entity: Entity, slot: Int, isSelected: Boolean,
@@ -92,6 +93,16 @@ class ScalingRobeArmorItem(
         // The score reads each worn item. A stack with no modifiers yet syncs at once.
         if (entity.tickCount % SYNC_INTERVAL_TICKS != 0 && stack.tag?.contains(SCORE_NBT_KEY) == true) return
         syncAttributeModifiers(stack, entity)
+    }
+
+    override fun getEquipSound(): SoundEvent {
+        val sounds = robeMaterial.sounds
+        return when (type) {
+            ArmorItem.Type.HELMET -> sounds.equipHead
+            ArmorItem.Type.CHESTPLATE -> sounds.equipTop
+            ArmorItem.Type.LEGGINGS -> sounds.equipBottoms
+            ArmorItem.Type.BOOTS -> sounds.equipFeet
+        }.get()
     }
 
     /** Forge `IItemExtension.getArmorTexture` shim — invoked by `HumanoidArmorLayer`.

@@ -24,10 +24,15 @@ object VoidHookSounds {
     /** A small margin on the audible range, so the loop is at volume before the player hears it. */
     private const val START_RANGE: Double = EKSounds.VOID_HOOK_LOOP_RANGE + 2.0
     private const val START_RANGE_SQR: Double = START_RANGE * START_RANGE
+    /** Many hooks on one ship play the same loop, and more copies only blur it. */
+    private const val MAX_LOOPS = 4
+    /** A playing hook counts as this much nearer, so two hooks at near the same distance do not swap each tick. */
+    private const val PLAYING_BIAS_SQR = 0.8
 
     /** Client thread only. */
     private val loops = HashMap<VoidHookBlockEntity, HookLoop>()
     private val lastPower = HashMap<VoidHookBlockEntity, Int>()
+    private val nearest = NearestLoopSelection<VoidHookBlockEntity>(MAX_LOOPS, PLAYING_BIAS_SQR)
     private val scratch = Vector3d()
 
     fun init() {
@@ -39,6 +44,7 @@ object VoidHookSounds {
         loops.values.forEach(sounds::stop)
         loops.clear()
         lastPower.clear()
+        nearest.clear()
     }
 
     private fun tick(level: ClientLevel) {
@@ -48,6 +54,7 @@ object VoidHookSounds {
         // A level change stops all sounds and does not call stop() on the instance.
         loops.values.removeIf { it.isStopped || !sounds.isActive(it) }
         lastPower.keys.removeIf { it.isRemoved }
+        nearest.beginTick()
         for (be in VoidHookClientRegistry.all(level)) {
             if (be.isRemoved) continue
             val power = power(be)
@@ -63,7 +70,11 @@ object VoidHookSounds {
                     ),
                 )
             }
-            if (power > 0 && inRange && be !in loops) loops[be] = HookLoop(level, be).also(sounds::play)
+            if (power > 0 && inRange) nearest.offer(be, player.distanceToSqr(scratch.x, scratch.y, scratch.z), be in loops)
+        }
+        nearest.select()
+        for (be in nearest.selected()) {
+            if (be !in loops) loops[be] = HookLoop(level, be).also(sounds::play)
         }
     }
 
@@ -105,7 +116,7 @@ object VoidHookSounds {
         }
 
         override fun tick() {
-            val power = if (isAudible()) power(be) else 0
+            val power = if (isAudible() && be in nearest) power(be) else 0
             if (power <= 0) {
                 volume -= 1f / FADE_OUT_TICKS
                 if (volume <= 0f) stop()

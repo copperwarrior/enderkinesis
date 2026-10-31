@@ -1,0 +1,40 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "orb_link_volume",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" }
+  ],
+  "uniforms": [
+    { "name": "ViewProj",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "LocalToView",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "BoxMin",       "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "BoxMax",       "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "InvViewProj",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "CamLocal",     "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "BeamLen",      "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "Control",      "type": "float",     "count": 3,  "values": [ 0.5, 0.0, 0.0 ] },
+    { "name": "EnvelopeRadius", "type": "float",   "count": 1,  "values": [ 1.0 ] },
+    { "name": "ProfileSpan",  "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "WaistRadius",  "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "HaloRadius",   "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "HaloEmission", "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "HaloEndRadius", "type": "float",    "count": 1,  "values": [ 1.0 ] },
+    { "name": "OrbShare",     "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "EdgeBrightness", "type": "float",   "count": 1,  "values": [ 1.0 ] },
+    { "name": "Density",      "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Opacity",      "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "AccentsLo",    "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "AccentsHi",    "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "AccentCount",  "type": "int",       "count": 1,  "values": [ 1 ] },
+    { "name": "Spin",         "type": "float",     "count": 1,  "values": [ 0.0 ] }
+  ]
+}

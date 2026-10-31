@@ -1,14 +1,20 @@
 package org.shipwrights.enderkinesis.entity
 
+import net.minecraft.core.BlockPos
+import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import net.minecraft.world.phys.shapes.ArrayVoxelShape
+import net.minecraft.world.phys.shapes.BitSetDiscreteVoxelShape
 import net.minecraft.world.phys.shapes.BooleanOp
+import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.valkyrienskies.mod.common.getShipsIntersecting
+import java.util.Arrays
 
 /**
  * Smoothed signed-distance field over nearby collision geometry (the Spiders 2.0
@@ -32,6 +38,8 @@ object ConstriliarSurfaceField {
     private const val MAX_BOXES = 128
     /** Log-sum-exp sharpness: rounding radius ≈ 1/k blocks around edges. */
     private const val SMOOTHING = 3.0
+    /** The epsilon of Shapes.create and IndirectMerger. */
+    private const val SHAPE_EPS = 1.0e-7
 
     /** Field sample at [centre]: smoothed distance to the surface union and the
      *  away-from-surface normal (floor → up, wall → out, ceiling → down). Null when no
@@ -42,7 +50,9 @@ object ConstriliarSurfaceField {
      *  [mergeBlocks]: the normal comes from the world blocks merged into maximal boxes.
      *  A soft union of per-block boxes reads closer at every seam, which tilted the
      *  normal up to ~17° on a flat floor at a 0.2-block sample height. The distances
-     *  stay per-block, so thresholds tuned on them keep their meaning. */
+     *  stay per-block, so thresholds tuned on them keep their meaning.
+     *
+     *  [physicsOnly]: skip blocks a VS2 body passes through (see [ConstriliarCollision]). */
     fun sample(
         level: Level,
         entity: Entity?,
@@ -53,9 +63,13 @@ object ConstriliarSurfaceField {
         maxBoxes: Int = MAX_BOXES,
         extraBoxes: List<AABB>? = null,
         mergeBlocks: Boolean = false,
+        mergeCache: MergeCache? = null,
+        physicsOnly: Boolean = false,
     ): Sample? {
         val merged = if (mergeBlocks) ArrayList<AABB>(16) else null
-        val boxes = collectBoxes(level, entity, centre, range, ownShipId, maxBoxes, extraBoxes, merged)
+        val boxes = collectBoxes(
+            level, entity, centre, range, ownShipId, maxBoxes, extraBoxes, merged, mergeCache, physicsOnly,
+        )
         if (boxes.isEmpty()) return null
 
         val dists = DoubleArray(boxes.size)
@@ -94,6 +108,13 @@ object ConstriliarSurfaceField {
         if (sum.lengthSquared() >= 1.0e-8) out.set(sum).normalize()
     }
 
+    /** The last block merge, reused while the world boxes around the sample are the
+     *  same: the shape join is the costly part of a sample. One for each caller thread. */
+    class MergeCache {
+        internal val key = ArrayList<AABB>(64)
+        internal val merged = ArrayList<AABB>(16)
+    }
+
     /** Reused arrays and the result of [sampleBoxes]. One for each caller thread. */
     class SampleScratch {
         internal var dists = DoubleArray(32)
@@ -113,7 +134,7 @@ object ConstriliarSurfaceField {
      *  list with [sampleBoxes]. */
     fun boxesNear(
         level: Level, centre: Vec3, range: Double, maxBoxes: Int, extraBoxes: List<AABB>?,
-    ): List<AABB> = collectBoxes(level, null, centre, range, null, maxBoxes, extraBoxes, null)
+    ): List<AABB> = collectBoxes(level, null, centre, range, null, maxBoxes, extraBoxes, null, null, false)
 
     /** [sample] over a given box list, with no allocation. False when the field has no
      *  direction at the point. The result is in [scratch]. */
@@ -152,6 +173,8 @@ object ConstriliarSurfaceField {
         maxBoxes: Int,
         extraBoxes: List<AABB>?,
         mergedOut: MutableList<AABB>?,
+        mergeCache: MergeCache?,
+        physicsOnly: Boolean,
     ): List<AABB> {
         val out = ArrayList<AABB>(32)
         val search = AABB(centre, centre).inflate(range)
@@ -168,19 +191,11 @@ object ConstriliarSurfaceField {
             }
         }
         val extraEnd = out.size
-        var joined: VoxelShape? = if (mergedOut != null) Shapes.empty() else null
-        outer@ for (shape in level.getBlockCollisions(entity, search)) {
-            if (joined != null) joined = Shapes.joinUnoptimized(joined, shape, BooleanOp.OR)
-            for (box in shape.toAabbs()) {
-                out.add(box)
-                if (out.size >= maxBoxes) break@outer
-            }
-        }
+        addCollisions(level, entity, search, physicsOnly, out, maxBoxes, null)
         val worldEnd = out.size
-        if (mergedOut != null && joined != null) {
+        if (mergedOut != null) {
             mergedOut.addAll(out.subList(0, extraEnd))
-            // optimize() + toAabbs() emits maximal boxes: a flat floor becomes one box.
-            mergedOut.addAll(joined.optimize().toAabbs())
+            mergedOut.addAll(mergeWorldBoxes(out.subList(extraEnd, worldEnd), mergeCache))
         }
         // Other ships' hulls are surface too (own ship excluded — it's the body).
         for (ship in level.getShipsIntersecting(search)) {
@@ -188,15 +203,123 @@ object ConstriliarSurfaceField {
             val shipSearch = transformAabb(search) { x, y, z ->
                 ship.worldToShip.transformPosition(Vector3d(x, y, z))
             }
-            ships@ for (shape in level.getBlockCollisions(null, shipSearch)) {
-                for (box in shape.toAabbs()) {
-                    out.add(transformAabb(box) { x, y, z -> ship.shipToWorld.transformPosition(Vector3d(x, y, z)) })
-                    if (out.size >= maxBoxes) break@ships
-                }
+            addCollisions(level, null, shipSearch, physicsOnly, out, maxBoxes) { box ->
+                transformAabb(box) { x, y, z -> ship.shipToWorld.transformPosition(Vector3d(x, y, z)) }
             }
         }
         mergedOut?.addAll(out.subList(worldEnd, out.size))
         return out
+    }
+
+    /** The collision boxes in [area] into [out], through [map] when given. With
+     *  [physicsOnly], blocks a VS2 body passes through are skipped; that needs the block
+     *  state, which [Level.getBlockCollisions] does not give. */
+    private fun addCollisions(
+        level: Level,
+        entity: Entity?,
+        area: AABB,
+        physicsOnly: Boolean,
+        out: MutableList<AABB>,
+        maxBoxes: Int,
+        map: ((AABB) -> AABB)?,
+    ) {
+        if (!physicsOnly) {
+            for (shape in level.getBlockCollisions(entity, area)) {
+                for (box in shape.toAabbs()) {
+                    out.add(map?.invoke(box) ?: box)
+                    if (out.size >= maxBoxes) return
+                }
+            }
+            return
+        }
+        val context = if (entity == null) CollisionContext.empty() else CollisionContext.of(entity)
+        for (pos in BlockPos.betweenClosed(
+            Mth.floor(area.minX), Mth.floor(area.minY), Mth.floor(area.minZ),
+            Mth.floor(area.maxX), Mth.floor(area.maxY), Mth.floor(area.maxZ),
+        )) {
+            if (!level.hasChunkAt(pos)) continue
+            val state = level.getBlockState(pos)
+            if (state.isAir || ConstriliarCollision.shipPassable(state)) continue
+            val shape = state.getCollisionShape(level, pos, context)
+            if (shape.isEmpty) continue
+            for (local in shape.toAabbs()) {
+                val box = local.move(pos)
+                if (!box.intersects(area)) continue
+                out.add(map?.invoke(box) ?: box)
+                if (out.size >= maxBoxes) return
+            }
+        }
+    }
+
+    /** optimize() + toAabbs() emits maximal boxes: a flat floor becomes one box. */
+    private fun mergeWorldBoxes(world: List<AABB>, cache: MergeCache?): List<AABB> {
+        if (cache != null && cache.key == world) return cache.merged
+        val joined = unionShape(world) ?: chainUnion(world)
+        val merged = joined.optimize().toAabbs()
+        if (cache != null) {
+            cache.key.clear()
+            cache.key.addAll(world)
+            cache.merged.clear()
+            cache.merged.addAll(merged)
+        }
+        return merged
+    }
+
+    private fun chainUnion(world: List<AABB>): VoxelShape {
+        var joined: VoxelShape = Shapes.empty()
+        for (box in world) joined = Shapes.joinUnoptimized(joined, Shapes.create(box), BooleanOp.OR)
+        return joined
+    }
+
+    /** The same shape as [chainUnion] (same coords, same cells), filled in one pass. Null where
+     *  the chain could differ: Shapes.create's unit-cell path, or coords that IndirectMerger fuses. */
+    private fun unionShape(world: List<AABB>): VoxelShape? {
+        val xs = DoubleArray(world.size * 2)
+        val ys = DoubleArray(world.size * 2)
+        val zs = DoubleArray(world.size * 2)
+        var n = 0
+        for (box in world) {
+            if (isThin(box)) continue
+            if (inUnitCell(box.minX, box.maxX) && inUnitCell(box.minY, box.maxY) && inUnitCell(box.minZ, box.maxZ)) {
+                return null
+            }
+            xs[n] = box.minX; ys[n] = box.minY; zs[n] = box.minZ; n++
+            xs[n] = box.maxX; ys[n] = box.maxY; zs[n] = box.maxZ; n++
+        }
+        if (n < 4) return null
+        val cx = distinctCoords(xs, n) ?: return null
+        val cy = distinctCoords(ys, n) ?: return null
+        val cz = distinctCoords(zs, n) ?: return null
+        val cells = BitSetDiscreteVoxelShape(cx.size - 1, cy.size - 1, cz.size - 1)
+        for (box in world) {
+            if (isThin(box)) continue
+            val x1 = Arrays.binarySearch(cx, box.maxX)
+            val y1 = Arrays.binarySearch(cy, box.maxY)
+            val z1 = Arrays.binarySearch(cz, box.maxZ)
+            for (x in Arrays.binarySearch(cx, box.minX) until x1) {
+                for (y in Arrays.binarySearch(cy, box.minY) until y1) {
+                    for (z in Arrays.binarySearch(cz, box.minZ) until z1) cells.fill(x, y, z)
+                }
+            }
+        }
+        return object : ArrayVoxelShape(cells, cx, cy, cz) {}
+    }
+
+    private fun isThin(box: AABB): Boolean =
+        box.maxX - box.minX < SHAPE_EPS || box.maxY - box.minY < SHAPE_EPS || box.maxZ - box.minZ < SHAPE_EPS
+
+    private fun inUnitCell(min: Double, max: Double): Boolean = min >= -SHAPE_EPS && max <= 1.0 + SHAPE_EPS
+
+    private fun distinctCoords(values: DoubleArray, count: Int): DoubleArray? {
+        Arrays.sort(values, 0, count)
+        var size = 0
+        for (i in 0 until count) {
+            val v = values[i]
+            if (size > 0 && v == values[size - 1]) continue
+            if (size > 0 && v - values[size - 1] <= SHAPE_EPS) return null
+            values[size++] = v
+        }
+        return values.copyOf(size)
     }
 
     /** Bounding AABB of a box's 8 corners under [transform] — conservative for rotated

@@ -52,4 +52,21 @@ object TransportationNetwork {
             NetworkManager.sendToPlayer(player, DISPATCH, buf)
         }
     }
+
+    val CANCEL: ResourceLocation = EnderkinesisMod.id("transportation/cancel")
+
+    /** Server-side: the link between [sendPos] and [receiverPos] went and its stacks dropped, so
+     *  clients remove the ghosts in both directions. Return flights start at the receiver, so
+     *  the players that track either chunk get the packet. */
+    fun broadcastCancel(level: ServerLevel, sendPos: BlockPos, receiverPos: BlockPos) {
+        val chunkMap = level.chunkSource.chunkMap
+        val players = LinkedHashSet(chunkMap.getPlayers(ChunkPos(sendPos), false))
+        players.addAll(chunkMap.getPlayers(ChunkPos(receiverPos), false))
+        for (player in players) {
+            val buf = FriendlyByteBuf(Unpooled.buffer())
+            buf.writeBlockPos(sendPos)
+            buf.writeBlockPos(receiverPos)
+            NetworkManager.sendToPlayer(player, CANCEL, buf)
+        }
+    }
 }

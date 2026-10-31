@@ -17,6 +17,7 @@ import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.HeartOfTheWildManager
 import org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalRitual
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -83,8 +84,8 @@ object WikLakConstruction {
         if (!isSkull(level.getBlockState(skullPos))) return
         val mudUpper = skullPos.below()
         val mudLower = skullPos.below(2)
-        if (!level.getBlockState(mudUpper).`is`(Blocks.MUD)) return
-        if (!level.getBlockState(mudLower).`is`(Blocks.MUD)) return
+        if (!isMud(level.getBlockState(mudUpper))) return
+        if (!isMud(level.getBlockState(mudLower))) return
         if (!level.getBiome(skullPos).`is`(Wohlonnogondonia.BIOME_KEY)) return
         // Same 8-slot light-blue candle ring the Heart Candle portal ritual
         // uses (see [WohlonnogondoniaPortalRitual.PATTERN]) — checked at the
@@ -191,6 +192,9 @@ object WikLakConstruction {
 
     private fun isSkull(state: BlockState): Boolean =
         state.`is`(Blocks.SKELETON_SKULL) || state.`is`(Blocks.WITHER_SKELETON_SKULL)
+
+    private fun isMud(state: BlockState): Boolean =
+        state.`is`(Blocks.MUD) || state.`is`(EKBlocks.WOHLON_MUD.get())
 
     /** Spacing between consecutive firefly anchors along the bind line.
      *  ~0.2 blocks per bead gives a continuous-looking rope of glitter

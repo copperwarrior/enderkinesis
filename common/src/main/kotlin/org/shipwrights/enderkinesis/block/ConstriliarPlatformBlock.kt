@@ -12,6 +12,7 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
+import org.shipwrights.enderkinesis.physics.ConstriliarShipController
 import org.shipwrights.enderkinesis.util.ShipMoves
 import org.valkyrienskies.mod.common.getShipObjectManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
@@ -74,7 +75,9 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
             val owner = (level.getEntity(be?.ownerEntityId ?: -1) ?: be?.ownerUuid?.let { level.getEntity(it) })
                 as? org.shipwrights.enderkinesis.entity.ConstriliarEntity
             if (owner != null && owner.isAlive && !owner.releasingShip && !owner.servicingPlatform) {
-                owner.destroyByShapeLoss()
+                val bodyReleasing = level.getShipObjectManagingPos(pos)
+                    ?.getAttachment(ConstriliarShipController::class.java)?.releasing == true
+                if (bodyReleasing) owner.loseSharedBody() else owner.destroyByShapeLoss()
             } else if (owner == null) {
                 // Orphaned plate (dead-linkage debris): breaking it is the cleanup —
                 // delete the ship synchronously, same mass-0 reasoning as the owned
@@ -106,7 +109,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
         if (context is net.minecraft.world.phys.shapes.EntityCollisionContext && context.entity != null) {
             Shapes.empty()
         } else {
-            PLATE_COLLISION
+            PLATE_PHYSICS
         }
 
     /** Real collision, unlike the outline, for three reasons: VS2 only builds a physics
@@ -140,5 +143,8 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
         // cargo-raised COM pitched the walker slightly, feeding a trip loop that
         // face-planted it. 2px keeps ~0.63 ground clearance at stance.
         private val PLATE_COLLISION: VoxelShape = box(0.0, 14.0, 0.0, 16.0, 16.0, 16.0)
+        // VS2's physics voxel only: 1 px in on X and Z (VS2 rounds to 1/16) lets the body
+        // pass a gap its own width. The sturdy top for cargo stays full width.
+        private val PLATE_PHYSICS: VoxelShape = box(1.0, 14.0, 1.0, 15.0, 16.0, 15.0)
     }
 }

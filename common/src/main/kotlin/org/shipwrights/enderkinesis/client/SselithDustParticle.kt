@@ -30,7 +30,8 @@ import net.minecraft.core.particles.SimpleParticleType
  * longer, so it reads as residue on the surface rather than falling dust.
  *
  * [Motion.DRIFTING] keeps the velocity it is spawned with, with no gravity or
- * collision: the tome-summon beam's motes.
+ * collision: the tome-summon beam's motes. [Motion.FLEETING] drifts the same way
+ * but is gone almost at once: the raised undead's eye dust.
  */
 class SselithDustParticle(
     level: ClientLevel,
@@ -40,7 +41,7 @@ class SselithDustParticle(
     driftX: Double = 0.0, driftY: Double = 0.0, driftZ: Double = 0.0,
 ) : TextureSheetParticle(level, x, y, z, 0.0, 0.0, 0.0) {
 
-    enum class Motion { FALLING, CLINGING, DRIFTING }
+    enum class Motion { FALLING, CLINGING, DRIFTING, FLEETING }
 
     /** Which half of the sprite set this dust uses. Picked once at spawn. */
     private val smokeMode: Boolean = random.nextFloat() < 0.5f
@@ -89,8 +90,9 @@ class SselithDustParticle(
             zd = driftZ
         }
         if (motion == Motion.CLINGING) lifetime *= CLING_LIFETIME_FACTOR
+        if (motion == Motion.FLEETING) lifetime /= FLEETING_LIFETIME_DIVISOR
         // Vanilla friction (0.98) would stop a slow drift well before the mote fades.
-        if (motion == Motion.DRIFTING) friction = 1.0f
+        if (motion == Motion.DRIFTING || motion == Motion.FLEETING) friction = 1.0f
 
         setSpriteFromIndex(0)
     }
@@ -127,6 +129,8 @@ class SselithDustParticle(
 
         /** How much longer clinging dust lasts than falling dust. */
         private const val CLING_LIFETIME_FACTOR = 2
+
+        private const val FLEETING_LIFETIME_DIVISOR = 10
     }
 
     class Provider(

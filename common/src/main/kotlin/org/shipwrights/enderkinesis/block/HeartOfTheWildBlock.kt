@@ -41,6 +41,12 @@ class HeartOfTheWildBlock(properties: BlockBehaviour.Properties) : Block(propert
         }
     }
 
+    // Block, unlike BaseEntityBlock, does not pass block events to the block entity.
+    override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean {
+        super.triggerEvent(state, level, pos, id, param)
+        return level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
+    }
+
     /** Returning 0 makes survival-break impossible (bedrock idiom). Only applies to MOTHER. */
     override fun getDestroyProgress(
         state: BlockState, player: Player, getter: BlockGetter, pos: BlockPos,

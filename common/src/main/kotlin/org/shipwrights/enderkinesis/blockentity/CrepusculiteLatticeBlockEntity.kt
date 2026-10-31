@@ -94,6 +94,13 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
      *  the default ender-purple; non-null comes from a dyed lattice. */
     private var tintRgb: Int? = null
 
+    private val intensityPos = Vector3d()
+    private var clientIntensity = 0.0
+    private var clientIntensityX = 0
+    private var clientIntensityZ = 0
+    private var clientIntensityWaterLine = Double.NaN
+    private var clientIntensityTick = 0L
+
     /**
      * Nudge this lattice's sea level by [delta] blocks (the Guide to Stratus: right-click raises,
      * left-click lowers). Mutates the captured [seaLevel] directly, so the adjustment is
@@ -219,7 +226,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             waveIntensity = inducer?.waveIntensity ?: 1.0
         } else {
             waveTime = level.gameTime.toDouble()
-            waveIntensity = waveIntensityAt(level, pos, s2w, waterLineY)
+            waveIntensity = clientWaveIntensityAt(level, pos, s2w, waterLineY)
         }
 
         val off = CrepusculiteLatticeBlock.OFF_POWER
@@ -264,12 +271,34 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // Ygann's Abyss is totally void — the heightmap reads as min-build-height everywhere,
         // so the normal depth-from-terrain calc would saturate to max intensity.
         if (level.dimension() == YgannAbyss.LEVEL_KEY) return YGANN_ABYSS_WAVE_INTENSITY
-        val lw = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        val lw = intensityPos.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
         shipToWorld.transformPosition(lw)
         // Shared depth metric: heightmap in open dims, downward floor scan under a ceiling
         // (Nether's roof heightmap would give one flat intensity dimension-wide).
         val terrainY = OceanDepth.terrainY(level, Math.floor(lw.x).toInt(), Math.floor(lw.z).toInt(), waterLineY)
         return GerstnerOcean.intensityFor(waterLineY, terrainY)
+    }
+
+    // The terrain scan runs again on a new column or sea level, and on a slow cadence for terrain edits.
+    private fun clientWaveIntensityAt(
+        level: Level, pos: BlockPos, shipToWorld: org.joml.Matrix4dc, waterLineY: Double,
+    ): Double {
+        if (level.dimension() == YgannAbyss.LEVEL_KEY) return YGANN_ABYSS_WAVE_INTENSITY
+        val lw = intensityPos.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+        shipToWorld.transformPosition(lw)
+        val bx = Math.floor(lw.x).toInt()
+        val bz = Math.floor(lw.z).toInt()
+        val age = level.gameTime - clientIntensityTick
+        if (bx != clientIntensityX || bz != clientIntensityZ || waterLineY != clientIntensityWaterLine ||
+            age !in 0 until CLIENT_INTENSITY_REFRESH_TICKS
+        ) {
+            clientIntensity = GerstnerOcean.intensityFor(waterLineY, OceanDepth.terrainY(level, bx, bz, waterLineY))
+            clientIntensityX = bx
+            clientIntensityZ = bz
+            clientIntensityWaterLine = waterLineY
+            clientIntensityTick = level.gameTime
+        }
+        return clientIntensity
     }
 
     /**
@@ -1076,6 +1105,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
          *  meaningful here. 0.3 reads as a gentle, ever-present chop instead of either a flat
          *  pond (intensity 0) or full-storm (intensity 1). */
         private const val YGANN_ABYSS_WAVE_INTENSITY = 0.3
+        private const val CLIENT_INTENSITY_REFRESH_TICKS = 10L
 
         // 21-bit-per-axis packing for stable per-block keys, biased so offsets from the lattice
         // stay non-negative. Safe because the scan volume cap keeps any axis span < 2^21.

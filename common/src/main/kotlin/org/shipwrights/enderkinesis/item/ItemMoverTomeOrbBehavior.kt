@@ -11,7 +11,9 @@ import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.ChestBlock
+import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Shared machinery for tomes that move item stacks between linked orbs at a fixed pace
@@ -45,6 +47,8 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
     /** Drop offset from the orb's block centre into its air-side, used by [dropAt] so
      *  fallback drops don't spawn inside the orb's voxel shape. */
     protected open val dropOffsetFromCentre: Double = 0.4
+    /** Send, arrive, return and drop sounds. */
+    protected open val transferSounds: Boolean = true
 
     // ---------------------------------------------------------------------------------------
 
@@ -164,15 +168,19 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         // drops at the receiver pos so stacks don't oscillate between a no-longer-linked
         // pair or deliver into a stranger's container.
         val state = sendBe.tomeState(this) as? MoverState ?: return
+        var dropped = false
         val iter = state.pending.iterator()
         while (iter.hasNext()) {
             val d = iter.next()
             if (d.receiverPos == receiverPos) {
                 dropAt(level, receiverPos, d.stack)
                 iter.remove()
-                sendBe.setChanged()
+                dropped = true
             }
         }
+        if (!dropped) return
+        sendBe.setChanged()
+        TransportationNetwork.broadcastCancel(level, sendBe.blockPos, receiverPos)
     }
 
     // ---------------------------------------------------------------------------------------
@@ -220,7 +228,14 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         val leftover = if (targetContainer != null && recvFacing != null) {
             pushStack(targetContainer, recvFacing.opposite, d.stack)
         } else d.stack
-        if (leftover.isEmpty) return                  // delivered cleanly
+        if (leftover.isEmpty) {                       // delivered cleanly
+            if (transferSounds && recvBe != null &&
+                recvBe.transferSoundReady(OrbOfLinkingBlockEntity.TRANSFER_ARRIVE, level.gameTime)
+            ) {
+                OrbOfLinkingSounds.play(level, d.receiverPos, EKSounds.ORB_OF_LINKING_ARRIVE)
+            }
+            return
+        }
         scheduleBounce(level, state, d.copy(stack = leftover))
     }
 
@@ -234,7 +249,10 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         d: PendingDelivery,
     ) {
         val leftover = pushBackToSource(level, sendBe, d.stack)
-        if (leftover.isEmpty) return                  // accepted into source
+        if (leftover.isEmpty) {                       // accepted into source
+            if (transferSounds) OrbOfLinkingSounds.play(level, sendBe.blockPos, EKSounds.ORB_OF_LINKING_RETURN)
+            return
+        }
         dropAt(level, sendBe.blockPos, leftover)      // source full too — pile at the SEND
     }
 
@@ -346,6 +364,9 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             totalTicks = travelTicks,
         )
         sendBe.setChanged()
+        if (transferSounds && sendBe.transferSoundReady(OrbOfLinkingBlockEntity.TRANSFER_SEND, level.gameTime)) {
+            OrbOfLinkingSounds.play(level, sendBe.blockPos, EKSounds.ORB_OF_LINKING_SEND)
+        }
         return true
     }
 
@@ -524,6 +545,8 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         drop.setDeltaMovement(0.0, 0.0, 0.0)
         // Without the delay a Vacuum orb takes the stack again on the next tick.
         drop.setDefaultPickUpDelay()
-        level.addFreshEntity(drop)
+        if (level.addFreshEntity(drop) && transferSounds) {
+            OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_DROP)
+        }
     }
 }

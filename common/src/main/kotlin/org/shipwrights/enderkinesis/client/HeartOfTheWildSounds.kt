@@ -10,15 +10,16 @@ import net.minecraft.sounds.SoundSource
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.HeartOfTheWildBlock
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildClientRegistry
+import org.shipwrights.enderkinesis.client.model.HeartOfTheWildAnimations
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /** One heartbeat for each [HeartOfTheWildRenderer] pulse cycle, on the same wall clock. */
 object HeartOfTheWildSounds {
 
-    private const val CYCLE_MILLIS: Long = 2500L
-    /** The lub is 0.06 s into each file, so it lands on the chamber peak at 1.29 s. */
-    private const val BEAT_MILLIS: Long = 1240L
+    private val CYCLE_MILLIS: Long = HeartOfTheWildAnimations.BEAT_MILLIS
+    /** The lub is 0.06 s into each file, so it lands on the bone1 squash peak at 0.33 s. */
+    private const val BEAT_MILLIS: Long = 273L
     /** The range of a variable range event at volume 1. */
     private const val RANGE: Double = 16.0
     private const val RANGE_SQR: Double = RANGE * RANGE
@@ -46,7 +47,9 @@ object HeartOfTheWildSounds {
             if (be.isRemoved) continue
             val mother = be.blockState.getValue(HeartOfTheWildBlock.MOTHER)
             val rate = if (mother) 1f else HeartOfTheWildRenderer.pulseRate(HeartOfTheWildRenderer.hashPos(be.blockPos))
-            if (!crossesBeat(last, now, rate)) continue
+            val beatNow = HeartOfTheWildRenderer.beatClockMillis(be, now)
+            val beatLast = beatNow - (now - last)
+            if (beatLast < 0L || !crossesBeat(beatLast, beatNow, rate)) continue
             val pos = be.blockPos
             scratch.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
             level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(scratch)
@@ -62,7 +65,7 @@ object HeartOfTheWildSounds {
         }
     }
 
-    /** The same cycle time as [HeartOfTheWildModel.animateIdleMillis]. */
+    /** The same cycle time as [HeartOfTheWildModel.animateBeatMillis]. */
     private fun cycleMillis(millis: Long, rate: Float): Long = (millis.toDouble() * rate).toLong() % CYCLE_MILLIS
 
     private fun crossesBeat(last: Long, now: Long, rate: Float): Boolean {

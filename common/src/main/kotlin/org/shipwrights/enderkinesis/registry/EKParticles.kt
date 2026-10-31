@@ -66,6 +66,10 @@ object EKParticles {
     val SSELITH_BEAM_DUST: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("sselith_beam_dust") { EKOceanParticleType() }
 
+    /** Raised undead eye dust: [SSELITH_BEAM_DUST] that fades almost at once. */
+    val SSELITH_EYE_DUST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("sselith_eye_dust") { EKOceanParticleType() }
+
     /** Incantation of Winds hand-idle mote — tiny, full alpha at spawn (no
      *  fade-in), rises from the casting hand. */
     val WIND_HAND_DUST: RegistrySupplier<ParticleType<*>> =
@@ -79,6 +83,10 @@ object EKParticles {
      *  downrange with the blast, full alpha at spawn. */
     val WIND_GUST: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("wind_gust") { EKOceanParticleType() }
+
+    /** Incantation of Winds stream wisp — soft puff that grows and rolls as it eases out along the cone. */
+    val WIND_WISP: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("wind_wisp") { EKOceanParticleType() }
 
     /** Enchant-glyph particle for the reusable bezier beam (Wylland Tome, Tome of Signal orb
      *  network, future tomes). Identical to vanilla's enchanting-table glyph (same sga_a..sga_z
@@ -107,6 +115,10 @@ object EKParticles {
     val SSELITH_INVOCATION_GLYPH: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("sselith_invocation_glyph") { EKOceanParticleType() }
 
+    /** Rides a Grand Staff of the Dead tendril from the skull to a rising skeleton. */
+    val GRAND_STAFF_GLYPH: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("grand_staff_glyph") { EKOceanParticleType() }
+
     /** Seeds: one packet makes the client emit the full glyph effect of a phrase crossing.
      *  See [org.shipwrights.enderkinesis.dimension.SselithChatTeleport]. */
     val SSELITH_ARRIVAL_STORM: RegistrySupplier<ParticleType<*>> =
@@ -130,6 +142,10 @@ object EKParticles {
      *  summoning, then vanish. */
     val WIK_LAK_BIND: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("wik_lak_bind") { EKOceanParticleType() }
+
+    /** Client-made glitter mote on a path: the Wohlon portal swirl and the ritual tendrils. */
+    val WOHLON_MOTE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("wohlon_mote") { EKOceanParticleType() }
 
     /** Sselith Bookmoth — a single warm-yellow (#CAAD53) pixel that
      *  flickers and flutters around a Sselith Lantern. Spawned by
@@ -201,6 +217,9 @@ object EKParticles {
     val MISSILE_BURST_FLASH: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("missile_burst_flash") { EKOceanParticleType() }
 
+    val OARSCRIBE_GLYPH: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("oarscribe_glyph") { EKOceanParticleType() }
+
 
     fun ocean(): EKOceanParticleType = OCEAN.get() as EKOceanParticleType
 
@@ -222,11 +241,15 @@ object EKParticles {
 
     fun sselithBeamDust(): EKOceanParticleType = SSELITH_BEAM_DUST.get() as EKOceanParticleType
 
+    fun sselithEyeDust(): EKOceanParticleType = SSELITH_EYE_DUST.get() as EKOceanParticleType
+
     fun windHandDust(): EKOceanParticleType = WIND_HAND_DUST.get() as EKOceanParticleType
 
     fun eideticMote(): EKOceanParticleType = EIDETIC_MOTE.get() as EKOceanParticleType
 
     fun windGust(): EKOceanParticleType = WIND_GUST.get() as EKOceanParticleType
+
+    fun windWisp(): EKOceanParticleType = WIND_WISP.get() as EKOceanParticleType
 
     fun enchantedBookBeam(): EKOceanParticleType = ENCHANTED_BOOK_BEAM.get() as EKOceanParticleType
 
@@ -236,6 +259,8 @@ object EKParticles {
 
     fun sselithInvocationGlyph(): EKOceanParticleType = SSELITH_INVOCATION_GLYPH.get() as EKOceanParticleType
 
+    fun grandStaffGlyph(): EKOceanParticleType = GRAND_STAFF_GLYPH.get() as EKOceanParticleType
+
     fun sselithArrivalStorm(): EKOceanParticleType = SSELITH_ARRIVAL_STORM.get() as EKOceanParticleType
 
     fun sselithDepartureAura(): EKOceanParticleType = SSELITH_DEPARTURE_AURA.get() as EKOceanParticleType
@@ -243,6 +268,8 @@ object EKParticles {
     fun wohlonFirefly(): EKOceanParticleType = WOHLON_FIREFLY.get() as EKOceanParticleType
 
     fun wikLakBind(): EKOceanParticleType = WIK_LAK_BIND.get() as EKOceanParticleType
+
+    fun wohlonMote(): EKOceanParticleType = WOHLON_MOTE.get() as EKOceanParticleType
 
     fun sselithBookmoth(): EKOceanParticleType = SSELITH_BOOKMOTH.get() as EKOceanParticleType
 
@@ -260,6 +287,8 @@ object EKParticles {
     fun missileBurstSpark(): EKOceanParticleType = MISSILE_BURST_SPARK.get() as EKOceanParticleType
 
     fun missileBurstFlash(): EKOceanParticleType = MISSILE_BURST_FLASH.get() as EKOceanParticleType
+
+    fun oarscribeGlyph(): EKOceanParticleType = OARSCRIBE_GLYPH.get() as EKOceanParticleType
 
     fun archiveSpiralDust(): EKOceanParticleType = ARCHIVE_SPIRAL_DUST.get() as EKOceanParticleType
 

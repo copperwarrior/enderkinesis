@@ -14,6 +14,7 @@ import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.block.WohlonnogondoniaCatastrophe
 import org.shipwrights.enderkinesis.registry.EKEntities
 
 /**
@@ -53,9 +54,10 @@ object WikLakDeathRedirect {
 
     // The death event, not the hurt event: the hurt amount is before armour, shield and
     // invulnerability frames, so a hit that the player survives used a host.
-    @Suppress("UNUSED_PARAMETER")
     private fun onLivingDeath(entity: LivingEntity, source: DamageSource): EventResult {
         if (entity !is ServerPlayer) return EventResult.pass()
+        // The catastrophe kill is absolute; a host must not absorb it.
+        if (source.`is`(WohlonnogondoniaCatastrophe.GODLY_INTERVENTION)) return EventResult.pass()
 
         val host = pickRandomHost(entity) ?: return EventResult.pass()
         performRedirect(entity, host)

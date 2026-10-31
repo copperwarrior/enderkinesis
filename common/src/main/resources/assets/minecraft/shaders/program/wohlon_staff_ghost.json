@@ -1,0 +1,231 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "wohlon_staff_ghost",
+  "attributes": [
+    "Position"
+  ],
+  "samplers": [
+    {
+      "name": "DepthSampler"
+    }
+  ],
+  "uniforms": [
+    {
+      "name": "ViewProj",
+      "type": "matrix4x4",
+      "count": 16,
+      "values": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "LocalToView",
+      "type": "matrix4x4",
+      "count": 16,
+      "values": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "BoxMin",
+      "type": "float",
+      "count": 3,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "BoxMax",
+      "type": "float",
+      "count": 3,
+      "values": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "InvViewProj",
+      "type": "matrix4x4",
+      "count": 16,
+      "values": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "ScreenSize",
+      "type": "float",
+      "count": 2,
+      "values": [
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "CamLocal",
+      "type": "float",
+      "count": 3,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Margin",
+      "type": "int",
+      "count": 1,
+      "values": [
+        4
+      ]
+    },
+    {
+      "name": "Warp",
+      "type": "int",
+      "count": 1,
+      "values": [
+        5
+      ]
+    },
+    {
+      "name": "GridSize",
+      "type": "float",
+      "count": 3,
+      "values": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "Time",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "Strength",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "LocalScale",
+      "type": "float",
+      "count": 1,
+      "values": [
+        1.0
+      ]
+    },
+    {
+      "name": "FillY",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "Appear",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "Warble",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "BodyColour",
+      "type": "float",
+      "count": 3,
+      "values": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "BodyTint",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "GemColour",
+      "type": "float",
+      "count": 3,
+      "values": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.systems.RenderSystem
+import net.minecraft.Util
 import net.minecraft.client.Minecraft
 import org.lwjgl.opengl.GL11
 import com.mojang.blaze3d.vertex.BufferUploader
@@ -19,6 +20,7 @@ import net.minecraft.client.Camera
 import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.resources.ResourceLocation
 import org.joml.Matrix4f
+import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.sselith.SselithEclipse
 
@@ -42,8 +44,7 @@ import org.shipwrights.enderkinesis.sselith.SselithEclipse
  *    [SHOOTER_SPAWN_MAX_TICKS]); each shooter lives [SHOOTER_LIFETIME_FRAMES] frames before
  *    despawning. Each spawn event has a [CLOUD_PROBABILITY] chance of being a *cloud* — a
  *    cluster of [CLOUD_MIN_COUNT]–[CLOUD_MAX_COUNT] shooters travelling together with
- *    shared heading and small per-member position/heading jitter. See [updateShooters] /
- *    [renderShooters] / [spawnCloud].
+ *    shared heading and small per-member position/heading jitter. See [ShootingStars].
  */
 object SselithRepertorySky {
 
@@ -156,10 +157,12 @@ object SselithRepertorySky {
     /** Pre-baked star VertexBuffers, one per twinkle slot. Index =
      *  `(gameTick / STAR_TWINKLE_TICK_STEP) % STAR_TWINKLE_SLOTS`. Each
      *  buffer holds all star quads at that slot's per-star twinkle alpha,
-     *  uploaded once and reused every frame without CPU rebuild. The array
-     *  is null until the first entry into Sselith and freed on dimension
-     *  leave to avoid holding ~4.5 MB of GPU memory in other dimensions. */
+     *  built on the first frame that needs it and reused every frame after. */
     private var starBuffers: Array<VertexBuffer?>? = null
+
+    // The satchel backdrop opens and closes often in other dimensions; a rebuild on each open costs a 4.5 MB upload.
+    private const val STAR_BUFFER_GRACE_MILLIS = 30_000L
+    private var lastStarDrawMillis = 0L
 
     /** Number of ticks per twinkle slot. 4 ticks → 5 Hz updates on a
      *  6-second cycle; the alpha step per slot is ≤ 0.090 (23/255 levels),
@@ -302,9 +305,7 @@ object SselithRepertorySky {
         RenderSystem.setShaderColor(eclipseDarken, eclipseDarken, eclipseDarken, 1f)
 
         renderHorizonFade(poseStack)
-        renderStars(poseStack, gameTime)
-        updateShooters(gameTime)
-        renderShooters(poseStack, gameTime)
+        renderStarfield(poseStack, gameTime)
         renderSun(poseStack, eclipseDarken)
 
         RenderSystem.enableCull()
@@ -313,6 +314,16 @@ object SselithRepertorySky {
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
     }
 
+
+    /** Stars and shooting stars; the Satchel of Shelving backdrop draws these too. The caller sets the GL state. */
+    fun renderStarfield(poseStack: PoseStack, gameTime: Double, shootingStars: ShootingStars = worldShootingStars) {
+        renderStars(poseStack, gameTime)
+        shootingStars.update(gameTime)
+        shootingStars.render(poseStack, gameTime)
+    }
+
+    /** The slow spin of the star sphere around world Y; shooting stars turn with it. */
+    fun driftDegrees(gameTime: Double): Float = ((gameTime * STAR_DRIFT_DEG_PER_TICK) % 360.0).toFloat()
 
     /**
      * Draws the dark "space" cap on top of the (now-blended) sky background. A triangle
@@ -329,7 +340,7 @@ object SselithRepertorySky {
      * `depthMask` off and `disableCull`, draw order is what matters and the dome renders
      * before stars/sun so they're correctly drawn on top.
      */
-    private fun renderHorizonFade(poseStack: PoseStack) {
+    fun renderHorizonFade(poseStack: PoseStack) {
         val matrix = poseStack.last().pose()
 
         RenderSystem.setShader { GameRenderer.getPositionColorShader() }
@@ -391,20 +402,18 @@ object SselithRepertorySky {
 
 
     private fun renderStars(poseStack: PoseStack, gameTime: Double) {
-        // Ensure all 32 slot buffers are built. Building happens lazily on
-        // first entry into Sselith; subsequent frames just draw.
-        val buffers = starBuffers ?: buildStarBuffers().also { starBuffers = it }
+        val buffers = starBuffers ?: arrayOfNulls<VertexBuffer>(STAR_TWINKLE_SLOTS).also { starBuffers = it }
+        lastStarDrawMillis = Util.getMillis()
 
         // Pick the slot for the current game tick. Integer division floors
         // to the nearest 4-tick boundary, giving a stable slot for all
         // render frames within the same 4-tick window.
         val tick = gameTime.toLong()
         val slot = ((tick / STAR_TWINKLE_TICK_STEP) % STAR_TWINKLE_SLOTS).toInt()
-        val buf = buffers[slot] ?: return
+        val buf = buffers[slot] ?: buildStarBuffer(slot).also { buffers[slot] = it }
 
         poseStack.pushPose()
-        val driftDeg = ((gameTime * STAR_DRIFT_DEG_PER_TICK) % 360.0).toFloat()
-        poseStack.mulPose(Axis.YP.rotationDegrees(driftDeg))
+        poseStack.mulPose(Axis.YP.rotationDegrees(driftDegrees(gameTime)))
 
         RenderSystem.setShader { GameRenderer.getPositionTexColorShader() }
         RenderSystem.setShaderTexture(0, STAR_TEXTURE)
@@ -419,47 +428,41 @@ object SselithRepertorySky {
         poseStack.popPose()
     }
 
-    /** Build all [STAR_TWINKLE_SLOTS] VertexBuffers, one per 4-tick twinkle
-     *  slot. Each is uploaded once and never re-touched until [freeStarBuffers]
-     *  is called. Total GPU cost ≈ 32 × 144 KB ≈ 4.5 MB. */
-    private fun buildStarBuffers(): Array<VertexBuffer?> {
-        val starList = stars
+    /** Build the VertexBuffer of one 4-tick twinkle slot (≈ 144 KB). */
+    private fun buildStarBuffer(slot: Int): VertexBuffer {
         val rByte = (STAR_R * 255f).toInt()
         val gByte = (STAR_G * 255f).toInt()
         val bByte = (STAR_B * 255f).toInt()
-        val result = arrayOfNulls<VertexBuffer>(STAR_TWINKLE_SLOTS)
-        val tesselator = Tesselator.getInstance()
-        for (slot in 0 until STAR_TWINKLE_SLOTS) {
-            // Representative game tick for this slot — the midpoint of the
-            // 4-tick window, so we sample the sine wave near the centre
-            // rather than the leading edge.
-            val tick = (slot * STAR_TWINKLE_TICK_STEP + STAR_TWINKLE_TICK_STEP / 2).toFloat()
-            val builder = tesselator.builder
-            builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR)
-            for (star in starList) {
-                val twinkle = 1.0f - STAR_TWINKLE_AMP *
-                    (0.5f + 0.5f * sin(tick * STAR_TWINKLE_RATE + star.twinklePhase))
-                val aByte = (twinkle * 255f).toInt().coerceIn(0, 255)
-                val c = star.corners
-                for (j in 0 until 4) {
-                    builder.vertex(
-                        c[j * 3].toDouble(), c[j * 3 + 1].toDouble(), c[j * 3 + 2].toDouble()
-                    ).uv(0f, 0f).color(rByte, gByte, bByte, aByte).endVertex()
-                }
+        // Representative game tick for this slot — the midpoint of the
+        // 4-tick window, so we sample the sine wave near the centre
+        // rather than the leading edge.
+        val tick = (slot * STAR_TWINKLE_TICK_STEP + STAR_TWINKLE_TICK_STEP / 2).toFloat()
+        val builder = Tesselator.getInstance().builder
+        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR)
+        for (star in stars) {
+            val twinkle = 1.0f - STAR_TWINKLE_AMP *
+                (0.5f + 0.5f * sin(tick * STAR_TWINKLE_RATE + star.twinklePhase))
+            val aByte = (twinkle * 255f).toInt().coerceIn(0, 255)
+            val c = star.corners
+            for (j in 0 until 4) {
+                builder.vertex(
+                    c[j * 3].toDouble(), c[j * 3 + 1].toDouble(), c[j * 3 + 2].toDouble()
+                ).uv(0f, 0f).color(rByte, gByte, bByte, aByte).endVertex()
             }
-            val vb = VertexBuffer(VertexBuffer.Usage.STATIC)
-            vb.bind()
-            vb.upload(builder.end())
-            VertexBuffer.unbind()
-            result[slot] = vb
         }
-        return result
+        val vb = VertexBuffer(VertexBuffer.Usage.STATIC)
+        vb.bind()
+        vb.upload(builder.end())
+        VertexBuffer.unbind()
+        return vb
     }
 
-    /** Release all star VertexBuffers back to the GPU. Called when the player
-     *  leaves Sselith so ~4.5 MB of GPU memory isn't held in other dimensions. */
+    /** Release the star VertexBuffers when no frame drew them for [STAR_BUFFER_GRACE_MILLIS],
+     *  so other dimensions do not hold ~4.5 MB of GPU memory. */
     fun freeStarBuffers() {
-        starBuffers?.forEach { it?.close() }
+        val buffers = starBuffers ?: return
+        if (Util.getMillis() - lastStarDrawMillis < STAR_BUFFER_GRACE_MILLIS) return
+        buffers.forEach { it?.close() }
         starBuffers = null
     }
 
@@ -526,279 +529,275 @@ object SselithRepertorySky {
         val spawnTick: Double,
     )
 
-    private val shooters = ArrayList<Shooter>()
-    private val shooterRng = Random()
-    private var nextShooterSpawn = Double.NaN
-    private var lastUpdateTick = Double.NaN
+    private val worldShootingStars = ShootingStars(::uniformDirection)
 
-    fun onDisconnect() {
-        shooters.clear()
-        nextShooterSpawn = Double.NaN
-        lastUpdateTick = Double.NaN
+    fun onDisconnect() = worldShootingStars.reset()
+
+    private fun uniformDirection(random: Random, out: Vector3f) {
+        // Inverse-CDF on cos(phi) keeps density uniform over the sphere rather than clustered at the poles.
+        val u = random.nextFloat() * 2.0f - 1.0f
+        val theta = random.nextFloat() * (Math.PI.toFloat() * 2.0f)
+        val rxy = sqrt(1.0f - u * u)
+        out.set(rxy * cos(theta), u, rxy * sin(theta))
     }
 
     /**
-     * Advance the shooter list: spawn any new shooters whose scheduled tick has passed and
-     * drop ones that have lived past [SHOOTER_LIFETIME_FRAMES]. Resets cleanly if game-time
-     * jumps backwards (world reload, /time set) by detecting a non-monotonic gameTime.
+     * One set of shooting stars. [startDirection] writes the unit start vector of each new streak
+     * or cloud; [spawnRate] multiplies how often they come.
      */
-    private fun updateShooters(gameTime: Double) {
-        if (nextShooterSpawn.isNaN() || gameTime < lastUpdateTick) {
+    class ShootingStars(private val startDirection: (Random, Vector3f) -> Unit, private val spawnRate: Float = 1f) {
+
+        private val shooters = ArrayList<Shooter>()
+        private val rng = Random()
+        private val start = Vector3f()
+        private var nextShooterSpawn = Double.NaN
+        private var lastUpdateTick = Double.NaN
+
+        fun reset() {
             shooters.clear()
-            nextShooterSpawn = gameTime + nextSpawnDelay()
-        }
-        lastUpdateTick = gameTime
-
-        // A shooter older than the lifetime is dropped at once, so a time jump needs no earlier catch-up.
-        if (gameTime - nextShooterSpawn > SHOOTER_LIFETIME_FRAMES) {
-            nextShooterSpawn = gameTime - SHOOTER_LIFETIME_FRAMES
-        }
-        while (gameTime >= nextShooterSpawn) {
-            spawnShooter(nextShooterSpawn)
-            nextShooterSpawn += nextSpawnDelay()
+            nextShooterSpawn = Double.NaN
+            lastUpdateTick = Double.NaN
         }
 
-        // Drop expired shooters. Iterate by index from end so removal is O(1) per drop.
-        var i = shooters.size - 1
-        while (i >= 0) {
-            if (gameTime - shooters[i].spawnTick >= SHOOTER_LIFETIME_FRAMES) {
-                shooters.removeAt(i)
+        /**
+         * Spawn any shooters whose scheduled tick has passed and drop ones that have lived past
+         * [SHOOTER_LIFETIME_FRAMES]. Resets cleanly if game-time jumps backwards (world reload,
+         * /time set) by detecting a non-monotonic gameTime.
+         */
+        fun update(gameTime: Double) {
+            if (nextShooterSpawn.isNaN() || gameTime < lastUpdateTick) {
+                shooters.clear()
+                nextShooterSpawn = gameTime + nextSpawnDelay()
             }
-            i--
-        }
-    }
+            lastUpdateTick = gameTime
 
-    private fun nextSpawnDelay(): Float =
-        SHOOTER_SPAWN_MIN_TICKS +
-            shooterRng.nextFloat() * (SHOOTER_SPAWN_MAX_TICKS - SHOOTER_SPAWN_MIN_TICKS)
+            // A shooter older than the lifetime is dropped at once, so a time jump needs no earlier catch-up.
+            if (gameTime - nextShooterSpawn > SHOOTER_LIFETIME_FRAMES) {
+                nextShooterSpawn = gameTime - SHOOTER_LIFETIME_FRAMES
+            }
+            while (gameTime >= nextShooterSpawn) {
+                spawnShooter(nextShooterSpawn)
+                nextShooterSpawn += nextSpawnDelay()
+            }
 
-    /**
-     * Dispatch a spawn event. With probability [CLOUD_PROBABILITY] this becomes a cloud of
-     * [CLOUD_MIN_COUNT]–[CLOUD_MAX_COUNT] shooters travelling together; otherwise a single
-     * shooter. The `nextSpawnDelay` cadence in [updateShooters] is unchanged, so a cloud
-     * spawn doesn't push back the next event — clouds are just a burst on a regular schedule.
-     */
-    private fun spawnShooter(atTick: Double) {
-        if (shooterRng.nextFloat() < CLOUD_PROBABILITY) {
-            spawnCloud(atTick)
-        } else {
-            spawnSingle(atTick, atTick)
-        }
-    }
-
-    /**
-     * Add a single shooter with the given centre direction sampling. [spawnTick] is when
-     * it becomes active in [renderShooters]; passing a value `> atTick` produces a "future
-     * spawn" that renders nothing until then (used by cloud staggering).
-     *
-     * Returns true if the shooter was successfully added, false if the random helper happened
-     * to align with the start direction (degenerate tangent).
-     */
-    private fun spawnSingle(atTick: Double, spawnTick: Double): Boolean {
-        // Uniform random unit vector for the start direction. Inverse-CDF on cos(phi) keeps
-        // density uniform over the sphere rather than clustered at the poles.
-        val u = shooterRng.nextFloat() * 2.0f - 1.0f
-        val theta = shooterRng.nextFloat() * (Math.PI.toFloat() * 2.0f)
-        val rxy = sqrt(1.0f - u * u)
-        val sx = rxy * cos(theta)
-        val sy = u
-        val sz = rxy * sin(theta)
-
-        // Tangent direction: a random vector projected onto the tangent plane of the start
-        // point, then normalised. Gives a uniform random heading along the great circle.
-        var hx = shooterRng.nextFloat() - 0.5f
-        var hy = shooterRng.nextFloat() - 0.5f
-        var hz = shooterRng.nextFloat() - 0.5f
-        val dot = hx * sx + hy * sy + hz * sz
-        hx -= dot * sx
-        hy -= dot * sy
-        hz -= dot * sz
-        val hLen = sqrt(hx * hx + hy * hy + hz * hz)
-        if (hLen < 1e-4f) return false  // degenerate (helper aligned with start); skip
-        hx /= hLen
-        hy /= hLen
-        hz /= hLen
-
-        // Force a downward initial heading: if the tangent points upward (hy > 0), negate
-        // it — the great circle is the same, just traversed in the opposite direction. After
-        // this flip, d/dt(head.y) at t=0 is `hy * ω ≤ 0`, so every shooter visibly streaks
-        // toward the horizon. Within the short [SHOOTER_LIFETIME_FRAMES] window the path
-        // doesn't traverse far enough for the great circle to curve back upward.
-        if (hy > 0f) {
-            hx = -hx; hy = -hy; hz = -hz
+            var i = shooters.size - 1
+            while (i >= 0) {
+                if (gameTime - shooters[i].spawnTick >= SHOOTER_LIFETIME_FRAMES) {
+                    shooters.removeAt(i)
+                }
+                i--
+            }
         }
 
-        shooters.add(Shooter(sx, sy, sz, hx, hy, hz, spawnTick))
-        return true
-    }
+        private fun nextSpawnDelay(): Float =
+            (SHOOTER_SPAWN_MIN_TICKS + rng.nextFloat() * (SHOOTER_SPAWN_MAX_TICKS - SHOOTER_SPAWN_MIN_TICKS)) / spawnRate
 
-    /**
-     * Spawn a cloud of shooters around a shared centre direction and centre heading. Each
-     * cluster member is offset by a small jitter in both position (along/across the heading)
-     * and heading angle, plus a stagger on its spawn tick. The visual result is a tight
-     * "flock" of streaks crossing the same patch of sky on roughly parallel paths.
-     */
-    private fun spawnCloud(atTick: Double) {
-        // Centre start direction (uniform on the sphere).
-        val u = shooterRng.nextFloat() * 2.0f - 1.0f
-        val theta = shooterRng.nextFloat() * (Math.PI.toFloat() * 2.0f)
-        val rxy = sqrt(1.0f - u * u)
-        val csx = rxy * cos(theta)
-        val csy = u
-        val csz = rxy * sin(theta)
-
-        // Centre heading (random tangent to the centre start).
-        var chx = shooterRng.nextFloat() - 0.5f
-        var chy = shooterRng.nextFloat() - 0.5f
-        var chz = shooterRng.nextFloat() - 0.5f
-        val dot = chx * csx + chy * csy + chz * csz
-        chx -= dot * csx
-        chy -= dot * csy
-        chz -= dot * csz
-        val cLen = sqrt(chx * chx + chy * chy + chz * chz)
-        if (cLen < 1e-4f) return  // degenerate, abort cloud entirely
-        chx /= cLen
-        chy /= cLen
-        chz /= cLen
-
-        // Force the cluster's centre heading downward. With the cluster's [CLOUD_HEADING_JITTER]
-        // (~2.6°) much smaller than the available downward hemisphere, every member's
-        // heading will still point downward after jitter + re-orthogonalisation; the safety
-        // check inside the loop handles edge cases where the perturbed tangent happens to
-        // cross the horizon.
-        if (chy > 0f) {
-            chx = -chx; chy = -chy; chz = -chz
+        /** A cloud spawn doesn't push back the next event — clouds are just a burst on a regular schedule. */
+        private fun spawnShooter(atTick: Double) {
+            if (rng.nextFloat() < CLOUD_PROBABILITY) {
+                spawnCloud(atTick)
+            } else {
+                spawnSingle(atTick)
+            }
         }
 
-        // Side axis: perpendicular to both the centre start and the centre heading, in the
-        // tangent plane of the centre. Combined with the heading axis these span the tangent
-        // plane, giving us a 2-D local basis for the cluster spread.
-        val pX = csy * chz - csz * chy
-        val pY = csz * chx - csx * chz
-        val pZ = csx * chy - csy * chx
+        private fun spawnSingle(spawnTick: Double) {
+            startDirection(rng, start)
+            val sx = start.x
+            val sy = start.y
+            val sz = start.z
 
-        val count = CLOUD_MIN_COUNT + shooterRng.nextInt(CLOUD_MAX_COUNT - CLOUD_MIN_COUNT + 1)
-        for (i in 0 until count) {
-            // Offset start direction by a random vector in the (heading, side) tangent basis.
-            // Renormalise back to the sphere so all cluster members share the radius-100 path.
-            val offH = (shooterRng.nextFloat() - 0.5f) * 2f * CLOUD_START_JITTER
-            val offP = (shooterRng.nextFloat() - 0.5f) * 2f * CLOUD_START_JITTER
-            var sx = csx + offH * chx + offP * pX
-            var sy = csy + offH * chy + offP * pY
-            var sz = csz + offH * chz + offP * pZ
-            val sLen = sqrt(sx * sx + sy * sy + sz * sz)
-            sx /= sLen; sy /= sLen; sz /= sLen
-
-            // Perturb the heading by mixing in a small side component, then re-orthogonalise
-            // against the (perturbed) start direction so the tangent is well-defined and
-            // unit-length for this cluster member.
-            val headJit = (shooterRng.nextFloat() - 0.5f) * 2f * CLOUD_HEADING_JITTER
-            var hx = chx + headJit * pX
-            var hy = chy + headJit * pY
-            var hz = chz + headJit * pZ
-            val rd = hx * sx + hy * sy + hz * sz
-            hx -= rd * sx; hy -= rd * sy; hz -= rd * sz
+            // Tangent direction: a random vector projected onto the tangent plane of the start
+            // point, then normalised. Gives a uniform random heading along the great circle.
+            var hx = rng.nextFloat() - 0.5f
+            var hy = rng.nextFloat() - 0.5f
+            var hz = rng.nextFloat() - 0.5f
+            val dot = hx * sx + hy * sy + hz * sz
+            hx -= dot * sx
+            hy -= dot * sy
+            hz -= dot * sz
             val hLen = sqrt(hx * hx + hy * hy + hz * hz)
-            if (hLen < 1e-4f) continue
-            hx /= hLen; hy /= hLen; hz /= hLen
+            if (hLen < 1e-4f) return  // degenerate (helper aligned with start); skip
+            hx /= hLen
+            hy /= hLen
+            hz /= hLen
 
-            // Safety net for the rare member whose jitter + re-orthogonalisation flipped its
-            // heading above the horizon. Negate to keep the whole cloud streaking downward.
+            // Force a downward initial heading: if the tangent points upward (hy > 0), negate
+            // it — the great circle is the same, just traversed in the opposite direction. After
+            // this flip, d/dt(head.y) at t=0 is `hy * ω ≤ 0`, so every shooter visibly streaks
+            // toward the horizon. Within the short [SHOOTER_LIFETIME_FRAMES] window the path
+            // doesn't traverse far enough for the great circle to curve back upward.
             if (hy > 0f) {
                 hx = -hx; hy = -hy; hz = -hz
             }
 
-            // Stagger spawn into the future so the cluster arrives as a quick burst rather
-            // than as a perfect chord. `renderShooters` skips negative-age shooters.
-            val spawnAt = atTick + shooterRng.nextFloat() * CLOUD_TIME_JITTER_TICKS
-            shooters.add(Shooter(sx, sy, sz, hx, hy, hz, spawnAt))
-        }
-    }
-
-    private fun renderShooters(poseStack: PoseStack, gameTime: Double) {
-        if (shooters.isEmpty()) return
-
-        poseStack.pushPose()
-        // Same slow drift as the star field — shooters drift with the rest of the sky over
-        // their short lifetime (~1.6 s), keeping the cosmos visually unified.
-        val driftDeg = ((gameTime * STAR_DRIFT_DEG_PER_TICK) % 360.0).toFloat()
-        poseStack.mulPose(Axis.YP.rotationDegrees(driftDeg))
-
-        val matrix = poseStack.last().pose()
-
-        // Textured (white) like the star field — routes to gbuffers_skytextured so shooters
-        // survive under shaders. See STAR_TEXTURE / renderStars.
-        RenderSystem.setShader { GameRenderer.getPositionTexColorShader() }
-        RenderSystem.setShaderTexture(0, STAR_TEXTURE)
-
-        val rByte = (STAR_R * 255f).toInt()
-        val gByte = (STAR_G * 255f).toInt()
-        val bByte = (STAR_B * 255f).toInt()
-
-        val builder = Tesselator.getInstance().builder
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR)
-
-        for (s in shooters) {
-            val age = (gameTime - s.spawnTick).toFloat()
-            // Cloud spawns stagger member shooters into the future, so a shooter may exist
-            // in the list before its spawn tick. Skip it until then.
-            if (age < 0f) continue
-            // Tail trails the head by exactly [SHOOTER_TRAIL_FRAMES] frames once the streak
-            // is fully formed. Clamp tail to age=0 during the first frames so the streak
-            // *grows* from the spawn point rather than dragging a phantom trail backwards.
-            val tailAge = maxOf(0f, age - SHOOTER_TRAIL_FRAMES)
-
-            val headTheta = age * SHOOTER_ANG_SPEED
-            val sH = sin(headTheta); val cH = cos(headTheta)
-            val hx = (s.sx * cH + s.tx * sH) * STAR_SPHERE_R
-            val hy = (s.sy * cH + s.ty * sH) * STAR_SPHERE_R
-            val hz = (s.sz * cH + s.tz * sH) * STAR_SPHERE_R
-
-            val tailTheta = tailAge * SHOOTER_ANG_SPEED
-            val sT = sin(tailTheta); val cT = cos(tailTheta)
-            val tx = (s.sx * cT + s.tx * sT) * STAR_SPHERE_R
-            val ty = (s.sy * cT + s.ty * sT) * STAR_SPHERE_R
-            val tz = (s.sz * cT + s.tz * sT) * STAR_SPHERE_R
-
-            // Streak direction (head − tail). Skip degenerate (age 0, both at start).
-            val dx = hx - tx
-            val dy = hy - ty
-            val dz = hz - tz
-            val dLen = sqrt(dx * dx + dy * dy + dz * dz)
-            if (dLen < 1e-3f) continue
-            val dnx = dx / dLen; val dny = dy / dLen; val dnz = dz / dLen
-
-            // Quad "side" axis: perpendicular to both the streak direction and the radial
-            // direction at the head, so the slab lies in the tangent plane of the sphere and
-            // is invariant to where the player is looking from inside.
-            val rhx = hx / STAR_SPHERE_R; val rhy = hy / STAR_SPHERE_R; val rhz = hz / STAR_SPHERE_R
-            var sX = dny * rhz - dnz * rhy
-            var sY = dnz * rhx - dnx * rhz
-            var sZ = dnx * rhy - dny * rhx
-            val sLen = sqrt(sX * sX + sY * sY + sZ * sZ)
-            if (sLen < 1e-4f) continue
-            sX = sX / sLen * SHOOTER_HALF_WIDTH
-            sY = sY / sLen * SHOOTER_HALF_WIDTH
-            sZ = sZ / sLen * SHOOTER_HALF_WIDTH
-
-            // Fade head alpha out over the last [SHOOTER_FADE_FRAMES] of the lifetime.
-            val remaining = SHOOTER_LIFETIME_FRAMES - age
-            val overallAlpha = (remaining / SHOOTER_FADE_FRAMES).coerceIn(0f, 1f)
-            val headA = (overallAlpha * 255f).toInt().coerceIn(0, 255)
-            // Tail is always alpha 0 — the trail fades to nothing along the streak length.
-
-            builder.vertex(matrix, hx - sX, hy - sY, hz - sZ)
-                .uv(0f, 0f).color(rByte, gByte, bByte, headA).endVertex()
-            builder.vertex(matrix, hx + sX, hy + sY, hz + sZ)
-                .uv(0f, 0f).color(rByte, gByte, bByte, headA).endVertex()
-            builder.vertex(matrix, tx + sX, ty + sY, tz + sZ)
-                .uv(0f, 0f).color(rByte, gByte, bByte, 0).endVertex()
-            builder.vertex(matrix, tx - sX, ty - sY, tz - sZ)
-                .uv(0f, 0f).color(rByte, gByte, bByte, 0).endVertex()
+            shooters.add(Shooter(sx, sy, sz, hx, hy, hz, spawnTick))
         }
 
-        BufferUploader.drawWithShader(builder.end())
+        /**
+         * Spawn a cloud of shooters around a shared centre direction and centre heading. Each
+         * cluster member is offset by a small jitter in both position (along/across the heading)
+         * and heading angle, plus a stagger on its spawn tick. The visual result is a tight
+         * "flock" of streaks crossing the same patch of sky on roughly parallel paths.
+         */
+        private fun spawnCloud(atTick: Double) {
+            startDirection(rng, start)
+            val csx = start.x
+            val csy = start.y
+            val csz = start.z
 
-        poseStack.popPose()
+            // Centre heading (random tangent to the centre start).
+            var chx = rng.nextFloat() - 0.5f
+            var chy = rng.nextFloat() - 0.5f
+            var chz = rng.nextFloat() - 0.5f
+            val dot = chx * csx + chy * csy + chz * csz
+            chx -= dot * csx
+            chy -= dot * csy
+            chz -= dot * csz
+            val cLen = sqrt(chx * chx + chy * chy + chz * chz)
+            if (cLen < 1e-4f) return  // degenerate, abort cloud entirely
+            chx /= cLen
+            chy /= cLen
+            chz /= cLen
+
+            // Force the cluster's centre heading downward. With the cluster's [CLOUD_HEADING_JITTER]
+            // (~2.6°) much smaller than the available downward hemisphere, every member's
+            // heading will still point downward after jitter + re-orthogonalisation; the safety
+            // check inside the loop handles edge cases where the perturbed tangent happens to
+            // cross the horizon.
+            if (chy > 0f) {
+                chx = -chx; chy = -chy; chz = -chz
+            }
+
+            // Side axis: perpendicular to both the centre start and the centre heading, in the
+            // tangent plane of the centre. Combined with the heading axis these span the tangent
+            // plane, giving us a 2-D local basis for the cluster spread.
+            val pX = csy * chz - csz * chy
+            val pY = csz * chx - csx * chz
+            val pZ = csx * chy - csy * chx
+
+            val count = CLOUD_MIN_COUNT + rng.nextInt(CLOUD_MAX_COUNT - CLOUD_MIN_COUNT + 1)
+            for (i in 0 until count) {
+                // Offset start direction by a random vector in the (heading, side) tangent basis.
+                // Renormalise back to the sphere so all cluster members share the radius-100 path.
+                val offH = (rng.nextFloat() - 0.5f) * 2f * CLOUD_START_JITTER
+                val offP = (rng.nextFloat() - 0.5f) * 2f * CLOUD_START_JITTER
+                var sx = csx + offH * chx + offP * pX
+                var sy = csy + offH * chy + offP * pY
+                var sz = csz + offH * chz + offP * pZ
+                val sLen = sqrt(sx * sx + sy * sy + sz * sz)
+                sx /= sLen; sy /= sLen; sz /= sLen
+
+                // Perturb the heading by mixing in a small side component, then re-orthogonalise
+                // against the (perturbed) start direction so the tangent is well-defined and
+                // unit-length for this cluster member.
+                val headJit = (rng.nextFloat() - 0.5f) * 2f * CLOUD_HEADING_JITTER
+                var hx = chx + headJit * pX
+                var hy = chy + headJit * pY
+                var hz = chz + headJit * pZ
+                val rd = hx * sx + hy * sy + hz * sz
+                hx -= rd * sx; hy -= rd * sy; hz -= rd * sz
+                val hLen = sqrt(hx * hx + hy * hy + hz * hz)
+                if (hLen < 1e-4f) continue
+                hx /= hLen; hy /= hLen; hz /= hLen
+
+                // Safety net for the rare member whose jitter + re-orthogonalisation flipped its
+                // heading above the horizon. Negate to keep the whole cloud streaking downward.
+                if (hy > 0f) {
+                    hx = -hx; hy = -hy; hz = -hz
+                }
+
+                // Stagger spawn into the future so the cluster arrives as a quick burst rather
+                // than as a perfect chord. `render` skips negative-age shooters.
+                val spawnAt = atTick + rng.nextFloat() * CLOUD_TIME_JITTER_TICKS
+                shooters.add(Shooter(sx, sy, sz, hx, hy, hz, spawnAt))
+            }
+        }
+
+        fun render(poseStack: PoseStack, gameTime: Double) {
+            if (shooters.isEmpty()) return
+
+            poseStack.pushPose()
+            // Same slow drift as the star field — shooters drift with the rest of the sky over
+            // their short lifetime (~1.6 s), keeping the cosmos visually unified.
+            poseStack.mulPose(Axis.YP.rotationDegrees(driftDegrees(gameTime)))
+
+            val matrix = poseStack.last().pose()
+
+            // Textured (white) like the star field — routes to gbuffers_skytextured so shooters
+            // survive under shaders. See STAR_TEXTURE / renderStars.
+            RenderSystem.setShader { GameRenderer.getPositionTexColorShader() }
+            RenderSystem.setShaderTexture(0, STAR_TEXTURE)
+
+            val rByte = (STAR_R * 255f).toInt()
+            val gByte = (STAR_G * 255f).toInt()
+            val bByte = (STAR_B * 255f).toInt()
+
+            val builder = Tesselator.getInstance().builder
+            builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR)
+
+            for (s in shooters) {
+                val age = (gameTime - s.spawnTick).toFloat()
+                // Cloud spawns stagger member shooters into the future, so a shooter may exist
+                // in the list before its spawn tick. Skip it until then.
+                if (age < 0f) continue
+                // Tail trails the head by exactly [SHOOTER_TRAIL_FRAMES] frames once the streak
+                // is fully formed. Clamp tail to age=0 during the first frames so the streak
+                // *grows* from the spawn point rather than dragging a phantom trail backwards.
+                val tailAge = maxOf(0f, age - SHOOTER_TRAIL_FRAMES)
+
+                val headTheta = age * SHOOTER_ANG_SPEED
+                val sH = sin(headTheta); val cH = cos(headTheta)
+                val hx = (s.sx * cH + s.tx * sH) * STAR_SPHERE_R
+                val hy = (s.sy * cH + s.ty * sH) * STAR_SPHERE_R
+                val hz = (s.sz * cH + s.tz * sH) * STAR_SPHERE_R
+
+                val tailTheta = tailAge * SHOOTER_ANG_SPEED
+                val sT = sin(tailTheta); val cT = cos(tailTheta)
+                val tx = (s.sx * cT + s.tx * sT) * STAR_SPHERE_R
+                val ty = (s.sy * cT + s.ty * sT) * STAR_SPHERE_R
+                val tz = (s.sz * cT + s.tz * sT) * STAR_SPHERE_R
+
+                // Streak direction (head − tail). Skip degenerate (age 0, both at start).
+                val dx = hx - tx
+                val dy = hy - ty
+                val dz = hz - tz
+                val dLen = sqrt(dx * dx + dy * dy + dz * dz)
+                if (dLen < 1e-3f) continue
+                val dnx = dx / dLen; val dny = dy / dLen; val dnz = dz / dLen
+
+                // Quad "side" axis: perpendicular to both the streak direction and the radial
+                // direction at the head, so the slab lies in the tangent plane of the sphere and
+                // is invariant to where the player is looking from inside.
+                val rhx = hx / STAR_SPHERE_R; val rhy = hy / STAR_SPHERE_R; val rhz = hz / STAR_SPHERE_R
+                var sX = dny * rhz - dnz * rhy
+                var sY = dnz * rhx - dnx * rhz
+                var sZ = dnx * rhy - dny * rhx
+                val sLen = sqrt(sX * sX + sY * sY + sZ * sZ)
+                if (sLen < 1e-4f) continue
+                sX = sX / sLen * SHOOTER_HALF_WIDTH
+                sY = sY / sLen * SHOOTER_HALF_WIDTH
+                sZ = sZ / sLen * SHOOTER_HALF_WIDTH
+
+                // Fade head alpha out over the last [SHOOTER_FADE_FRAMES] of the lifetime.
+                val remaining = SHOOTER_LIFETIME_FRAMES - age
+                val overallAlpha = (remaining / SHOOTER_FADE_FRAMES).coerceIn(0f, 1f)
+                val headA = (overallAlpha * 255f).toInt().coerceIn(0, 255)
+                // Tail is always alpha 0 — the trail fades to nothing along the streak length.
+
+                builder.vertex(matrix, hx - sX, hy - sY, hz - sZ)
+                    .uv(0f, 0f).color(rByte, gByte, bByte, headA).endVertex()
+                builder.vertex(matrix, hx + sX, hy + sY, hz + sZ)
+                    .uv(0f, 0f).color(rByte, gByte, bByte, headA).endVertex()
+                builder.vertex(matrix, tx + sX, ty + sY, tz + sZ)
+                    .uv(0f, 0f).color(rByte, gByte, bByte, 0).endVertex()
+                builder.vertex(matrix, tx - sX, ty - sY, tz - sZ)
+                    .uv(0f, 0f).color(rByte, gByte, bByte, 0).endVertex()
+            }
+
+            BufferUploader.drawWithShader(builder.end())
+
+            poseStack.popPose()
+        }
     }
 }

@@ -1,0 +1,14 @@
+{
+  "replace": false,
+  "values": [
+    "enderkinesis:wohlon_fern",
+    "enderkinesis:wohlon_tall_fern",
+    "enderkinesis:wohlon_moss_carpet",
+    "enderkinesis:wohlon_grass",
+    "enderkinesis:wohlon_lichen",
+    "enderkinesis:wohlon_reed",
+    "enderkinesis:wohlon_leaf_litter",
+    "enderkinesis:wohlon_duckweed",
+    "enderkinesis:wohlon_hanging_roots"
+  ]
+}

@@ -37,6 +37,8 @@ object PlanarAnchorClientRegistry : ClientBlockEntityRegistry<PlanarAnchorBlockE
 
 object AetherPadClientRegistry : ClientBlockEntityRegistry<AetherPadBlockEntity>()
 
+object ShulkerPufferClientRegistry : ClientBlockEntityRegistry<ShulkerPufferBlockEntity>()
+
 object VoidHarnessClientRegistry : ClientBlockEntityRegistry<VoidHarnessBlockEntity>()
 
 object VoidHookClientRegistry : ClientBlockEntityRegistry<VoidHookBlockEntity>()

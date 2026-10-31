@@ -1,0 +1,21 @@
+{
+  "variants": {
+    "": [
+      {
+        "model": "enderkinesis:block/wohlon_duckweed"
+      },
+      {
+        "model": "enderkinesis:block/wohlon_duckweed",
+        "y": 90
+      },
+      {
+        "model": "enderkinesis:block/wohlon_duckweed",
+        "y": 180
+      },
+      {
+        "model": "enderkinesis:block/wohlon_duckweed",
+        "y": 270
+      }
+    ]
+  }
+}

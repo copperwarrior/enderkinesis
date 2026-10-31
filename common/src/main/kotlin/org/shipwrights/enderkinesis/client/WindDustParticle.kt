@@ -13,7 +13,7 @@ import net.minecraft.core.particles.SimpleParticleType
  * that justify the separate type: it spawns at FULL alpha (no fade-in —
  * the incantation's dust must read as instantaneous), and it RESPECTS the
  * spawn velocity instead of overriding it (the gale mode is literally the
- * velocity the server gives it).
+ * velocity the cast stream gives it).
  *
  *  - [Mode.HAND]: tiny mote rising from the casting hand. Weightless,
  *    high drag, brief.
@@ -75,12 +75,6 @@ class WindDustParticle(
 
     override fun tick() {
         super.tick()
-        // GUST: the wind carries the gust level — vertical velocity decays
-        // fast while horizontal speed is kept, so a blast fired up/down
-        // from the hand curves into the yaw-locked wind within ~5 ticks.
-        if (mode == Mode.GUST) {
-            yd *= GUST_VERTICAL_DECAY
-        }
         val ageF = age.toFloat() / lifetime.toFloat()
         if (mode == Mode.EIDETIC) {
             // The jitter grows with age, so the ring holds its shape at first and scatters as it climbs.
@@ -121,10 +115,6 @@ class WindDustParticle(
     companion object {
         /** 8 generic + 8 glitter, same atlas layout as `sselith_dust.json`. */
         private const val SPRITE_SET_SIZE = 16
-
-        /** Per-tick vertical velocity decay for GUST — flattens the initial
-         *  view-aligned blast into the horizontal wind. */
-        private const val GUST_VERTICAL_DECAY = 0.75
 
         private const val EIDETIC_JITTER = 0.03
         private const val EIDETIC_LIFT = 0.0005

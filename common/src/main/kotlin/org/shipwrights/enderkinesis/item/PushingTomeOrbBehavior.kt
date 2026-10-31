@@ -7,7 +7,9 @@ import net.minecraft.server.level.ServerLevel
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.internal.joints.VSDistanceJoint
 import org.valkyrienskies.core.internal.joints.VSJoint
@@ -86,6 +88,7 @@ object PushingTomeOrbBehavior : TomeOrbBehavior {
         val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return
         sendBe.inputSignal = sampled
+        OrbOfLinkingSounds.play(level, sendBe.blockPos, EKSounds.ORB_OF_LINKING_REEL_OUT)
         // No immediate rebuild — serverTick eases `currentMin` toward the new target.
     }
 
@@ -107,7 +110,7 @@ object PushingTomeOrbBehavior : TomeOrbBehavior {
             val dy = recvCentre.y - sendCentre.y
             val dz = recvCentre.z - sendCentre.z
             if (dx * dx + dy * dy + dz * dz > maxSq) {
-                sendBe.removeOutgoingLink(level, tomeKind, receiverPos)
+                sendBe.dropOverDistance(level, tomeKind, receiverPos)
                 continue
             }
             val baseLength = storedBaseLength(sendBe, receiverPos) ?: continue

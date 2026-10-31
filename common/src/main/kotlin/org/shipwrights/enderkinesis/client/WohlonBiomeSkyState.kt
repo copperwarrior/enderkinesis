@@ -112,18 +112,4 @@ object WohlonBiomeSkyState {
         val d1 = 0.5 - Math.cos(d * Math.PI) / 2.0
         return ((d * 2.0 + d1) / 3.0).toFloat()
     }
-
-    /** Lerp on the cyclic `[0, 1)` time-of-day domain. Picks the
-     *  shorter of the two paths around the unit circle so e.g.
-     *  blending from 0.95 to 0.05 sweeps forward through 1.0
-     *  rather than backward through noon. */
-    private fun lerpCyclic(a: Float, b: Float, t: Float): Float {
-        var d = b - a
-        if (d > 0.5f) d -= 1f
-        else if (d < -0.5f) d += 1f
-        var r = a + d * t
-        if (r < 0f) r += 1f
-        else if (r >= 1f) r -= 1f
-        return r
-    }
 }

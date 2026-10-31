@@ -1,6 +1,8 @@
 package org.shipwrights.enderkinesis
 
+import dev.architectury.hooks.item.tool.AxeItemHooks
 import dev.architectury.registry.ReloadListenerRegistry
+import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.server.packs.PackType
 import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.compat.create.CreateCompat
@@ -64,17 +66,23 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.registry.EKFluids.register()
         EKBlocks.register()
         EKBlockEntities.register()
-        // SSELITH_LECTERN subclasses LecternBlock and shares vanilla's
-        // LecternBlockEntity type. The BE type's `validBlocks` is an immutable
-        // set built at vanilla init time, so we rebuild it with our block
-        // included — otherwise BlockEntityType.isValid rejects the BE on chunk
-        // reload and the book on every Sselith lectern silently disappears.
+        // The Sselith lectern and wogor signs share vanilla BE types. Without their blocks in
+        // validBlocks, BlockEntityType.isValid rejects the BE and its contents vanish on chunk reload.
         // `listen`, not `get`: on Forge the block does not exist until the registry event.
-        EKBlocks.SSELITH_LECTERN.listen(::augmentLecternValidBlocks)
+        EKBlocks.SSELITH_LECTERN.listen { augmentValidBlocks(BlockEntityType.LECTERN, it) }
+        EKBlocks.WOGOR_SIGN.listen { augmentValidBlocks(BlockEntityType.SIGN, it) }
+        EKBlocks.WOGOR_WALL_SIGN.listen { augmentValidBlocks(BlockEntityType.SIGN, it) }
+        EKBlocks.WOGOR_HANGING_SIGN.listen { augmentValidBlocks(BlockEntityType.HANGING_SIGN, it) }
+        EKBlocks.WOGOR_WALL_HANGING_SIGN.listen { augmentValidBlocks(BlockEntityType.HANGING_SIGN, it) }
+        dev.architectury.event.events.common.LifecycleEvent.SETUP.register {
+            AxeItemHooks.addStrippable(EKBlocks.WOGOR_LOG.get(), EKBlocks.STRIPPED_WOGOR_LOG.get())
+            AxeItemHooks.addStrippable(EKBlocks.WOGOR_WOOD.get(), EKBlocks.STRIPPED_WOGOR_WOOD.get())
+        }
         EKSounds.register()
         // Instruments resolve their sound-event holder at construction time, so must come after sounds.
         org.shipwrights.enderkinesis.registry.EKInstruments.register()
         EKItems.register()
+        org.shipwrights.enderkinesis.registry.EKMenus.register()
         EKCreativeTab.register()
         // Trades depend on EKItems being registered (the scroll is the
         // trade output); vanilla TRADES map is mutated directly so this
@@ -83,6 +91,7 @@ object EnderkinesisMod {
         EKFeatures.register()
         EKParticles.register()
         EKEffects.register()
+        org.shipwrights.enderkinesis.registry.EKEnchantments.register()
         EKProcessors.register()
         org.shipwrights.enderkinesis.registry.EKLootFunctions.register()
         org.shipwrights.enderkinesis.registry.EKStructures.register()
@@ -118,6 +127,12 @@ object EnderkinesisMod {
                 .useTransientSerializer()
                 .build()
         )
+        // Transient: each writing Oarscribe refreshes its drive each server tick, and the drive expires by itself.
+        vsCore.registerAttachment(
+            vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.OarscribeRail::class.java)
+                .useTransientSerializer()
+                .build()
+        )
         // Transient: FusionManager refreshes the target each server tick, and the pull expires by itself.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.FusionPullAttachment::class.java)
@@ -134,6 +149,12 @@ object EnderkinesisMod {
         // Transient: recoil impulses are queued at fire time and consumed within a tick.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment::class.java)
+                .useTransientSerializer()
+                .build()
+        )
+        // Transient: the strut block entity sets the damper again each game tick.
+        vsCore.registerAttachment(
+            vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.ShulkerStrutDamper::class.java)
                 .useTransientSerializer()
                 .build()
         )
@@ -188,12 +209,19 @@ object EnderkinesisMod {
 
         ReloadListenerRegistry.register(PackType.SERVER_DATA, DimensionFilter, id("dimension_filter"))
         ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.item.Scraps, id("scraps"))
+        ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.WohlonStaffRites, id("wohlon_staff_rites"))
         ReloadListenerRegistry.register(
             PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.InegricRetortRates, id("inegric_retort"),
         )
+        ReloadListenerRegistry.register(
+            PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.FountainBlessings, id("fountain_blessing"),
+        )
+        ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.item.RaisingRites, id("raising_rite"))
 
         org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.register()
         org.shipwrights.enderkinesis.body.OrbCollisionSounds.register()
+        org.shipwrights.enderkinesis.entity.ConstriliarImpactSounds.register()
+        org.shipwrights.enderkinesis.physics.ConstriliarContacts.register()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
         org.shipwrights.enderkinesis.dimension.SselithMothSpawner.init()
@@ -204,6 +232,8 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.block.BindingRootsMerger.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaTreeGrower.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaWorldRootGrower.init()
+        org.shipwrights.enderkinesis.block.WohlonRollingWaters.init()
+        org.shipwrights.enderkinesis.block.WohlonReachingRoot.init()
         org.shipwrights.enderkinesis.entity.WikLakConstruction.init()
         org.shipwrights.enderkinesis.util.ShipMoves.init()
         org.shipwrights.enderkinesis.worldgen.YgannAnchorShipifyProcessor.init()
@@ -223,7 +253,9 @@ object EnderkinesisMod {
         SselithVoidWrap.init()
         org.shipwrights.enderkinesis.dimension.SselithParallel.init()
         org.shipwrights.enderkinesis.command.SselithCommands.init()
+        org.shipwrights.enderkinesis.command.OarscribeCommands.init()
         org.shipwrights.enderkinesis.block.ScribesDeskNetwork.init()
+        org.shipwrights.enderkinesis.item.SatchelOfShelvingNetwork.init()
         SselithMadness.init()
         SselithRepertoryChunkGenerator.init()
         SselithMadnessTomeSummon.init()
@@ -250,8 +282,10 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.item.CommandNetwork.init()
         org.shipwrights.enderkinesis.item.VanillaCommandables.init()
         org.shipwrights.enderkinesis.dimension.YgannBarnacleSpreader.init()
+        org.shipwrights.enderkinesis.barnacle.YgannBarnacleLimbNetwork.init()
         org.shipwrights.enderkinesis.dimension.YgannDiscoveries.init()
         org.shipwrights.enderkinesis.item.StaffOfCommandItem.initEvents()
+        org.shipwrights.enderkinesis.item.GrandStaffRaising.init()
         org.shipwrights.enderkinesis.item.ShipCloakingTracker.init()
         org.shipwrights.enderkinesis.item.SunderingManager.init()
         registerSessionCleanup()
@@ -283,20 +317,11 @@ object EnderkinesisMod {
         TomeOfCouplingItem.registerBeamPalette()
     }
 
-    /** Rebuild [net.minecraft.world.level.block.entity.BlockEntityType.LECTERN]'s
-     *  immutable `validBlocks` set to include [EKBlocks.SSELITH_LECTERN] so the
-     *  Sselith Lectern can carry the vanilla {@code LecternBlockEntity} across
-     *  save/load. Vanilla builds the set once via
-     *  {@code BlockEntityType.Builder.build} and never mutates it again; we
-     *  reach in through
-     *  [org.shipwrights.enderkinesis.mixin.BlockEntityTypeValidBlocksAccessor]
-     *  (a `@Mutable @Accessor` mixin) to swap the field for a new set
-     *  containing the original entries plus ours. */
-    private fun augmentLecternValidBlocks(lectern: net.minecraft.world.level.block.Block) {
-        val lecternType = net.minecraft.world.level.block.entity.BlockEntityType.LECTERN
-        val accessor = lecternType as org.shipwrights.enderkinesis.mixin.BlockEntityTypeValidBlocksAccessor
+    /** Vanilla builds `validBlocks` once as an immutable set, so swap in a copy with [block] added. */
+    private fun augmentValidBlocks(type: BlockEntityType<*>, block: net.minecraft.world.level.block.Block) {
+        val accessor = type as org.shipwrights.enderkinesis.mixin.BlockEntityTypeValidBlocksAccessor
         val merged: MutableSet<net.minecraft.world.level.block.Block> = HashSet(accessor.validBlocks)
-        merged.add(lectern)
+        merged.add(block)
         accessor.validBlocks = java.util.Collections.unmodifiableSet(merged)
     }
 
@@ -310,6 +335,7 @@ object EnderkinesisMod {
             org.shipwrights.enderkinesis.util.SculkSpread.clearSession()
             org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.clearSession()
             org.shipwrights.enderkinesis.body.OrbCollisionSounds.clearSession()
+            org.shipwrights.enderkinesis.entity.ConstriliarImpactSounds.clearSession()
             org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity.clearSession()
             org.shipwrights.enderkinesis.item.RodOfLevitationManager.clearSession()
             org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.clearSession()

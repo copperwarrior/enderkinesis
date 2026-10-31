@@ -1,7 +1,11 @@
 package org.shipwrights.enderkinesis.block
 
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf
+import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongArrayList
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.core.BlockPos
@@ -15,6 +19,8 @@ import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.TicketType
+import net.minecraft.tags.BlockTags
+import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.GameRules
@@ -22,22 +28,28 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.biome.Biome
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.DoublePlantBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.Property
 import net.minecraft.world.level.chunk.ChunkAccess
 import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.chunk.LevelChunkSection
 import net.minecraft.world.level.chunk.PalettedContainer
+import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
+import org.shipwrights.enderkinesis.mixin.ChunkMapGetChunksAccessor
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKGameRules
+import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.shipwrights.enderkinesis.worldgen.WohlonWetlandZones
 import org.joml.Vector3d
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.isChunkInShipyard
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.ConcurrentHashMap
+import java.util.function.LongConsumer
 import kotlin.math.max
 
 /**
@@ -69,6 +81,9 @@ object WohlonnogondoniaSpreader {
 
     /** A high `wohlonSpreadSpeed` shortens the interval; this bounds the chunks held at one time. */
     private const val FORCE_LOAD_MAX_HELD: Int = 4
+
+    /** Random draws from the tainted set for each force-load pick, so the cost does not grow with the taint. */
+    private const val FORCE_LOAD_PICK_TRIES: Int = 32
 
     private val FORCE_LOAD_TICKET: TicketType<ChunkPos> = TicketType.create(
         "enderkinesis_wohlon_spread", Comparator.comparingLong(ChunkPos::toLong),
@@ -107,6 +122,10 @@ object WohlonnogondoniaSpreader {
         TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "converts_to_mud"))
     private val CONVERTS_TO_WOGOR_LEAVES: TagKey<Block> =
         TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "converts_to_wogor_leaves"))
+    private val CONVERTS_TO_WOHLON_UNDERGROWTH: TagKey<Block> =
+        TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "converts_to_wohlon_undergrowth"))
+    private val CONVERTS_TO_WOHLON_TALL_FERN: TagKey<Block> =
+        TagKey.create(Registries.BLOCK, ResourceLocation("enderkinesis", "converts_to_wohlon_tall_fern"))
 
     /** Hard-stop tag: any block in this set is exempt from every
      *  conversion regardless of which `converts_to_*` tag would have
@@ -142,8 +161,13 @@ object WohlonnogondoniaSpreader {
     private val CONVERSIONS: List<Pair<TagKey<Block>, (BlockState) -> BlockState>> = listOf(
         CONVERTS_TO_WOGOR_LOG to { src -> inheritedState(src, EKBlocks.WOGOR_LOG.get().defaultBlockState()) },
         CONVERTS_TO_WOGOR_WOOD to { src -> inheritedState(src, EKBlocks.WOGOR_WOOD.get().defaultBlockState()) },
-        CONVERTS_TO_MUD to { src -> inheritedState(src, Blocks.MUD.defaultBlockState()) },
+        CONVERTS_TO_MUD to { src -> inheritedState(src, EKBlocks.WOHLON_MUD.get().defaultBlockState()) },
         CONVERTS_TO_WOGOR_LEAVES to { src -> inheritedState(src, EKBlocks.WOGOR_LEAVES.get().defaultBlockState()) },
+        CONVERTS_TO_WOHLON_UNDERGROWTH to { src ->
+            val fern = java.util.concurrent.ThreadLocalRandom.current().nextFloat() < UNDERGROWTH_FERN_SHARE
+            inheritedState(src, (if (fern) EKBlocks.WOHLON_FERN else EKBlocks.WOHLON_GRASS).get().defaultBlockState())
+        },
+        CONVERTS_TO_WOHLON_TALL_FERN to { src -> inheritedState(src, EKBlocks.WOHLON_TALL_FERN.get().defaultBlockState()) },
     )
 
     /** Copy every property [source] has that [target] also
@@ -162,6 +186,42 @@ object WohlonnogondoniaSpreader {
         return result
     }
 
+
+    /** Share of converted grass that becomes Wohlon fern; the rest becomes Wohlon grass. */
+    private const val UNDERGROWTH_FERN_SHARE: Float = 0.5f
+
+    // Ecology of the spread: each frontier candidate is accepted with the product of these factors.
+    // The floor keeps every cell reachable: the infection slows, but it never stops.
+    private const val ACCEPT_FLOOR = 0.05f
+    private const val DRY_TARGET = 0.55f
+    private const val UPHILL = 0.45f
+    private const val LEVEL_GROUND = 0.85f
+    private const val FROZEN = 0.35f
+    private const val ARID = 0.4f
+    // Blocks above sea level where high ground starts to resist, and resists more.
+    private const val HIGH_GROUND = 48
+    private const val HIGHER_GROUND = 96
+    private const val HIGH_FACTOR = 0.6f
+    private const val HIGHER_FACTOR = 0.35f
+    // Biome base temperature under which the ground is frozen.
+    private const val FROZEN_TEMPERATURE = 0.15f
+    // Water to water: always taken level or downstream, slower upstream; then a hop along the water run.
+    private const val UPSTREAM = 0.6f
+    private const val WATER_HOP_MAX = 3
+
+    // Succession at the front: chance per random tick on a frontier cell that a pioneer plant takes a free spot.
+    private const val PIONEER_CHANCE = 0.12
+    // Blocks of depth into the swamp: ground shallower than DAMP_DEPTH keeps its front stage, and
+    // pioneer plants grow shallower than PIONEER_DEPTH. DEPTH_NOISE moves both edges by up to that much.
+    private const val DAMP_DEPTH = 3.0
+    private const val PIONEER_DEPTH = 4.0
+    private const val DEPTH_FAR = 8.0
+    private const val DEPTH_NOISE = 1.5
+    private const val DEPTH_NOISE_FREQUENCY = 0.21
+    private const val ROLL_REED = 0x5EED
+    private const val ROLL_DUCKWEED = 0xD0C3
+    private const val ROLL_LILY = 0x1117
+    private const val ROLL_LITTER = 0x1177
 
     /** Total ticks the portal-creation seed spreads over. 300
      *  ticks = 15 s at 20 tps. */
@@ -410,7 +470,7 @@ object WohlonnogondoniaSpreader {
      *  every tainted chunk — the spread cost becomes
      *  `O(|frontier|)` ≈ `O(r)` (boundary), not `O(r²)` (volume).
      *  Chunks leave when `frontierCount` returns to 0 or on eviction. */
-    private val activeFrontierChunks: ConcurrentHashMap<ResourceKey<Level>, LongOpenHashSet> =
+    private val activeFrontierChunks: ConcurrentHashMap<ResourceKey<Level>, IndexedLongSet> =
         ConcurrentHashMap()
 
     /** Per-dim runtime cache, keyed by `ChunkPos.asLong`. Holds loaded chunks only:
@@ -444,18 +504,26 @@ object WohlonnogondoniaSpreader {
      *  thread only. */
     private val pendingResyncs: MutableMap<ResourceKey<Level>, LongOpenHashSet> = HashMap()
 
+    /** Per-pass dedupe scratch for [setBiomeCellSilent] callers. Server thread only. */
+    private val touchedChunksScratch = LongOpenHashSet()
+    private val seenCellsScratch = LongOpenHashSet()
+
     /** Ticks between batched chunk-resync flushes. 20 = once per
      *  second at 20 tps. Visual latency is bounded by this. */
     private const val BROADCAST_FLUSH_INTERVAL_TICKS: Long = 20L
 
     /** Base per-second cell-flip budget for the queue drain (per
-     *  dimension). Multiplied by `wohlonSpreadSpeed` inside
-     *  [tickLevel] so the gamerule actually scales end-to-end —
-     *  the frontier sampler enqueues at `2 × speed` candidates per
-     *  tick and the drain matches that throughput at `5 × speed`
-     *  flips per second. Without the multiplier the drain was a
-     *  hard ceiling that nullified high gamerule values. */
+     *  dimension), multiplied by `wohlonSpreadSpeed` in [tickLevel].
+     *  The frontier sampler tries `40 × speed` candidates per second,
+     *  more than the drain takes; the drain sets the spread rate, and
+     *  [SPREAD_QUEUE_MAX] holds the surplus. */
     private const val SPREAD_DRAIN_PER_SEC: Int = 5
+
+    /** The sampler refills a dropped cell later, because the cell stays next to the frontier. */
+    private const val SPREAD_QUEUE_MAX: Int = 8192
+
+    /** Pops for each budgeted flip. Cells in unloaded chunks or already Wohlon use no budget. */
+    private const val DRAIN_POPS_PER_FLIP: Int = 8
 
     /** Base per-second cell-flip budget for the vertical-cascade
      *  queue drain. Same multiplier shape as
@@ -590,6 +658,7 @@ object WohlonnogondoniaSpreader {
         // tainted chunk. Block conversion still runs through
         // [tickConversionsTainted] below.
         tickFrontierSpread(level)
+        if (gameTime % TAINTED_DISCOVERY_INTERVAL_TICKS == 0L) discoverLoadedTainted(level)
         tickConversionsTainted(level)
         if (gameTime % BROADCAST_FLUSH_INTERVAL_TICKS == 0L) flushPendingResyncs(level)
         if (gameTime % STATE_EVICTION_INTERVAL_TICKS == 0L) evictUnloadedChunkStates(level)
@@ -614,18 +683,12 @@ object WohlonnogondoniaSpreader {
     /** Enqueue a biome cell for spread. Idempotent — repeated
      *  calls for the same cell collapse into one queue entry
      *  via the linked set. Called from [tickChunkConversions]
-     *  every time a random-tick lands on a block in a non-
-     *  Wohlon biome cell that is face-adjacent to a Wohlon cell.
+     *  by [tickFrontierSpread] and [tickShipTransfer].
      *
-     *  In high-random-tick scenarios (e.g. `randomTickSpeed=3,
-     *  wohlonSpreadSpeed=100`) the queue may grow faster than
-     *  it drains, in which case the queue absorbs the burst
-     *  and the drain rate stays bounded. In low-random-tick
-     *  scenarios (e.g. mostly air around the Wohlon front)
-     *  the queue may stay near-empty and the drain is the
-     *  bottleneck. Both cases self-stabilise. */
+     *  The queue stops at [SPREAD_QUEUE_MAX] entries. */
     private fun enqueueCellSpread(level: ServerLevel, qx: Int, qy: Int, qz: Int) {
         val queue = spreadQueue.getOrPut(level.dimension()) { LongLinkedOpenHashSet() }
+        if (queue.size >= SPREAD_QUEUE_MAX) return
         queue.add(BlockPos.asLong(qx, qy, qz))
     }
 
@@ -639,11 +702,9 @@ object WohlonnogondoniaSpreader {
     }
 
     /** Drain up to [count] cells off the spread queue and flip
-     *  each to Wohlon. Cells that turn out to be already Wohlon
-     *  (because some other write got there first) or to be in
-     *  an unloaded chunk don't count against the budget — the
-     *  drain keeps going until [count] **successful** flips, or
-     *  until the queue runs dry, whichever comes first.
+     *  each to Wohlon. Cells that are already Wohlon or in an
+     *  unloaded chunk are dropped and don't count against the
+     *  budget; the pops stop at `count × [DRAIN_POPS_PER_FLIP]`.
      *
      *  [setBiomeCellSilent] queues the client resync of each touched chunk. */
     private fun drainQueue(
@@ -655,10 +716,13 @@ object WohlonnogondoniaSpreader {
         val queue = queueMap[level.dimension()] ?: return
         if (queue.isEmpty()) return
         val wohlonBiome = lookupBiome(level) ?: return
-        val touchedChunks = HashSet<ChunkPos>()
+        val touchedChunks = touchedChunksScratch
+        touchedChunks.clear()
         // No held iterator: the column cascade in [setBiomeCellSilent] adds to the vertical queue.
         var drained = 0
-        while (drained < count && !queue.isEmpty()) {
+        var popsLeft = count.toLong() * DRAIN_POPS_PER_FLIP
+        while (drained < count && popsLeft > 0 && !queue.isEmpty()) {
+            popsLeft--
             val packed = queue.removeFirstLong()
             val qx = BlockPos.getX(packed)
             val qy = BlockPos.getY(packed)
@@ -690,8 +754,10 @@ object WohlonnogondoniaSpreader {
     fun convertCellsToWohlon(level: ServerLevel, blockPositions: Collection<BlockPos>) {
         if (blockPositions.isEmpty()) return
         val wohlonBiome = lookupBiome(level) ?: return
-        val touchedChunks = HashSet<ChunkPos>()
-        val seenCells = HashSet<Long>(blockPositions.size)
+        val touchedChunks = touchedChunksScratch
+        touchedChunks.clear()
+        val seenCells = seenCellsScratch
+        seenCells.clear()
         for (pos in blockPositions) {
             val qx = pos.x shr 2
             val qy = pos.y shr 2
@@ -702,6 +768,12 @@ object WohlonnogondoniaSpreader {
             if (!seenCells.add(BlockPos.asLong(qx, qy, qz))) continue
             setBiomeCellSilent(level, qx, qy, qz, wohlonBiome, touchedChunks)
         }
+    }
+
+    /** Runs the seed path on a tiny sphere, so the first ritual does not load its classes. */
+    fun warmClasses() {
+        ClassWarmup.load(SeedJob::class.java, CellCoord::class.java)
+        SeedJob(ArrayDeque(computeSphereCells(BlockPos.ZERO, 2)), 1)
     }
 
     @JvmStatic
@@ -757,7 +829,8 @@ object WohlonnogondoniaSpreader {
             return
         }
         val wohlonBiome = lookupBiome(level) ?: return
-        val touchedChunks = HashSet<ChunkPos>()
+        val touchedChunks = touchedChunksScratch
+        touchedChunks.clear()
         val iter = list.iterator()
         while (iter.hasNext()) {
             val job = iter.next()
@@ -784,34 +857,38 @@ object WohlonnogondoniaSpreader {
      *  A chunk at the edge of the tainted set is preferred: the taint advances there. Shipyard
      *  chunks are never picked — a ship loads with its ship. */
     private fun tryForceLoadTaintedChunk(level: ServerLevel, gameTime: Long) {
-        val positions = getTaintedData(level).positions
-        if (positions.isEmpty()) return
+        val data = getTaintedData(level)
+        val positions = data.positions
+        val order = data.order
+        if (order.isEmpty()) return
         val held = heldForceLoads.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
         if (held.size >= FORCE_LOAD_MAX_HELD) return
         val chunkSource = level.chunkSource
         val random = level.random
 
-        var edgePick = 0L
-        var edgeSeen = 0
         var anyPick = 0L
-        var anySeen = 0
-        val iter = positions.iterator()
-        while (iter.hasNext()) {
-            val packed = iter.nextLong()
-            if (held.containsKey(packed)) continue
+        var anyFound = false
+        var edgePick = 0L
+        var edgeFound = false
+        repeat(FORCE_LOAD_PICK_TRIES) {
+            if (edgeFound) return@repeat
+            val packed = order.getLong(random.nextInt(order.size))
+            if (held.containsKey(packed)) return@repeat
             val cx = ChunkPos.getX(packed)
             val cz = ChunkPos.getZ(packed)
-            if (chunkSource.getChunkNow(cx, cz) != null) continue
-            if (level.isChunkInShipyard(cx, cz)) continue
-            // Reservoir pick: uniform with no candidate list.
-            anySeen++
-            if (random.nextInt(anySeen) == 0) anyPick = packed
-            if (!isTaintEdge(positions, cx, cz)) continue
-            edgeSeen++
-            if (random.nextInt(edgeSeen) == 0) edgePick = packed
+            if (chunkSource.getChunkNow(cx, cz) != null) return@repeat
+            if (level.isChunkInShipyard(cx, cz)) return@repeat
+            if (!anyFound) {
+                anyPick = packed
+                anyFound = true
+            }
+            if (isTaintEdge(positions, cx, cz)) {
+                edgePick = packed
+                edgeFound = true
+            }
         }
-        if (anySeen == 0) return
-        val pick = if (edgeSeen > 0) edgePick else anyPick
+        if (!anyFound) return
+        val pick = if (edgeFound) edgePick else anyPick
         val pos = ChunkPos(pick)
         chunkSource.addRegionTicket(FORCE_LOAD_TICKET, pos, FORCE_LOAD_RADIUS, pos)
         held.put(pick, gameTime + FORCE_LOAD_HOLD_TICKS)
@@ -907,15 +984,13 @@ object WohlonnogondoniaSpreader {
     private fun tickConversionsTainted(level: ServerLevel) {
         val randomTickSpeed = level.gameRules.getInt(GameRules.RULE_RANDOMTICKING)
         if (randomTickSpeed <= 0) return
-        val effectiveTickRate = randomTickSpeed * spreadSpeed(level)
-        val data = getTaintedData(level)
-        if (data.positions.isEmpty()) return
+        val speed = spreadSpeed(level)
+        val effectiveTickRate = randomTickSpeed * speed
         val random = level.random
         val mutPos = BlockPos.MutableBlockPos()
         val chunkSource = level.chunkSource
         val states = statesFor(level.dimension())
         val gameTime = level.gameTime
-        if (gameTime % TAINTED_DISCOVERY_INTERVAL_TICKS == 0L) discoverLoadedTainted(level, data, states)
 
         // The states hold loaded chunks only, so the cost follows the loaded part of the taint.
         for (entry in states.entries) {
@@ -942,32 +1017,40 @@ object WohlonnogondoniaSpreader {
             val chunk = chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) ?: continue
             if (!state.frontierPopulated) populateFrontier(level, chunk, state)
 
-            val converted = tickChunkConversions(
-                level, chunk, mask, effectiveTickRate, random, mutPos,
-                // Visual de-grid #4: pass the chunk's frontier
-                // bitmask so the in-cell conversion path can
-                // distinguish frontier cells (noise-gated rate)
-                // from interior cells (full rate). May be null —
-                // [tickChunkConversions] treats null as "all
-                // interior" and skips the gate entirely.
-                state.frontierBits,
-            )
-            if (converted > 0) state.lastActivityGameTime = gameTime
+            val converted = tickChunkConversions(level, chunk, mask, effectiveTickRate, speed, random, mutPos)
+            if (converted > 0) {
+                state.lastActivityGameTime = gameTime
+            } else if (stagedWaiting > 0 && gameTime - state.lastActivityGameTime > HOT_THRESHOLD_TICKS) {
+                // Ground waiting for its next stage keeps the chunk warm; a cold chunk froze its stage
+                // and left a straight chunk edge against its neighbours.
+                state.lastActivityGameTime = gameTime - HOT_THRESHOLD_TICKS - 1
+            }
         }
     }
 
-    /** Make a state for each tainted chunk that loaded since the last pass. */
-    private fun discoverLoadedTainted(
-        level: ServerLevel, data: TaintedChunkData, states: ConcurrentHashMap<Long, ChunkSpreadState>,
-    ) {
+    /** Make a state for each tainted chunk that loaded since the last pass. Walks the smaller of
+     *  the tainted set and the loaded chunks, because the tainted set never gets smaller. */
+    private fun discoverLoadedTainted(level: ServerLevel) {
+        val positions = getTaintedData(level).positions
+        if (positions.isEmpty()) return
+        val states = statesFor(level.dimension())
         val chunkSource = level.chunkSource
-        val iter = data.positions.iterator()
-        while (iter.hasNext()) {
-            val packed = iter.nextLong()
-            if (states.containsKey(packed)) continue
-            val chunk = chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) ?: continue
-            sectionMaskFor(level, chunk)
+        val chunkMap = chunkSource.chunkMap
+        if (positions.size <= chunkMap.size()) {
+            val iter = positions.iterator()
+            while (iter.hasNext()) discoverIfLoaded(level, states, iter.nextLong())
+        } else {
+            for (holder in (chunkMap as ChunkMapGetChunksAccessor).`enderkinesis$getChunks`()) {
+                val packed = holder.pos.toLong()
+                if (positions.contains(packed)) discoverIfLoaded(level, states, packed)
+            }
         }
+    }
+
+    private fun discoverIfLoaded(level: ServerLevel, states: ConcurrentHashMap<Long, ChunkSpreadState>, packed: Long) {
+        if (states.containsKey(packed)) return
+        val chunk = level.chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) ?: return
+        sectionMaskFor(level, chunk)
     }
 
     /** Send the queued biome changes, one biome packet for each chunk. Vanilla `/fillbiome`
@@ -1013,10 +1096,11 @@ object WohlonnogondoniaSpreader {
         chunk: LevelChunk,
         sectionMask: Long,
         randomTickSpeed: Int,
+        spreadSpeed: Int,
         random: net.minecraft.util.RandomSource,
         mutPos: BlockPos.MutableBlockPos,
-        frontierBits: LongArray?,
     ): Int {
+        stagedWaiting = 0
         val minSection = chunk.minSection
         val sections = chunk.sections
         val chunkBaseX = chunk.pos.x shl 4
@@ -1026,6 +1110,9 @@ object WohlonnogondoniaSpreader {
         // to hot) only if at least one conversion fired; the return
         // value is that count.
         var converted = 0
+        val mud = EKBlocks.WOHLON_MUD.get()
+        val damp = Blocks.PODZOL.defaultBlockState()
+        val pioneerRate = (PIONEER_CHANCE * spreadSpeed).coerceAtMost(1.0)
         for (idx in sections.indices) {
             if ((sectionMask ushr idx) and 1L == 0L) continue
             val section: LevelChunkSection = sections[idx]
@@ -1062,28 +1149,30 @@ object WohlonnogondoniaSpreader {
                     val localX = bx and 3
                     val localY = by and 3
                     val localZ = bz and 3
+                    // A neighbour in an unloaded chunk counts as non-Wohlon; level.getNoiseBiome
+                    // would compute it from the biome source instead.
                     var minDist = Int.MAX_VALUE
-                    if (isWohlon(level.getNoiseBiome(cellQx - 1, cellQy, cellQz))) {
+                    if (isWohlonCell(level, cellQx - 1, cellQy, cellQz)) {
                         if (localX + 1 < minDist) minDist = localX + 1
                     }
-                    if (isWohlon(level.getNoiseBiome(cellQx + 1, cellQy, cellQz))) {
+                    if (isWohlonCell(level, cellQx + 1, cellQy, cellQz)) {
                         if (4 - localX < minDist) minDist = 4 - localX
                     }
-                    if (isWohlon(level.getNoiseBiome(cellQx, cellQy - 1, cellQz))) {
+                    if (isWohlonCell(level, cellQx, cellQy - 1, cellQz)) {
                         if (localY + 1 < minDist) minDist = localY + 1
                     }
-                    if (isWohlon(level.getNoiseBiome(cellQx, cellQy + 1, cellQz))) {
+                    if (isWohlonCell(level, cellQx, cellQy + 1, cellQz)) {
                         if (4 - localY < minDist) minDist = 4 - localY
                     }
-                    if (isWohlon(level.getNoiseBiome(cellQx, cellQy, cellQz - 1))) {
+                    if (isWohlonCell(level, cellQx, cellQy, cellQz - 1)) {
                         if (localZ + 1 < minDist) minDist = localZ + 1
                     }
-                    if (isWohlon(level.getNoiseBiome(cellQx, cellQy, cellQz + 1))) {
+                    if (isWohlonCell(level, cellQx, cellQy, cellQz + 1)) {
                         if (4 - localZ < minDist) minDist = 4 - localZ
                     }
                     // Outside the fringe band — skip. Bulk of
-                    // non-Wohlon ticks fall through here.
-                    if (minDist > 2) return@repeat
+                    // non-Wohlon ticks fall through here. Wet ground carries the fringe one block further.
+                    if (minDist > 3 || (minDist == 3 && !cellWet(level, cellQx, cellQy, cellQz))) return@repeat
                     val baseRate = if (minDist == 1) BOUNDARY_TIER1_RATE else BOUNDARY_TIER2_RATE
                     // Noise gate keeps the band organic. Without
                     // it, every tier-1 block on a flat face would
@@ -1097,8 +1186,10 @@ object WohlonnogondoniaSpreader {
                         0.0, 0.0,
                     )
                     if (blockNoise < BLOCK_NOISE_THRESHOLD) return@repeat
-                    val rate = (baseRate * spreadSpeed(level)).coerceAtMost(1.0)
+                    val rate = (baseRate * spreadSpeed).coerceAtMost(1.0)
                     if (random.nextDouble() >= rate) return@repeat
+                    // The fringe is ahead of the front: the pioneer stage only.
+                    val staged = frontStage(state, sourceTarget, mud, damp) ?: return@repeat
                     mutPos.set(bx, by, bz)
                     // Flag 2 | 16 = UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE.
                     // Without the 16 bit Level.setBlock still fires the
@@ -1107,29 +1198,35 @@ object WohlonnogondoniaSpreader {
                     // spreader's cost in profiling. Targets here are full
                     // solid cubes with no neighbor-dependent shape, so the
                     // cascade is wasted.
-                    setShapeAware(level, mutPos, state, sourceTarget, 2 or 16)
+                    setShapeAware(level, mutPos, state, staged, 2 or 16)
                     converted++
                     return@repeat
                 }
 
-                // Convert the source block if it's in a converts_to_*
-                // tag. Independent of spread. Wohlon cells convert
-                // at full rate so the biome interior reads as
-                // uniformly painted — the boundary gradient lives
-                // *outside* the Wohlon line via the k-scaled fringe
-                // in the non-Wohlon branch above, not by subtracting
-                // density from this branch. Air sources skip the
-                // conversion path entirely.
-                if (!state.isAir) {
-                    val sourceTarget = pickConversion(state)
-                    if (sourceTarget != null) {
-                        mutPos.set(chunkBaseX + lx, sectionBaseY + ly, chunkBaseZ + lz)
-                        converted++
-                        // Flag 2 | 16 — see the boundary-fringe setBlock
-                        // above for the rationale on the 16 bit.
-                        setShapeAware(level, mutPos, state, sourceTarget, 2 or 16)
-                    }
+                val bx = chunkBaseX + lx
+                val by = sectionBaseY + ly
+                val bz = chunkBaseZ + lz
+                if (state.isAir || isStillWater(state)) {
+                    if (random.nextDouble() < pioneerRate && frontDepth(level, bx, by, bz) < PIONEER_DEPTH &&
+                        placePioneer(level, bx, by, bz, state)
+                    ) converted++
+                    return@repeat
                 }
+
+                val sourceTarget = pickConversion(state) ?: return@repeat
+                // Already final: no depth test, so the search runs only on ground still to convert.
+                if (state.`is`(sourceTarget.block)) return@repeat
+                // The stage follows each block's own depth into the swamp, not its 4-block biome cell.
+                val front = frontDepth(level, bx, by, bz) < DAMP_DEPTH
+                val staged = if (front) frontStage(state, sourceTarget, mud, damp) else sourceTarget
+                if (staged == null) {
+                    stagedWaiting++
+                    return@repeat
+                }
+                mutPos.set(bx, by, bz)
+                converted++
+                // Flag 2 | 16: see the boundary-fringe setBlock above.
+                setShapeAware(level, mutPos, state, staged, 2 or 16)
 
                 // Spread happens in [tickFrontierSpread], not per-random-tick — sampled
                 // directly from the per-chunk frontier bitmask in [ChunkSpreadState] so
@@ -1137,6 +1234,170 @@ object WohlonnogondoniaSpreader {
             }
         }
         return converted
+    }
+
+    /**
+     * The pioneer stage of a conversion at the front: ground goes damp before it goes to mud, and the
+     * wogor wood and leaves wait for the interior. Undergrowth swaps go ahead. Null: wait.
+     */
+    private fun frontStage(source: BlockState, target: BlockState, mud: Block, damp: BlockState): BlockState? = when {
+        // Wohlon mud is shovel ground too, so it matches its own conversion; it is already final.
+        source.`is`(target.block) -> null
+        target.`is`(mud) -> if (source.`is`(damp.block)) null else damp
+        target.`is`(BlockTags.LOGS) || target.`is`(BlockTags.LEAVES) -> null
+        else -> target
+    }
+
+    private fun isStillWater(state: BlockState): Boolean = state.`is`(Blocks.WATER) && state.fluidState.isSource
+
+    /** Ground conversions of the last [tickChunkConversions] call that wait for a later stage. Server thread only. */
+    private var stagedWaiting = 0
+
+    /**
+     * Horizontal blocks from a block to the nearest non-Wohlon cell among the 8 around its cell, moved by
+     * block-scale noise so the stage edges wander. [DEPTH_FAR] when every one of them is Wohlon. Only
+     * sideways cells count: the cells under the ground surface may not be Wohlon yet.
+     */
+    private fun frontDepth(level: ServerLevel, bx: Int, by: Int, bz: Int): Double {
+        val qx = bx shr 2; val qy = by shr 2; val qz = bz shr 2
+        val px = bx + 0.5; val pz = bz + 0.5
+        var best = DEPTH_FAR
+        for (dqx in -1..1) for (dqz in -1..1) {
+            if (dqx == 0 && dqz == 0) continue
+            val cell = getBiomeCellNonLoading(level, qx + dqx, qy, qz + dqz) ?: continue
+            if (isWohlon(cell)) continue
+            val minX = (qx + dqx) * 4.0; val minZ = (qz + dqz) * 4.0
+            val dx = if (px < minX) minX - px else if (px > minX + 4.0) px - minX - 4.0 else 0.0
+            val dz = if (pz < minZ) minZ - pz else if (pz > minZ + 4.0) pz - minZ - 4.0 else 0.0
+            val d = Math.sqrt(dx * dx + dz * dz)
+            if (d < best) best = d
+        }
+        val wobble = SPREAD_BOUNDARY_NOISE.noise(
+            bx * DEPTH_NOISE_FREQUENCY, by * DEPTH_NOISE_FREQUENCY, bz * DEPTH_NOISE_FREQUENCY, 0.0, 0.0,
+        )
+        return best + wobble * DEPTH_NOISE
+    }
+
+    // Server thread only.
+    private val pioneerPos = BlockPos.MutableBlockPos()
+
+    private fun sturdyTop(level: ServerLevel, state: BlockState, x: Int, y: Int, z: Int): Boolean =
+        state.fluidState.isEmpty && state.isFaceSturdy(level, pioneerPos.set(x, y, z), Direction.UP)
+
+    // A block read that never loads a chunk; null when the chunk is not loaded.
+    private fun stateNow(level: ServerLevel, x: Int, y: Int, z: Int): BlockState? {
+        val chunk = level.chunkSource.getChunkNow(x shr 4, z shr 4) ?: return null
+        pioneerPos.set(x, y, z)
+        return chunk.getBlockState(pioneerPos)
+    }
+
+    /**
+     * One pioneer plant at the front, by the dimension's wetland zones ([WohlonWetlandZones]): reeds in the
+     * shore band, duckweed on enclosed pools, lily pads on open water under open sky, leaf litter on shaded
+     * damp ground. Each column's roll is a hash of its position, not a fresh random, so repeated tries settle
+     * at the dimension's density instead of filling every spot. True when a plant went in.
+     */
+    private fun placePioneer(level: ServerLevel, x: Int, y: Int, z: Int, state: BlockState): Boolean {
+        val above = stateNow(level, x, y + 1, z) ?: return false
+        if (!above.isAir) return false
+        if (isStillWater(state)) {
+            val grid = wetAround.at(level, x, y, z)
+            val depth = waterDepthNow(level, x, y, z)
+            val landDistance = WohlonWetlandZones.landDistance(grid)
+            if (WohlonWetlandZones.reedInWater(depth, landDistance) && columnRoll(x, z, ROLL_REED) < WohlonWetlandZones.reedChance(x, z)) {
+                return placeReed(level, x, y, z, waterlogged = true)
+            }
+            val enclosure = WohlonWetlandZones.enclosure(grid)
+            if (columnRoll(x, z, ROLL_DUCKWEED) < WohlonWetlandZones.duckweedChance(enclosure, landDistance)) {
+                return placeIfSurvives(level, x, y + 1, z, EKBlocks.WOHLON_DUCKWEED.get().defaultBlockState())
+            }
+            if (!WohlonWetlandZones.lilyWater(depth, enclosure) || !openSky(level, x, y, z)) return false
+            if (columnRoll(x, z, ROLL_LILY) >= WohlonWetlandZones.lilyChance(x, z)) return false
+            return placeIfSurvives(level, x, y + 1, z, EKBlocks.WOHLON_LILY_PAD.get().defaultBlockState())
+        }
+        val below = stateNow(level, x, y - 1, z) ?: return false
+        if (!sturdyTop(level, below, x, y - 1, z)) return false
+        // Ground flush with water beside it is the shore: only the reed band grows there, as in the dimension.
+        val shore = wetAround.at(level, x, y - 1, z)
+        if (WohlonWetlandZones.waterDistance(shore) <= WohlonWetlandZones.WATER_REACH) {
+            if (!WohlonWetlandZones.reedOnLand(WohlonWetlandZones.waterDistance(shore))) return false
+            if (columnRoll(x, z, ROLL_REED) >= WohlonWetlandZones.reedChance(x, z)) return false
+            return placeReed(level, x, y, z, waterlogged = false)
+        }
+        if (!isLitterGround(below)) return false
+        if (columnRoll(x, z, ROLL_LITTER) >= WohlonWetlandZones.litterChance(x, z, shadedNow(level, x, y - 1, z))) return false
+        return placeIfSurvives(level, x, y, z, EKBlocks.WOHLON_LEAF_LITTER.get().defaultBlockState())
+    }
+
+    // The dimension's floor is mud; at the front the ground may still be in its damp stage.
+    private fun isLitterGround(state: BlockState): Boolean =
+        state.`is`(EKBlocks.WOHLON_MUD.get()) || state.`is`(Blocks.MUD) || state.`is`(Blocks.PODZOL)
+
+    /** Standing water around a column at one height, read without loading chunks. Server thread only. */
+    private class WetAround : WohlonWetlandZones.WetGrid {
+        private var level: ServerLevel? = null
+        private var x = 0
+        private var y = 0
+        private var z = 0
+
+        fun at(level: ServerLevel, x: Int, y: Int, z: Int): WetAround {
+            this.level = level; this.x = x; this.y = y; this.z = z
+            return this
+        }
+
+        override fun wet(dx: Int, dz: Int): Boolean {
+            val lvl = level ?: return false
+            val s = stateNow(lvl, x + dx, y, z + dz) ?: return false
+            return s.fluidState.`is`(FluidTags.WATER)
+        }
+    }
+
+    private val wetAround = WetAround()
+
+    private fun waterDepthNow(level: ServerLevel, x: Int, y: Int, z: Int): Int {
+        var depth = 0
+        while (depth <= WohlonWetlandZones.LILY_MAX_DEPTH) {
+            val s = stateNow(level, x, y - depth, z) ?: break
+            if (!s.`is`(Blocks.WATER)) break
+            depth++
+        }
+        return depth
+    }
+
+    // LevelChunk.getHeight is the top block; Level.getHeight, which worldgen reads, is one above it.
+    private fun openSky(level: ServerLevel, x: Int, y: Int, z: Int): Boolean {
+        val chunk = level.chunkSource.getChunkNow(x shr 4, z shr 4) ?: return false
+        return chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x and 15, z and 15) <= y
+    }
+
+    private fun shadedNow(level: ServerLevel, x: Int, groundY: Int, z: Int): Boolean {
+        val chunk = level.chunkSource.getChunkNow(x shr 4, z shr 4) ?: return false
+        return chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x and 15, z and 15) > groundY
+    }
+
+    /** A fixed value in [0, 1) for a column and a plant. */
+    private fun columnRoll(x: Int, z: Int, salt: Int): Float {
+        var h = net.minecraft.util.Mth.getSeed(x, salt, z)
+        h = (h xor (h ushr 31)) * -0x4b47d5b1L
+        h = h xor (h ushr 29)
+        return ((h ushr 40).toFloat() / (1L shl 24).toFloat())
+    }
+
+    private fun placeIfSurvives(level: ServerLevel, x: Int, y: Int, z: Int, plant: BlockState): Boolean {
+        pioneerPos.set(x, y, z)
+        if (!plant.canSurvive(level, pioneerPos)) return false
+        return level.setBlock(pioneerPos, plant, 2 or 16)
+    }
+
+    private fun placeReed(level: ServerLevel, x: Int, y: Int, z: Int, waterlogged: Boolean): Boolean {
+        val reed = EKBlocks.WOHLON_REED.get().defaultBlockState()
+        val lower = reed.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER).setValue(WohlonReedBlock.WATERLOGGED, waterlogged)
+        pioneerPos.set(x, y, z)
+        if (!lower.canSurvive(level, pioneerPos)) return false
+        if (!level.setBlock(pioneerPos, lower, 2 or 16)) return false
+        pioneerPos.set(x, y + 1, z)
+        level.setBlock(pioneerPos, reed.setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER), 2 or 16)
+        return true
     }
 
     /** Get-or-compute the per-chunk section bitmask. A `0L` entry
@@ -1238,7 +1499,7 @@ object WohlonnogondoniaSpreader {
         state.frontierCount = count
         state.frontierPopulated = true
         if (count > 0) {
-            activeFrontierChunks.computeIfAbsent(level.dimension()) { LongOpenHashSet() }.add(chunk.pos.toLong())
+            activeFrontierChunks.computeIfAbsent(level.dimension()) { IndexedLongSet() }.add(chunk.pos.toLong())
         }
     }
 
@@ -1387,7 +1648,7 @@ object WohlonnogondoniaSpreader {
         bits[sectionIdx] = bits[sectionIdx] or mask
         state.frontierCount++
         if (state.frontierCount == 1) {
-            activeFrontierChunks.computeIfAbsent(dimKey) { LongOpenHashSet() }.add(chunkLong)
+            activeFrontierChunks.computeIfAbsent(dimKey) { IndexedLongSet() }.add(chunkLong)
         }
     }
 
@@ -1472,10 +1733,8 @@ object WohlonnogondoniaSpreader {
 
     /** How many spread samples to attempt per tick. Each sample
      *  picks a random frontier cell and tries to enqueue one
-     *  random non-Wohlon neighbour for conversion. Set to track
-     *  the [SPREAD_DRAIN_PER_SEC] downstream throughput at typical
-     *  hit-rate (~50 % of picks land on a non-Wohlon neighbour);
-     *  the spread queue absorbs the difference and the drain
+     *  random non-Wohlon neighbour for conversion. The spread queue
+     *  holds the surplus over [SPREAD_DRAIN_PER_SEC], and the drain
      *  meters everything out at the bounded rate. Multiplied by
      *  the `wohlonSpreadSpeed` gamerule so the front advances
      *  faster at higher speeds. */
@@ -1508,8 +1767,6 @@ object WohlonnogondoniaSpreader {
     /** Pick `FRONTIER_SAMPLES_PER_TICK_BASE × spreadSpeed` random
      *  frontier cells from [activeFrontierChunks] and enqueue a
      *  random non-Wohlon neighbour for each. Cost per tick:
-     *   - O(|activeFrontierChunks|) for the `toLongArray()`
-     *     snapshot (a few hundred entries on a mature biome).
      *   - O(24) per sample for the bit pick within a chunk.
      *   - 6 `getBiomeCellNonLoading` reads per sample for the
      *     neighbour direction roll.
@@ -1526,16 +1783,10 @@ object WohlonnogondoniaSpreader {
         if (samples <= 0) return
         val states = statesFor(dimKey)
         val random = level.random
-        // Snapshot the active set so concurrent mutations from a
-        // spread enqueue don't trip us mid-iteration. The set's
-        // typical size is the boundary cell count divided by
-        // (boundary cells per chunk) — a few hundred at most for
-        // even a r=500 biome.
-        val snapshot = active.toLongArray()
-        if (snapshot.isEmpty()) return
 
+        // Nothing in the loop changes [active]: the enqueue only fills the spread queue.
         repeat(samples) {
-            val chunkLong = snapshot[random.nextInt(snapshot.size)]
+            val chunkLong = active.get(random.nextInt(active.size))
             val state = states[chunkLong] ?: return@repeat
             val bits = state.frontierBits ?: return@repeat
             val count = state.frontierCount
@@ -1563,15 +1814,16 @@ object WohlonnogondoniaSpreader {
             if (sectionIdx < 0) return@repeat
 
             // Decode (sectionIdx, bitInLong) → world quarter-coords.
-            val cPos = ChunkPos(chunkLong)
-            val chunk = level.chunkSource.getChunkNow(cPos.x, cPos.z) ?: return@repeat
+            val cx = ChunkPos.getX(chunkLong)
+            val cz = ChunkPos.getZ(chunkLong)
+            val chunk = level.chunkSource.getChunkNow(cx, cz) ?: return@repeat
             val sectionWorldY = (chunk.minSection + sectionIdx) shl 2
             val qyLocal = (bitInLong shr 4) and 3
             val qxLocal = (bitInLong shr 2) and 3
             val qzLocal = bitInLong and 3
-            val qx = (cPos.x shl 2) or qxLocal
+            val qx = (cx shl 2) or qxLocal
             val qy = sectionWorldY or qyLocal
-            val qz = (cPos.z shl 2) or qzLocal
+            val qz = (cz shl 2) or qzLocal
 
             // Visual de-grid #2: pick a neighbour from the
             // 26-direction set with face / edge / vertex weighting
@@ -1620,9 +1872,68 @@ object WohlonnogondoniaSpreader {
             // means the biome doesn't bleed into open sky around tainted
             // ground, only climbs the column directly above it.
             if (cellIsAllAir(level, nqx, nqy, nqz)) return@repeat
-            if (!sameSpreadScope(level, cPos.x, cPos.z, nqx shr 2, nqz shr 2)) return@repeat
+            if (!sameSpreadScope(level, cx, cz, nqx shr 2, nqz shr 2)) return@repeat
+            val sourceWet = cellWet(level, qx, qy, qz)
+            val targetWet = cellWet(level, nqx, nqy, nqz)
+            if (random.nextFloat() >= acceptance(level, neighbor, nqy, dy, sourceWet, targetWet)) return@repeat
             enqueueCellSpread(level, nqx, nqy, nqz)
+            if (sourceWet && targetWet && dy <= 0 && (dx != 0 || dz != 0)) hopAlongWater(level, cx, cz, nqx, nqy, nqz, dx, dz)
         }
+    }
+
+    /**
+     * How readily the swamp takes a cell: wet, low and temperate cells first; frozen, arid and high
+     * ground resist. Water to water runs as a corridor: always level or downstream, slower upstream.
+     */
+    @Suppress("LongParameterList") // The candidate cell and how it relates to its source.
+    private fun acceptance(level: ServerLevel, target: Holder<Biome>, nqy: Int, dy: Int, sourceWet: Boolean, targetWet: Boolean): Float {
+        if (sourceWet && targetWet) return if (dy > 0) UPSTREAM else 1f
+        var a = if (targetWet) 1f else DRY_TARGET
+        a *= when {
+            dy > 0 -> UPHILL
+            dy == 0 -> LEVEL_GROUND
+            else -> 1f
+        }
+        val biome = target.value()
+        if (biome.baseTemperature < FROZEN_TEMPERATURE) a *= FROZEN else if (!biome.hasPrecipitation()) a *= ARID
+        val above = (nqy shl 2) - level.seaLevel
+        if (above > HIGHER_GROUND) a *= HIGHER_FACTOR else if (above > HIGH_GROUND) a *= HIGH_FACTOR
+        return a.coerceIn(ACCEPT_FLOOR, 1f)
+    }
+
+    /** Carries the spread further along a water run, at the same level or one cell down. Bounded by [WATER_HOP_MAX]. */
+    @Suppress("LongParameterList") // A cell, its chunk and a direction.
+    private fun hopAlongWater(level: ServerLevel, cx: Int, cz: Int, startQx: Int, startQy: Int, startQz: Int, dx: Int, dz: Int) {
+        var qx = startQx
+        var qy = startQy
+        var qz = startQz
+        repeat(WATER_HOP_MAX) {
+            qx += dx
+            qz += dz
+            if (!cellWet(level, qx, qy, qz)) {
+                if (!cellWet(level, qx, qy - 1, qz)) return
+                qy--
+            }
+            val cell = getBiomeCellNonLoading(level, qx, qy, qz) ?: return
+            if (isWohlon(cell)) return
+            if (!sameSpreadScope(level, cx, cz, qx shr 2, qz shr 2)) return
+            enqueueCellSpread(level, qx, qy, qz)
+        }
+    }
+
+    // Three spread-out sample blocks; a wet cell holds water in any of them. Never loads a chunk.
+    private fun cellWet(level: ServerLevel, qx: Int, qy: Int, qz: Int): Boolean {
+        val chunk = level.chunkSource.getChunkNow(qx shr 2, qz shr 2) ?: return false
+        val sectionIdx = (qy shr 2) - chunk.minSection
+        if (sectionIdx < 0 || sectionIdx >= chunk.sections.size) return false
+        val section = chunk.sections[sectionIdx]
+        if (section.hasOnlyAir()) return false
+        val bx = (qx shl 2) and 15
+        val by = (qy shl 2) and 15
+        val bz = (qz shl 2) and 15
+        return section.getFluidState(bx + 1, by, bz + 2).`is`(FluidTags.WATER) ||
+            section.getFluidState(bx + 2, by + 2, bz + 1).`is`(FluidTags.WATER) ||
+            section.getFluidState(bx + 1, by + 3, bz + 1).`is`(FluidTags.WATER)
     }
 
     /** Map a block-state to its conversion target via the
@@ -1659,6 +1970,16 @@ object WohlonnogondoniaSpreader {
             level.setBlock(pos, if (picked.`is`(EKBlocks.WOGOR_WOOD.get())) target else picked, flags)
             return
         }
+        if (target.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF)) {
+            // A lone converted half breaks on its next neighbour update, so convert the pair together.
+            val half = target.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF)
+            val lower = half == DoubleBlockHalf.LOWER
+            val otherPos = if (lower) pos.above() else pos.below()
+            if (level.getBlockState(otherPos).`is`(source.block)) {
+                val otherHalf = if (lower) DoubleBlockHalf.UPPER else DoubleBlockHalf.LOWER
+                level.setBlock(otherPos, target.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, otherHalf), flags)
+            }
+        }
         level.setBlock(pos, target, flags)
     }
 
@@ -1668,7 +1989,7 @@ object WohlonnogondoniaSpreader {
         level: ServerLevel,
         qx: Int, qy: Int, qz: Int,
         biome: Holder<Biome>,
-        touchedChunks: MutableSet<ChunkPos>,
+        touchedChunks: LongOpenHashSet,
     ): Boolean {
         val cx = qx shr 2
         val cz = qz shr 2
@@ -1689,7 +2010,7 @@ object WohlonnogondoniaSpreader {
         // subsequent flips in the same chunk this tick skip the
         // HashSet.add roundtrip on the persisted set. Pre-fix this
         // was 4 s of profile time at default settings.
-        if (touchedChunks.add(chunk.pos)) {
+        if (touchedChunks.add(chunk.pos.toLong())) {
             markTainted(getTaintedData(level), chunk.pos)
             pendingResyncs.getOrPut(level.dimension()) { LongOpenHashSet() }.add(chunk.pos.toLong())
         }
@@ -1724,6 +2045,9 @@ object WohlonnogondoniaSpreader {
 
     private fun isWohlon(biome: Holder<Biome>): Boolean = biome.`is`(Wohlonnogondonia.BIOME_KEY)
 
+    private fun isWohlonCell(level: ServerLevel, qx: Int, qy: Int, qz: Int): Boolean =
+        getBiomeCellNonLoading(level, qx, qy, qz)?.let(::isWohlon) == true
+
     private fun lookupBiome(level: ServerLevel): Holder<Biome>? {
         return level.registryAccess()
             .registryOrThrow(Registries.BIOME)
@@ -1732,7 +2056,10 @@ object WohlonnogondoniaSpreader {
     }
 
     private fun markTainted(data: TaintedChunkData, pos: ChunkPos) {
-        if (data.positions.add(pos.toLong())) data.setDirty()
+        val packed = pos.toLong()
+        if (!data.positions.add(packed)) return
+        data.order.add(packed)
+        data.setDirty()
     }
 
     private fun getTaintedData(level: ServerLevel): TaintedChunkData {
@@ -1743,20 +2070,52 @@ object WohlonnogondoniaSpreader {
         )
     }
 
-    /** Snapshot of every chunk in [level] that has ever held a Wohlon
-     *  biome cell, encoded as `ChunkPos.toLong()` values. Returned as a
-     *  fresh array so callers can iterate without holding the data
-     *  structure's lock. Empty array means "no Wohlon biome in this
-     *  level" — a useful zero-cost early-out for per-tick scanners
-     *  (e.g. [org.shipwrights.enderkinesis.entity.WohlonAnimalConversion]). */
-    @JvmStatic
-    fun getTaintedChunkSnapshot(level: ServerLevel): LongArray =
-        getTaintedData(level).positions.toLongArray()
+    /** Each loaded chunk of [level] that holds a Wohlon cell, as `ChunkPos.toLong()`. A chunk
+     *  that loaded less than [TAINTED_DISCOVERY_INTERVAL_TICKS] ago can be missing. */
+    fun forEachLoadedWohlonChunk(level: ServerLevel, action: LongConsumer) {
+        val states = chunkStates[level.dimension()] ?: return
+        val chunkSource = level.chunkSource
+        for ((packed, state) in states) {
+            if (state.sectionMask == 0L) continue
+            if (chunkSource.getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed)) == null) continue
+            action.accept(packed)
+        }
+    }
 
     /** Compact (qx, qy, qz) tuple used while building the cell
      *  pool inside [trySpread]. Inline-`data class` lets us avoid
      *  manual hashCode/equals for the same flat-array effort. */
     private data class CellCoord(val qx: Int, val qy: Int, val qz: Int)
+
+    /** Long set with O(1) add, remove and random index read. Swap-remove changes the order. */
+    private class IndexedLongSet {
+        private val values = LongArrayList()
+        private val indexOf = Long2IntOpenHashMap().apply { defaultReturnValue(-1) }
+
+        val size: Int get() = values.size
+
+        fun isEmpty(): Boolean = values.isEmpty()
+
+        fun get(index: Int): Long = values.getLong(index)
+
+        fun add(value: Long): Boolean {
+            if (indexOf.containsKey(value)) return false
+            indexOf.put(value, values.size)
+            values.add(value)
+            return true
+        }
+
+        fun remove(value: Long): Boolean {
+            val index = indexOf.remove(value)
+            if (index < 0) return false
+            val last = values.removeLong(values.size - 1)
+            if (index < values.size) {
+                values.set(index, last)
+                indexOf.put(last, index)
+            }
+            return true
+        }
+    }
 
     /** Per-portal seed job: a queue of biome cells to convert
      *  + a ticks-remaining counter. Created by [startPortalSeed]
@@ -1769,6 +2128,9 @@ object WohlonnogondoniaSpreader {
 
         @JvmField val positions: LongOpenHashSet = LongOpenHashSet()
 
+        /** [positions] in index form for random picks. Not saved; [load] rebuilds it. */
+        @JvmField val order: LongArrayList = LongArrayList()
+
         override fun save(tag: CompoundTag): CompoundTag {
             tag.put("positions", LongArrayTag(positions.toLongArray()))
             return tag
@@ -1778,7 +2140,9 @@ object WohlonnogondoniaSpreader {
             fun load(tag: CompoundTag): TaintedChunkData {
                 val data = TaintedChunkData()
                 if (tag.contains("positions", Tag.TAG_LONG_ARRAY.toInt())) {
-                    for (v in tag.getLongArray("positions")) data.positions.add(v)
+                    for (v in tag.getLongArray("positions")) {
+                        if (data.positions.add(v)) data.order.add(v)
+                    }
                 }
                 return data
             }

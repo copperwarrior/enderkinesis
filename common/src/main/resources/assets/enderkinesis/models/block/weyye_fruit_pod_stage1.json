@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/cocoa_stage1",
+  "textures": {
+    "cocoa": "enderkinesis:block/weyye_fruit_pod_stage1",
+    "particle": "enderkinesis:block/weyye_fruit_pod_stage1"
+  }
+}

@@ -7,10 +7,13 @@ import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.HumanoidArm
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
+import org.joml.Matrix4f
+import org.shipwrights.enderkinesis.item.IncantationOfWindsItem
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
 import kotlin.math.cos
@@ -36,6 +39,7 @@ object IncantationOfWindsClient {
     fun tick(mc: Minecraft) {
         val level = mc.level ?: return
         if (mc.isPaused) return
+        WindConeVolume.tick(level)
         val item = EKItems.INCANTATION_OF_WINDS.get()
         val localFirstPerson = mc.options.cameraType.isFirstPerson
 
@@ -43,9 +47,12 @@ object IncantationOfWindsClient {
             val isLocalFp = player === mc.player && localFirstPerson
             for (hand in InteractionHand.values()) {
                 if (!player.getItemInHand(hand).`is`(item)) continue
+                if (isCastingWinds(player, hand)) {
+                    spawnStream(player)
+                    IncantationOfWindsSounds.loop(player)
+                    continue
+                }
                 if (isLocalFp) continue // handled by the hand-space motes below
-                // The idle shimmer yields to the blast while casting.
-                if (isCastingWinds(player, hand)) continue
                 spawnWorldHandDust(player, hand)
             }
         }
@@ -75,6 +82,140 @@ object IncantationOfWindsClient {
             (rnd.nextDouble() - 0.5) * 0.01,
         )
     }
+
+    /** Flames-style stream: wisps and glitter motes, each sent to a random end point in the cone. */
+    private fun spawnStream(player: Player) {
+        val level = player.level()
+        val rnd = level.random
+        val palm = castingPalm(player, 1f)
+        val hand = palm.position
+        val normal = palm.normal
+        val axis = streamAxis(player, hand, 1f)
+        val u = axis.cross(if (kotlin.math.abs(axis.y) > 0.99) Vec3(1.0, 0.0, 0.0) else Vec3(0.0, 1.0, 0.0)).normalize()
+        val w = axis.cross(u)
+        val spread = IncantationOfWindsItem.TAN_HALF_ANGLE
+        val range = IncantationOfWindsItem.RANGE
+        val engine = Minecraft.getInstance().particleEngine
+
+        fun coneDirection(radial: Double): Vec3 {
+            val theta = rnd.nextDouble() * 2.0 * Math.PI
+            val c = cos(theta) * radial * spread
+            val s = sin(theta) * radial * spread
+            return Vec3(axis.x + u.x * c + w.x * s, axis.y + u.y * c + w.y * s, axis.z + u.z * c + w.z * s)
+        }
+        fun jitter() = (rnd.nextDouble() - 0.5) * HAND_JITTER
+
+        repeat(WISPS_PER_TICK) {
+            val travel = coneDirection(kotlin.math.sqrt(rnd.nextDouble())).scale(range * (0.8 + rnd.nextDouble() * 0.25))
+            // Made through the engine, not level.addParticle, to get the particle back for its launch.
+            val wisp = engine.createParticle(
+                EKParticles.windWisp(),
+                hand.x + jitter(), hand.y + jitter(), hand.z + jitter(),
+                travel.x, travel.y, travel.z,
+            )
+            (wisp as? WindConeParticle)?.launch(
+                normal.x * WISP_LAUNCH_SPEED,
+                normal.y * WISP_LAUNCH_SPEED,
+                normal.z * WISP_LAUNCH_SPEED,
+            )
+        }
+        // Gust motes take a true velocity, not a travel vector.
+        repeat(SPARKLES_PER_TICK) {
+            val velocity = coneDirection(rnd.nextDouble()).scale(SPARKLE_SPEED).add(normal.scale(SPARKLE_LAUNCH_SPEED))
+            level.addParticle(
+                EKParticles.windGust(),
+                hand.x + jitter(), hand.y + jitter(), hand.z + jitter(),
+                velocity.x, velocity.y, velocity.z,
+            )
+        }
+    }
+
+    /** Centre and outward normal of the casting palm: the end face of the blocky arm. */
+    class Palm(val position: Vec3, val normal: Vec3)
+
+    /** The first-person hand pass uses a fixed 70° FOV, so a world point that covers the drawn palm
+     *  needs the world FOV too. Call each frame with the level projection. */
+    fun noteWorldProjection(projection: Matrix4f) {
+        worldTanHalfFov = 1.0 / projection.m11()
+    }
+
+    private var worldTanHalfFov = HAND_TAN_HALF_FOV
+
+    fun castingPalm(player: Player, partialTick: Float): Palm {
+        val mc = Minecraft.getInstance()
+        val arm = if (player.usedItemHand == InteractionHand.MAIN_HAND) player.mainArm else player.mainArm.opposite
+        val side = if (arm == HumanoidArm.RIGHT) 1.0 else -1.0
+        return if (isViewedFromOwnEyes(player)) {
+            firstPersonPalm(player, side, partialTick)
+        } else {
+            WindPalmCapture.palm(player) ?: modelPalm(player, side, partialTick)
+        }
+    }
+
+    /** False for a third-person view, and for a camera that left the body (e.g. Freecam) while the camera
+     *  type stays first person. */
+    fun isViewedFromOwnEyes(player: Player): Boolean {
+        val mc = Minecraft.getInstance()
+        return player === mc.cameraEntity && !mc.gameRenderer.mainCamera.isDetached
+    }
+
+    /** The palm as drawn by the first-person cast pose (tilt, then offset), moved from hand-pass camera space to world. */
+    private fun firstPersonPalm(player: Player, side: Double, partialTick: Float): Palm {
+        val tilt = Math.toRadians(castTiltDegrees(player, partialTick).toDouble())
+        val c = cos(tilt)
+        val s = sin(tilt)
+        val py = FP_PALM_Y + castOscillation(player, partialTick)
+        val pz = FP_PALM_Z - castForwardOffset(player, partialTick)
+        val k = worldTanHalfFov / HAND_TAN_HALF_FOV
+        val camX = FP_PALM_X * side * k
+        val camY = (py * c - pz * s) * k
+        val camZ = py * s + pz * c
+        val nX = FP_PALM_NORMAL_X * side * k
+        val nY = (FP_PALM_NORMAL_Y * c - FP_PALM_NORMAL_Z * s) * k
+        val nZ = FP_PALM_NORMAL_Y * s + FP_PALM_NORMAL_Z * c
+
+        val fwd = player.getViewVector(partialTick)
+        val yawRad = Math.toRadians(player.getViewYRot(partialTick).toDouble())
+        val right = Vec3(-cos(yawRad), 0.0, -sin(yawRad))
+        val up = right.cross(fwd)
+        val position = player.getEyePosition(partialTick)
+            .add(right.scale(camX))
+            .add(up.scale(camY))
+            .add(fwd.scale(-camZ))
+        val normal = right.scale(nX).add(up.scale(nY)).add(fwd.scale(-nZ)).normalize()
+        return Palm(position, normal)
+    }
+
+    /** Estimate of the third-person palm, for a player the level pass did not draw. */
+    private fun modelPalm(player: Player, side: Double, partialTick: Float): Palm {
+        val t = player.ticksUsingItem + partialTick
+        // The pose lerps from the hanging arm (xRot 0) by the cast progress.
+        val armXRot = (TP_CAST_ARM_X_ROT + sin((t * CAST_OSC_FREQ).toDouble()) * TP_CAST_OSC_RAD) *
+            castProgress(player, partialTick)
+        val ca = cos(armXRot)
+        val sa = sin(armXRot)
+        // LivingEntityRenderer: rotate by 180 - body yaw, scale (-1, -1, 1), then the player scale.
+        val lx = side * TP_PALM_SIDE * PLAYER_MODEL_SCALE
+        val ly = (MODEL_ORIGIN_Y - TP_SHOULDER_Y - TP_ARM_LENGTH * ca) * PLAYER_MODEL_SCALE
+        val lz = TP_ARM_LENGTH * sa * PLAYER_MODEL_SCALE
+
+        val yawRad = Math.toRadians(Mth.lerp(partialTick, player.yBodyRotO, player.yBodyRot).toDouble())
+        val right = Vec3(-cos(yawRad), 0.0, -sin(yawRad))
+        val forward = Vec3(-sin(yawRad), 0.0, cos(yawRad))
+        val position = player.getPosition(partialTick)
+            .add(right.scale(lx))
+            .add(0.0, ly, 0.0)
+            .add(forward.scale(-lz))
+        val normal = forward.scale(-sa).add(0.0, -ca, 0.0)
+        return Palm(position, normal)
+    }
+
+    /** Aims from the hand at the cone's far centre, so the stream converges on the crosshair. */
+    fun streamAxis(player: Player, hand: Vec3, partialTick: Float): Vec3 =
+        player.getEyePosition(partialTick)
+            .add(player.getViewVector(partialTick).scale(IncantationOfWindsItem.RANGE))
+            .subtract(hand)
+            .normalize()
 
     // ------------------------------------------- first-person mote system
 
@@ -295,6 +436,37 @@ object IncantationOfWindsClient {
     }
 
     // -------------------------------------------------------------- tuning
+
+    private const val WISPS_PER_TICK = 6
+    private const val SPARKLES_PER_TICK = 2
+
+    /** Gust mote speed along the cone, blocks/tick; with its ~17-tick life it reaches about [IncantationOfWindsItem.RANGE]. */
+    private const val SPARKLE_SPEED = 1.4
+
+    private const val HAND_JITTER = 0.15
+
+    /** Start speed along the palm normal, blocks/tick. Wisps lose theirs; gust motes keep it. */
+    private const val WISP_LAUNCH_SPEED = 0.5
+    private const val SPARKLE_LAUNCH_SPEED = 0.3
+
+    /** tan(35°): the hand pass always draws at 70° FOV. */
+    private const val HAND_TAN_HALF_FOV = 0.7002075382097097
+
+    /** Right-arm end-face centre and normal in hand-pass camera space before the cast pose, from vanilla
+     *  renderPlayerArm (no swing, fully equipped) and the PlayerModel arm (wide skin, zRot 0.1). */
+    private const val FP_PALM_X = 0.755
+    private const val FP_PALM_Y = -0.438
+    private const val FP_PALM_Z = -1.095
+    private const val FP_PALM_NORMAL_X = 0.369
+    private const val FP_PALM_NORMAL_Y = 0.541
+    private const val FP_PALM_NORMAL_Z = -0.756
+
+    /** Wide-skin PlayerModel arm, blocks: shoulder pivot height, pivot to end face, palm off the body centre line. */
+    private const val TP_SHOULDER_Y = 2.0 / 16.0
+    private const val TP_ARM_LENGTH = 10.0 / 16.0
+    private const val TP_PALM_SIDE = 6.0 / 16.0
+    private const val MODEL_ORIGIN_Y = 1.501
+    private const val PLAYER_MODEL_SCALE = 0.9375
 
     /** Per-tick spawn chance per held hand — 0.7 ≈ 1.4× the old 1-in-2 rate. */
     private const val HAND_DUST_CHANCE = 0.7f

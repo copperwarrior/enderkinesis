@@ -1,0 +1,15 @@
+{
+  "entities": [
+    "minecraft:zombie",
+    "minecraft:husk",
+    "minecraft:drowned",
+    "minecraft:zombie_villager",
+    "minecraft:giant",
+    "minecraft:zombified_piglin"
+  ],
+  "zombie": true,
+  "equipment": {
+    "mainhand": "inherit",
+    "offhand": "inherit"
+  }
+}

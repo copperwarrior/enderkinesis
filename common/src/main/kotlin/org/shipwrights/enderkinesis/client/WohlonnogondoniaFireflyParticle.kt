@@ -28,8 +28,7 @@ import kotlin.math.sin
  *    canopy, defeating the "glowing" reading. `getLightColor` is pinned to LightTexture
  *    fullbright so they look the same in a dark grove and in open mud flats.
  *
- * Spawned by [WohlonnogondoniaFireflies] at low density on the client, only while the
- * local player is in Wohlon.
+ * Spawned by [WohlonnogondoniaFireflies], at most 32 alive near the player.
  */
 open class WohlonnogondoniaFireflyParticle(
     level: ClientLevel,
@@ -50,15 +49,17 @@ open class WohlonnogondoniaFireflyParticle(
     private var lastFrame: Int = -1
 
     init {
-        // Light teal — brighter cousin of the Wohlon biome foliage colour
-        // (#2E4D59 in the biome JSON). Approx RGB (142, 212, 200) — sits in
-        // the same hue family but with enough lift to read as a glow.
-        rCol = 0.557f
-        gCol = 0.831f
-        bCol = 0.784f
+        // Light teal (#8ED4C8), a brighter cousin of the biome foliage colour, shifted a little
+        // toward green or toward blue so a cloud of them is not one flat colour.
+        val shift = random.nextFloat() * 2f - 1f
+        val toward = if (shift > 0f) GREENER else BLUER
+        val k = Math.abs(shift) * HUE_SHIFT_MAX
+        rCol = BASE_R + (toward[0] - BASE_R) * k
+        gCol = BASE_G + (toward[1] - BASE_G) * k
+        bCol = BASE_B + (toward[2] - BASE_B) * k
         alpha = 0.0f
 
-        quadSize = 0.04f + random.nextFloat() * 0.03f
+        quadSize = 0.035f + random.nextFloat() * 0.045f
 
         gravity = 0.0f
         hasPhysics = false
@@ -68,9 +69,7 @@ open class WohlonnogondoniaFireflyParticle(
         yd = 0.0
         zd = 0.0
 
-        // ~15–30 s lifetime. At the low spawn rate set by
-        // [WohlonnogondoniaFireflies] this yields a steady-state population
-        // of single-digit fireflies in the player's visible volume.
+        // 15–30 s.
         lifetime = 300 + random.nextInt(300)
 
         setSpriteFromIndex(0)
@@ -130,6 +129,12 @@ open class WohlonnogondoniaFireflyParticle(
 
     companion object {
         private const val SPRITE_SET_SIZE = 8
+        private const val BASE_R = 0.557f
+        private const val BASE_G = 0.831f
+        private const val BASE_B = 0.784f
+        private const val HUE_SHIFT_MAX = 0.5f
+        private val GREENER = floatArrayOf(0.60f, 0.87f, 0.64f)
+        private val BLUER = floatArrayOf(0.50f, 0.78f, 0.88f)
     }
 
     class Provider(private val sprites: SpriteSet) : ParticleProvider<SimpleParticleType> {

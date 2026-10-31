@@ -196,6 +196,7 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 WyllandTomeBEWLR.PAGE3_MODEL_LOC,
                 WyllandTomeBEWLR.PAGE4_MODEL_LOC,
                 org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION,
+                org.shipwrights.enderkinesis.client.OarscribeRenderer.HAND_MODEL_LOCATION,
                 org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC,
                 org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC,
                 org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION,
@@ -211,6 +212,8 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                         WyllandTomeBEWLR.PAGE4_MODEL_LOC -> WyllandTomeBEWLR.page4Model = model
                         org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION ->
                             org.shipwrights.enderkinesis.client.EchoCannonRenderer.capturedBarrelModel = model
+                        org.shipwrights.enderkinesis.client.OarscribeRenderer.HAND_MODEL_LOCATION ->
+                            org.shipwrights.enderkinesis.client.OarscribeRenderer.handModel = model
                         org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC ->
                             org.shipwrights.enderkinesis.client.ParallelographBEWLR.baseModel = model
                         org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC ->
@@ -339,6 +342,7 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         })
 
         EnderkinesisModClient.initClient()
+        org.shipwrights.enderkinesis.fabric.compat.trinkets.TrinketsClientCompat.init()
     }
 
     companion object {

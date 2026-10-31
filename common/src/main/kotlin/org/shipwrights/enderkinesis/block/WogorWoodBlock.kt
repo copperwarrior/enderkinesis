@@ -26,11 +26,7 @@ class WogorWoodBlock(properties: Properties) : RotatedPillarBlock(properties) {
         // 1/4 gate → first vine ~4 min after chunk-load at vanilla randomTickSpeed=3.
         if (random.nextInt(4) != 0) return
 
-        val order = SCRATCH_INDICES.copyOf()
-        for (i in 3 downTo 1) {
-            val j = random.nextInt(i + 1)
-            val tmp = order[i]; order[i] = order[j]; order[j] = tmp
-        }
+        val order = SIDE_ORDERS[random.nextInt(SIDE_ORDERS.size)]
         for (idx in order) {
             val dir = HORIZONTAL_DIRECTIONS[idx]
             val sidePos = pos.relative(dir)
@@ -49,7 +45,12 @@ class WogorWoodBlock(properties: Properties) : RotatedPillarBlock(properties) {
         private val HORIZONTAL_DIRECTIONS: Array<Direction> = arrayOf(
             Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST,
         )
-        private val SCRATCH_INDICES: IntArray = intArrayOf(0, 1, 2, 3)
+        /** All 24 orders of the 4 sides; a random row is a uniform shuffle with no allocation. */
+        private val SIDE_ORDERS: Array<IntArray> = buildList {
+            for (a in 0..3) for (b in 0..3) for (c in 0..3) for (d in 0..3) {
+                if (setOf(a, b, c, d).size == 4) add(intArrayOf(a, b, c, d))
+            }
+        }.toTypedArray()
 
         private fun faceProperty(toward: Direction): BooleanProperty = when (toward) {
             Direction.NORTH -> VineBlock.NORTH

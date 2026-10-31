@@ -1,0 +1,11 @@
+{
+  "gem": "minecraft:bone_block",
+  "result": "minecraft:trident",
+  "colour": "#E3DDC4",
+  "body_colour": "#6CA392",
+  "slots": [
+    "minecraft:prismarine_shard",
+    "minecraft:prismarine_shard",
+    "minecraft:prismarine_shard"
+  ]
+}

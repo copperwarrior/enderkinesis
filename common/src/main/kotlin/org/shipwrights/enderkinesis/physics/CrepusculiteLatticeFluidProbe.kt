@@ -34,6 +34,9 @@ object CrepusculiteLatticeFluidProbe {
      *  in [50, 60] while an entity is in the water; the margin is for client/server skew. */
     private const val ACTIVE_DURATION_THRESHOLD = 45
 
+    private val clientPush = Vector3d()
+    private val serverPush = Vector3d()
+
     /**
      * The zone whose water holds the entity, or null. The water is [LatticeOcean] less the
      * dry parts of the ship hull. The test point is the feet of the entity.
@@ -96,7 +99,8 @@ object CrepusculiteLatticeFluidProbe {
         val isPlayer = entity is Player
         if (isPlayer != isClient) return                      // only push the side that owns motion
 
-        val out = Vector3d()
+        // Players push only on the client thread and other entities only on the server thread.
+        val out = if (isClient) clientPush else serverPush
         GerstnerOcean.velocityAt(entity.x, entity.z, zone.waveTime, zone.waveIntensity, out)
         val mv = entity.deltaMovement
         entity.deltaMovement = Vec3(

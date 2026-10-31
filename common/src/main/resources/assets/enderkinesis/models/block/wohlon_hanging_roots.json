@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cross",
+  "textures": {
+    "cross": "enderkinesis:block/wohlon_hanging_roots"
+  }
+}

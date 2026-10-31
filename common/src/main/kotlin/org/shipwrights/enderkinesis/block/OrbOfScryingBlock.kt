@@ -4,8 +4,10 @@ import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
+import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.network.protocol.game.ClientboundSoundPacket
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundSource
 import net.minecraft.util.StringRepresentable
 import net.minecraft.world.InteractionHand
@@ -35,6 +37,7 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.OrbOfScryingBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.scrying.ScryingOrbRegistry
 import org.shipwrights.enderkinesis.scrying.ScryingSessionManager
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -107,7 +110,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
                 val server = level as ServerLevel
                 popResource(server, pos, ItemStack(currentCarpet.carpetItem()))
                 level.setBlock(pos, state.setValue(CARPET, ScryingCarpet.NONE), UPDATE_ALL)
-                level.playSound(null, pos, SoundEvents.WOOL_BREAK, SoundSource.BLOCKS, 0.6f, 1.0f)
+                level.playSound(null, pos, EKSounds.ORB_OF_SCRYING_UNCOVER.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
             }
             return InteractionResult.sidedSuccess(level.isClientSide)
         }
@@ -117,7 +120,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
             if (!level.isClientSide) {
                 val newCarpet = ScryingCarpet.fromDye(carpetBlock.color)
                 level.setBlock(pos, state.setValue(CARPET, newCarpet), UPDATE_ALL)
-                level.playSound(null, pos, SoundEvents.WOOL_PLACE, SoundSource.BLOCKS, 0.6f, 1.0f)
+                level.playSound(null, pos, EKSounds.ORB_OF_SCRYING_COVER.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
                 if (!player.abilities.instabuild) held.shrink(1)
             }
             return InteractionResult.sidedSuccess(level.isClientSide)
@@ -140,6 +143,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
                     .withStyle(ChatFormatting.GRAY),
                 true,
             )
+            playFailSound(player, server, sourceWorld)
             return InteractionResult.CONSUME
         }
         ScryingSessionManager.mount(
@@ -194,6 +198,17 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
         return null
     }
 
+    /** Only the scryer hears it, at the world position of the orb. */
+    private fun playFailSound(player: Player, level: ServerLevel, at: Vec3) {
+        val serverPlayer = player as? ServerPlayer ?: return
+        serverPlayer.connection.send(
+            ClientboundSoundPacket(
+                BuiltInRegistries.SOUND_EVENT.wrapAsHolder(EKSounds.ORB_OF_SCRYING_SCRY_FAIL.get()),
+                SoundSource.BLOCKS, at.x, at.y, at.z, FAIL_SOUND_VOLUME, 1f, level.random.nextLong(),
+            ),
+        )
+    }
+
     private fun shipyardToWorld(level: ServerLevel, pos: BlockPos): Vec3 {
         val ship = level.getShipManagingPos(pos)
         val v = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
@@ -228,6 +243,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
         val CARPET: EnumProperty<ScryingCarpet> = EnumProperty.create("carpet", ScryingCarpet::class.java)
 
         private const val MAX_PROXIMITY_BLOCKS: Double = 1.5
+        private const val FAIL_SOUND_VOLUME = 0.8f
         private const val DIRECTION_THRESHOLD: Double = 0.5
 
         private val SHAPE_DOWN: VoxelShape = box(2.0, 0.0, 2.0, 14.0, 12.0, 14.0)

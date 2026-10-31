@@ -16,6 +16,10 @@
     "enderkinesis:ancrite_chain",
     "enderkinesis:crepusculite_ore",
     "enderkinesis:crepusculite_block",
-    "enderkinesis:crepusculite_glass"
+    "enderkinesis:crepusculite_glass",
+    "enderkinesis:wohlon_mud",
+    "enderkinesis:wohlon_moss",
+    "enderkinesis:wohlon_lumpy_mushroom",
+    "enderkinesis:wohlon_cup_mushroom"
   ]
 }

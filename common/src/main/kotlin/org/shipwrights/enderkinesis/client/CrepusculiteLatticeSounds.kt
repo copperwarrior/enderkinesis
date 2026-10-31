@@ -66,9 +66,31 @@ object CrepusculiteLatticeSounds {
 
         // The registry holds one lattice for each ship, and no lattice that is not on a ship.
         for ((be, _) in LatticeRegistry.entries(level)) {
-            if (be !in hums) start(hums, HumLoop(level, be))
-            if (be !in wakes) start(wakes, WakeLoop(level, be))
+            val needHum = be !in hums
+            val needWake = be !in wakes
+            if (!needHum && !needWake) continue
+            // The same test as LatticeLoop.audible, before a loop is made.
+            val ship = audibleShip(level, be, player) ?: continue
+            if (needHum) start(hums, HumLoop(level, be))
+            if (needWake && wakeGain(ship) > 0f) start(wakes, WakeLoop(level, be))
         }
+    }
+
+    private val scanPos = Vector3d()
+
+    private fun audibleShip(level: ClientLevel, be: CrepusculiteLatticeBlockEntity, player: Player): Ship? {
+        if (be.isRemoved || power(be) >= CrepusculiteLatticeBlock.OFF_POWER) return null
+        val pos = be.blockPos
+        val ship = level.getShipManagingPos(pos) ?: return null
+        if (!LatticeRegistry.isPublished(level, be)) return null
+        val p = ship.shipToWorld.transformPosition(scanPos.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5))
+        return if (player.distanceToSqr(p.x, p.y, p.z) <= EARSHOT_SQR) ship else null
+    }
+
+    private fun wakeGain(ship: Ship): Float {
+        val velocity = ship.velocity
+        val speed = Math.hypot(velocity.x(), velocity.z())
+        return WAKE_MAX_VOLUME * (speed / WAKE_FULL_SPEED).coerceAtMost(1.0).toFloat()
     }
 
     private fun tickBed(level: ClientLevel, player: Player) {
@@ -151,11 +173,7 @@ object CrepusculiteLatticeSounds {
     private class WakeLoop(level: ClientLevel, be: CrepusculiteLatticeBlockEntity) :
         LatticeLoop(level, be, EKSounds.CREPUSCULITE_LATTICE_WAKE.get(), WAKE_MAX_VOLUME) {
 
-        override fun gain(): Float {
-            val velocity = ship?.velocity ?: return 0f
-            val speed = Math.hypot(velocity.x(), velocity.z())
-            return WAKE_MAX_VOLUME * (speed / WAKE_FULL_SPEED).coerceAtMost(1.0).toFloat()
-        }
+        override fun gain(): Float = ship?.let(::wakeGain) ?: 0f
     }
 
     /** A loop at the world position of a lattice. It follows the ship of the lattice. */

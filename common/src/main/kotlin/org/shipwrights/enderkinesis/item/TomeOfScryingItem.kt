@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.item
 import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
@@ -14,6 +15,7 @@ import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Tome of Scrying — single-use conversion. Right-click an Orb of Linking with this tome to
@@ -62,6 +64,7 @@ class TomeOfScryingItem(properties: Properties) : TomeItem(properties) {
         // setBlock flag 3 = block update + neighbour notification; matches the orb's own state
         // mutations elsewhere in the codebase. The level handles BE swap + POI update.
         level.setBlock(pos, scrying, Block.UPDATE_ALL)
+        level.playSound(null, pos, EKSounds.ORB_OF_SCRYING_CONVERT.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
 
         // Consume the tome (creative-instabuild keeps it).
         if (!player.abilities.instabuild) {

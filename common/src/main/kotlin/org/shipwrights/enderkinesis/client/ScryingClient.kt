@@ -9,11 +9,15 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.EffectInstance
 import net.minecraft.client.renderer.RenderType
+import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance
+import net.minecraft.client.resources.sounds.SoundInstance
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.item.ScryingClientNetwork
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.scrying.ScryingChunkCacheBridge
 import org.shipwrights.enderkinesis.util.Sga
 import org.valkyrienskies.core.api.ships.ClientShip
@@ -150,6 +154,8 @@ object ScryingClient {
         fadeStartMillis = Util.getMillis()
         awaitingChunkLoad = true
         chunkWaitStartMs = Util.getMillis()
+        playFlat(EKSounds.ORB_OF_SCRYING_SCRY_BEGIN.get(), 1f, source = SoundSource.BLOCKS)
+        scryLoop = ScryLoop().also(mc.soundManager::play)
     }
 
     private fun updateScrying() {
@@ -206,6 +212,7 @@ object ScryingClient {
             val readyAfterMin = ratio >= CHUNK_READY_THRESHOLD && waited >= MIN_LOAD_WAIT_MS
             val timedOut = waited >= MAX_LOAD_WAIT_MS
             if (readyAfterMin || timedOut) {
+                holdEndLoopVolume = loopVolume()
                 awaitingChunkLoad = false
                 fadeStartAlpha = 1f
                 fadeTargetAlpha = 0f
@@ -234,7 +241,9 @@ object ScryingClient {
      *  source". Idempotent: subsequent calls during the fade are no-ops. */
     private fun requestEndScrying() {
         if (!isActive() || endRequested) return
+        endLoopVolume = loopVolume()
         endRequested = true
+        playFlat(EKSounds.ORB_OF_SCRYING_SCRY_END.get(), 1f, source = SoundSource.BLOCKS)
         fadeStartAlpha = currentFadeAlpha()
         fadeTargetAlpha = 1f
         fadeStartMillis = Util.getMillis()
@@ -249,6 +258,8 @@ object ScryingClient {
         endRequested = false
         awaitingChunkLoad = false
         val mc = Minecraft.getInstance()
+        scryLoop?.let(mc.soundManager::stop)
+        scryLoop = null
         // Restore the default cull behaviour for the player.
         mc.player?.noCulling = false
         (mc.level?.chunkSource as? ScryingChunkCacheBridge)?.enderkinesis_clearCameraStorage()
@@ -392,6 +403,43 @@ object ScryingClient {
         val expected = side * side
         if (expected <= 0) return 0f
         return bridge.enderkinesis_cameraChunkCount().toFloat() / expected
+    }
+
+    /** One ramp from 0 to 1 over the longest black hold plus the fade. A shorter hold ends lower, and the fade
+     *  takes the rest. The end fades out over [FADE_DURATION_MS]. */
+    private fun loopVolume(): Float {
+        val now = Util.getMillis()
+        if (endRequested) {
+            return endLoopVolume * (1f - ((now - fadeStartMillis).toFloat() / FADE_DURATION_MS).coerceIn(0f, 1f))
+        }
+        if (awaitingChunkLoad) {
+            return ((now - chunkWaitStartMs).toFloat() / (MAX_LOAD_WAIT_MS + FADE_DURATION_MS)).coerceIn(0f, 1f)
+        }
+        return holdEndLoopVolume + (1f - holdEndLoopVolume) * (1f - currentFadeAlpha())
+    }
+
+    /** Client thread only. */
+    private var scryLoop: ScryLoop? = null
+    private var holdEndLoopVolume: Float = 0f
+    private var endLoopVolume: Float = 0f
+
+    private class ScryLoop : AbstractTickableSoundInstance(
+        EKSounds.ORB_OF_SCRYING_SCRY_LOOP.get(), SoundSource.BLOCKS, SoundInstance.createUnseededRandom(),
+    ) {
+        init {
+            looping = true
+            delay = 0
+            volume = 0f
+            relative = true
+            attenuation = SoundInstance.Attenuation.NONE
+        }
+
+        // The ramp starts at volume 0. The sound engine drops a silent sound without this.
+        override fun canStartSilent(): Boolean = true
+
+        override fun tick() {
+            volume = loopVolume()
+        }
     }
 
     /** Current overlay alpha — linear interpolation from [fadeStartAlpha] toward

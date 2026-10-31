@@ -4,7 +4,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.Container
 import net.minecraft.world.ContainerHelper
@@ -12,12 +12,15 @@ import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
+import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
-import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
@@ -58,6 +61,13 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
      *  / writes this, and pushes the boolean result into [cachedFueled] for the phys tick. */
     private var fuelTicks: Int = 0
 
+    /** Client thread only. Ticks of loop time to the next puff, and the fuel state that set it. */
+    var puffCountdown: Float = 0f
+    var puffFueled: Boolean = false
+    /** Client thread only. The running event burst, or [BURST_NONE]. */
+    var burstKind: Int = BURST_NONE
+    var burstAge: Int = 0
+
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
         cachedFacing = state.getValue(BlockStateProperties.FACING)
         cachedPower = state.getValue(BlockStateProperties.POWER)
@@ -79,15 +89,47 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
                     // a container behind us if there is one, else spawn an ItemEntity in the
                     // world at the back face.
                     ejectEmptyBottle(level, pos, cachedFacing)
-                    playFuelConsumeSound(level, pos)
+                    playWorldSound(level, pos, EKSounds.SHULKER_PUFFER_FUEL_IGNITE.get())
+                    burst(level, pos, state, BURST_IGNITE)
                     setChanged()
                 }
             }
             if (fuelTicks > 0) fuelTicks--
         }
         cachedFueled = fuelTicks > 0
+        syncFueled(level, pos, state, powered)
+    }
 
-        if (powered) spawnPuffParticles(level, pos, cachedFacing, cachedPower, cachedFueled)
+    /** A queued bottle burns on the next tick, so it counts as fuel here. This stops a fuel_out and a
+     *  state flicker between two bottles. */
+    private fun syncFueled(level: ServerLevel, pos: BlockPos, state: BlockState, powered: Boolean) {
+        val fueled = cachedFueled || (powered && items[0].`is`(Items.DRAGON_BREATH))
+        if (state.getValue(ShulkerPufferBlock.FUELED) == fueled) return
+        level.setBlock(pos, state.setValue(ShulkerPufferBlock.FUELED, fueled), Block.UPDATE_CLIENTS)
+        if (!fueled && powered) {
+            playWorldSound(level, pos, EKSounds.SHULKER_PUFFER_FUEL_OUT.get())
+            burst(level, pos, state, BURST_FUEL_OUT)
+        }
+    }
+
+    /** The client spawns the puffs, so they can follow the pulses of the loop it plays. */
+    override fun triggerEvent(id: Int, param: Int): Boolean {
+        if (id != EVENT_BURST) return super.triggerEvent(id, param)
+        if (level?.isClientSide == true) {
+            burstKind = param
+            burstAge = 0
+        }
+        return true
+    }
+
+    override fun setLevel(level: Level) {
+        super.setLevel(level)
+        if (level.isClientSide) ShulkerPufferClientRegistry.register(level, this)
+    }
+
+    override fun setRemoved() {
+        level?.let { if (it.isClientSide) ShulkerPufferClientRegistry.unregister(it, this) }
+        super.setRemoved()
     }
 
     /**
@@ -199,98 +241,17 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
         )
     }
 
-    private fun spawnPuffParticles(
-        level: ServerLevel, pos: BlockPos, facing: Direction, power: Int, fueled: Boolean,
-    ) {
-        // Tick-throttle the puffs. Vanilla DRAGON_BREATH at 1+ particles/tick reads as a
-        // chimney; a thruster looks more like a thruster at 1 particle every few ticks.
-        // Fuel triples the rate (~3 puffs/sec at 20 TPS) for the "engine kicked into a
-        // higher gear" cue.
-        val throttle = if (fueled) PARTICLE_THROTTLE_FUELED else PARTICLE_THROTTLE_UNFUELED
-        if (level.gameTime % throttle != 0L) return
-
-        // Nozzle is just past the front face — 0.55 m out from block centre so the puff
-        // doesn't spawn inside the block model and immediately get culled by it.
-        val nozzleWorld = Vector3d(
-            pos.x + 0.5 + facing.stepX * 0.55,
-            pos.y + 0.5 + facing.stepY * 0.55,
-            pos.z + 0.5 + facing.stepZ * 0.55,
-        )
-        // "More oomph": initial particle velocity scales 0.2 (unfueled, low power) → 0.55
-        // (fueled, full power) blocks/tick. The [ShulkerPufferParticle] uses this directly
-        // to drive its distance-keyed grow/fade curve — higher velocity = particle hits the
-        // 1-block "fully-grown" mark faster, then has more lifetime budget to fade.
-        val baseSpeed = if (fueled) FUELED_PARTICLE_SPEED else UNFUELED_PARTICLE_SPEED
-        val speed = baseSpeed * (0.5 + power / 15.0 * 0.5)        // 50–100 % of base by power
-        val ejectWorld = Vector3d(
-            facing.stepX * speed,
-            facing.stepY * speed,
-            facing.stepZ * speed,
-        )
-        // Ship-mounted puffer: transform position + ejection direction through the live ship
-        // pose so the puff appears at the ship's actual world location with velocity rotated
-        // to match the ship's orientation. World-placed puffers skip and use raw values.
-        val ship = level.getLoadedShipManagingPos(pos)
-        if (ship != null) {
-            ship.transform.shipToWorld.transformPosition(nozzleWorld)
-            ship.transform.shipToWorldRotation.transform(ejectWorld)
-        }
-        // Ship velocity inheritance: add the world-frame point velocity of the ship at
-        // the nozzle position (linear + ω × r), converted to particle units. Without
-        // this, a puffer on a fast-moving ship emits particles that hang in space
-        // behind the ship — exhaust should travel *with* the ship the moment it leaves
-        // the nozzle, then drift due to friction.
-        //
-        // CRITICAL unit conversion: VS2's `Ship.getVelocity()` is m/s and
-        // `getAngularVelocity()` is rad/s (standard physics). Particle `xd/yd/zd` is in
-        // **blocks per tick**. At 20 TPS, `1 m/s = 0.05 b/t`. Without the conversion,
-        // ship.velocity dominates ejectWorld by ~20×, sending particles streaming in
-        // the ship-motion direction at huge speeds instead of out the nozzle.
-        val shipPointVel = Vector3d(0.0, 0.0, 0.0)
-        if (ship != null) {
-            val vel = ship.velocity
-            val omega = ship.omega
-            val comWorld = ship.transform.positionInWorld
-            val rX = nozzleWorld.x - comWorld.x()
-            val rY = nozzleWorld.y - comWorld.y()
-            val rZ = nozzleWorld.z - comWorld.z()
-            // v_point = v_linear + ω × r. Both vel and omega are world-frame; result
-            // is m/s. Scale to b/t for the particle.
-            shipPointVel.set(
-                (vel.x() + omega.y() * rZ - omega.z() * rY) * METER_PER_SEC_TO_BLOCKS_PER_TICK,
-                (vel.y() + omega.z() * rX - omega.x() * rZ) * METER_PER_SEC_TO_BLOCKS_PER_TICK,
-                (vel.z() + omega.x() * rY - omega.y() * rX) * METER_PER_SEC_TO_BLOCKS_PER_TICK,
-            )
-        }
-
-        val jitter = 0.04
-        level.sendParticles(
-            EKParticles.shulkerPuffer(),
-            nozzleWorld.x + (level.random.nextDouble() - 0.5) * jitter,
-            nozzleWorld.y + (level.random.nextDouble() - 0.5) * jitter,
-            nozzleWorld.z + (level.random.nextDouble() - 0.5) * jitter,
-            0,                                              // count=0 + xyzd as velocity
-            shipPointVel.x + ejectWorld.x,
-            shipPointVel.y + ejectWorld.y,
-            shipPointVel.z + ejectWorld.z,
-            1.0,                                            // velocity scale
-        )
-    }
-
-    /** Play the ender dragon's fireball shot sound at the puffer's world position. Used as
-     *  the audio cue for each bottle of dragon's breath consumed — same source sample as a
-     *  dragon spitting at you, which lines up with the puffer's exhaust looking like
-     *  dragon's breath. For ship-mounted puffers the block position is in shipyard coords,
+    /** For ship-mounted puffers the block position is in shipyard coords,
      *  so we transform through `shipToWorld` first or the sound plays in the far-off
      *  shipyard region instead of next to the player. */
-    private fun playFuelConsumeSound(level: ServerLevel, pos: BlockPos) {
+    private fun playWorldSound(level: ServerLevel, pos: BlockPos, event: SoundEvent) {
         val ship = level.getLoadedShipManagingPos(pos)
         val soundPos = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
         if (ship != null) ship.transform.shipToWorld.transformPosition(soundPos)
         level.playSound(
             null,                                           // listener=null → broadcast to range
             soundPos.x, soundPos.y, soundPos.z,
-            SoundEvents.ENDER_DRAGON_SHOOT,
+            event,
             SoundSource.BLOCKS,
             1.0f,                                           // volume
             1.0f,                                           // pitch
@@ -349,35 +310,20 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
          *  enough that fuel is meaningfully a consumable. */
         const val FUEL_TICKS_PER_DOSE: Int = 600
 
-        /** Server ticks between particle emissions while *unfueled* — one puff every N
-         *  ticks instead of vanilla DRAGON_BREATH's "every tick". 6 ticks → ~3 Hz, reads as
-         *  a deliberate exhaust pulse rather than a chimney. */
-        private const val PARTICLE_THROTTLE_UNFUELED: Long = 6L
-
-        /** Faster cadence when fuelled — same kind of pulse, three times as frequent. */
-        private const val PARTICLE_THROTTLE_FUELED: Long = 2L
-
-        /** Initial particle velocity (blocks/tick) for an unfuelled puffer at full redstone.
-         *  Scales 50–100 % linearly with redstone power. Tuned so the particle covers the
-         *  1-block grow distance in ~4 ticks at top, which feels like a punchy puff against
-         *  the 8–12 tick lifetime. */
-        private const val UNFUELED_PARTICLE_SPEED: Double = 0.25
-
-        /** Same idea, but the boosted exhaust travels twice as fast — that's the visual
-         *  cue that fuel is doing something distinct from "more particles". */
-        private const val FUELED_PARTICLE_SPEED: Double = 0.5
-
         /** Backward-ejection speed (blocks/tick) for the empty bottle. Same scale a vanilla
          *  dispenser uses for its ejected items so the bottle pops out at a believable
          *  velocity rather than dribbling or rocketing. */
         private const val EJECT_SPEED: Double = 0.2
 
-        /** Unit conversion: 1 m/s of ship velocity equals this many blocks-per-tick of
-         *  particle velocity, at MC's 20 TPS (1 m / (20 ticks/s) ≈ 0.05 b/t per m/s).
-         *  Used in [spawnPuffParticles] to bring [Ship.velocity] / [Ship.omega] (which
-         *  VS2 expresses as m/s and rad/s) into the b/t domain the particle's
-         *  per-tick `xd/yd/zd` integration expects. Without this scale, ship velocity
-         *  inheritance was 20× too large and dominated the particle's nozzle ejection. */
-        private const val METER_PER_SEC_TO_BLOCKS_PER_TICK: Double = 1.0 / 20.0
+        const val EVENT_BURST: Int = 1
+        const val BURST_NONE: Int = -1
+        const val BURST_POWER_ON: Int = 0
+        const val BURST_POWER_OFF: Int = 1
+        const val BURST_IGNITE: Int = 2
+        const val BURST_FUEL_OUT: Int = 3
+
+        fun burst(level: Level, pos: BlockPos, state: BlockState, kind: Int) {
+            level.blockEvent(pos, state.block, EVENT_BURST, kind)
+        }
     }
 }

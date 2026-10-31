@@ -9,6 +9,15 @@ import net.minecraft.world.level.block.ChainBlock
 import net.minecraft.world.level.block.RotatedPillarBlock
 import net.minecraft.world.level.block.SandBlock
 import net.minecraft.world.level.block.ButtonBlock
+import net.minecraft.world.level.block.CarpetBlock
+import net.minecraft.world.level.block.CeilingHangingSignBlock
+import net.minecraft.world.level.block.DoorBlock
+import net.minecraft.world.level.block.DoublePlantBlock
+import net.minecraft.world.level.block.MudBlock
+import net.minecraft.world.level.block.StandingSignBlock
+import net.minecraft.world.level.block.TrapDoorBlock
+import net.minecraft.world.level.block.WallHangingSignBlock
+import net.minecraft.world.level.block.WallSignBlock
 import net.minecraft.world.level.block.FenceBlock
 import net.minecraft.world.level.block.FenceGateBlock
 import net.minecraft.world.level.block.LiquidBlock
@@ -28,6 +37,7 @@ import org.shipwrights.enderkinesis.block.AncriteBarsBlock
 import org.shipwrights.enderkinesis.block.AncriteBeamBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteGlassBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
+import org.shipwrights.enderkinesis.block.MysticBeamAnchorBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLightstoneBlock
 import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.block.CrystalPedestalBlock
@@ -46,6 +56,8 @@ import org.shipwrights.enderkinesis.block.IchaericInkJarBlock
 import org.shipwrights.enderkinesis.block.InegricRetortBlock
 import org.shipwrights.enderkinesis.block.ForgottenItemBlock
 import org.shipwrights.enderkinesis.block.ScribesDeskBlock
+import org.shipwrights.enderkinesis.block.OarscribeBlock
+import org.shipwrights.enderkinesis.block.JarReceptacleBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutTopBlock
 import org.shipwrights.enderkinesis.block.SselithBookshelfBlock
 import org.shipwrights.enderkinesis.block.StatueBlock
@@ -58,6 +70,8 @@ import org.shipwrights.enderkinesis.block.WogorBudBlock
  */
 object EKBlocks {
     val BLOCKS: DeferredRegister<Block> = DeferredRegister.create(EnderkinesisMod.MOD_ID, Registries.BLOCK)
+
+    private const val HEARTFIRE_LIGHT = 12
 
     private fun crepusculiteProps() = BlockBehaviour.Properties.of()
         .mapColor(MapColor.COLOR_PURPLE)
@@ -245,10 +259,9 @@ object EKBlocks {
             BlockBehaviour.Properties.of()
                 .mapColor(MapColor.COLOR_PURPLE)
                 .strength(0.6f)
-                .sound(SoundType.SLIME_BLOCK)
+                .sound(EKSounds.YGANN_BARNACLE_SOUND_TYPE)
                 .noOcclusion()
                 .noCollission()
-                .noLootTable()
         )
     }
 
@@ -334,7 +347,7 @@ object EKBlocks {
                 .mapColor(MapColor.COLOR_MAGENTA)
                 .requiresCorrectToolForDrops()
                 .strength(3.0f, 6.0f)
-                .sound(SoundType.STONE),
+                .sound(EKSounds.SHULKER_PUFFER_SOUND_TYPE),
         )
     }
 
@@ -447,6 +460,17 @@ object EKBlocks {
         )
     }
 
+    val MYSTIC_BEAM_ANCHOR: RegistrySupplier<Block> = BLOCKS.register("mystic_beam_anchor") {
+        MysticBeamAnchorBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_MAGENTA)
+                .strength(1.0f)
+                .sound(SoundType.AMETHYST)
+                .noOcclusion()
+                .noCollission()
+        )
+    }
+
     /** Orb of Scrying — converted from an Orb of Linking by the Tome of Scrying. Visually
      *  identical to the unbound orb (same pedestal model); force-loads its own chunk; right-
      *  clickable to view the nearest other scrying orb in the player's look direction. */
@@ -501,9 +525,19 @@ object EKBlocks {
      *  [org.shipwrights.enderkinesis.block.HeartOfTheWildManager]
      *  growth queue for its scope. On a ship: the ship gets a Wild
      *  effect. In the [org.shipwrights.enderkinesis.dimension.Wohlonnogondonia]
-     *  dimension: extra Hearts add to the always-on baseline rate.
-     *  Visually a sea-lantern stand-in until the artist returns a
-     *  unique model. */
+     *  dimension: extra Hearts add to the always-on baseline rate. */
+    val FOUNTAIN_OF_BLESSING: RegistrySupplier<Block> = BLOCKS.register("fountain_of_blessing") {
+        org.shipwrights.enderkinesis.block.FountainOfBlessingBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.WATER)
+                .strength(-1f, 3_600_000f)
+                .noLootTable()
+                .noOcclusion()
+                .lightLevel { 10 }
+                .pushReaction(net.minecraft.world.level.material.PushReaction.BLOCK)
+        )
+    }
+
     val HEART_OF_THE_WILD: RegistrySupplier<Block> = BLOCKS.register("heart_of_the_wild") {
         HeartOfTheWildBlock(
             BlockBehaviour.Properties.copy(Blocks.SEA_LANTERN)
@@ -516,7 +550,7 @@ object EKBlocks {
                 // heart's additional indestructibility is the
                 // [HeartOfTheWildBlock.getDestroyProgress] override.
                 .strength(0.6f, 3_600_000f)
-                .sound(SoundType.GLASS)
+                .sound(EKSounds.HEART_OF_THE_WILD_SOUND_TYPE)
                 .lightLevel { 12 }
                 // The block model is empty (the BER draws the heart); an occluding cube culls neighbour faces.
                 .noOcclusion()
@@ -565,6 +599,16 @@ object EKBlocks {
                 .sound(SoundType.BAMBOO_WOOD)
                 .noOcclusion()
         )
+    }
+
+    val OARSCRIBE: RegistrySupplier<Block> = BLOCKS.register("oarscribe") {
+        OarscribeBlock(
+            BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES).noOcclusion()
+        )
+    }
+
+    val JAR_RECEPTACLE: RegistrySupplier<Block> = BLOCKS.register("jar_receptacle") {
+        JarReceptacleBlock(BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES).noOcclusion())
     }
 
     val FORGOTTEN_ITEM: RegistrySupplier<Block> = BLOCKS.register("forgotten_item") {
@@ -686,8 +730,7 @@ object EKBlocks {
     }
 
     // Wogor wood, the trees of the swamp dimension. Mangrove-styled trees use these as the
-    // trunk/branches; leaves currently fall back to vanilla mangrove leaves until a Wogor
-    // leaves texture is authored.
+    // trunk/branches.
     private fun wogorWoodProps() = BlockBehaviour.Properties.of()
         .mapColor(MapColor.COLOR_BROWN)
         .strength(2.0f, 3.0f)
@@ -706,8 +749,7 @@ object EKBlocks {
      *  match placement direction (Y = upright cross, X / Z = cross laid
      *  along the axis). `noOcclusion` keeps the cross visible without solid
      *  shading; `strength(4.0F)` matches vanilla cobweb (sword-fast, shears
-     *  fastest); `noLootTable` for now — drops will get a loot-table once
-     *  the recipe / drop design lands. */
+     *  fastest). */
     val BINDING_ROOTS: RegistrySupplier<Block> = BLOCKS.register("binding_roots") {
         org.shipwrights.enderkinesis.block.BindingRootsBlock(
             BlockBehaviour.Properties.of()
@@ -802,6 +844,124 @@ object EKBlocks {
     }
     val WOGOR_WOOD_BUTTON: RegistrySupplier<Block> = BLOCKS.register("wogor_wood_button") {
         org.shipwrights.enderkinesis.block.WogorButtonBlock(wogorWoodProps().noCollission())
+    }
+
+    // Not in the vanilla registries (register() is private there): door/trapdoor only read sounds from the
+    // set type, and EnderkinesisModClient adds the sign materials that Sheets keys by the wood type.
+    val WOGOR_SET_TYPE: BlockSetType = BlockSetType("enderkinesis:wogor")
+    val WOGOR_WOOD_TYPE: WoodType = WoodType("enderkinesis:wogor", WOGOR_SET_TYPE)
+
+    val STRIPPED_WOGOR_LOG: RegistrySupplier<Block> = BLOCKS.register("stripped_wogor_log") {
+        RotatedPillarBlock(wogorWoodProps())
+    }
+    val STRIPPED_WOGOR_WOOD: RegistrySupplier<Block> = BLOCKS.register("stripped_wogor_wood") {
+        RotatedPillarBlock(wogorWoodProps())
+    }
+    val WOGOR_DOOR: RegistrySupplier<Block> = BLOCKS.register("wogor_door") {
+        DoorBlock(BlockBehaviour.Properties.copy(Blocks.OAK_DOOR).mapColor(MapColor.COLOR_BROWN), WOGOR_SET_TYPE)
+    }
+    val WOGOR_TRAPDOOR: RegistrySupplier<Block> = BLOCKS.register("wogor_trapdoor") {
+        TrapDoorBlock(BlockBehaviour.Properties.copy(Blocks.OAK_TRAPDOOR).mapColor(MapColor.COLOR_BROWN), WOGOR_SET_TYPE)
+    }
+    val WOGOR_SIGN: RegistrySupplier<Block> = BLOCKS.register("wogor_sign") {
+        StandingSignBlock(BlockBehaviour.Properties.copy(Blocks.OAK_SIGN).mapColor(MapColor.COLOR_BROWN), WOGOR_WOOD_TYPE)
+    }
+    val WOGOR_WALL_SIGN: RegistrySupplier<Block> = BLOCKS.register("wogor_wall_sign") {
+        WallSignBlock(
+            BlockBehaviour.Properties.copy(Blocks.OAK_WALL_SIGN).mapColor(MapColor.COLOR_BROWN)
+                .dropsLike(WOGOR_SIGN.get()),
+            WOGOR_WOOD_TYPE,
+        )
+    }
+    val WOGOR_HANGING_SIGN: RegistrySupplier<Block> = BLOCKS.register("wogor_hanging_sign") {
+        CeilingHangingSignBlock(
+            BlockBehaviour.Properties.copy(Blocks.OAK_HANGING_SIGN).mapColor(MapColor.COLOR_BROWN),
+            WOGOR_WOOD_TYPE,
+        )
+    }
+    val WOGOR_WALL_HANGING_SIGN: RegistrySupplier<Block> = BLOCKS.register("wogor_wall_hanging_sign") {
+        WallHangingSignBlock(
+            BlockBehaviour.Properties.copy(Blocks.OAK_WALL_HANGING_SIGN).mapColor(MapColor.COLOR_BROWN)
+                .dropsLike(WOGOR_HANGING_SIGN.get()),
+            WOGOR_WOOD_TYPE,
+        )
+    }
+
+    val WOHLON_MUD: RegistrySupplier<Block> = BLOCKS.register("wohlon_mud") {
+        MudBlock(BlockBehaviour.Properties.copy(Blocks.MUD))
+    }
+    // Plain Block, not MossBlock: MossBlock's bonemeal spreads vanilla moss and azalea.
+    val WOHLON_MOSS: RegistrySupplier<Block> = BLOCKS.register("wohlon_moss") {
+        Block(BlockBehaviour.Properties.copy(Blocks.MOSS_BLOCK))
+    }
+    val WOHLON_MOSS_CARPET: RegistrySupplier<Block> = BLOCKS.register("wohlon_moss_carpet") {
+        CarpetBlock(BlockBehaviour.Properties.copy(Blocks.MOSS_CARPET))
+    }
+    val WOHLON_FERN: RegistrySupplier<Block> = BLOCKS.register("wohlon_fern") {
+        org.shipwrights.enderkinesis.block.WohlonUndergrowthBlock(BlockBehaviour.Properties.copy(Blocks.FERN))
+    }
+    val WOHLON_GRASS: RegistrySupplier<Block> = BLOCKS.register("wohlon_grass") {
+        org.shipwrights.enderkinesis.block.WohlonUndergrowthBlock(BlockBehaviour.Properties.copy(Blocks.GRASS))
+    }
+    val WOHLON_REED: RegistrySupplier<Block> = BLOCKS.register("wohlon_reed") {
+        org.shipwrights.enderkinesis.block.WohlonReedBlock(BlockBehaviour.Properties.copy(Blocks.TALL_GRASS))
+    }
+    val WOHLON_LILY_PAD: RegistrySupplier<Block> = BLOCKS.register("wohlon_lily_pad") {
+        net.minecraft.world.level.block.WaterlilyBlock(BlockBehaviour.Properties.copy(Blocks.LILY_PAD))
+    }
+    // Duckweed is a lily pad you cannot stand on; boats still break through it.
+    val WOHLON_DUCKWEED: RegistrySupplier<Block> = BLOCKS.register("wohlon_duckweed") {
+        net.minecraft.world.level.block.WaterlilyBlock(BlockBehaviour.Properties.copy(Blocks.LILY_PAD).noCollission())
+    }
+    // noOcclusion: a carpet culls the top face of the block under it, which shows through the leaf gaps.
+    val WOHLON_LEAF_LITTER: RegistrySupplier<Block> = BLOCKS.register("wohlon_leaf_litter") {
+        CarpetBlock(
+            BlockBehaviour.Properties.copy(Blocks.MOSS_CARPET).mapColor(MapColor.PLANT).sound(SoundType.AZALEA_LEAVES)
+                .noOcclusion()
+        )
+    }
+    val WOHLON_LUMPY_MUSHROOM: RegistrySupplier<Block> = BLOCKS.register("wohlon_lumpy_mushroom") {
+        org.shipwrights.enderkinesis.block.WohlonMushroomBlock(
+            BlockBehaviour.Properties.copy(Blocks.RED_MUSHROOM),
+            org.shipwrights.enderkinesis.block.WohlonMushroomBlock.hugeFeature("huge_wohlon_lumpy_mushroom"),
+        )
+    }
+    val WOHLON_CUP_MUSHROOM: RegistrySupplier<Block> = BLOCKS.register("wohlon_cup_mushroom") {
+        org.shipwrights.enderkinesis.block.WohlonMushroomBlock(
+            BlockBehaviour.Properties.copy(Blocks.BROWN_MUSHROOM),
+            org.shipwrights.enderkinesis.block.WohlonMushroomBlock.hugeFeature("huge_wohlon_cup_mushroom"),
+        )
+    }
+    val WOHLON_LUMPY_MUSHROOM_BLOCK: RegistrySupplier<Block> = BLOCKS.register("wohlon_lumpy_mushroom_block") {
+        net.minecraft.world.level.block.HugeMushroomBlock(BlockBehaviour.Properties.copy(Blocks.RED_MUSHROOM_BLOCK))
+    }
+    val WOHLON_CUP_MUSHROOM_BLOCK: RegistrySupplier<Block> = BLOCKS.register("wohlon_cup_mushroom_block") {
+        net.minecraft.world.level.block.HugeMushroomBlock(BlockBehaviour.Properties.copy(Blocks.BROWN_MUSHROOM_BLOCK))
+    }
+    val WOHLON_MUSHROOM_STEM: RegistrySupplier<Block> = BLOCKS.register("wohlon_mushroom_stem") {
+        net.minecraft.world.level.block.HugeMushroomBlock(BlockBehaviour.Properties.copy(Blocks.MUSHROOM_STEM))
+    }
+    // Foxfire: glowing fungus on rotting root wood. Emissive so the texture reads as the light source.
+    val HEARTFIRE: RegistrySupplier<Block> = BLOCKS.register("heartfire") {
+        net.minecraft.world.level.block.GlowLichenBlock(
+            BlockBehaviour.Properties.copy(Blocks.GLOW_LICHEN).mapColor(MapColor.COLOR_CYAN)
+                .lightLevel(net.minecraft.world.level.block.GlowLichenBlock.emission(HEARTFIRE_LIGHT))
+                .emissiveRendering { _, _, _ -> true }
+        )
+    }
+    val WEYYE_FRUIT_POD: RegistrySupplier<Block> = BLOCKS.register("weyye_fruit_pod") {
+        org.shipwrights.enderkinesis.block.WeyyeFruitBlock(BlockBehaviour.Properties.copy(Blocks.COCOA))
+    }
+    val WOHLON_HANGING_ROOTS: RegistrySupplier<Block> = BLOCKS.register("wohlon_hanging_roots") {
+        net.minecraft.world.level.block.HangingRootsBlock(BlockBehaviour.Properties.copy(Blocks.HANGING_ROOTS))
+    }
+    val WOHLON_LICHEN: RegistrySupplier<Block> = BLOCKS.register("wohlon_lichen") {
+        org.shipwrights.enderkinesis.block.WohlonLichenBlock(
+            BlockBehaviour.Properties.copy(Blocks.GLOW_LICHEN).mapColor(MapColor.PLANT).lightLevel { 0 }
+        )
+    }
+    val WOHLON_TALL_FERN: RegistrySupplier<Block> = BLOCKS.register("wohlon_tall_fern") {
+        DoublePlantBlock(BlockBehaviour.Properties.copy(Blocks.LARGE_FERN))
     }
 
     // Re-skinned obsidian / crying obsidian / sand used inside the

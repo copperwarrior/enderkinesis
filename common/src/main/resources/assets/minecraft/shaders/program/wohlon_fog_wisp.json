@@ -1,0 +1,31 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "wohlon_fog_wisp",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" }
+  ],
+  "uniforms": [
+    { "name": "ViewProj",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "LocalToView",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "BoxMin",       "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "BoxMax",       "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "InvViewProj",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "CamLocal",     "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "Size",         "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "Noise3D",      "type": "int",       "count": 1,  "values": [ 4 ] },
+    { "name": "NoiseOrigin",  "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "Fade",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Time",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Density",      "type": "float",     "count": 1,  "values": [ 0.2 ] },
+    { "name": "FogColor",     "type": "float",     "count": 3,  "values": [ 0.5, 0.5, 0.5 ] }
+  ]
+}

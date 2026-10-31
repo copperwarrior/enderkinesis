@@ -1,0 +1,14 @@
+#version 150
+
+in vec3 Position;
+
+uniform mat4 ModelViewMat;
+uniform mat4 ProjMat;
+
+out vec3 vDir;
+
+void main() {
+    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+    // The sphere is world-aligned around the camera, so the position is the view direction.
+    vDir = Position;
+}

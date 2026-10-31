@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import net.minecraft.Util
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.Level
@@ -36,7 +37,17 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
 
     companion object {
         private val LOG = com.mojang.logging.LogUtils.getLogger()
+
+        /** Block event id that plays the growth animation on clients. */
+        const val EVENT_GROW: Int = 1
+
+        /** [Util.getMillis] can be negative, so the "no growth" sentinel is out of its range. */
+        const val NOT_GROWN: Long = Long.MIN_VALUE
     }
+
+    /** Client only. The [Util.getMillis] time at which the growth animation started. */
+    var growStartMillis: Long = NOT_GROWN
+        private set
 
     /** Game-tick at which this Heart's next growth attempt fires.
      *  `-1` means "not yet scheduled" — the next server tick will
@@ -60,6 +71,13 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
         if (level.isClientSide) HeartOfTheWildClientRegistry.register(level, this)
     }
 
+    override fun triggerEvent(id: Int, param: Int): Boolean {
+        if (id != EVENT_GROW) return super.triggerEvent(id, param)
+        if (level?.isClientSide == true) growStartMillis = Util.getMillis()
+        // The server must return true, or vanilla does not send the event to clients.
+        return true
+    }
+
     /** Forge culls a block entity by this box (`IForgeBlockEntity`, which common code cannot
      *  name; the JVM binds by signature). The default box is the block; the Mother Heart is
      *  drawn at scale 2 and disappeared when its base block was off screen. Fabric has no such
@@ -68,7 +86,7 @@ class HeartOfTheWildBlockEntity(pos: BlockPos, state: BlockState) :
     fun getRenderBoundingBox(): AABB {
         val p = blockPos
         return if (blockState.getValue(HeartOfTheWildBlock.MOTHER)) {
-            AABB(p.x - 0.5, p.y.toDouble(), p.z - 0.5, p.x + 1.5, p.y + 3.5, p.z + 1.5)
+            AABB(p.x - 1.0, p.y.toDouble(), p.z - 1.0, p.x + 2.0, p.y + 4.0, p.z + 2.0)
         } else {
             AABB(p).inflate(0.5)
         }

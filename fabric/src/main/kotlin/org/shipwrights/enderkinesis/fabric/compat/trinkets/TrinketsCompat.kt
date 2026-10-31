@@ -1,10 +1,14 @@
 package org.shipwrights.enderkinesis.fabric.compat.trinkets
 
 import dev.architectury.platform.Platform
+import dev.emi.trinkets.api.SlotReference
+import dev.emi.trinkets.api.Trinket
 import dev.emi.trinkets.api.TrinketsApi
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.item.AccessoryGatherer
+import org.shipwrights.enderkinesis.item.SatchelOfShelvingItem
+import org.shipwrights.enderkinesis.registry.EKItems
 
 /**
  * Fabric-side bridge between Trinkets and `RobeArmor`'s combined-score calculator. At init
@@ -21,6 +25,14 @@ object TrinketsCompat {
     fun init() {
         if (!Platform.isModLoaded("trinkets")) return
         AccessoryGatherer.register(::gatherEquippedTrinkets)
+        EKItems.SATCHEL_OF_SHELVING.listen { TrinketsApi.registerTrinket(it, SatchelTrinket) }
+    }
+
+    // Trinkets calls onEquip only when the item changes, so there is no previous satchel to skip.
+    private object SatchelTrinket : Trinket {
+        override fun onEquip(stack: ItemStack, slot: SlotReference, entity: LivingEntity) {
+            SatchelOfShelvingItem.playAccessoryEquip(entity, ItemStack.EMPTY)
+        }
     }
 
     private fun gatherEquippedTrinkets(wearer: LivingEntity): List<ItemStack> {

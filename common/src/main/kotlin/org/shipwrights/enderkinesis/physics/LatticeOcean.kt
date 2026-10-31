@@ -1,7 +1,9 @@
 package org.shipwrights.enderkinesis.physics
 
 import net.minecraft.world.level.Level
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import java.util.WeakHashMap
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -13,7 +15,7 @@ import kotlin.math.sqrt
  */
 object LatticeOcean {
 
-    /** Mesh edge alpha at which a column counts as water. Below it, a tendril or a cove is too thin. */
+    /** Shore alpha at which a column counts as water: the middle of the shore falloff. */
     private const val SHORE_SOLID = 0.5f
 
     /**
@@ -31,7 +33,7 @@ object LatticeOcean {
             val rDir = LatticeShore.rDirAt(theta, zone.ax, zone.az)
             val circumference = Math.PI * (zone.ax + zone.az)
             val rWarped = rRaw / LatticeShore.rimWarpAt(theta, rDir, zone.waveTime, circumference)
-            if (LatticeShore.shoreEdgeAt(rWarped, theta, rDir, zone.waveTime, circumference) < SHORE_SOLID) {
+            if (LatticeShore.shoreEdgeAt(rWarped, rDir) < SHORE_SOLID) {
                 return Double.NaN
             }
             taper = LatticeShore.amplitudeTaper(rWarped)
@@ -62,37 +64,35 @@ object LatticeOcean {
         GerstnerOcean.maxAmplitude * zone.waveIntensity * Math.max(1.0, zone.waveIntensity)
 
     private class WakeCache {
-        var level: Level? = null
         var gameTime = Long.MIN_VALUE
         var sources: List<WakeSource> = emptyList()
     }
 
     // One for each side: in singleplayer the server thread and the client thread ask at the same time.
-    private val clientWake = WakeCache()
-    private val serverWake = WakeCache()
+    private val clientWake = WeakHashMap<Level, WakeCache>()
+    private val serverWake = WeakHashMap<Level, WakeCache>()
 
     /** The wake sources of the moving ships in [level]. One build for each game tick. Call from the level's own thread. */
     fun wakeSources(level: Level): List<WakeSource> {
-        val cache = if (level.isClientSide) clientWake else serverWake
+        val cache = (if (level.isClientSide) clientWake else serverWake).getOrPut(level) { WakeCache() }
         val now = level.gameTime
-        if (cache.level === level && cache.gameTime == now) return cache.sources
+        if (cache.gameTime == now) return cache.sources
+        val dim = level.dimensionId
         var out: ArrayList<WakeSource>? = null
         for (ship in level.shipObjectWorld.loadedShips) {
+            if (ship.chunkClaimDimension != dim) continue
             val aabb = ship.shipAABB ?: continue
             val source = Wake.sourceOf(aabb, ship.velocity, ship.transform.worldToShip, ship.transform.positionInWorld)
                 ?: continue
             if (out == null) out = ArrayList()
             out.add(source)
         }
-        cache.level = level
         cache.gameTime = now
         cache.sources = out ?: emptyList()
         return cache.sources
     }
 
     fun dropLevels(clientSide: Boolean) {
-        val cache = if (clientSide) clientWake else serverWake
-        cache.level = null
-        cache.sources = emptyList()
+        (if (clientSide) clientWake else serverWake).clear()
     }
 }

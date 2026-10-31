@@ -1,13 +1,23 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Camera;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.DimensionSpecialEffects;
 import net.minecraft.client.renderer.LevelRenderer;
+import org.jetbrains.annotations.Nullable;
+import org.joml.Matrix4f;
+import org.shipwrights.enderkinesis.client.WohlonAtmosphere;
 import org.shipwrights.enderkinesis.client.WohlonBiomeSkyState;
+import org.shipwrights.enderkinesis.client.WohlonSkyBand;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.Slice;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Wohlon-biome sky overlays. V-shape cross-fade: vanilla 0→0.5, Wohlon 0.5→1. At blend=0.5
@@ -16,6 +26,20 @@ import org.spongepowered.asm.mixin.injection.Slice;
  */
 @Mixin(LevelRenderer.class)
 public class LevelRendererWohlonBiomeSkyMixin {
+
+    @Shadow @Nullable private ClientLevel level;
+
+    // Ordinal 1 is the pop after the sun, moon and stars (same on Fabric and Forge 1.20.1): camera pose only.
+    @Inject(
+        method = "renderSky",
+        at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;popPose()V", ordinal = 1, shift = At.Shift.AFTER)
+    )
+    private void enderkinesis$drawWohlonSkyBand(
+        PoseStack poseStack, Matrix4f projectionMatrix, float partialTick, Camera camera, boolean isFoggy,
+        Runnable setupFog, CallbackInfo ci
+    ) {
+        if (level != null && WohlonBiomeSkyState.shouldRenderWohlonSky()) WohlonSkyBand.render(poseStack, level, partialTick);
+    }
 
     @Redirect(
         method = "renderSky",
@@ -52,7 +76,7 @@ public class LevelRendererWohlonBiomeSkyMixin {
         if (blend <= 0f) return originalAlpha;
         if (blend >= 0.5f) {
             // Wohlon fade-in: alpha ramps 0 → 1 across blend 0.5 → 1.0
-            return (2f * blend - 1f) * originalAlpha;
+            return (2f * blend - 1f) * originalAlpha * WohlonAtmosphere.eyePulse();
         }
         // Vanilla fade-out: alpha ramps 1 → 0 across blend 0 → 0.5
         return (1f - 2f * blend) * originalAlpha;

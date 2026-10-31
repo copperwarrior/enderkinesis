@@ -7,11 +7,14 @@ uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
 uniform mat4 MaskMat;
 uniform mat4 PrevMaskMat;
+// Mesh origin minus camera, in world axes.
+uniform vec3 CameraOffset;
 
 out vec4 vColor;
 out vec2 vSurfacePos;
 out vec3 vMaskPos;
 out vec3 vPrevMaskPos;
+out vec3 vCameraRel;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
@@ -20,4 +23,5 @@ void main() {
     vSurfacePos = Position.xz;
     vMaskPos = (MaskMat * vec4(Position, 1.0)).xyz;
     vPrevMaskPos = (PrevMaskMat * vec4(Position, 1.0)).xyz;
+    vCameraRel = Position + CameraOffset;
 }

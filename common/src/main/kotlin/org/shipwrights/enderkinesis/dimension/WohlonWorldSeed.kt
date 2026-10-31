@@ -4,7 +4,7 @@ import dev.architectury.event.events.common.LifecycleEvent
 
 /**
  * World-seed salt for each Wohlon worldgen hash. The hashes are static functions that runtime
- * code calls too ([WohlonRootGraph], the world-root grower), so the salt cannot live on the
+ * code calls too (the world-root grower), so the salt cannot live on the
  * chunk generator instance.
  */
 object WohlonWorldSeed {

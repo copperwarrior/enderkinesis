@@ -1,6 +1,8 @@
 package org.shipwrights.enderkinesis.body
 
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -17,7 +19,12 @@ object OrbCollisionSounds {
     private val pending = ConcurrentHashMap<String, ConcurrentHashMap<Long, Double>>()
 
     /** Server thread only. */
-    private val lastSoundAt = HashMap<Long, Long>()
+    private val lastSoundAt = Long2LongOpenHashMap().apply { defaultReturnValue(Long.MIN_VALUE / 2) }
+
+    /** Dimension id → orb body ids at a registry version. Each set is not changed after it is published. */
+    private val orbIds = ConcurrentHashMap<String, OrbIds>()
+
+    private class OrbIds(val version: Int, val ids: LongOpenHashSet)
 
     @Volatile private var registered = false
 
@@ -32,8 +39,9 @@ object OrbCollisionSounds {
     @Suppress("OPT_IN_USAGE") // CollisionEvent is @VsBeta
     private fun onCollisionStart(event: CollisionEvent) {
         val dim = event.dimensionId
-        val aIsOrb = OrbBodyRegistry.isOrb(dim, event.shipIdA)
-        val bIsOrb = OrbBodyRegistry.isOrb(dim, event.shipIdB)
+        val ids = orbIdsIn(dim)
+        val aIsOrb = ids.contains(event.shipIdA)
+        val bIsOrb = ids.contains(event.shipIdB)
         if (!aIsOrb && !bIsOrb) return
         var peak = 0.0
         for (contact in event.contactPoints) {
@@ -50,6 +58,17 @@ object OrbCollisionSounds {
         if (bIsOrb) orbs.merge(event.shipIdB, peak, Math::max)
     }
 
+    /** Read the version first: then the set is never older than the version it is stored with. */
+    private fun orbIdsIn(dim: String): LongOpenHashSet {
+        val version = OrbBodyRegistry.version
+        val cached = orbIds[dim]
+        if (cached != null && cached.version == version) return cached.ids
+        val ids = LongOpenHashSet()
+        OrbBodyRegistry.forEachIn(dim) { id, _ -> ids.add(id) }
+        orbIds[dim] = OrbIds(version, ids)
+        return ids
+    }
+
     private fun drain(level: ServerLevel) {
         val orbs = pending[level.dimensionId] ?: return
         if (orbs.isEmpty()) return
@@ -59,21 +78,25 @@ object OrbCollisionSounds {
         while (it.hasNext()) {
             val (bodyId, speed) = it.next()
             it.remove()
-            if (now - (lastSoundAt[bodyId] ?: Long.MIN_VALUE / 2) < COOLDOWN_TICKS) continue
+            if (now - lastSoundAt.get(bodyId) < COOLDOWN_TICKS) continue
             val pos = bodies.getById(bodyId)?.kinematics?.position ?: continue
-            lastSoundAt[bodyId] = now
+            lastSoundAt.put(bodyId, now)
             val strength = ((speed - MIN_SPEED) / (FULL_SPEED - MIN_SPEED)).coerceIn(0.0, 1.0).toFloat()
             level.playSound(
                 null, pos.x(), pos.y(), pos.z(), EKSounds.FRACTAL_ORB_COLLIDE.get(), SoundSource.BLOCKS,
                 MIN_VOLUME + (MAX_VOLUME - MIN_VOLUME) * strength, 1f,
             )
         }
+        // An entry past the cooldown acts the same as no entry.
+        val stale = lastSoundAt.long2LongEntrySet().fastIterator()
+        while (stale.hasNext()) if (now - stale.next().longValue >= COOLDOWN_TICKS) stale.remove()
     }
 
     /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
     fun clearSession() {
         pending.clear()
         lastSoundAt.clear()
+        orbIds.clear()
     }
 
     private const val SEPARATION_EPSILON = 0.05f

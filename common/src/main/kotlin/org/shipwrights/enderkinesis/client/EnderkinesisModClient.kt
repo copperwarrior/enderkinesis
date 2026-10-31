@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import dev.architectury.networking.NetworkManager
 import dev.architectury.event.events.client.ClientPlayerEvent
 import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.registry.client.level.entity.EntityRendererRegistry
@@ -7,11 +8,13 @@ import dev.architectury.registry.client.particle.ParticleProviderRegistry
 import dev.architectury.registry.client.rendering.BlockEntityRendererRegistry
 import dev.architectury.registry.client.rendering.ColorHandlerRegistry
 import dev.architectury.registry.client.rendering.RenderTypeRegistry
+import net.minecraft.client.Minecraft
 import net.minecraft.client.color.block.BlockColor
 import net.minecraft.client.color.item.ItemColor
-import net.minecraft.client.renderer.BiomeColors
 import net.minecraft.client.renderer.RenderType
-import net.minecraft.world.level.FoliageColor
+import net.minecraft.client.renderer.Sheets
+import net.minecraft.client.resources.model.Material
+import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.sselith.SselithEclipse
 import org.shipwrights.enderkinesis.block.AncriteChainBlock
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
@@ -61,6 +64,11 @@ object EnderkinesisModClient {
             ArchiveRenderer(ctx)
         }
 
+        EntityRendererRegistry.register(EKEntities.WOHLON_RITE_PEDESTAL) { ctx -> WohlonRitePedestalRenderer(ctx) }
+        EntityRendererRegistry.register(EKEntities.WOGOR_BOAT) { ctx -> WogorBoatRenderer(ctx, chest = false) }
+        EntityRendererRegistry.register(EKEntities.WOGOR_CHEST_BOAT) { ctx -> WogorBoatRenderer(ctx, chest = true) }
+        registerWogorSignMaterials()
+
         // Sselith Moth — boid-flocking mob for the ceiling / floor voids of
         // the Repertory. Simple MobRenderer + time-driven wing animation.
         EntityRendererRegistry.register(EKEntities.SSELITH_MOTH) { ctx ->
@@ -84,6 +92,10 @@ object EnderkinesisModClient {
         // with its selector state.
         EntityRendererRegistry.register(EKEntities.SHULKONAUT) { ctx ->
             ShulkonautRenderer(ctx)
+        }
+
+        EntityRendererRegistry.register(EKEntities.RAISED_SKELETON) { ctx ->
+            RaisedSkeletonRenderer(ctx)
         }
 
         // Wik-Lak Host — player-skinned construct; vanilla PlayerModel via
@@ -183,40 +195,16 @@ object EnderkinesisModClient {
             EKBlocks.ANCRITE_CHAIN.get()
         )
 
-        // Wogor leaves: tinted by the biome's foliage color, same as vanilla oak / birch /
-        // dark-oak / jungle leaves. Vanilla mangrove leaves (which we cloned at the block level)
-        // *don't* register a BlockColor — they're a fixed mangrove green — so cloning that block
-        // inherited "no tint handler", which left our wogor leaves rendering at the texture's
-        // raw colors regardless of biome. The model's parent `minecraft:block/leaves` already
-        // sets `tintindex: 0` on every face, so the renderer is asking for a tint per pixel —
-        // we just need to answer that ask. `BiomeColors.getAverageFoliageColor` does the 3x3
-        // biome blend automatically.
-        ColorHandlerRegistry.registerBlockColors(
-            BlockColor { _, level, pos, _ ->
-                if (level != null && pos != null) {
-                    BiomeColors.getAverageFoliageColor(level, pos)
-                } else {
-                    FoliageColor.getDefaultColor()
-                }
-            },
-            EKBlocks.WOGOR_LEAVES.get()
-        )
-
-        // Wogor leaves item: the inventory icon has no world context, so we can't look up a
-        // biome. Vanilla leaves items fall back to `FoliageColor.getDefaultColor()` (the
-        // default foliage green). Matching that here gives the item a sensible tint in the
-        // creative tab and player inventory.
-        ColorHandlerRegistry.registerItemColors(
-            ItemColor { _, tintIndex ->
-                if (tintIndex == 0) FoliageColor.getDefaultColor() else -1
-            },
-            EKItems.WOGOR_LEAVES_ITEM.get()
-        )
+        // Wogor leaves art is pre-coloured, so no foliage tint; the alpha-cut gaps need cutout.
+        RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.WOGOR_LEAVES.get())
 
 
         // Planar Anchor: the model's "chain" element relies on alpha-cut transparency. Without
         // cutoutMipped the transparent pixels in the chain UV region render solid.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.PLANAR_ANCHOR.get())
+
+        // The anchor cube's texels are part-transparent.
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.MYSTIC_BEAM_ANCHOR.get())
 
         // Void Harness: crepusculite-glass shell — partial alpha, needs translucent blending.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.VOID_HARNESS.get())
@@ -232,6 +220,8 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ICHAERIC_INK_JAR.get())
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.INEGRIC_RETORT.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.OARSCRIBE.get())
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.JAR_RECEPTACLE.get())
 
         // Crepusculite Glass — partial-alpha glass block, same render layer as Void Harness.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CREPUSCULITE_GLASS.get())
@@ -250,6 +240,25 @@ object EnderkinesisModClient {
         // deepslate_trapdoor texture has alpha-cut hinge gaps; without
         // cutout the gaps render as solid black.
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SSELITH_TRAPDOOR.get())
+
+        RenderTypeRegistry.register(
+            RenderType.cutout(),
+            EKBlocks.WOGOR_DOOR.get(),
+            EKBlocks.WOGOR_TRAPDOOR.get(),
+            EKBlocks.WOHLON_FERN.get(),
+            EKBlocks.WOHLON_TALL_FERN.get(),
+            EKBlocks.WOHLON_GRASS.get(),
+            EKBlocks.WOHLON_LICHEN.get(),
+            EKBlocks.WOHLON_REED.get(),
+            EKBlocks.WOHLON_LILY_PAD.get(),
+            EKBlocks.WOHLON_DUCKWEED.get(),
+            EKBlocks.WOHLON_LEAF_LITTER.get(),
+            EKBlocks.WOHLON_LUMPY_MUSHROOM.get(),
+            EKBlocks.HEARTFIRE.get(),
+            EKBlocks.WEYYE_FRUIT_POD.get(),
+            EKBlocks.WOHLON_HANGING_ROOTS.get(),
+            EKBlocks.WOHLON_CUP_MUSHROOM.get(),
+        )
 
         // Binding Roots: custom hand-rolled model (we abandoned the `minecraft:block/cross`
         // parent to add the wogor-wood slab base), so we lose the implicit cutout layer the
@@ -340,6 +349,9 @@ object EnderkinesisModClient {
         BlockEntityRendererRegistry.register(EKBlockEntities.HEART_OF_THE_WILD.get()) { ctx ->
             HeartOfTheWildRenderer(ctx)
         }
+        BlockEntityRendererRegistry.register(EKBlockEntities.FOUNTAIN_OF_BLESSING.get()) { ctx ->
+            FountainOfBlessingRenderer(ctx)
+        }
 
         // Crystal Explosive: vanilla end-crystal entity model rotating inside a
         // crepusculite-glass shell — same shell style as the Void Harness.
@@ -363,6 +375,10 @@ object EnderkinesisModClient {
 
         BlockEntityRendererRegistry.register(EKBlockEntities.SCRIBES_DESK.get()) { ctx ->
             ScribesDeskRenderer(ctx)
+        }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.OARSCRIBE.get()) { ctx ->
+            OarscribeRenderer(ctx)
         }
 
         BlockEntityRendererRegistry.register(EKBlockEntities.SHULKER_STRUT.get()) { ctx ->
@@ -421,6 +437,7 @@ object EnderkinesisModClient {
         // Sselith's Repertory: uncommon whispering murmurs, same cave-sound cadence.
         SselithAmbience.init()
         SselithInvocationGlyphs.init()
+        GrandStaffClient.init()
         SselithVoidSounds.init()
         IchaericInkSoundsClient.init()
         ArchiveSounds.init()
@@ -437,9 +454,18 @@ object EnderkinesisModClient {
         VoidHarnessSounds.init()
         VoidHookSounds.init()
         AetherPadSounds.init()
+        ShulkerPufferSounds.init()
+        EideticBookmarkSounds.init()
+        RobeMotionSounds.init()
+        OrbOfLinkingLoops.init()
         HeartOfTheWildSounds.init()
         FractalOrbSounds.init()
         WohlonPortalSounds.init()
+        WohlonPortalVisuals.init()
+        WohlonRitualTendrils.init()
+        HeartOfTheWildTendrils.init()
+        WohlonTreeGhost.init()
+        WohlonRitualSounds.init()
         VoidHarnessParticles.init()
         VoidHookParticles.init()
 
@@ -448,11 +474,9 @@ object EnderkinesisModClient {
         // driven by mixins; this is purely the compulsive-craving UX.
         AmbrosialCravingClient.init()
 
-        // Wohlonnogondonia: ambient firefly spawner. Picks ~0.5 spawns/s of
-        // light-teal flickering glitter around solid blocks near the player.
-        // Driven by [ClientTickEvent.CLIENT_LEVEL_POST]; particles handle
-        // their own lifetime so leaving the dimension just stops new spawns.
+        // Wohlonnogondonia ambient fireflies: at most 32 alive near the player, in Wohlon cells only.
         WohlonnogondoniaFireflies.init()
+        WohlonEcologyAmbience.init()
 
         // Ygann's Abyss: custom GUI portal shader used by [YgannAbyssVoidOverlay]'s
         // deep-blob pass. Must register before the overlay so the shader is loaded by
@@ -464,6 +488,7 @@ object EnderkinesisModClient {
         // direction. Replaces the CPU per-vertex noise so the sky doesn't show
         // mesh facets.
         SureibjinSky.init()
+        WohlonSkyBand.init()
 
         // Scrying-orb vignette shader: radial gradient with fBm-noise-perturbed edge,
         // POSITION-only full-screen quad. Same registration pattern as Ygann's.
@@ -494,6 +519,7 @@ object EnderkinesisModClient {
         // Sselith parallels — table sync, and other-parallel players drawn as Catalogers.
         SselithParallelClient.init()
         ScribesDeskClient.init()
+        SatchelOfShelvingClient.init()
         // Staff of Scales — drag-to-set ship transform scale.
         ScalesClient.init()
         FusionClient.init()
@@ -514,6 +540,12 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> EchoCannonClient.clientTick() }
 
         SselithEclipseClient.init()
+        NetworkManager.registerReceiver(
+            NetworkManager.Side.S2C, org.shipwrights.enderkinesis.command.OarscribeCommands.PEN_POSE_PACKET,
+        ) { buf, ctx ->
+            val pose = org.shipwrights.enderkinesis.block.OarscribePenPose.read(buf)
+            ctx.queue { OarscribeModel.setPen(pose) }
+        }
         SselithEclipseSounds.init()
         OwlSightTracker.init()
         SselithMadnessAfflicted.init()
@@ -523,21 +555,34 @@ object EnderkinesisModClient {
             SselithEclipseSounds.onDisconnect()
             SselithVoidSounds.onDisconnect()
             IchaericInkSoundsClient.onDisconnect()
+            OarscribeSounds.onDisconnect()
+            IncantationOfWindsSounds.onDisconnect()
             ArchiveSounds.onDisconnect()
             SselithInvocationGlyphs.onDisconnect()
+            GrandStaffClient.onDisconnect()
             PlayerTomeSummonSounds.onDisconnect()
             SselithRepertorySky.onDisconnect()
             SselithMenuWalk.onDisconnect()
             SselithVoidFog.onDisconnect()
+            WohlonFogWisps.onDisconnect()
+            WohlonWaterMurk.onDisconnect()
+            WohlonTreeGhost.onDisconnect()
+            WohlonStaffGhost.onDisconnect()
+            WohlonRitualTendrils.onDisconnect()
+            HeartOfTheWildTendrils.onDisconnect()
+            SselithEclipseGlow.onDisconnect()
             org.shipwrights.enderkinesis.physics.LatticeHullVolume.onClientDisconnect()
             SselithControlLoss.onDisconnect()
             SselithMadnessAfflicted.onDisconnect()
             YgannBarnacleDeathRenderer.onDisconnect()
+            YgannBarnacleLimbClient.onDisconnect()
             YgannAbyssAmbience.onDisconnect()
             YgannMadnessWhispers.onDisconnect()
             YgannAbyssWatchingEyes.onDisconnect()
             SselithEclipse.clearClientManualTrigger()
             WohlonBiomeFog.onDisconnect()
+            WohlonAtmosphere.onDisconnect()
+            WohlonEcologyAmbience.onDisconnect()
             WohlonBiomePresenceScanner.onDisconnect()
             ClientShipCloakingState.reset()
             ConcealmentTransitionWatcher.reset()
@@ -549,6 +594,9 @@ object EnderkinesisModClient {
             VoidHarnessSounds.onDisconnect()
             VoidHookSounds.onDisconnect()
             AetherPadSounds.onDisconnect()
+            ShulkerPufferSounds.onDisconnect()
+            RobeMotionSounds.onDisconnect()
+            OrbOfLinkingLoops.onDisconnect()
             HeartOfTheWildSounds.onDisconnect()
             FractalOrbSounds.onDisconnect()
             WohlonPortalSounds.onDisconnect()
@@ -591,12 +639,10 @@ object EnderkinesisModClient {
         // it die on its own deadline. The server never spawns the entity itself.
         TransportationClient.init()
 
-        // Free the pre-baked star VertexBuffers when the player leaves
-        // Sselith so ~4.5 MB of GPU memory isn't held indefinitely in
-        // other dimensions. Checked once per tick; the dimension key
-        // comparison is negligible.
+        // freeStarBuffers keeps the ~4.5 MB of star buffers for a grace period after the last draw.
         ClientTickEvent.CLIENT_LEVEL_POST.register { level ->
-            if (level.dimension() != SselithRepertory.LEVEL_KEY) {
+            // The satchel backdrop draws the starfield in any dimension.
+            if (level.dimension() != SselithRepertory.LEVEL_KEY && Minecraft.getInstance().screen !is SatchelOfShelvingScreen) {
                 SselithRepertorySky.freeStarBuffers()
             }
         }
@@ -620,6 +666,7 @@ object EnderkinesisModClient {
         org.shipwrights.enderkinesis.blockentity.PlanarAnchorClientRegistry.dropLevels(clientSide = true)
         org.shipwrights.enderkinesis.blockentity.VoidHarnessClientRegistry.dropLevels(clientSide = true)
         org.shipwrights.enderkinesis.blockentity.AetherPadClientRegistry.dropLevels(clientSide = true)
+        org.shipwrights.enderkinesis.blockentity.ShulkerPufferClientRegistry.dropLevels(clientSide = true)
         org.shipwrights.enderkinesis.blockentity.HeartOfTheWildClientRegistry.dropLevels(clientSide = true)
         org.shipwrights.enderkinesis.blockentity.VoidHookClientRegistry.dropLevels(clientSide = true)
     }
@@ -685,6 +732,10 @@ object EnderkinesisModClient {
             SselithDustParticle.Provider(sprites, SselithDustParticle.Motion.DRIFTING)
         }
 
+        registrar.register(EKParticles.sselithEyeDust()) { sprites ->
+            SselithDustParticle.Provider(sprites, SselithDustParticle.Motion.FLEETING)
+        }
+
         // Incantation of Winds — hand-idle motes + downrange gale. Same
         // atlas as sselith dust; separate type because these spawn at full
         // alpha (no fade-in) and respect their spawn velocity.
@@ -694,6 +745,7 @@ object EnderkinesisModClient {
         registrar.register(EKParticles.windGust()) { sprites ->
             WindDustParticle.Provider(sprites, WindDustParticle.Mode.GUST)
         }
+        registrar.register(EKParticles.windWisp()) { sprites -> WindConeParticle.Provider(sprites) }
         registrar.register(EKParticles.eideticMote()) { sprites ->
             WindDustParticle.Provider(sprites, WindDustParticle.Mode.EIDETIC)
         }
@@ -721,6 +773,10 @@ object EnderkinesisModClient {
             WyllandTomeShipParticle.Provider(sprites)
         }
 
+        registrar.register(EKParticles.oarscribeGlyph()) { sprites ->
+            OarscribeGlyphParticle.Provider(sprites)
+        }
+
         // Sselith glyph column — emissive sga runes rising from a lectern
         // when a Cataloger translates its book.
         registrar.register(EKParticles.sselithGlyph()) { sprites ->
@@ -729,6 +785,10 @@ object EnderkinesisModClient {
 
         registrar.register(EKParticles.sselithInvocationGlyph()) { sprites ->
             SselithInvocationGlyphParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.grandStaffGlyph()) { sprites ->
+            GrandStaffGlyphParticle.Provider(sprites)
         }
 
         registrar.register(EKParticles.sselithArrivalStorm()) { sprites ->
@@ -741,8 +801,7 @@ object EnderkinesisModClient {
 
         // Wohlonnogondonia ambient fireflies — light-teal flickering glitter
         // that orbits a spawn-anchor block. Client-side spawning is driven
-        // by [WohlonnogondoniaFireflies] at low density while the player is
-        // in Wohlon; behaviour and per-particle flicker math live in
+        // by [WohlonnogondoniaFireflies] near Wohlon cells; behaviour and per-particle flicker math live in
         // [WohlonnogondoniaFireflyParticle].
         registrar.register(EKParticles.wohlonFirefly()) { sprites ->
             WohlonnogondoniaFireflyParticle.Provider(sprites)
@@ -753,6 +812,10 @@ object EnderkinesisModClient {
         // construction time vanishes instead of lingering as glitter.
         registrar.register(EKParticles.wikLakBind()) { sprites ->
             WikLakBindFireflyParticle.Provider(sprites)
+        }
+
+        registrar.register(EKParticles.wohlonMote()) { sprites ->
+            WohlonMoteParticle.Provider(sprites)
         }
 
         // Sselith Bookmoths — a single warm-yellow pixel that flickers and
@@ -806,5 +869,13 @@ object EnderkinesisModClient {
         registrar.register(EKParticles.missileBurstFlash()) { sprites ->
             MissileBurstFlashParticle.Provider(sprites)
         }
+    }
+
+    // Sheets fills its material maps from WoodType.values() once, at class init; later wood types need an explicit entry.
+    private fun registerWogorSignMaterials() {
+        val type = EKBlocks.WOGOR_WOOD_TYPE
+        val name = ResourceLocation(type.name())
+        Sheets.SIGN_MATERIALS[type] = Material(Sheets.SIGN_SHEET, name.withPrefix("entity/signs/"))
+        Sheets.HANGING_SIGN_MATERIALS[type] = Material(Sheets.SIGN_SHEET, name.withPrefix("entity/signs/hanging/"))
     }
 }

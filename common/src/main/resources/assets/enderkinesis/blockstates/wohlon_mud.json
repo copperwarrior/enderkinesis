@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "": [
+      {
+        "model": "enderkinesis:block/wohlon_mud_0"
+      },
+      {
+        "model": "enderkinesis:block/wohlon_mud_1"
+      }
+    ]
+  }
+}

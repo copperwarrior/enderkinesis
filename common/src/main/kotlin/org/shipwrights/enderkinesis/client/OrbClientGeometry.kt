@@ -5,7 +5,9 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.block.MysticBeamAnchorBlock
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
+import org.shipwrights.enderkinesis.blockentity.MysticBeamAnchorBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 
@@ -30,12 +32,24 @@ object OrbClientGeometry {
     fun worldCenter(level: ClientLevel, pos: BlockPos): Vec3? {
         val state = level.getBlockState(pos)
         if (!state.hasProperty(OrbOfLinkingBlock.FACING)) return null
-        val facing: Direction = state.getValue(OrbOfLinkingBlock.FACING)
+        return faceOffsetPoint(level, pos, state.getValue(OrbOfLinkingBlock.FACING), ACTIVE_FACE_OFFSET)
+    }
+
+    /** The anchor cube centre of the Mystic Beam Anchor at [pos], or null when there is none. */
+    fun anchorPoint(level: ClientLevel, pos: BlockPos): Vec3? {
+        val state = level.getBlockState(pos)
+        if (state.block !is MysticBeamAnchorBlock) return null
+        return faceOffsetPoint(
+            level, pos, state.getValue(MysticBeamAnchorBlock.FACING), MysticBeamAnchorBlockEntity.ANCHOR_FACE_OFFSET,
+        )
+    }
+
+    private fun faceOffsetPoint(level: ClientLevel, pos: BlockPos, facing: Direction, offset: Double): Vec3 {
         val ship = level.getShipManagingPos(pos)
         val v = Vector3d(
-            pos.x + 0.5 + facing.stepX * ACTIVE_FACE_OFFSET,
-            pos.y + 0.5 + facing.stepY * ACTIVE_FACE_OFFSET,
-            pos.z + 0.5 + facing.stepZ * ACTIVE_FACE_OFFSET,
+            pos.x + 0.5 + facing.stepX * offset,
+            pos.y + 0.5 + facing.stepY * offset,
+            pos.z + 0.5 + facing.stepZ * offset,
         )
         when (ship) {
             is ClientShip -> ship.renderTransform.shipToWorld.transformPosition(v)

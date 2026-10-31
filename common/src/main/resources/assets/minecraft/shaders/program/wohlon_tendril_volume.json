@@ -1,0 +1,36 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "wohlon_tendril_volume",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" }
+  ],
+  "uniforms": [
+    { "name": "ViewProj",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "LocalToView",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "BoxMin",       "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "BoxMax",       "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "InvViewProj",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "CamLocal",     "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "P0",           "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "P1",           "type": "float",     "count": 3,  "values": [ 0.5, 1.0, 0.0 ] },
+    { "name": "P2",           "type": "float",     "count": 3,  "values": [ 1.0, 0.0, 0.0 ] },
+    { "name": "Reach",        "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "Radius",       "type": "float",     "count": 1,  "values": [ 0.2 ] },
+    { "name": "Strength",     "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Flow",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "ColourStart",  "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "ColourEnd",    "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "Wild",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Seed",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Writhe",       "type": "float",     "count": 1,  "values": [ 0.0 ] }
+  ]
+}

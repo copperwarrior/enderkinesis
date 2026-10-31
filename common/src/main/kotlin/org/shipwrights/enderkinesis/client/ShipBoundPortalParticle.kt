@@ -25,7 +25,7 @@ class ShipBoundPortalParticle(
     init {
         // Same sprites as minecraft:particles/portal.json. getTextureAtlas() only knows ModelManager atlases, not particles.
         val particles = Minecraft.getInstance().textureManager.getTexture(TextureAtlas.LOCATION_PARTICLES) as TextureAtlas
-        setSprite(particles.getSprite(ResourceLocation("minecraft", "generic_${random.nextInt(GENERIC_SPRITES)}")))
+        setSprite(particles.getSprite(GENERIC_SPRITES[random.nextInt(GENERIC_SPRITES.size)]))
         place(0f, ship.transform.shipToWorld)
         xo = x; yo = y; zo = z
     }
@@ -61,6 +61,7 @@ class ShipBoundPortalParticle(
     }
 
     private companion object {
-        const val GENERIC_SPRITES = 8
+        /** Sprites change on a resource reload, so cache only their names. */
+        val GENERIC_SPRITES: List<ResourceLocation> = List(8) { ResourceLocation("minecraft", "generic_$it") }
     }
 }

@@ -19,9 +19,13 @@ import org.shipwrights.enderkinesis.entity.MagicMissileEntity
 import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
 import org.shipwrights.enderkinesis.entity.PrismaticGoat
 import org.shipwrights.enderkinesis.entity.SselithMothEntity
+import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
 import org.shipwrights.enderkinesis.entity.ShulkonautEntity
 import org.shipwrights.enderkinesis.entity.WohlemEntity
+import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
 import org.shipwrights.enderkinesis.entity.WikLakHostEntity
+import org.shipwrights.enderkinesis.entity.WogorBoat
+import org.shipwrights.enderkinesis.entity.WogorChestBoat
 import org.shipwrights.enderkinesis.mixin.SpawnPlacementsInvoker
 
 /** All entity types added by Enderkinesis. */
@@ -65,6 +69,15 @@ object EKEntities {
                 .build(ArchiveEntity.ID.toString())
         }
 
+    val WOHLON_RITE_PEDESTAL: RegistrySupplier<EntityType<WohlonRitePedestal>> =
+        ENTITIES.register(WohlonRitePedestal.ID_PATH) {
+            EntityType.Builder.of(::WohlonRitePedestal, MobCategory.MISC)
+                .sized(1.5f, 2.75f)
+                .clientTrackingRange(8)
+                .updateInterval(2)
+                .build(WohlonRitePedestal.ID_PATH)
+        }
+
     /** Player Corpse — visual stand-in spawned by [WikLakDeathRedirect] at
      *  the player's intercepted death position. Player-skinned, no AI,
      *  immediately killed so vanilla [Mob.tickDeath] plays it out. */
@@ -97,6 +110,15 @@ object EKEntities {
                 .sized(1.0f, 1.0f)
                 .clientTrackingRange(10)
                 .build(ShulkonautEntity.ID_PATH)
+        }
+
+    /** Raised Skeleton — owned bowman raised by the Grand Staff of the Dead. MISC: never a natural spawn. */
+    val RAISED_SKELETON: RegistrySupplier<EntityType<RaisedSkeletonEntity>> =
+        ENTITIES.register(RaisedSkeletonEntity.ID_PATH) {
+            EntityType.Builder.of(::RaisedSkeletonEntity, MobCategory.MISC)
+                .sized(0.6f, 1.99f)
+                .clientTrackingRange(8)
+                .build(RaisedSkeletonEntity.ID.toString())
         }
 
     /** Constriliar — owner-following four-legged walking platform that carries a
@@ -148,6 +170,25 @@ object EKEntities {
                 .build(WohlemEntity.ID_PATH)
         }
 
+    val WOGOR_BOAT: RegistrySupplier<EntityType<WogorBoat>> =
+        ENTITIES.register("wogor_boat") {
+            EntityType.Builder.of({ type, level -> WogorBoat(type, level) }, MobCategory.MISC)
+                .sized(BOAT_WIDTH, BOAT_HEIGHT)
+                .clientTrackingRange(10)
+                .build("wogor_boat")
+        }
+
+    val WOGOR_CHEST_BOAT: RegistrySupplier<EntityType<WogorChestBoat>> =
+        ENTITIES.register("wogor_chest_boat") {
+            EntityType.Builder.of({ type, level -> WogorChestBoat(type, level) }, MobCategory.MISC)
+                .sized(BOAT_WIDTH, BOAT_HEIGHT)
+                .clientTrackingRange(10)
+                .build("wogor_chest_boat")
+        }
+
+    private const val BOAT_WIDTH = 1.375f
+    private const val BOAT_HEIGHT = 0.5625f
+
     fun register() {
         ENTITIES.register()
         // Attributes — without this every Cataloger crashes on creation.
@@ -157,6 +198,7 @@ object EKEntities {
         EntityAttributeRegistry.register(PLAYER_CORPSE) { PlayerCorpseEntity.createAttributes() }
         EntityAttributeRegistry.register(CONSTRILIAR) { ConstriliarEntity.createAttributes() }
         EntityAttributeRegistry.register(SHULKONAUT) { ShulkonautEntity.createAttributes() }
+        EntityAttributeRegistry.register(RAISED_SKELETON) { RaisedSkeletonEntity.createAttributes() }
         EntityAttributeRegistry.register(WOHLEM) { WohlemEntity.createAttributes() }
         EntityAttributeRegistry.register(SSELITH_MOTH) { SselithMothEntity.createAttributes() }
         // Vanilla goat attributes verbatim — `PrismaticGoat`

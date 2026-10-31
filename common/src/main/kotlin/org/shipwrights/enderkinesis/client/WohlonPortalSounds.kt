@@ -53,11 +53,16 @@ object WohlonPortalSounds {
             val treeCount = buf.readVarInt()
             val trunkPos = LongArray(treeCount)
             val growing = BooleanArray(treeCount)
+            val progress = FloatArray(treeCount * 3)
             for (i in 0 until treeCount) {
                 trunkPos[i] = buf.readLong()
                 growing[i] = buf.readBoolean()
+                for (k in 0 until 3) progress[i * 3 + k] = buf.readFloat()
             }
-            Minecraft.getInstance().execute { receive(portalPos, mother, trunkPos, growing) }
+            Minecraft.getInstance().execute {
+                receive(portalPos, mother, trunkPos, growing)
+                WohlonTreeGhost.onProgress(trunkPos, progress)
+            }
         }
         ClientTickEvent.CLIENT_LEVEL_POST.register(::tick)
     }
@@ -122,6 +127,17 @@ object WohlonPortalSounds {
         }
     }
 
+    /** Each portal of the last syncs, with true for the Mother portal. Client thread only. */
+    fun forEachPortal(now: Long, action: PortalAction) {
+        for (source in portals.values) {
+            if (!isStale(source, now)) action.accept(source.pos, source.event === EKSounds.WOHLON_MOTHER_PORTAL_LOOP)
+        }
+    }
+
+    fun interface PortalAction {
+        fun accept(pos: BlockPos, mother: Boolean)
+    }
+
     private fun isStale(source: Source, now: Long): Boolean = now - source.seenTick > STALE_TICKS
 
     private fun inRange(source: Source, x: Double, y: Double, z: Double): Boolean =
@@ -130,16 +146,16 @@ object WohlonPortalSounds {
     /** The engine sets the range at the start, so the 48 block grow range comes from attenuation_distance. */
     private class SourceLoop(
         private val level: ClientLevel,
-        private val source: Source,
-    ) : AbstractTickableSoundInstance(source.event.get(), SoundSource.BLOCKS, SoundInstance.createUnseededRandom()) {
+        private val emitter: Source,
+    ) : AbstractTickableSoundInstance(emitter.event.get(), SoundSource.BLOCKS, SoundInstance.createUnseededRandom()) {
 
         init {
             looping = true
             delay = 0
             volume = 0f
-            x = source.pos.x + 0.5
-            y = source.pos.y + 0.5
-            z = source.pos.z + 0.5
+            x = emitter.pos.x + 0.5
+            y = emitter.pos.y + 0.5
+            z = emitter.pos.z + 0.5
         }
 
         // The fade starts at volume 0. The sound engine drops a silent sound without this.
@@ -147,13 +163,13 @@ object WohlonPortalSounds {
 
         override fun tick() {
             val player = Minecraft.getInstance().player
-            val live = player != null && player.level() === level && source.active &&
-                !isStale(source, level.gameTime) && inRange(source, player.x, player.y, player.z)
+            val live = player != null && player.level() === level && emitter.active &&
+                !isStale(emitter, level.gameTime) && inRange(emitter, player.x, player.y, player.z)
             if (live) {
-                volume = (volume + 1f / source.fadeTicks).coerceAtMost(1f)
+                volume = (volume + 1f / emitter.fadeTicks).coerceAtMost(1f)
                 return
             }
-            volume -= 1f / source.fadeTicks
+            volume -= 1f / emitter.fadeTicks
             if (volume <= 0f) stop()
         }
     }

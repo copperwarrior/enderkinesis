@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "half=lower": {
+      "model": "enderkinesis:block/wohlon_reed"
+    },
+    "half=upper": {
+      "model": "enderkinesis:block/wohlon_reed"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "enderkinesis:item/satchel_of_shelving"
+  },
+  "overrides": [
+    { "predicate": { "enderkinesis:open": 1 }, "model": "enderkinesis:item/satchel_of_shelving_open" }
+  ]
+}

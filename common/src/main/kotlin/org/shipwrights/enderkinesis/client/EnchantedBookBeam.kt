@@ -46,6 +46,9 @@ class BeamPath(
     @Volatile var alpha: Float = 0.4f,
     /** Cone profile along the beam — controls how [radius] varies with `t`. */
     @Volatile var profile: BeamProfile = BeamProfile.LINEAR_TAPER,
+    /** This path's part of a longer beam that it is one piece of. [profile] runs over the whole beam. */
+    @Volatile var profileStart: Double = 0.0,
+    @Volatile var profileEnd: Double = 1.0,
 ) {
     fun clear() {
         start = null

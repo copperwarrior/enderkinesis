@@ -1,0 +1,10 @@
+{
+  "gather": {
+    "item": "minecraft:bone"
+  },
+  "count": 16,
+  "flesh": {
+    "item": "minecraft:rotten_flesh"
+  },
+  "flesh_count": 1
+}

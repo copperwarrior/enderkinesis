@@ -4,12 +4,14 @@ import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResultHolder
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.TooltipFlag
 import net.minecraft.world.level.Level
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.SculkSpread
 
 /**
@@ -52,7 +54,13 @@ class ScrollOfSculkCatastropheItem(properties: Properties) : TomeItem(properties
         val cx = player.blockX
         val cy = player.blockY
         val cz = player.blockZ
-        SculkSpread.start(level, BlockPos(cx, cy, cz))
+        val centre = BlockPos(cx, cy, cz)
+        level.playSound(
+            null, player.x, player.y, player.z, EKSounds.SCROLL_OF_SCULK_CATASTROPHE_USE.get(),
+            SoundSource.PLAYERS, 1.0f, 1.0f,
+        )
+        SculkSpread.start(level, centre)
+        level.playSound(null, centre, EKSounds.SCULK_CATASTROPHE.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
         if (!player.abilities.instabuild) stack.shrink(1)
         player.cooldowns.addCooldown(this, COOLDOWN_TICKS)
         return InteractionResultHolder.sidedSuccess(stack, false)

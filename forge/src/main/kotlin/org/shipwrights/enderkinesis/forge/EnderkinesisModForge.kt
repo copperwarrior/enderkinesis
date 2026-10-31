@@ -22,6 +22,7 @@ class EnderkinesisModForge {
 
         EnderkinesisMod.init()
         IchaericInkStorageForge.init()
+        OarscribeInkStorageForge.init()
         org.shipwrights.enderkinesis.platform.ExplosionHooks.startCancelled = { level, explosion ->
             net.minecraftforge.event.ForgeEventFactory.onExplosionStart(level, explosion)
         }

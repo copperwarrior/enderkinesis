@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.client
 
 import it.unimi.dsi.fastutil.longs.LongArrayList
+import it.unimi.dsi.fastutil.longs.LongArrays
 import java.util.function.Predicate
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
@@ -17,37 +18,70 @@ object WohlonBiomePresenceScanner {
 
     private const val SCAN_INTERVAL_TICKS = 20L
 
+    // Remeshing all found chunks in one tick made the light floor appear in one step.
+    private const val REMESH_CHUNKS_PER_TICK = 4
+
     private val IS_WOHLON = Predicate<Holder<Biome>> { it.`is`(Wohlonnogondonia.BIOME_KEY) }
 
-    // Scratch for the scan that finds the first Wohlon chunks. Client thread only.
+    // Found chunks that still need a remesh, nearest first; [remeshCursor] is the next one. Client thread only.
     private val found = LongArrayList()
+    private var remeshCursor = 0
+    private var remeshLevel: ClientLevel? = null
 
     fun tick(mc: Minecraft) {
         val level = mc.level
         val player = mc.player
         if (level == null || player == null) {
             WohlonBiomePresence.nearby = false
+            clearRemesh()
             return
         }
+        drainRemesh(mc, level)
         if (level.gameTime % SCAN_INTERVAL_TICKS != 0L) return
 
         val radius = mc.options.effectiveRenderDistance
         val centre = player.chunkPosition()
         if (WohlonBiomePresence.nearby) {
             WohlonBiomePresence.nearby = scan(level, centre, radius, collect = false)
+            if (!WohlonBiomePresence.nearby) clearRemesh()
             return
         }
-        found.clear()
+        clearRemesh()
         if (!scan(level, centre, radius, collect = true)) return
         WohlonBiomePresence.nearby = true
         // These chunks were meshed while the flag was off, so their mesh has no light floor.
-        for (i in 0 until found.size) markDirty(mc, level, found.getLong(i))
-        found.clear()
+        val cx = centre.x
+        val cz = centre.z
+        LongArrays.quickSort(found.elements(), 0, found.size) { a, b ->
+            Integer.compare(chebyshev(a, cx, cz), chebyshev(b, cx, cz))
+        }
+        remeshLevel = level
     }
 
     fun onDisconnect() {
         WohlonBiomePresence.nearby = false
+        clearRemesh()
     }
+
+    private fun drainRemesh(mc: Minecraft, level: ClientLevel) {
+        if (remeshCursor >= found.size) return
+        if (level !== remeshLevel) {
+            clearRemesh()
+            return
+        }
+        val end = minOf(found.size, remeshCursor + REMESH_CHUNKS_PER_TICK)
+        while (remeshCursor < end) markDirty(mc, level, found.getLong(remeshCursor++))
+        if (remeshCursor >= found.size) clearRemesh()
+    }
+
+    private fun clearRemesh() {
+        found.clear()
+        remeshCursor = 0
+        remeshLevel = null
+    }
+
+    private fun chebyshev(packed: Long, cx: Int, cz: Int): Int =
+        maxOf(Math.abs(ChunkPos.getX(packed) - cx), Math.abs(ChunkPos.getZ(packed) - cz))
 
     /** With [collect], each Wohlon chunk goes into [found]; without it, the first hit ends the scan. */
     private fun scan(level: ClientLevel, centre: ChunkPos, radius: Int, collect: Boolean): Boolean {

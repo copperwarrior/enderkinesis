@@ -1,21 +1,22 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.platform.GlStateManager
-import com.mojang.blaze3d.shaders.BlendMode
 import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
-import com.mojang.logging.LogUtils
-import java.nio.ByteBuffer
 import java.util.function.IntSupplier
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.EffectInstance
+import org.joml.FrustumIntersection
 import org.joml.Matrix4d
 import org.joml.Matrix4dc
 import org.joml.Matrix4f
 import org.lwjgl.opengl.GL11
-import org.lwjgl.opengl.GL12
 import org.lwjgl.opengl.GL14
 import org.lwjgl.opengl.GL30
+import org.shipwrights.enderkinesis.client.volume.VolumeComposite
+import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeTextures
+import org.shipwrights.enderkinesis.client.volume.VolumeView
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
 import org.shipwrights.enderkinesis.physics.LatticeCatchZone
 
@@ -28,8 +29,6 @@ import org.shipwrights.enderkinesis.physics.LatticeCatchZone
  * Render thread only.
  */
 object CrepusculiteLatticeOceanVolume {
-    private val LOG = LogUtils.getLogger()
-
     /** Fog density for each block of water on the view ray. */
     private const val DENSITY = 0.04f
     private const val MAX_OPACITY = 0.9f
@@ -40,14 +39,20 @@ object CrepusculiteLatticeOceanVolume {
 
     private const val HEIGHT_MAP_SIZE = 256
 
+    private const val CULL_MARGIN = 2.0
+    private val CULL_PLANES = FrustumIntersection.PLANE_MASK_NX or FrustumIntersection.PLANE_MASK_PX or
+        FrustumIntersection.PLANE_MASK_NY or FrustumIntersection.PLANE_MASK_PY or FrustumIntersection.PLANE_MASK_NZ
+
     /** Room above the largest wave sum, in blocks: with a ship wake in the level, and with none. */
     private const val WAKE_MARGIN = 12.0
     private const val NO_WAKE_MARGIN = 1.0
 
-    private val OPAQUE_BLEND = BlendMode()
-
-    private var effect: EffectInstance? = null
-    private var loadFailed = false
+    private val effect = VolumeEffect(
+        "lattice_ocean_volume",
+        "HeightMap" to IntSupplier { heightTex },
+        "ShoreMap" to IntSupplier { shoreMap?.textureId ?: -1 },
+        "HullMask" to IntSupplier { mask?.textureId ?: -1 },
+    )
     private var active = false
     private var stateSet = false
     private var zonesDrawn = 0
@@ -56,12 +61,10 @@ object CrepusculiteLatticeOceanVolume {
     private var heightTex = -1
     private var heightDepthTex = -1
 
-    private val invViewProj = Matrix4f()
+    private val view = VolumeView()
+    private val frustum = FrustumIntersection()
     private val maskMatD = Matrix4d()
     private val maskMatF = Matrix4f()
-    private var cameraX = 0.0
-    private var cameraY = 0.0
-    private var cameraZ = 0.0
 
     private var zone: LatticeCatchZone? = null
     private var zoneFade = 0f
@@ -70,32 +73,50 @@ object CrepusculiteLatticeOceanVolume {
     private var heightRange = 1f
     private var mask: CrepusculiteLatticeHullMask.Mask? = null
 
+    private class Uniforms(val effect: EffectInstance) {
+        val zoneCenter = effect.safeGetUniform("ZoneCenter")
+        val zoneRadii = effect.safeGetUniform("ZoneRadii")
+        val zoneYaw = effect.safeGetUniform("ZoneYaw")
+        val waterY = effect.safeGetUniform("WaterY")
+        val heightRange = effect.safeGetUniform("HeightRange")
+        val topColor = effect.safeGetUniform("TopColor")
+        val deepColor = effect.safeGetUniform("DeepColor")
+        val density = effect.safeGetUniform("Density")
+        val opacity = effect.safeGetUniform("Opacity")
+        val zoneFade = effect.safeGetUniform("ZoneFade")
+        val maskSize = effect.safeGetUniform("MaskSize")
+        val maskMat = effect.safeGetUniform("MaskMat")
+    }
+
+    private var uniforms: Uniforms? = null
+
     private val pushUniforms: (EffectInstance) -> Unit = { eff ->
         val z = checkNotNull(zone)
-        eff.safeGetUniform("InvViewProj").set(invViewProj)
-        val waterY = (z.waterLineY - cameraY).toFloat()
-        eff.safeGetUniform("ZoneCenter").set((z.cx - cameraX).toFloat(), waterY, (z.cz - cameraZ).toFloat())
-        eff.safeGetUniform("ZoneRadii").set(z.ax.toFloat(), depthRadius, z.az.toFloat())
-        eff.safeGetUniform("ZoneYaw").set(z.yawCos.toFloat(), z.yawSin.toFloat())
-        eff.safeGetUniform("WaterY").set(waterY)
-        eff.safeGetUniform("HeightRange").set(heightRange)
-        eff.safeGetUniform("TopColor").set(z.tintR, z.tintG, z.tintB)
+        val u = uniforms?.takeIf { it.effect === eff } ?: Uniforms(eff).also { uniforms = it }
+        view.pushInvViewProj(eff)
+        val waterY = (z.waterLineY - view.camY).toFloat()
+        u.zoneCenter.set((z.cx - view.camX).toFloat(), waterY, (z.cz - view.camZ).toFloat())
+        u.zoneRadii.set(z.ax.toFloat(), depthRadius, z.az.toFloat())
+        u.zoneYaw.set(z.yawCos.toFloat(), z.yawSin.toFloat())
+        u.waterY.set(waterY)
+        u.heightRange.set(heightRange)
+        u.topColor.set(z.tintR, z.tintG, z.tintB)
         // An ocean with no dye goes to ender green at the bottom. A dyed ocean stays near its tint.
         val shade = if (z.dyed) DYED_DEPTH_SHADE else 1f
-        eff.safeGetUniform("DeepColor").set(
+        u.deepColor.set(
             z.tintR + (z.tintDeepR - z.tintR) * shade,
             z.tintG + (z.tintDeepG - z.tintG) * shade,
             z.tintB + (z.tintDeepB - z.tintB) * shade,
         )
-        eff.safeGetUniform("Density").set(DENSITY)
-        eff.safeGetUniform("Opacity").set(MAX_OPACITY)
-        eff.safeGetUniform("ZoneFade").set(zoneFade)
+        u.density.set(DENSITY)
+        u.opacity.set(MAX_OPACITY)
+        u.zoneFade.set(zoneFade)
         val m = mask
         if (m == null) {
-            eff.safeGetUniform("MaskSize").set(0, 0, 0)
+            u.maskSize.set(0, 0, 0)
         } else {
-            eff.safeGetUniform("MaskMat").set(maskMatF)
-            eff.safeGetUniform("MaskSize").set(m.texW, m.texH, m.texD)
+            u.maskMat.set(maskMatF)
+            u.maskSize.set(m.texW, m.texH, m.texD)
         }
     }
 
@@ -104,19 +125,9 @@ object CrepusculiteLatticeOceanVolume {
         active = false
         stateSet = false
         zonesDrawn = 0
-        if (loadFailed || IrisCompat.isShaderPackInUse()) return
-        if (effect == null) {
-            effect = load()
-            if (effect == null) {
-                loadFailed = true
-                return
-            }
-        }
-        this.cameraX = cameraX
-        this.cameraY = cameraY
-        this.cameraZ = cameraZ
-        // The pose holds only the camera rotation, so the inverse maps clip space to camera-relative world space.
-        invViewProj.set(RenderSystem.getProjectionMatrix()).mul(poseStack.last().pose()).invert()
+        if (IrisCompat.isShaderPackInUse() || effect.get() == null) return
+        view.update(RenderSystem.getProjectionMatrix(), poseStack.last().pose(), cameraX, cameraY, cameraZ)
+        frustum.set(view.viewProj, false)
         active = true
     }
 
@@ -130,12 +141,14 @@ object CrepusculiteLatticeOceanVolume {
         // The bottom is at the lowest point of the zone ellipsoid.
         val depth = zone.waterLineY - (zone.cy - zone.ay)
         if (depth <= 0.0) return false
-        depthRadius = depth.toFloat()
         // A low top bound keeps the march out of the air above the waves.
         val margin = if (hasWake) WAKE_MARGIN else NO_WAKE_MARGIN
         // The Stokes term of the wave sum grows with the square of the intensity.
         val intensity = zone.waveIntensity
-        heightRange = (GerstnerOcean.maxAmplitude * intensity * Math.max(1.0, intensity) + margin).toFloat()
+        val range = (GerstnerOcean.maxAmplitude * intensity * Math.max(1.0, intensity) + margin).toFloat()
+        if (!inView(zone, depth, range.toDouble())) return false
+        depthRadius = depth.toFloat()
+        heightRange = range
         ensureHeightTarget()
         stateSet = true
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, heightFbo)
@@ -151,6 +164,22 @@ object CrepusculiteLatticeOceanVolume {
         RenderSystem.disableCull()
         RenderSystem.disableBlend()
         return true
+    }
+
+    // The far plane is not tested: a march can reach past it. The camera can be in the water.
+    private fun inView(zone: LatticeCatchZone, depth: Double, range: Double): Boolean {
+        val minX = zone.cx - zone.boundX - CULL_MARGIN - view.camX
+        val maxX = zone.cx + zone.boundX + CULL_MARGIN - view.camX
+        val minY = zone.waterLineY - depth - CULL_MARGIN - view.camY
+        val maxY = zone.waterLineY + range + CULL_MARGIN - view.camY
+        val minZ = zone.cz - zone.boundZ - CULL_MARGIN - view.camZ
+        val maxZ = zone.cz + zone.boundZ + CULL_MARGIN - view.camZ
+        if (minX <= 0.0 && maxX >= 0.0 && minY <= 0.0 && maxY >= 0.0 && minZ <= 0.0 && maxZ >= 0.0) return true
+        val result = frustum.intersectAab(
+            minX.toFloat(), minY.toFloat(), minZ.toFloat(), maxX.toFloat(), maxY.toFloat(), maxZ.toFloat(),
+            CULL_PLANES,
+        )
+        return result == FrustumIntersection.INSIDE || result == FrustumIntersection.INTERSECT
     }
 
     /**
@@ -182,19 +211,7 @@ object CrepusculiteLatticeOceanVolume {
         shoreMap: CrepusculiteLatticeShoreMap.ShoreMap,
         mask: CrepusculiteLatticeHullMask.Mask?, worldToShip: Matrix4dc?,
     ) {
-        val eff = effect ?: return
-        val main = Minecraft.getInstance().mainRenderTarget
-        RenderSystem.disableDepthTest()
-        RenderSystem.depthMask(false)
-        MainColorOnlyTarget.bind(main)
-        GlStateManager._viewport(0, 0, main.width, main.height)
-        // BlendMode.apply skips all state, enableBlend too, when this effect's mode was the last one applied.
-        RenderSystem.enableBlend()
-        RenderSystem.blendEquation(GL14.GL_FUNC_ADD)
-        RenderSystem.blendFuncSeparate(
-            GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
-            GlStateManager.SourceFactor.ZERO, GlStateManager.DestFactor.ONE,
-        )
+        val eff = effect.get() ?: return
         this.zone = zone
         this.zoneFade = cloakFade * dyeDim
         this.shoreMap = shoreMap
@@ -203,10 +220,10 @@ object CrepusculiteLatticeOceanVolume {
             // Camera-relative world -> shipyard -> mask cell. Doubles: shipyard coordinates are large.
             maskMatD.translation(-mask.texMinX.toDouble(), -mask.texMinY.toDouble(), -mask.texMinZ.toDouble())
                 .mul(worldToShip)
-                .translate(cameraX, cameraY, cameraZ)
+                .translate(view.camX, view.camY, view.camZ)
             maskMatF.set(maskMatD)
         }
-        RefractionPass.drawQuad(eff, main.width, main.height, pushUniforms)
+        VolumeComposite.drawOverMain(Minecraft.getInstance().mainRenderTarget, eff, pushUniforms)
         zonesDrawn++
     }
 
@@ -217,16 +234,7 @@ object CrepusculiteLatticeOceanVolume {
         shoreMap = null
         if (!stateSet) return
         stateSet = false
-        val main = Minecraft.getInstance().mainRenderTarget
-        RenderSystem.depthMask(true)
-        RenderSystem.enableDepthTest()
-        RenderSystem.enableCull()
-        // Core shaders apply an opaque BlendMode, which turns blending off when the last mode was not
-        // opaque; leaving this effect's mode last makes the next opaque draw blend.
-        OPAQUE_BLEND.apply()
-        RenderSystem.defaultBlendFunc()
-        main.bindWrite(false)
-        GlStateManager._viewport(0, 0, main.width, main.height)
+        VolumeComposite.restore(Minecraft.getInstance().mainRenderTarget)
     }
 
     // R = height over the height range, G = 1 where the mesh has a fragment. With linear
@@ -234,38 +242,18 @@ object CrepusculiteLatticeOceanVolume {
     private fun ensureHeightTarget() {
         if (heightFbo != -1) return
         heightTex = GlStateManager._genTexture()
-        GlStateManager._bindTexture(heightTex)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE)
-        GL11.glTexImage2D(
-            GL11.GL_TEXTURE_2D, 0, GL30.GL_RG16F, HEIGHT_MAP_SIZE, HEIGHT_MAP_SIZE, 0,
-            GL30.GL_RG, GL11.GL_FLOAT, null as ByteBuffer?,
+        VolumeTextures.allocate(
+            heightTex, GL30.GL_RG16F, HEIGHT_MAP_SIZE, HEIGHT_MAP_SIZE, GL30.GL_RG, GL11.GL_FLOAT,
+            GL11.GL_LINEAR, clampToEdge = true,
         )
         heightDepthTex = GlStateManager._genTexture()
-        GlStateManager._bindTexture(heightDepthTex)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST)
-        GL11.glTexImage2D(
-            GL11.GL_TEXTURE_2D, 0, GL14.GL_DEPTH_COMPONENT24, HEIGHT_MAP_SIZE, HEIGHT_MAP_SIZE, 0,
-            GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, null as ByteBuffer?,
+        VolumeTextures.allocate(
+            heightDepthTex, GL14.GL_DEPTH_COMPONENT24, HEIGHT_MAP_SIZE, HEIGHT_MAP_SIZE,
+            GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, GL11.GL_NEAREST,
         )
         heightFbo = GlStateManager.glGenFramebuffers()
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, heightFbo)
         GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, heightTex, 0)
         GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, heightDepthTex, 0)
-    }
-
-    private fun load(): EffectInstance? = try {
-        EffectInstance(Minecraft.getInstance().resourceManager, "lattice_ocean_volume").also {
-            it.setSampler("DepthSampler", IntSupplier { Minecraft.getInstance().mainRenderTarget.depthTextureId })
-            it.setSampler("HeightMap", IntSupplier { heightTex })
-            it.setSampler("ShoreMap", IntSupplier { shoreMap?.textureId ?: -1 })
-            it.setSampler("HullMask", IntSupplier { mask?.textureId ?: -1 })
-        }
-    } catch (t: Throwable) {
-        LOG.warn("Failed to load the lattice ocean volume shader program", t)
-        null
     }
 }

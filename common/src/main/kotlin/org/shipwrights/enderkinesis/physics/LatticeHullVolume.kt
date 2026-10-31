@@ -117,6 +117,35 @@ object LatticeHullVolume {
         val volumes = Long2ObjectOpenHashMap<Volume>()
         val tmpVec = Vector3d()
         var lastSweepTick = 0L
+
+        // setBlockState can run on worldgen threads, so they read only this immutable snapshot.
+        @Volatile var bounds: Bounds? = null
+
+        fun updateBounds() {
+            var b: Bounds? = null
+            for (v in volumes.values) {
+                if (v.w <= 0 || v.h <= 0 || v.d <= 0) continue
+                b = Bounds.union(b, v.minX, v.minY, v.minZ, v.minX + v.w, v.minY + v.h, v.minZ + v.d)
+            }
+            bounds = b
+        }
+    }
+
+    /** Max values are exclusive. */
+    private class Bounds(
+        val minX: Int, val minY: Int, val minZ: Int,
+        val maxX: Int, val maxY: Int, val maxZ: Int,
+    ) {
+        fun contains(x: Int, y: Int, z: Int): Boolean =
+            x >= minX && x < maxX && y >= minY && y < maxY && z >= minZ && z < maxZ
+
+        companion object {
+            fun union(b: Bounds?, minX: Int, minY: Int, minZ: Int, maxX: Int, maxY: Int, maxZ: Int): Bounds =
+                if (b == null) Bounds(minX, minY, minZ, maxX, maxY, maxZ) else Bounds(
+                    minOf(b.minX, minX), minOf(b.minY, minY), minOf(b.minZ, minZ),
+                    maxOf(b.maxX, maxX), maxOf(b.maxY, maxY), maxOf(b.maxZ, maxZ),
+                )
+        }
     }
 
     private val clientSide = Side()
@@ -159,11 +188,12 @@ object LatticeHullVolume {
             volume.minX = minX; volume.minY = minY; volume.minZ = minZ
             volume.w = w; volume.h = h; volume.d = d
             volume.needsScan = true
+            side.updateBounds()
         }
         if (w.toLong() * h.toLong() * d.toLong() > MAX_CELLS) return null
 
         if (volume.needsScan || (volume.incomplete && now - volume.lastScanTick >= RESCAN_TICKS)) {
-            scan(level, volume)
+            scan(level, ship, volume)
             volume.needsScan = false
             volume.needsFlood = true
             volume.lastScanTick = now
@@ -184,8 +214,10 @@ object LatticeHullVolume {
 
     @JvmStatic
     fun onBlockChanged(isClient: Boolean, pos: BlockPos, oldState: BlockState, newState: BlockState) {
-        val volumes = sideOf(isClient).volumes
-        if (volumes.isEmpty()) return
+        val side = sideOf(isClient)
+        val bounds = side.bounds ?: return
+        if (!bounds.contains(pos.x, pos.y, pos.z)) return
+        val volumes = side.volumes
         val faces = faceBits(newState)
         if (faces == faceBits(oldState)) return
         for (volume in volumes.values) {
@@ -209,19 +241,28 @@ object LatticeHullVolume {
     }
 
     // A ship id can be the same in the next session.
-    fun onClientDisconnect() = clientSide.volumes.clear()
+    fun onClientDisconnect() {
+        clientSide.volumes.clear()
+        clientSide.bounds = null
+    }
 
     private fun sweep(side: Side, now: Long) {
         side.lastSweepTick = now
         val it = side.volumes.values.iterator()
+        var removed = false
         while (it.hasNext()) {
             val volume = it.next()
             val idle = now - volume.lastUsedTick
-            if ((idle > EVICT_TICKS || idle < 0) && !volume.flooding) it.remove()
+            if ((idle > EVICT_TICKS || idle < 0) && !volume.flooding) {
+                it.remove()
+                removed = true
+            }
         }
+        if (removed) side.updateBounds()
     }
 
-    private fun scan(level: Level, volume: Volume) {
+    private fun scan(level: Level, ship: Ship, volume: Volume) {
+        val shipChunks = ship.activeChunksSet
         val cells = volume.w * volume.h * volume.d
         if (volume.faces.size != cells) volume.faces = ByteArray(cells) else volume.faces.fill(0)
         volume.incomplete = false
@@ -231,7 +272,8 @@ object LatticeHullVolume {
             for (cx in (volume.minX shr 4) until ((volume.minX + volume.w) shr 4)) {
                 val chunk = level.chunkSource.getChunkNow(cx, cz)
                 if (chunk == null) {
-                    volume.incomplete = true
+                    // The padding can reach a chunk with no ship blocks, which never loads.
+                    if (shipChunks.contains(cx, cz)) volume.incomplete = true
                     continue
                 }
                 for (sy in minSectionY until maxSectionY) {

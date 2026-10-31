@@ -101,9 +101,7 @@ public abstract class FogRendererSselithRepertoryMixin {
             alpha = Mth.lerp(SselithRepertoryLighting.darknessFactor(mc.getFrameTime()), alpha, 1.0f);
             RenderSystem.setShaderFogColor(r, g, b, alpha);
         } else {
-            // Chain to the next @WrapOperation (or the original
-            // 3-arg call if none). The Wohlon biome wrapper sits
-            // on this same call site and handles its own check.
+            // Chain to the next @WrapOperation (or the original 3-arg call if none).
             original.call(r, g, b);
         }
     }

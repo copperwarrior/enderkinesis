@@ -79,7 +79,7 @@ object BindingTomeOrbBehavior : TomeOrbBehavior {
             val dy = recvCentre.y - sendCentre.y
             val dz = recvCentre.z - sendCentre.z
             if (dx * dx + dy * dy + dz * dz > maxSq) {
-                sendBe.removeOutgoingLink(level, tomeKind, receiverPos)
+                sendBe.dropOverDistance(level, tomeKind, receiverPos)
                 continue
             }
             if (sendBe.getJointId(tomeKind, receiverPos) < 0 &&

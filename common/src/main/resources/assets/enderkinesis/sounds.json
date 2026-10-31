@@ -324,6 +324,36 @@
       }
     ]
   },
+  "item.incantation_of_winds.start": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_winds.start",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/incantation_of_winds/start",
+        "stream": false
+      }
+    ]
+  },
+  "item.incantation_of_winds.loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_winds.loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/incantation_of_winds/loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.incantation_of_winds.stop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_winds.stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/incantation_of_winds/stop",
+        "stream": false
+      }
+    ]
+  },
   "item.wylland_tome.grab": {
     "category": "player",
     "sounds": [
@@ -1567,6 +1597,249 @@
       }
     ]
   },
+  "ambient.wohlonnogondonia.ecology.bed_wetland": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/bed_wetland",
+        "stream": true
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.bed_canopy": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/bed_canopy",
+        "stream": true
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.bed_hollow": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/bed_hollow",
+        "stream": true
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.bough": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.bough",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/bough1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/bough2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/bough3",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.frog": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.frog",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/frog1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/frog2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/frog3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/frog4",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/frog5",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/frog6",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.fungus": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.fungus",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/fungus1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/fungus2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/fungus3",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.heartfire": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.heartfire",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/heartfire1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/heartfire2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/heartfire3",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.mud": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.mud",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/mud1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/mud2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/mud3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/addition11",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.pad": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.pad",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/pad1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/pad2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/pad3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/pad4",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/addition9",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.reed": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.reed",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/reed1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/reed2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/reed3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/reed4",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.roots": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.roots",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/roots1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/roots2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/roots3",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.rot": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.rot",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/rot1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/rot2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/rot3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/rot4",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ecology.water": {
+    "category": "ambient",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ecology.water",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/water1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/water2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ecology/water3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/addition10",
+        "stream": false
+      }
+    ]
+  },
   "ambient.wohlonnogondonia.portal_loop": {
     "category": "block",
     "sounds": [
@@ -1581,6 +1854,20 @@
     "sounds": [
       {
         "name": "enderkinesis:ambient/wohlonnogondonia/mother_portal_loop",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.portal_travel": {
+    "category": "block",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.portal_travel",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/portal_travel1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/portal_travel2",
         "stream": false
       }
     ]
@@ -1685,6 +1972,36 @@
       }
     ]
   },
+  "ambient.wohlonnogondonia.ritual.spread": {
+    "category": "block",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ritual.spread",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ritual/spread",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ritual.ghost": {
+    "category": "block",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ritual.ghost",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ritual/ghost",
+        "stream": false
+      }
+    ]
+  },
+  "ambient.wohlonnogondonia.ritual.call": {
+    "category": "block",
+    "subtitle": "subtitles.ambient.wohlonnogondonia.ritual.call",
+    "sounds": [
+      {
+        "name": "enderkinesis:ambient/wohlonnogondonia/ritual/call",
+        "stream": false
+      }
+    ]
+  },
   "block.heart_of_the_wild.heartbeat": {
     "category": "block",
     "sounds": [
@@ -1711,6 +2028,80 @@
       },
       {
         "name": "enderkinesis:block/heart_of_the_wild/mother_heartbeat2",
+        "stream": false
+      }
+    ]
+  },
+  "block.heart_of_the_wild.tendril_grow": {
+    "category": "block",
+    "subtitle": "subtitles.block.heart_of_the_wild.tendril_grow",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/tendril_grow1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/tendril_grow2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/tendril_grow3",
+        "stream": false
+      }
+    ]
+  },
+  "block.heart_of_the_wild.break": {
+    "category": "block",
+    "subtitle": "subtitles.block.heart_of_the_wild.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/break",
+        "stream": false
+      }
+    ]
+  },
+  "block.heart_of_the_wild.place": {
+    "category": "block",
+    "subtitle": "subtitles.block.heart_of_the_wild.place",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/place",
+        "stream": false
+      }
+    ]
+  },
+  "block.heart_of_the_wild.hit": {
+    "category": "block",
+    "subtitle": "subtitles.block.heart_of_the_wild.hit",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/hit1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/hit2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/hit3",
+        "stream": false
+      }
+    ]
+  },
+  "block.heart_of_the_wild.step": {
+    "category": "block",
+    "subtitle": "subtitles.block.heart_of_the_wild.step",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/step1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/step2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/heart_of_the_wild/step3",
         "stream": false
       }
     ]
@@ -2904,7 +3295,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_awaken"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.awaken"
   },
   "entity.constriliar.ambient": {
     "category": "neutral",
@@ -2918,7 +3310,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_ambient_3"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.ambient"
   },
   "entity.constriliar.acknowledge": {
     "category": "neutral",
@@ -2932,7 +3325,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_acknowledge_3"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.acknowledge"
   },
   "entity.constriliar.happy": {
     "category": "neutral",
@@ -2946,7 +3340,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_happy_3"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.happy"
   },
   "entity.constriliar.sit": {
     "category": "neutral",
@@ -2954,7 +3349,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_sit"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.sit"
   },
   "entity.constriliar.stand": {
     "category": "neutral",
@@ -2962,7 +3358,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_stand"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.stand"
   },
   "entity.constriliar.jump": {
     "category": "neutral",
@@ -2970,7 +3367,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_jump"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.jump"
   },
   "entity.constriliar.land": {
     "category": "neutral",
@@ -2978,7 +3376,35 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_land"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.land"
+  },
+  "entity.constriliar.impact": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/constriliar/constriliar_impact_1"
+      },
+      {
+        "name": "enderkinesis:entity/constriliar/constriliar_impact_2"
+      },
+      {
+        "name": "enderkinesis:entity/constriliar/constriliar_impact_3"
+      }
+    ],
+    "subtitle": "subtitles.entity.constriliar.impact"
+  },
+  "entity.constriliar.impact_heavy": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/constriliar/constriliar_impact_heavy_1"
+      },
+      {
+        "name": "enderkinesis:entity/constriliar/constriliar_impact_heavy_2"
+      }
+    ],
+    "subtitle": "subtitles.entity.constriliar.impact_heavy"
   },
   "entity.constriliar.death": {
     "category": "neutral",
@@ -2986,7 +3412,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_death"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.death"
   },
   "entity.constriliar.panic": {
     "category": "neutral",
@@ -2997,7 +3424,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_panic_2"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.panic"
   },
   "entity.constriliar.strain": {
     "category": "neutral",
@@ -3008,7 +3436,8 @@
       {
         "name": "enderkinesis:entity/constriliar/constriliar_strain_2"
       }
-    ]
+    ],
+    "subtitle": "subtitles.entity.constriliar.strain"
   },
   "entity.shulkonaut.ambient": {
     "category": "neutral",
@@ -3183,6 +3612,1082 @@
       },
       {
         "name": "enderkinesis:block/aether_pad/break3",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.loop": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/loop",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.loop_fuel": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/loop_fuel",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.power_on": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/power_on",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.power_off": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/power_off",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.fuel_insert": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/fuel_insert",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.fuel_remove": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/fuel_remove",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.fuel_ignite": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/fuel_ignite1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/shulker_puffer/fuel_ignite2",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.fuel_out": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/fuel_out",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.place": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/place1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/shulker_puffer/place2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/shulker_puffer/place3",
+        "stream": false
+      }
+    ]
+  },
+  "block.shulker_puffer.break": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/shulker_puffer/break1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/shulker_puffer/break2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/shulker_puffer/break3",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.scry_begin": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.scry_begin",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/scry_begin",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.scry_loop": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.scry_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/scry_loop",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.scry_end": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.scry_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/scry_end",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.scry_fail": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.scry_fail",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/scry_fail",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.convert": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.convert",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/convert",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.cover": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.cover",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/cover",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_scrying.uncover": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_scrying.uncover",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_scrying/uncover",
+        "stream": false
+      }
+    ]
+  },
+  "item.eidetic_bookmark.save": {
+    "category": "player",
+    "subtitle": "subtitles.item.eidetic_bookmark.save",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/eidetic_bookmark/save",
+        "stream": false
+      }
+    ]
+  },
+  "item.eidetic_bookmark.read": {
+    "category": "player",
+    "subtitle": "subtitles.item.eidetic_bookmark.read",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/eidetic_bookmark/read",
+        "stream": false
+      }
+    ]
+  },
+  "item.eidetic_bookmark.draw": {
+    "category": "player",
+    "subtitle": "subtitles.item.eidetic_bookmark.draw",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/eidetic_bookmark/draw",
+        "stream": false
+      }
+    ]
+  },
+  "item.eidetic_bookmark.ready_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.eidetic_bookmark.ready_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/eidetic_bookmark/ready_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.eidetic_bookmark.travel": {
+    "category": "player",
+    "subtitle": "subtitles.item.eidetic_bookmark.travel",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/eidetic_bookmark/travel",
+        "stream": false
+      }
+    ]
+  },
+  "item.eidetic_bookmark.fizzle": {
+    "category": "player",
+    "subtitle": "subtitles.item.eidetic_bookmark.fizzle",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/eidetic_bookmark/fizzle",
+        "stream": false
+      }
+    ]
+  },
+  "item.scroll_of_unravelling.unravel": {
+    "category": "player",
+    "subtitle": "subtitles.item.scroll_of_unravelling.unravel",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/scroll_of_unravelling/unravel1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/scroll_of_unravelling/unravel2",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.select": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.select",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/select",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.unlink": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.unlink",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/unlink",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.dismantle": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.dismantle",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/dismantle",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.snap": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.snap",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/snap",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.filter_set": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.filter_set",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/filter_set",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.filter_clear": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.filter_clear",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/filter_clear",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.book_set": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.book_set",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/book_set",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.book_release": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.book_release",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/book_release",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.brake_on": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.brake_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/brake_on",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.brake_off": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.brake_off",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/brake_off",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.reel_in": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.reel_in",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/reel_in",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.reel_out": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.reel_out",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/reel_out",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.return": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.return",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/return",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.drop": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.drop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/drop",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_binding": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_binding",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_binding",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_chaining": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_chaining",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_chaining",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_coupling": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_coupling",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_coupling",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_disintegration": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_disintegration",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_disintegration",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_elasticity": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_elasticity",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_elasticity",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_hinging": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_hinging",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_hinging",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_pulling": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_pulling",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_pulling",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_pushing": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_pushing",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_pushing",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_signal": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_signal",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_signal",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_spring": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_spring",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_spring",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_transportation": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_transportation",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_transportation",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_vacuum": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_vacuum",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_vacuum",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.link_ventriloquism": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.link_ventriloquism",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/link_ventriloquism",
+        "stream": false
+      }
+    ]
+  },
+  "block.echo_cannon.charge": {
+    "category": "block",
+    "subtitle": "subtitles.block.echo_cannon.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/echo_cannon/charge",
+        "stream": false
+      }
+    ]
+  },
+  "block.echo_cannon.fire": {
+    "category": "block",
+    "subtitle": "subtitles.block.echo_cannon.fire",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/echo_cannon/fire",
+        "stream": false
+      }
+    ]
+  },
+  "block.echo_cannon.vent": {
+    "category": "block",
+    "subtitle": "subtitles.block.echo_cannon.vent",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/echo_cannon/vent",
+        "stream": false
+      }
+    ]
+  },
+  "item.scroll_of_sculk_catastrophe.use": {
+    "category": "player",
+    "subtitle": "subtitles.item.scroll_of_sculk_catastrophe.use",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/scroll_of_sculk_catastrophe/scroll_use",
+        "stream": false
+      }
+    ]
+  },
+  "event.sculk_catastrophe": {
+    "category": "block",
+    "subtitle": "subtitles.event.sculk_catastrophe",
+    "sounds": [
+      {
+        "name": "enderkinesis:event/sculk_catastrophe/catastrophe",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.refuse": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.refuse",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/refuse1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/orb_of_linking/refuse2",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.send": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.send",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/send1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/orb_of_linking/send2",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.arrive": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.arrive",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/arrive1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/orb_of_linking/arrive2",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.suck": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.suck",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/suck1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/orb_of_linking/suck2",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.beam_loop": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.grind_loop": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.grind_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/grind_loop",
+        "stream": false
+      }
+    ]
+  },
+  "block.orb_of_linking.hum_loop": {
+    "category": "block",
+    "subtitle": "subtitles.block.orb_of_linking.hum_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/orb_of_linking/hum_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.end_cult.equip_head": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.end_cult.equip_head",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_head1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_head2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_head3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.end_cult.equip_top": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.end_cult.equip_top",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_top1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_top2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_top3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.end_cult.equip_bottoms": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.end_cult.equip_bottoms",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_bottoms1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_bottoms2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_bottoms3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.end_cult.equip_feet": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.end_cult.equip_feet",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_feet1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_feet2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/end_cult/equip_feet3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.end_cult.flutter_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.end_cult.flutter_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/end_cult/flutter_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.scholar.equip_head": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.scholar.equip_head",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_head1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_head2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_head3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.scholar.equip_top": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.scholar.equip_top",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_top1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_top2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_top3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.scholar.equip_bottoms": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.scholar.equip_bottoms",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_bottoms1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_bottoms2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_bottoms3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.scholar.equip_feet": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.scholar.equip_feet",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_feet1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_feet2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/scholar/equip_feet3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.scholar.flutter_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.scholar.flutter_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/scholar/flutter_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.blue_witch.equip_head": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.blue_witch.equip_head",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_head1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_head2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_head3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.blue_witch.equip_top": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.blue_witch.equip_top",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_top1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_top2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_top3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.blue_witch.equip_bottoms": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.blue_witch.equip_bottoms",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_bottoms1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_bottoms2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_bottoms3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.blue_witch.equip_feet": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.blue_witch.equip_feet",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_feet1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_feet2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/equip_feet3",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.blue_witch.flutter_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.blue_witch.flutter_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/blue_witch/flutter_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.robes.blue_witch.hat_flop": {
+    "category": "player",
+    "subtitle": "subtitles.item.robes.blue_witch.hat_flop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/robes/blue_witch/hat_flop1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/robes/blue_witch/hat_flop2",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.open": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.open",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/open",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.close": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.close",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/close",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.unload": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.unload",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/unload",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.refuse": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.refuse",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/refuse",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.row_add": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.row_add",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/row_add",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.row_remove": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.row_remove",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/row_remove",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.scroll_end": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.scroll_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/scroll_end",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.sky_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.sky_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/sky_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.equip": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.equip",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/equip1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/equip2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/equip3",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.insert": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.insert",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/insert1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/insert2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/insert3",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.extract": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.extract",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/extract1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/extract2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/extract3",
+        "stream": false
+      }
+    ]
+  },
+  "item.satchel_of_shelving.scroll": {
+    "category": "player",
+    "subtitle": "subtitles.item.satchel_of_shelving.scroll",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/scroll1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/scroll2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/scroll3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/satchel_of_shelving/scroll4",
         "stream": false
       }
     ]
@@ -3643,6 +5148,130 @@
       }
     ]
   },
+  "block.oarscribe.start": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.start",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/start",
+        "stream": false
+      }
+    ]
+  },
+  "block.oarscribe.loop": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/loop",
+        "stream": false
+      }
+    ]
+  },
+  "block.oarscribe.stop": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/stop",
+        "stream": false
+      }
+    ]
+  },
+  "block.oarscribe.turn": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.turn",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/turn1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/oarscribe/turn2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/oarscribe/turn3",
+        "stream": false
+      }
+    ]
+  },
+  "block.oarscribe.mirror": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.mirror",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/mirror",
+        "stream": false
+      }
+    ]
+  },
+  "block.oarscribe.load_quill": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.load_quill",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/load_quill",
+        "stream": false
+      }
+    ]
+  },
+  "block.oarscribe.pen_break": {
+    "category": "block",
+    "subtitle": "subtitles.block.oarscribe.pen_break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/oarscribe/pen_break",
+        "stream": false
+      }
+    ]
+  },
+  "block.jar_receptacle.jar_in": {
+    "category": "block",
+    "subtitle": "subtitles.block.jar_receptacle.jar_in",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/jar_receptacle/jar_in1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/jar_receptacle/jar_in2",
+        "stream": false
+      }
+    ]
+  },
+  "block.jar_receptacle.jar_out": {
+    "category": "block",
+    "subtitle": "subtitles.block.jar_receptacle.jar_out",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/jar_receptacle/jar_out1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/jar_receptacle/jar_out2",
+        "stream": false
+      }
+    ]
+  },
+  "block.jar_receptacle.feed": {
+    "category": "block",
+    "subtitle": "subtitles.block.jar_receptacle.feed",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/jar_receptacle/feed1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/jar_receptacle/feed2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/jar_receptacle/feed3",
+        "stream": false
+      }
+    ]
+  },
   "block.ichaeric_ink.flow": {
     "category": "block",
     "sounds": [
@@ -3656,6 +5285,184 @@
       },
       {
         "name": "enderkinesis:block/ichaeric_ink/flow3",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.pulse": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.pulse",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/pulse1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/pulse2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/pulse3",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.latch": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.latch",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/latch",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.swell": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.swell",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/swell",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.flinch": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.flinch",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/flinch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/flinch2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/flinch3",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.cut": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.cut",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/cut1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/cut2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/cut3",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.ripple": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.ripple",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/ripple",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.sever": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.sever",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/sever1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/sever2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/sever3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/sever4",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/sever5",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/sever6",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.death": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/death",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.burn": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.burn",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/burn1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/burn2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/burn3",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.hit": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.hit",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/hit1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/hit2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/hit3",
+        "stream": false
+      }
+    ]
+  },
+  "block.ygann_barnacle.break": {
+    "category": "block",
+    "subtitle": "subtitles.block.ygann_barnacle.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/ygann_barnacle/break1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/break2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/ygann_barnacle/break3",
         "stream": false
       }
     ]

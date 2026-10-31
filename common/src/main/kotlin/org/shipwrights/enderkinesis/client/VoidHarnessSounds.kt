@@ -26,11 +26,18 @@ object VoidHarnessSounds {
     /** A small margin on the audible range, so the loop is at volume before the player hears it. */
     private const val START_RANGE: Double = EKSounds.VOID_HARNESS_LOOP_RANGE + 2.0
     private const val START_RANGE_SQR: Double = START_RANGE * START_RANGE
+    /** Many harnesses on one ship play the same loops, and more copies only blur them. */
+    private const val MAX_LOOPS = 4
+    /** A playing harness counts as this much nearer, so two at near the same distance do not swap each tick. */
+    private const val PLAYING_BIAS_SQR = 0.8
 
     /** Client thread only. */
     private val hums = HashMap<VoidHarnessBlockEntity, HumLoop>()
     private val strains = HashMap<VoidHarnessBlockEntity, StrainLoop>()
     private val lastPower = HashMap<VoidHarnessBlockEntity, Int>()
+    private val nearest = NearestLoopSelection<VoidHarnessBlockEntity>(MAX_LOOPS, PLAYING_BIAS_SQR)
+    /** Harnesses that turned on this tick. */
+    private val justPowered = HashSet<VoidHarnessBlockEntity>()
     private val scratch = Vector3d()
 
     fun init() {
@@ -44,6 +51,8 @@ object VoidHarnessSounds {
         hums.clear()
         strains.clear()
         lastPower.clear()
+        nearest.clear()
+        justPowered.clear()
     }
 
     private fun tick(level: ClientLevel) {
@@ -54,13 +63,20 @@ object VoidHarnessSounds {
         hums.values.removeIf { it.isStopped || !sounds.isActive(it) }
         strains.values.removeIf { it.isStopped || !sounds.isActive(it) }
         lastPower.keys.removeIf { it.isRemoved }
+        nearest.beginTick()
+        justPowered.clear()
         for (be in VoidHarnessClientRegistry.all(level)) {
             if (be.isRemoved) continue
             val power = power(be)
             val previous = lastPower.put(be, power)
             if (power <= 0 || !inRange(level, be, player)) continue
+            if (previous == 0) justPowered.add(be)
+            nearest.offer(be, player.distanceToSqr(scratch.x, scratch.y, scratch.z), be in hums)
+        }
+        nearest.select()
+        for (be in nearest.selected()) {
             if (be !in hums) {
-                val delay = if (previous == 0) HUM_START_DELAY_TICKS else 0L
+                val delay = if (be in justPowered) HUM_START_DELAY_TICKS else 0L
                 hums[be] = HumLoop(level, be, level.gameTime + delay).also(sounds::play)
             }
             if (be.pulling && be !in strains) strains[be] = StrainLoop(level, be).also(sounds::play)
@@ -92,7 +108,7 @@ object VoidHarnessSounds {
         }
 
         override fun tick() {
-            val power = if (isAudible()) power(be) else 0
+            val power = if (isAudible() && be in nearest) power(be) else 0
             if (power <= 0) {
                 volume -= 1f / HUM_FADE_OUT_TICKS
                 if (volume <= 0f) stop()
@@ -108,7 +124,7 @@ object VoidHarnessSounds {
         HarnessLoop(level, be, EKSounds.VOID_HARNESS_STRAIN.get()) {
 
         override fun tick() {
-            val target = if (isAudible() && be.pulling) power(be) / 15f else 0f
+            val target = if (isAudible() && be.pulling && be in nearest) power(be) / 15f else 0f
             val step = 1f / STRAIN_FADE_TICKS
             volume = if (volume < target) {
                 (volume + step).coerceAtMost(target)

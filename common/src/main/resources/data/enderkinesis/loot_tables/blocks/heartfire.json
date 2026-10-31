@@ -1,0 +1,119 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:heartfire",
+          "conditions": [
+            {
+              "condition": "minecraft:match_tool",
+              "predicate": {
+                "items": [
+                  "minecraft:shears"
+                ]
+              }
+            }
+          ],
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": 1,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:heartfire",
+                  "properties": {
+                    "down": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": 1,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:heartfire",
+                  "properties": {
+                    "up": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": 1,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:heartfire",
+                  "properties": {
+                    "north": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": 1,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:heartfire",
+                  "properties": {
+                    "south": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": 1,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:heartfire",
+                  "properties": {
+                    "east": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": 1,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:heartfire",
+                  "properties": {
+                    "west": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "add": true,
+              "count": -1
+            },
+            {
+              "function": "minecraft:explosion_decay"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,11 +1,6 @@
 {
   "multipart": [
     {
-      "apply": {
-        "model": "enderkinesis:block/ichaeric_ink_jar"
-      }
-    },
-    {
       "when": {
         "bottles": "1"
       },
@@ -51,6 +46,11 @@
       },
       "apply": {
         "model": "enderkinesis:block/ichaeric_ink_jar_ink_6"
+      }
+    },
+    {
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar"
       }
     }
   ]

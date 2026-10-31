@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=y": {
+      "model": "enderkinesis:block/stripped_wogor_log"
+    },
+    "axis=z": {
+      "model": "enderkinesis:block/stripped_wogor_log_horizontal",
+      "x": 90
+    },
+    "axis=x": {
+      "model": "enderkinesis:block/stripped_wogor_log_horizontal",
+      "x": 90,
+      "y": 90
+    }
+  }
+}

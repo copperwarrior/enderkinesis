@@ -5,6 +5,7 @@ import net.minecraft.client.multiplayer.ClientChunkCache;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import org.shipwrights.enderkinesis.client.SselithVoidFog;
+import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -20,10 +21,18 @@ public abstract class ClientChunkCacheSselithVoidFogMixin {
         Consumer<?> consumer, CallbackInfoReturnable<?> cir
     ) {
         SselithVoidFog.markChunkDirty(x, z);
+        WohlonWaterMurk.markChunkDirty(x, z);
     }
 
     @Inject(method = "drop", at = @At("TAIL"))
     private void enderkinesis$voidFogChunkDropped(int x, int z, CallbackInfo ci) {
         SselithVoidFog.markChunkDirty(x, z);
+        WohlonWaterMurk.markChunkDirty(x, z);
+    }
+
+    // The Wohlon spreader resends biomes without the chunk; the water murk keys on the biome.
+    @Inject(method = "replaceBiomes", at = @At("TAIL"))
+    private void enderkinesis$waterMurkBiomesReplaced(int x, int z, FriendlyByteBuf buf, CallbackInfo ci) {
+        WohlonWaterMurk.markChunkDirty(x, z);
     }
 }

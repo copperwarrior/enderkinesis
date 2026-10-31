@@ -1,7 +1,40 @@
 {
   "variants": {
-    "axis=y": { "model": "enderkinesis:block/wogor_wood" },
-    "axis=z": { "model": "enderkinesis:block/wogor_wood", "x": 90 },
-    "axis=x": { "model": "enderkinesis:block/wogor_wood", "x": 90, "y": 90 }
+    "axis=y": [
+      {
+        "model": "enderkinesis:block/wogor_wood",
+        "weight": 66
+      },
+      {
+        "model": "enderkinesis:block/wogor_wood_animated",
+        "weight": 34
+      }
+    ],
+    "axis=z": [
+      {
+        "model": "enderkinesis:block/wogor_wood",
+        "weight": 66,
+        "x": 90
+      },
+      {
+        "model": "enderkinesis:block/wogor_wood_animated",
+        "weight": 34,
+        "x": 90
+      }
+    ],
+    "axis=x": [
+      {
+        "model": "enderkinesis:block/wogor_wood",
+        "weight": 66,
+        "x": 90,
+        "y": 90
+      },
+      {
+        "model": "enderkinesis:block/wogor_wood_animated",
+        "weight": 34,
+        "x": 90,
+        "y": 90
+      }
+    ]
   }
 }

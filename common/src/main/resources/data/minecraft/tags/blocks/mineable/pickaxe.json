@@ -2,6 +2,8 @@
   "replace": false,
   "values": [
     "enderkinesis:ancrite_block",
+    "enderkinesis:oarscribe",
+    "enderkinesis:jar_receptacle",
     "enderkinesis:owl_deepslate",
     "enderkinesis:raw_ancrite",
     "enderkinesis:refined_ancrite",

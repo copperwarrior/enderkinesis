@@ -93,6 +93,8 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
         if (!WohlonnogondoniaPortalManager.addPortal(serverLevel, portalPos)) return
         WohlonnogondoniaSpreader.startPortalSeed(serverLevel, portalPos)
         WohlonnogondoniaTreeGrower.startTree(serverLevel, portalPos)
+        WohlonRitualNetwork.sendIgnite(serverLevel, pos)
+        WohlonRitualNetwork.sendCall(serverLevel, pos)
         serverLevel.playSound(
             null, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5,
             EKSounds.WOHLON_RITUAL_IGNITE.get(), SoundSource.BLOCKS, 3f, 1f,

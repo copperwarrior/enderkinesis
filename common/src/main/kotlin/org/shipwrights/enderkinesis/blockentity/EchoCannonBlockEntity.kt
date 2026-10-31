@@ -8,7 +8,6 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.ChunkPos
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.ai.attributes.Attributes
@@ -24,6 +23,7 @@ import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import org.shipwrights.enderkinesis.network.EchoCannonNetwork
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.SculkSpread
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 
@@ -127,6 +127,9 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
     fun serverTick(level: Level, pos: BlockPos, state: BlockState) {
         if (level !is ServerLevel) return
         if (cooldownTicks > 0) {
+            if (cooldownTicks == COOLDOWN_TICKS) {
+                level.playSound(null, pos, EKSounds.ECHO_CANNON_VENT.get(), SoundSource.BLOCKS, 1.0f, 1.0f)
+            }
             // Smoke-vent particles at the muzzle during cooldown so the
             // cannon visibly "smokes" between shots. Cadence keeps the
             // count manageable per tick even with multiple cannons.
@@ -143,7 +146,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
             // target tick (CHARGE_TICKS ± 1).
             chargeTickTarget = CHARGE_TICKS + (level.random.nextInt(3) - 1)
             level.playSound(
-                null, pos, SoundEvents.WARDEN_SONIC_CHARGE, SoundSource.BLOCKS,
+                null, pos, EKSounds.ECHO_CANNON_CHARGE.get(), SoundSource.BLOCKS,
                 1.5f, 1.0f,
             )
             // Stamp the charge-start tick and push it to nearby clients so the
@@ -290,7 +293,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
 
         // Fire SFX + the S2C visual packet.
         level.playSound(
-            null, pos, SoundEvents.WARDEN_SONIC_BOOM, SoundSource.BLOCKS,
+            null, pos, EKSounds.ECHO_CANNON_FIRE.get(), SoundSource.BLOCKS,
             1.2f, 1.0f,
         )
         // Transform the world-space trace back into ship-local coords

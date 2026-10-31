@@ -69,10 +69,9 @@ object Wake {
         val dirX = vx / speedPerSec
         val dirZ = vz / speedPerSec
         // The box is ship-local, so the direction must go to the ship frame before the projection.
-        val localDir = org.joml.Vector3d(dirX, 0.0, dirZ)
-        worldToShip.transformDirection(localDir)
-        val absX = Math.abs(localDir.x)
-        val absZ = Math.abs(localDir.z)
+        // transformDirection of (dirX, 0, dirZ), without a scratch vector: callers are on three threads.
+        val absX = Math.abs(worldToShip.m00() * dirX + worldToShip.m20() * dirZ)
+        val absZ = Math.abs(worldToShip.m02() * dirX + worldToShip.m22() * dirZ)
         val xExt = (aabb.maxX() - aabb.minX() + 1).toDouble()
         val zExt = (aabb.maxZ() - aabb.minZ() + 1).toDouble()
         return WakeSource(

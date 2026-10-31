@@ -138,7 +138,7 @@ void main() {
         if (t1 - t0 <= 1.0e-3) discard;
     }
 
-    // Straight walls: each level of the volume is the mesh shore outline (coast, tendrils, coves).
+    // Straight walls: each level of the volume is the shore outline and falloff.
     // The density fades to zero at the deepest level. The height map test at the two ends of
     // each step gives the part of the step that is below the wave surface, so the ray can go
     // into and out of the water any number of times.

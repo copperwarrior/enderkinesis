@@ -5,7 +5,8 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4dc
-import org.joml.Vector3d
+import org.valkyrienskies.core.api.bodies.QueryableVsBodyData
+import org.valkyrienskies.core.api.bodies.VsBody
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils
@@ -32,60 +33,66 @@ object GamylanCageEntityCollision {
     fun adjustMovement(entity: Entity, movement: Vec3, entityBoundingBox: AABB, level: Level): Vec3 {
         if (movement.lengthSqr() <= COLLISION_EPSILON) return movement
         val vsDim = level.dimensionId
-        val shipWorld = level.shipObjectWorld
-
-        // Broad-phase cull radius around the swept entity AABB. Loop-
-        // invariant so we compute it once.
-        val cx = (entityBoundingBox.minX + entityBoundingBox.maxX) * 0.5
-        val cy = (entityBoundingBox.minY + entityBoundingBox.maxY) * 0.5
-        val cz = (entityBoundingBox.minZ + entityBoundingBox.maxZ) * 0.5
-        val halfX = (entityBoundingBox.maxX - entityBoundingBox.minX) * 0.5
-        val halfY = (entityBoundingBox.maxY - entityBoundingBox.minY) * 0.5
-        val halfZ = (entityBoundingBox.maxZ - entityBoundingBox.minZ) * 0.5
-        val halfExt = maxOf(halfX, halfY, halfZ)
+        val bodies = level.shipObjectWorld.allBodies
         val moveLen = Math.sqrt(movement.lengthSqr())
 
         var adjusted = movement
-        val collide = { bodyId: Long, bodyRadius: Double, adjust: (Vec3, Matrix4dc) -> Vec3 ->
-            val body = shipWorld.allBodies.getById(bodyId)
-            if (body != null) {
-                val bodyPos = body.kinematics.position
-                val cullR = halfExt + bodyRadius + moveLen + 0.5
-                val dx = bodyPos.x() - cx
-                val dy = bodyPos.y() - cy
-                val dz = bodyPos.z() - cz
-                if (dx * dx + dy * dy + dz * dz <= cullR * cullR) {
-                    adjusted = adjust(adjusted, body.kinematics.transform.toWorld)
-                }
-            }
-        }
-        val collideHull = { bodyId: Long, dims: Vector3d, hull: GamylanCageShape.Hull ->
-            collide(bodyId, GamylanCageShape.boundingRadius(dims)) { move, toWorld ->
-                val polygon = vsCore.entityPolygonCollider
-                    .createPolygonFromPointsAndNormals(hull.points, hull.normals, toWorld, null)
-                EntityShipCollisionUtils
-                    .adjustEntityMovementForPrimitiveShapePolygons(entity, move, entityBoundingBox, listOf(polygon))
-            }
-        }
         if (level.isClientSide) {
             // The server table is empty on the client of a dedicated server. The client entry has
             // no Tribulla flag, so a soder bottle collides as the crystal of the same size.
             org.shipwrights.enderkinesis.client.GamylanCageClientRegistry.forEachIn(level.dimension()) { entry ->
-                collideHull(entry.bodyId, entry.shapeDims, entry.hull)
+                val radius = GamylanCageShape.boundingRadius(entry.shapeDims)
+                val toWorld = nearbyToWorld(bodies, entry.bodyId, radius, entityBoundingBox, moveLen)
+                if (toWorld != null) adjusted = collideHull(entity, adjusted, entityBoundingBox, entry.hull, toWorld)
             }
         } else {
             GamylanCageRegistry.forEachInVsDim(vsDim) { data ->
                 if (data.isTribulla) {
-                    collide(data.bodyId, SoderShape.boundingRadius(data.entityCullSize)) { move, toWorld ->
-                        EntityShipCollisionUtils.adjustEntityMovementForPrimitiveShapeCollision(
-                            entity, move, entityBoundingBox, SoderShape.newCompoundShape(data.entityCullSize), toWorld,
+                    val radius = SoderShape.boundingRadius(data.entityCullSize)
+                    val toWorld = nearbyToWorld(bodies, data.bodyId, radius, entityBoundingBox, moveLen)
+                    if (toWorld != null) {
+                        adjusted = EntityShipCollisionUtils.adjustEntityMovementForPrimitiveShapeCollision(
+                            entity, adjusted, entityBoundingBox, SoderShape.newCompoundShape(data.entityCullSize), toWorld,
                         )
                     }
                 } else {
-                    collideHull(data.bodyId, data.shapeDims, data.hull)
+                    val radius = GamylanCageShape.boundingRadius(data.shapeDims)
+                    val toWorld = nearbyToWorld(bodies, data.bodyId, radius, entityBoundingBox, moveLen)
+                    if (toWorld != null) adjusted = collideHull(entity, adjusted, entityBoundingBox, data.hull, toWorld)
                 }
             }
         }
         return adjusted
+    }
+
+    /** Broad phase: the body's transform when it can touch the swept entity box, else null. */
+    private fun nearbyToWorld(
+        bodies: QueryableVsBodyData<VsBody>,
+        bodyId: Long,
+        bodyRadius: Double,
+        box: AABB,
+        moveLen: Double,
+    ): Matrix4dc? {
+        val body = bodies.getById(bodyId) ?: return null
+        val halfExt = maxOf(box.maxX - box.minX, box.maxY - box.minY, box.maxZ - box.minZ) * 0.5
+        val cullR = halfExt + bodyRadius + moveLen + 0.5
+        val bodyPos = body.kinematics.position
+        val dx = bodyPos.x() - (box.minX + box.maxX) * 0.5
+        val dy = bodyPos.y() - (box.minY + box.maxY) * 0.5
+        val dz = bodyPos.z() - (box.minZ + box.maxZ) * 0.5
+        return if (dx * dx + dy * dy + dz * dz <= cullR * cullR) body.kinematics.transform.toWorld else null
+    }
+
+    private fun collideHull(
+        entity: Entity,
+        movement: Vec3,
+        box: AABB,
+        hull: GamylanCageShape.Hull,
+        toWorld: Matrix4dc,
+    ): Vec3 {
+        val polygon = vsCore.entityPolygonCollider
+            .createPolygonFromPointsAndNormals(hull.points, hull.normals, toWorld, null)
+        return EntityShipCollisionUtils
+            .adjustEntityMovementForPrimitiveShapePolygons(entity, movement, box, listOf(polygon))
     }
 }

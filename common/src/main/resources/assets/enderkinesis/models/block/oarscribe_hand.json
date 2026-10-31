@@ -1,0 +1,90 @@
+{
+	"texture_size": [
+		64,
+		64
+	],
+	"textures": {
+		"3": "enderkinesis:block/oarscribe",
+		"particle": "enderkinesis:block/oarscribe"
+	},
+	"elements": [
+		{
+			"name": "hand",
+			"from": [
+				6,
+				3.25,
+				6
+			],
+			"to": [
+				10,
+				10.25,
+				10
+			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					7,
+					3.25,
+					7
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						6.5,
+						10,
+						7.5,
+						11.75
+					],
+					"texture": "#3"
+				},
+				"east": {
+					"uv": [
+						7.5,
+						10,
+						8.5,
+						11.75
+					],
+					"texture": "#3"
+				},
+				"south": {
+					"uv": [
+						8.5,
+						10,
+						9.5,
+						11.75
+					],
+					"texture": "#3"
+				},
+				"west": {
+					"uv": [
+						9.5,
+						10,
+						10.5,
+						11.75
+					],
+					"texture": "#3"
+				},
+				"up": {
+					"uv": [
+						8.5,
+						4.75,
+						9.5,
+						5.75
+					],
+					"texture": "#3"
+				},
+				"down": {
+					"uv": [
+						9,
+						7,
+						10,
+						8
+					],
+					"texture": "#3"
+				}
+			}
+		}
+	]
+}

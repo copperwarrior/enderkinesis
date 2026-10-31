@@ -1,0 +1,36 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "blit",
+  "fragment": "wohlon_water_murk",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" },
+    { "name": "OpaqueDepth" },
+    { "name": "ColumnMask" },
+    { "name": "WeightMask" }
+  ],
+  "uniforms": [
+    { "name": "ProjMat",      "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "OutSize",      "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "InvViewProj",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "CamBlockWrap", "type": "int",       "count": 2,  "values": [ 0, 0 ] },
+    { "name": "CamFrac",      "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "CamY",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "BaseY",        "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "MurkColor",    "type": "float",     "count": 3,  "values": [ 0.1, 0.2, 0.2 ] },
+    { "name": "Density",      "type": "float",     "count": 1,  "values": [ 0.35 ] },
+    { "name": "MaxMurk",      "type": "float",     "count": 1,  "values": [ 0.8 ] },
+    { "name": "FogRange",     "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "MaskReach",    "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "Noise3D",      "type": "int",       "count": 1,  "values": [ 4 ] },
+    { "name": "CamFromCentre", "type": "float",    "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "CamNoise",     "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "Time",         "type": "float",     "count": 1,  "values": [ 0.0 ] }
+  ]
+}

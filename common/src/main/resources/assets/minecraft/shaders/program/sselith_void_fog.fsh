@@ -91,7 +91,7 @@ void main() {
         vec2 p = CamFrac + dir.xz * t;
         ivec2 blockRel = ivec2(floor(p));
         ivec2 maskPos = (CamBlockWrap + blockRel) & COLUMN_WRAP;
-        // Bit 0: void column. Bit `size`: the aligned size×size block is all one state (SselithVoidFog).
+        // Bit 0: void column. Bit `size`: the aligned size×size block is all one state (ChunkColumnMask).
         int bits = int(texelFetch(ColumnMask, maskPos, 0).r * 255.0 + 0.5);
         int size = (bits & 16) != 0 ? 16 : (bits & 8) != 0 ? 8 : (bits & 4) != 0 ? 4 : (bits & 2) != 0 ? 2 : 1;
         vec2 cellMin = vec2(blockRel - (maskPos & (size - 1)));

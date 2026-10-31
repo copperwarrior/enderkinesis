@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.item
 
 import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
-import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.MutableComponent
 import net.minecraft.resources.ResourceLocation
@@ -15,8 +14,10 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.TooltipFlag
 import net.minecraft.world.item.context.UseOnContext
 import net.minecraft.world.level.Level
+import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Shared base for tomes that wire orb networks together via the send → receiver gesture loop.
@@ -92,13 +93,12 @@ abstract class LinkingTomeItem(properties: Properties) : TomeItem(properties) {
                 // "receiver" direction across every tome they're in, and can't become senders
                 // without first being fully unlinked.
                 if (be.isPureReceive()) {
-                    player.displayClientMessage(
-                        msg(Lang.CANT_SELECT_RECEIVE).withStyle(ChatFormatting.RED), true,
-                    )
+                    refuse(level, pos, player, msg(Lang.CANT_SELECT_RECEIVE))
                     return InteractionResult.sidedSuccess(false)
                 }
                 setSelectedSend(tome, pos, level.dimension().location())
                 player.displayClientMessage(msg(Lang.SELECT_SEND), true)
+                OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_SELECT)
                 InteractionResult.sidedSuccess(false)
             }
             selection.pos == pos -> {
@@ -118,9 +118,7 @@ abstract class LinkingTomeItem(properties: Properties) : TomeItem(properties) {
                 // (e.g., another player linked to it). Force the player to restart selection.
                 if (sendBe.isPureReceive()) {
                     clearSelection(tome)
-                    player.displayClientMessage(
-                        msg(Lang.CANT_SELECT_RECEIVE).withStyle(ChatFormatting.RED), true,
-                    )
+                    refuse(level, pos, player, msg(Lang.CANT_SELECT_RECEIVE))
                     return InteractionResult.sidedSuccess(false)
                 }
                 // Already linked? Toggle off — same gesture both creates and removes a link.
@@ -128,35 +126,31 @@ abstract class LinkingTomeItem(properties: Properties) : TomeItem(properties) {
                     sendBe.removeOutgoingLink(level, tomeKind, pos)
                     clearSelection(tome)
                     player.displayClientMessage(msg(Lang.LINK_REMOVED), true)
+                    OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_UNLINK)
                     return InteractionResult.sidedSuccess(false)
                 }
                 // The clicked peer can't already be a sender — making it a receiver here would
                 // violate the direction-commitment rule. Keep selection so the player can try
                 // a different receiver without re-selecting the send orb.
                 if (be.isPureSend()) {
-                    player.displayClientMessage(
-                        msg(Lang.CANT_LINK_TO_SEND).withStyle(ChatFormatting.RED), true,
-                    )
+                    refuse(level, pos, player, msg(Lang.CANT_LINK_TO_SEND))
                     return InteractionResult.sidedSuccess(false)
                 }
                 val sendCentre = sendBe.worldCenter() ?: return InteractionResult.sidedSuccess(false)
                 val recvCentre = be.worldCenter() ?: return InteractionResult.sidedSuccess(false)
                 if (sendCentre.distanceTo(recvCentre) > OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE) {
-                    player.displayClientMessage(
-                        msg(Lang.TOO_FAR, OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE.toInt())
-                            .withStyle(ChatFormatting.RED),
-                        true,
-                    )
+                    refuse(level, pos, player, msg(Lang.TOO_FAR, OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE.toInt()))
                     return InteractionResult.sidedSuccess(false)
                 }
                 val veto = validateLink(level, sendBe, be)
                 if (veto != null) {
-                    player.displayClientMessage(msg(veto).withStyle(ChatFormatting.RED), true)
+                    refuse(level, pos, player, msg(veto))
                     return InteractionResult.sidedSuccess(false)
                 }
                 if (sendBe.addOutgoingLink(level, tomeKind, pos)) {
                     clearSelection(tome)
                     player.displayClientMessage(msg(Lang.LINK_ADDED), true)
+                    OrbOfLinkingSounds.playLink(level, pos, tomeKind)
                 }
                 InteractionResult.sidedSuccess(false)
             }
@@ -179,6 +173,7 @@ abstract class LinkingTomeItem(properties: Properties) : TomeItem(properties) {
         be.removeAllForTome(level, tomeKind)
         clearSelection(tome)
         player.displayClientMessage(msg(Lang.DISMANTLE), true)
+        OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_DISMANTLE)
         return InteractionResult.sidedSuccess(false)
     }
 
@@ -198,34 +193,22 @@ abstract class LinkingTomeItem(properties: Properties) : TomeItem(properties) {
 
     // --- Per-stack selection (NBT) -----------------------------------------------------------
 
-    data class Selection(val pos: BlockPos, val dim: ResourceLocation)
+    protected fun getSelectedSend(stack: ItemStack): OrbSelection? = OrbSelection.read(stack, NBT_SEND)
 
-    protected fun getSelectedSend(stack: ItemStack): Selection? {
-        val tag = stack.tag ?: return null
-        if (!tag.contains(NBT_SEND, 10 /* compound */)) return null
-        val sel = tag.getCompound(NBT_SEND)
-        val dim = ResourceLocation.tryParse(sel.getString("Dim")) ?: return null
-        return Selection(BlockPos(sel.getInt("X"), sel.getInt("Y"), sel.getInt("Z")), dim)
-    }
+    private fun getValidSelection(level: ServerLevel, stack: ItemStack): OrbSelection? =
+        OrbSelection.readIn(level, stack, NBT_SEND)
 
-    private fun getValidSelection(level: ServerLevel, stack: ItemStack): Selection? {
-        val s = getSelectedSend(stack) ?: return null
-        return if (s.dim == level.dimension().location()) s else null
-    }
+    private fun setSelectedSend(stack: ItemStack, pos: BlockPos, dim: ResourceLocation) =
+        OrbSelection.write(stack, NBT_SEND, pos, dim)
 
-    private fun setSelectedSend(stack: ItemStack, pos: BlockPos, dim: ResourceLocation) {
-        val tag = stack.orCreateTag
-        val sub = CompoundTag()
-        sub.putInt("X", pos.x); sub.putInt("Y", pos.y); sub.putInt("Z", pos.z)
-        sub.putString("Dim", dim.toString())
-        tag.put(NBT_SEND, sub)
-    }
-
-    protected fun clearSelection(stack: ItemStack) {
-        stack.tag?.remove(NBT_SEND)
-    }
+    protected fun clearSelection(stack: ItemStack) = OrbSelection.clear(stack, NBT_SEND)
 
     // --- Helpers -----------------------------------------------------------------------------
+
+    private fun refuse(level: ServerLevel, pos: BlockPos, player: Player, message: MutableComponent) {
+        player.displayClientMessage(message.withStyle(ChatFormatting.RED), true)
+        OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_REFUSE)
+    }
 
     private fun msg(suffix: String, vararg args: Any): MutableComponent =
         Component.translatable("$langPrefix.$suffix", *args)

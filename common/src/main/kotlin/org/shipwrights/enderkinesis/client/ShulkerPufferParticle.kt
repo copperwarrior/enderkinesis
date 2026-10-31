@@ -13,8 +13,8 @@ import kotlin.math.sqrt
 /**
  * Exhaust puff for the [ShulkerPufferBlockEntity]. Distance-keyed scale curve:
  *
- *  - Spawns at [MIN_SIZE], moving in the nozzle direction with the velocity the server
- *    sent it. Low friction + zero gravity so it actually travels.
+ *  - Spawns at [MIN_SIZE], moving in the nozzle direction with the velocity [ShulkerPufferPuffs]
+ *    gave it. Low friction + zero gravity so it actually travels.
  *  - Each tick we measure the world-space distance from spawn point; while that's below
  *    [GROW_DISTANCE] (1 block per spec), `quadSize` lerps from [MIN_SIZE] up to
  *    [maxQuadSize]. This is what gives the exhaust its "starts as a wisp, blossoms into a

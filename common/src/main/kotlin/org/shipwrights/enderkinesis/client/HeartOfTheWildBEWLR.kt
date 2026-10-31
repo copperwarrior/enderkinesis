@@ -23,11 +23,10 @@ object HeartOfTheWildBEWLR : BlockEntityWithoutLevelRenderer(
         stack: ItemStack, context: ItemDisplayContext, poseStack: PoseStack,
         buffers: MultiBufferSource, packedLight: Int, packedOverlay: Int,
     ) {
-        model.animateIdleMillis(Util.getMillis(), 1.0f)
+        model.animateBeatMillis(Util.getMillis(), 1.0f)
         poseStack.pushPose()
-        poseStack.translate(0.5, 1.5, 0.5)
-        poseStack.scale(-1f, -1f, 1f)
-        val consumer = buffers.getBuffer(RenderType.entityCutoutNoCull(HeartOfTheWildRenderer.TEXTURE))
+        HeartOfTheWildRenderer.poseHeart(poseStack, false, 1f, 0f)
+        val consumer = buffers.getBuffer(RenderType.entityTranslucent(HeartOfTheWildRenderer.TEXTURE))
         model.renderToBuffer(poseStack, consumer, packedLight, packedOverlay, 1f, 1f, 1f, 1f)
         poseStack.popPose()
     }

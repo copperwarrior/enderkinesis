@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=y": {
+      "model": "enderkinesis:block/stripped_wogor_wood"
+    },
+    "axis=z": {
+      "model": "enderkinesis:block/stripped_wogor_wood",
+      "x": 90
+    },
+    "axis=x": {
+      "model": "enderkinesis:block/stripped_wogor_wood",
+      "x": 90,
+      "y": 90
+    }
+  }
+}

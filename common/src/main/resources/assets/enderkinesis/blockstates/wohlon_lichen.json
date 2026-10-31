@@ -1,0 +1,122 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "north": "true",
+        "tip": "false"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen"
+      }
+    },
+    {
+      "when": {
+        "north": "true",
+        "tip": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen_tip"
+      }
+    },
+    {
+      "when": {
+        "south": "true",
+        "tip": "false"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "south": "true",
+        "tip": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen_tip",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "west": "true",
+        "tip": "false"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "west": "true",
+        "tip": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen_tip",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "east": "true",
+        "tip": "false"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "east": "true",
+        "tip": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen_tip",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "up": "true",
+        "tip": "false"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "up": "true",
+        "tip": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen_tip",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "down": "true",
+        "tip": "false"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen",
+        "x": 90
+      }
+    },
+    {
+      "when": {
+        "down": "true",
+        "tip": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/wohlon_lichen_tip",
+        "x": 90
+      }
+    }
+  ]
+}

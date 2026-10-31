@@ -14,7 +14,6 @@ import net.minecraft.nbt.Tag
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.BlockTags
 import net.minecraft.world.InteractionHand
@@ -27,6 +26,7 @@ import net.minecraft.world.level.block.entity.LecternBlockEntity
 import net.minecraft.world.level.block.entity.SignBlockEntity
 import org.shipwrights.enderkinesis.dimension.SselithMadness
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.sselith.BookPaginator
 import org.shipwrights.enderkinesis.sselith.Sselith
 
@@ -103,8 +103,8 @@ object ScrollOfUnravelling {
         // breaking the seal is the same either way.
         spawnGlyphColumn(level, pos)
         level.playSound(
-            null, pos, SoundEvents.BOOK_PAGE_TURN, SoundSource.BLOCKS,
-            1.0f, 0.7f + level.random.nextFloat() * 0.2f,
+            null, pos, EKSounds.SCROLL_OF_UNRAVELLING_UNRAVEL.get(), SoundSource.BLOCKS,
+            1.0f, 0.95f + level.random.nextFloat() * 0.1f,
         )
         if (player is ServerPlayer) SselithMadness.addLevel(player, MADNESS_COST_LEVELS)
         held.shrink(1)

@@ -8,7 +8,9 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Tome of Vacuum behavior — like Tome of Transportation, but the **source is dropped item
@@ -57,6 +59,9 @@ object VacuumTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         // tracking clients (mutating the returned stack in place wouldn't trigger the data
         // watcher). The entity stays alive as long as the stack has count > 0, so a stack
         // of 64 takes 64 ticks of vacuum sweeps to fully drain.
+        if (sendBe.transferSoundReady(OrbOfLinkingBlockEntity.TRANSFER_SUCK, level.gameTime)) {
+            OrbOfLinkingSounds.playAt(level, target.x, target.y, target.z, EKSounds.ORB_OF_LINKING_SUCK)
+        }
         val current = target.item
         val pulled = current.split(1)
         if (current.isEmpty) target.discard()

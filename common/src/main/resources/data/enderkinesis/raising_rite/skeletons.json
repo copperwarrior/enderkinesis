@@ -1,0 +1,11 @@
+{
+  "entities": [
+    "minecraft:skeleton",
+    "minecraft:stray"
+  ],
+  "equipment": {
+    "mainhand": {
+      "item": "minecraft:bow"
+    }
+  }
+}

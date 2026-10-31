@@ -7,7 +7,9 @@ import net.minecraft.core.Direction
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 /**
  * S2C notice that a barnacle just died, sent from `YgannBarnacleBlock.onRemove` for each
@@ -21,15 +23,18 @@ object YgannBarnacleDeathNetwork {
     val DEATH: ResourceLocation = EnderkinesisMod.id("ygann_barnacle/death")
 
     fun broadcastDeath(
-        level: ServerLevel, pos: BlockPos, seed: Long, facing: Direction, growthPx: Double,
+        level: ServerLevel, pos: BlockPos, seed: Long, facing: Direction, reveals: DoubleArray,
     ) {
         val buf = FriendlyByteBuf(Unpooled.buffer())
         buf.writeBlockPos(pos)
         buf.writeLong(seed)
         buf.writeByte(facing.ordinal)
-        buf.writeDouble(growthPx)
+        buf.writeVarInt(reveals.size)
+        for (r in reveals) buf.writeFloat(r.toFloat())
+        // On a ship `pos` is in shipyard coordinates; the range test needs the world position.
+        val centre = level.toWorldCoordinates(Vec3(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5))
         for (player in level.players()) {
-            if (player.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) < RANGE_SQ) {
+            if (player.distanceToSqr(centre) < RANGE_SQ) {
                 NetworkManager.sendToPlayer(player, DEATH, FriendlyByteBuf(buf.copy()))
             }
         }

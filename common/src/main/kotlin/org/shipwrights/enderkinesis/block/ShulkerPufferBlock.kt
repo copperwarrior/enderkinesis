@@ -1,7 +1,10 @@
 package org.shipwrights.enderkinesis.block
 
+import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.Containers
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
@@ -20,9 +23,11 @@ import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import net.minecraft.world.level.block.state.properties.BooleanProperty
 import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * The Shulker Puffer — a redstone-controlled, fuel-burning thruster for VS2 ships. Visually it's
@@ -51,12 +56,13 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
         registerDefaultState(
             stateDefinition.any()
                 .setValue(BlockStateProperties.FACING, Direction.NORTH)
-                .setValue(BlockStateProperties.POWER, 0),
+                .setValue(BlockStateProperties.POWER, 0)
+                .setValue(FUELED, false),
         )
     }
 
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
-        builder.add(BlockStateProperties.FACING, BlockStateProperties.POWER)
+        builder.add(BlockStateProperties.FACING, BlockStateProperties.POWER, FUELED)
     }
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState? {
@@ -94,10 +100,27 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
     ) {
         if (level.isClientSide) return
         val newPower = level.getBestNeighborSignal(pos)
-        if (state.getValue(BlockStateProperties.POWER) != newPower) {
-            level.setBlock(pos, state.setValue(BlockStateProperties.POWER, newPower), 3)
+        val oldPower = state.getValue(BlockStateProperties.POWER)
+        if (oldPower != newPower) {
+            val newState = state.setValue(BlockStateProperties.POWER, newPower)
+            level.setBlock(pos, newState, 3)
+            when {
+                oldPower == 0 -> {
+                    playSound(level, pos, EKSounds.SHULKER_PUFFER_POWER_ON)
+                    ShulkerPufferBlockEntity.burst(level, pos, newState, ShulkerPufferBlockEntity.BURST_POWER_ON)
+                }
+                newPower == 0 -> {
+                    playSound(level, pos, EKSounds.SHULKER_PUFFER_POWER_OFF)
+                    ShulkerPufferBlockEntity.burst(level, pos, newState, ShulkerPufferBlockEntity.BURST_POWER_OFF)
+                }
+            }
         }
     }
+
+    // Not a BaseEntityBlock, so the block event does not reach the block entity without this.
+    @Deprecated("Deprecated in Java")
+    override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean =
+        level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
 
     /** Drop the fuel slot's contents when the block breaks. */
     @Deprecated("Deprecated in Java")
@@ -129,14 +152,26 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
                 val one = held.copyWithCount(1)
                 be.setItem(0, one)
                 if (!player.abilities.instabuild) held.shrink(1)
+                playSound(level, pos, EKSounds.SHULKER_PUFFER_FUEL_INSERT)
                 InteractionResult.CONSUME
             }
             held.isEmpty && !cur.isEmpty -> {
                 player.setItemInHand(hand, cur)
                 be.setItem(0, ItemStack.EMPTY)
+                playSound(level, pos, EKSounds.SHULKER_PUFFER_FUEL_REMOVE)
                 InteractionResult.CONSUME
             }
             else -> InteractionResult.PASS
         }
+    }
+
+    private fun playSound(level: Level, pos: BlockPos, event: RegistrySupplier<SoundEvent>) {
+        level.playSound(null, pos, event.get(), SoundSource.BLOCKS, SOUND_VOLUME, 1f)
+    }
+
+    companion object {
+        /** Lets the client pick the fuelled loop. */
+        val FUELED: BooleanProperty = BooleanProperty.create("fueled")
+        private const val SOUND_VOLUME = 0.8f
     }
 }

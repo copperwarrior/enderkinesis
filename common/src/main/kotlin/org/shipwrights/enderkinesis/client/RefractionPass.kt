@@ -117,6 +117,10 @@ object RefractionPass {
         RenderSystem.enableCull()
     }
 
+    // Render-thread scratch. setProjectionMatrix copies its argument, so reuse is safe.
+    private val quadProj = Matrix4f()
+    private val savedProj = Matrix4f()
+
     /** Draws [effect] over a [w]×[h] target with the shared ProjMat / InSize / OutSize uniforms. */
     fun drawQuad(effect: EffectInstance, w: Int, h: Int, configureUniforms: (EffectInstance) -> Unit) {
         // Y-up ortho (bottom=0, top=h) matches vanilla PostPass.process — the
@@ -124,7 +128,7 @@ object RefractionPass {
         // also where texture coordinate (0,0) lives, so the vsh's
         // `texCoord = Position / OutSize` aligns with the sampled FB content.
         // Y-down (top=0, bottom=h) flips the output vertically.
-        val proj = Matrix4f().setOrtho(0f, w.toFloat(), 0f, h.toFloat(), 1000f, 3000f)
+        val proj = quadProj.setOrtho(0f, w.toFloat(), 0f, h.toFloat(), 1000f, 3000f)
         effect.safeGetUniform("ProjMat").set(proj)
         effect.safeGetUniform("InSize").set(w.toFloat(), h.toFloat())
         effect.safeGetUniform("OutSize").set(w.toFloat(), h.toFloat())
@@ -134,7 +138,7 @@ object RefractionPass {
         effect.apply()
 
         // Vertex Z hardcoded to 0.2 by the vsh — vertex z here is irrelevant.
-        val savedProj = Matrix4f(RenderSystem.getProjectionMatrix())
+        savedProj.set(RenderSystem.getProjectionMatrix())
         RenderSystem.setProjectionMatrix(proj, VertexSorting.ORTHOGRAPHIC_Z)
         val buf = Tesselator.getInstance().builder
         buf.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION)

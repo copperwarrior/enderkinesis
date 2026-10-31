@@ -59,6 +59,7 @@ class EnderkinesisModForgeClient {
         fun clientInit(event: FMLClientSetupEvent) {
             // The event runs on a worker thread; the registrations are for the main thread.
             event.enqueueWork { EnderkinesisModClient.initClient() }
+            org.shipwrights.enderkinesis.forge.compat.curios.CuriosClientCompat.init()
         }
 
         @JvmStatic
@@ -115,6 +116,7 @@ class EnderkinesisModForgeClient {
             event.register(WyllandTomeBEWLR.PAGE3_MODEL_LOC)
             event.register(WyllandTomeBEWLR.PAGE4_MODEL_LOC)
             event.register(org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION)
+            event.register(org.shipwrights.enderkinesis.client.OarscribeRenderer.HAND_MODEL_LOCATION)
             event.register(org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC)
             event.register(org.shipwrights.enderkinesis.client.ParallelographBEWLR.ARM_MODEL_LOC)
             event.register(org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION)
@@ -167,6 +169,8 @@ class EnderkinesisModForgeClient {
             WyllandTomeBEWLR.page4Model = models[WyllandTomeBEWLR.PAGE4_MODEL_LOC]
             org.shipwrights.enderkinesis.client.EchoCannonRenderer.capturedBarrelModel =
                 models[org.shipwrights.enderkinesis.client.EchoCannonRenderer.BARREL_MODEL_LOCATION]
+            org.shipwrights.enderkinesis.client.OarscribeRenderer.handModel =
+                models[org.shipwrights.enderkinesis.client.OarscribeRenderer.HAND_MODEL_LOCATION]
             org.shipwrights.enderkinesis.client.ParallelographBEWLR.baseModel =
                 models[org.shipwrights.enderkinesis.client.ParallelographBEWLR.BASE_MODEL_LOC]
             org.shipwrights.enderkinesis.client.ParallelographBEWLR.armModel =

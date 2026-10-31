@@ -27,6 +27,7 @@ internal object FusionGeometry {
     private const val CONTACT_MARGIN: Double = 0.05
     const val HALF: Double = 0.5 + CONTACT_MARGIN
     private const val SCALE_EPSILON: Double = 1e-6
+    private val DIRECTIONS: Array<Direction> = Direction.values()
 
     /** The 24 rotations that map the block grid onto itself. */
     private val GRID_ROTATIONS: List<Quaterniond> = buildList {
@@ -39,12 +40,25 @@ internal object FusionGeometry {
         }
     }
 
+    private val UPRIGHT_ROTATIONS: List<Quaterniond> = GRID_ROTATIONS.filter {
+        it.transform(Vector3d(0.0, 1.0, 0.0)).y > 0.5
+    }
+
     /** The non-air blocks of a ship near the bubble, their VS2 masses, and their cell bounds. */
     class ShipBlocks(
         val packed: LongArray, val masses: DoubleArray,
         val minX: Int, val minY: Int, val minZ: Int, val maxX: Int, val maxY: Int, val maxZ: Int,
     ) {
         val set: LongOpenHashSet = LongOpenHashSet(packed)
+
+        /** Blocks with a face on air or on an unscanned cell. Only these can touch another ship. */
+        val surface: LongArray by lazy(LazyThreadSafetyMode.NONE) {
+            val out = LongArrayList()
+            for (block in packed) {
+                if (DIRECTIONS.any { !set.contains(BlockPos.offset(block, it)) }) out.add(block)
+            }
+            out.toLongArray()
+        }
     }
 
     /** A ship with blocks inside the bubble: their indices in [blocks], their share of the ship's
@@ -130,6 +144,33 @@ internal object FusionGeometry {
         }
         return if (missing) null else packed.toLongArray()
     }
+
+    /** The non-air blocks of [ship], counted up to [limit]. Null while a chunk of it is not loaded,
+     *  unless [limit] is reached first: then a full count is at least [limit] too. */
+    fun countUpTo(level: ServerLevel, ship: LoadedServerShip, limit: Int): Int? {
+        require(limit > 0) { "limit must be positive" }
+        var count = 0
+        var missing = false
+        ship.activeChunksSet.forEach { cx, cz ->
+            if (count >= limit) return@forEach
+            val chunk = level.chunkSource.getChunkNow(cx, cz)
+            if (chunk == null) {
+                missing = true
+                return@forEach
+            }
+            for (section in chunk.sections) {
+                if (section.hasOnlyAir()) continue
+                for (x in 0..15) for (y in 0..15) for (z in 0..15) {
+                    if (section.getBlockState(x, y, z).isAir) continue
+                    if (++count >= limit) return@forEach
+                }
+            }
+        }
+        return if (count >= limit) limit else if (missing) null else count
+    }
+
+    fun isFreeCell(level: ServerLevel, ship: LoadedServerShip, pos: BlockPos): Boolean =
+        ship.chunkClaim.contains(pos.x shr 4, pos.z shr 4) && !level.isOutsideBuildHeight(pos) && level.getBlockState(pos).isAir
 
     /** Only the blocks inside the bubble are pulled. Null when none are inside. */
     fun lifted(ship: LoadedServerShip, blocks: ShipBlocks, worldCenter: Vector3dc, worldRadius: Double): Lifted? {
@@ -219,7 +260,7 @@ internal object FusionGeometry {
         return Contact(swapped.b, swapped.a, swapped.snap)
     }
 
-    /** Maps each block of [a] near [b]'s scanned bounds into [b]'s frame and tests it against the
+    /** Maps each surface block of [a] near [b]'s scanned bounds into [b]'s frame and tests it against the
      *  27 cells around it. Blocks far from [b] are dropped on integer bounds before any transform. */
     private fun contactFrom(a: LoadedServerShip, aBlocks: ShipBlocks, b: LoadedServerShip, bBlocks: ShipBlocks): Contact? {
         val aToB = Matrix4d(b.worldToShip).mul(a.shipToWorld)
@@ -229,7 +270,7 @@ internal object FusionGeometry {
         var bestSnap = Double.MAX_VALUE
         var bestA = 0L
         var bestB = 0L
-        for (packed in aBlocks.packed) {
+        for (packed in aBlocks.surface) {
             val px = BlockPos.getX(packed)
             val py = BlockPos.getY(packed)
             val pz = BlockPos.getZ(packed)
@@ -333,13 +374,15 @@ internal object FusionGeometry {
         return true
     }
 
-    /** The rotation that puts [source] on the block grid of [target] with the least turn. */
-    fun alignment(target: LoadedServerShip, source: LoadedServerShip): Alignment {
+    /** The rotation that puts [source] on the block grid of [target] with the least turn. With [upright],
+     *  only yaw turns: VS2's rotateState refuses any other turn of a skull or a carved pumpkin. */
+    fun alignment(target: LoadedServerShip, source: LoadedServerShip, upright: Boolean = false): Alignment {
         val targetRotation = target.transform.rotation
         val relative = Quaterniond(targetRotation).invert().mul(source.transform.rotation).normalize()
-        var best = GRID_ROTATIONS[0]
+        val rotations = if (upright) UPRIGHT_ROTATIONS else GRID_ROTATIONS
+        var best = rotations[0]
         var bestDot = -1.0
-        for (rotation in GRID_ROTATIONS) {
+        for (rotation in rotations) {
             val dot = abs(rotation.dot(relative))
             if (dot > bestDot) {
                 bestDot = dot

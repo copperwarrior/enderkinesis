@@ -5,6 +5,8 @@ import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList
+import it.unimi.dsi.fastutil.longs.LongArrayList
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
@@ -34,8 +36,15 @@ import org.shipwrights.enderkinesis.registry.EKParticles
  */
 object OrbOfLinkingClient {
 
-    /** Triple-keyed beam id map: (sendPos, tomeKind, receiverPos) → opaque BeamRegistry id. */
-    private val pairIds: MutableMap<PairKey, Long> = HashMap()
+    /** One BeamRegistry id for each segment of each (sendPos, tomeKind, receiverPos) beam. */
+    private val pairIds: MutableMap<SegmentKey, Long> = HashMap()
+
+    /** Beams already updated this tick; both ends of a loaded link find the same beam. */
+    private val seenPairs: MutableSet<PairKey> = HashSet()
+
+    private val pieces = ArrayList<BeamPiece>()
+    private val segmentIds = LongArrayList()
+    private val segmentLens = DoubleArrayList()
 
     /** Reusable scratch — repopulated each tick to keep the seen-set check O(1) without
      *  re-allocating. */
@@ -51,6 +60,7 @@ object OrbOfLinkingClient {
         val mc = Minecraft.getInstance()
         if (mc.isPaused) return
         seenThisTick.clear()
+        seenPairs.clear()
         val rand = level.random
 
         for (orb in OrbOfLinkingClientRegistry.sendOrbs(level)) {
@@ -80,7 +90,7 @@ object OrbOfLinkingClient {
         }
 
         // GC stale beams.
-        val toRemove = ArrayList<PairKey>()
+        val toRemove = ArrayList<SegmentKey>()
         for ((key, id) in pairIds) {
             if (id !in seenThisTick) {
                 BeamRegistry.remove(id)
@@ -98,35 +108,45 @@ object OrbOfLinkingClient {
         tomeKind: ResourceLocation,
     ) {
         val key = PairKey(sendPos, tomeKind, recvPos)
-        val id = pairIds.getOrPut(key) { BeamRegistry.allocate() }
         // Same beam may be discovered from both ends within a single tick (both endpoints
-        // loaded). Skip the second visit — first writer wins — so we don't fight with
-        // ourselves overwriting endpoints with the same values.
-        if (id in seenThisTick) return
+        // loaded). Skip the second visit — first writer wins.
+        if (!seenPairs.add(key)) return
 
         // Resolve each endpoint via the precise renderer (active-face offset + ship transform)
         // when the BE is loaded; otherwise fall back to the BlockPos grid centre so the beam
         // still has a meaningful endpoint when one chunk is unloaded.
         val s = sendCentre ?: orbRenderCentreOrFallback(level, sendPos) ?: return
         val r = recvCentre ?: orbRenderCentreOrFallback(level, recvPos) ?: return
-        val mid = Vec3(
-            (s.x + r.x) * 0.5,
-            (s.y + r.y) * 0.5 - BEAM_SAG,
-            (s.z + r.z) * 0.5,
-        )
-        val path = BeamRegistry.get(id)
-            ?: BeamRegistry.put(id, BeamPath(flowRate = BEAM_FLOW_RATE))
-        path.start = s
-        path.control = mid
-        path.end = r
-        path.radius = BEAM_RADIUS
-        path.flowRate = BEAM_FLOW_RATE
-        path.profile = BeamProfile.HOURGLASS
-        path.alpha = BEAM_ALPHA
+        OrbBeamRoute.build(level, sendPos, s, recvPos, r, pieces, null)
         val accent = TomeBeamPalette.colorFor(tomeKind)
-        path.accentColor = accent
-        path.accentChance = if (accent != null) TomeBeamPalette.ACCENT_CHANCE else 0.0
-        seenThisTick.add(id)
+        segmentIds.clear()
+        segmentLens.clear()
+        var pathLen = 0.0
+        for (i in pieces.indices) {
+            val piece = pieces[i]
+            val a = piece.start
+            val b = piece.end
+            val id = pairIds.getOrPut(SegmentKey(key, i)) { BeamRegistry.allocate() }
+            val path = BeamRegistry.get(id)
+                ?: BeamRegistry.put(id, BeamPath(flowRate = BEAM_FLOW_RATE))
+            path.start = a
+            path.control = piece.control
+            path.end = b
+            path.profileStart = piece.spanStart
+            path.profileEnd = piece.spanEnd
+            path.radius = BEAM_RADIUS
+            path.flowRate = BEAM_FLOW_RATE
+            path.profile = BeamProfile.HOURGLASS
+            path.alpha = BEAM_ALPHA
+            path.accentColor = accent
+            path.accentChance = if (accent != null) TomeBeamPalette.ACCENT_CHANCE else 0.0
+            seenThisTick.add(id)
+            // The chord is close enough to the piece length to share the glyphs out evenly.
+            val segLen = a.distanceTo(b)
+            segmentIds.add(id)
+            segmentLens.add(segLen)
+            pathLen += segLen
+        }
 
         // SGA-glyph ambient beam. Density throbs with Signal-tome power on Signal links;
         // every other tome uses the idle rate. Travelling-pulse visuals (per-tome flow,
@@ -138,14 +158,21 @@ object OrbOfLinkingClient {
         } else 0
         val glyphCount = IDLE_PARTICLES_PER_TICK +
             ((signalPower.toDouble() / 15.0) * (ACTIVE_PARTICLES_PER_TICK - IDLE_PARTICLES_PER_TICK)).toInt()
-        val idAsDouble = id.toDouble()
         repeat(glyphCount) {
+            // Each glyph goes on one segment, picked by its length so the density stays even.
+            var pick = rand.nextDouble() * pathLen
+            var segment = 0
+            while (segment < segmentLens.size - 1 && pick > segmentLens.getDouble(segment)) {
+                pick -= segmentLens.getDouble(segment)
+                segment++
+            }
+            val start = pieces[segment].start
             val t = rand.nextDouble()
             val theta = rand.nextDouble() * Math.PI * 2.0
             level.addParticle(
                 EKParticles.enchantedBookBeam(),
-                s.x, s.y, s.z,
-                t, theta, idAsDouble,
+                start.x, start.y, start.z,
+                t, theta, segmentIds.getLong(segment).toDouble(),
             )
         }
     }
@@ -167,13 +194,15 @@ object OrbOfLinkingClient {
 
     private data class PairKey(val send: BlockPos, val tome: ResourceLocation, val recv: BlockPos)
 
+    private data class SegmentKey(val pair: PairKey, val index: Int)
+
     /** Signal-tome id (matches [org.shipwrights.enderkinesis.item.SignalTomeOrbBehavior.tomeKind]).
      *  Hard-coded here to avoid pulling in the server-side behavior object on the client
      *  tick's hot path. */
     private val SIGNAL_TOME_KIND: ResourceLocation =
         ResourceLocation("enderkinesis", "tome_of_signal")
 
-    private const val BEAM_SAG = 0.25
+    internal const val BEAM_SAG = 0.25
     private const val BEAM_RADIUS = 0.35
     private const val BEAM_FLOW_RATE = 0.08
     private const val IDLE_PARTICLES_PER_TICK = 1

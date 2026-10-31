@@ -55,7 +55,7 @@ public abstract class ServerLevelVentriloquismSoundMixin {
         Holder<SoundEvent> sound, SoundSource source, float volume, float pitch, long seed,
         CallbackInfo ci
     ) {
-        if (!enderkinesis$mirrorsChannel(source)) return;
+        if (!enderkinesis$mirrorsChannel(source) || VentriloquismNetwork.isOrbSound(sound)) return;
         if (enderkinesis$mirrorSound(x, y, z, sound, source, volume, pitch, seed)) ci.cancel();
     }
 
@@ -69,7 +69,7 @@ public abstract class ServerLevelVentriloquismSoundMixin {
         Holder<SoundEvent> sound, SoundSource source, float volume, float pitch, long seed,
         CallbackInfo ci
     ) {
-        if (!enderkinesis$mirrorsChannel(source)) return;
+        if (!enderkinesis$mirrorsChannel(source) || VentriloquismNetwork.isOrbSound(sound)) return;
         if (enderkinesis$mirrorSound(entity.getX(), entity.getY(), entity.getZ(), sound, source, volume, pitch, seed)) ci.cancel();
     }
 

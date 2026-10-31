@@ -2,8 +2,10 @@ package org.shipwrights.enderkinesis.item
 
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Holder
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.world.level.Level
 
 /**
@@ -19,6 +21,12 @@ object VentriloquismNetwork {
 
     /** Squared radius for the mixin's per-sound distance test — saves a `sqrt` per orb. */
     const val CAPTURE_RADIUS_SQ: Double = CAPTURE_RADIUS * CAPTURE_RADIUS
+
+    private const val ORB_SOUND_PREFIX = "block.orb_of_linking."
+
+    /** The orb sounds are not carried. Else a link or transfer near a SEND orb plays at its receivers too. */
+    @JvmStatic
+    fun isOrbSound(sound: Holder<SoundEvent>): Boolean = sound.value().location.path.startsWith(ORB_SOUND_PREFIX)
 
     private val byDim: MutableMap<ResourceKey<Level>, MutableSet<BlockPos>> = ConcurrentHashMap()
 

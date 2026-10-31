@@ -520,6 +520,6 @@ class OrbOfLinkingHazeRenderer(
         private const val PULSE_AMP = 0.45
         /** Pulse angular frequency (radians per tick). 0.12 → ~52
          *  ticks per full cycle ≈ 2.6 s, a slow breath. */
-        private const val PULSE_FREQ = 0.12
+        internal const val PULSE_FREQ = 0.12
     }
 }

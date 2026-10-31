@@ -36,7 +36,7 @@ class EnchantedBookBeamParticle(
         // Vanilla ETP-style brightness wash, optionally re-tinted to the path's accent colour
         // (each particle independently rolls `accentChance` once; the choice sticks for the
         // particle's whole lifetime so glyphs don't flicker between colours).
-        val j = random.nextFloat() * 0.6f + 0.4f
+        val j = random.nextFloat() * BRIGHTNESS_SPAN + BRIGHTNESS_MIN
         val path = BeamRegistry.get(pathId)
         val accent = path?.accentColor
         if (accent != null && random.nextDouble() < path.accentChance) {
@@ -47,9 +47,9 @@ class EnchantedBookBeamParticle(
             gCol = ag * j
             bCol = ab * j
         } else {
-            rCol = j * 0.9f
-            gCol = j * 0.9f
-            bCol = j
+            rCol = j * WASH_R
+            gCol = j * WASH_G
+            bCol = j * WASH_B
         }
         // Per-particle alpha is locked at construction (the path's alpha is sampled once);
         // the particle keeps that alpha for its whole lifetime so glyphs don't pop in/out of
@@ -134,11 +134,12 @@ class EnchantedBookBeamParticle(
         // Radius profile along the beam — selected per-path so the Wylland Tome stays a
         // sweeping cone while orb beams pinch in the middle (hourglass, equally significant
         // at both ends).
+        val beamT = path.profileStart + t * (path.profileEnd - path.profileStart)
         val r = when (path.profile) {
-            BeamProfile.LINEAR_TAPER -> path.radius * (1.0 - t)
+            BeamProfile.LINEAR_TAPER -> path.radius * (1.0 - beamT)
             // 4·(t−0.5)² is 1 at the endpoints and 0 at the midpoint — symmetric hourglass.
             BeamProfile.HOURGLASS -> {
-                val d = t - 0.5
+                val d = beamT - 0.5
                 path.radius * (4.0 * d * d)
             }
         }
@@ -150,6 +151,12 @@ class EnchantedBookBeamParticle(
     }
 
     companion object {
+        private const val BRIGHTNESS_MIN = 0.4f
+        private const val BRIGHTNESS_SPAN = 0.6f
+        private const val WASH_R = 0.9f
+        private const val WASH_G = 0.9f
+        private const val WASH_B = 1.0f
+
         /** Fallback alpha when a particle is constructed before its path is registered. */
         const val DEFAULT_ALPHA = 0.4f
 

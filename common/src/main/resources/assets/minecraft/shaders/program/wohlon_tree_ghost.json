@@ -1,0 +1,33 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "wohlon_tree_ghost",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" }
+  ],
+  "uniforms": [
+    { "name": "ViewProj",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "LocalToView",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "BoxMin",       "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "BoxMax",       "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "InvViewProj",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "CamLocal",     "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "Margin",       "type": "int",       "count": 1,  "values": [ 4 ] },
+    { "name": "Warp",         "type": "int",       "count": 1,  "values": [ 5 ] },
+    { "name": "GridSize",     "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "Heart",        "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "Reach",        "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "Dispersal",    "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
+    { "name": "OutShape",     "type": "float",     "count": 2,  "values": [ 0.45, 0.25 ] },
+    { "name": "Time",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Strength",     "type": "float",     "count": 1,  "values": [ 0.0 ] }
+  ]
+}

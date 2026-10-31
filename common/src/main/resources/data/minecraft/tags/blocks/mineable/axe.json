@@ -1,6 +1,18 @@
 {
   "replace": false,
   "values": [
-    "enderkinesis:scribes_desk"
+    "enderkinesis:scribes_desk",
+    "enderkinesis:stripped_wogor_log",
+    "enderkinesis:stripped_wogor_wood",
+    "enderkinesis:wogor_door",
+    "enderkinesis:wogor_trapdoor",
+    "enderkinesis:wogor_sign",
+    "enderkinesis:wogor_wall_sign",
+    "enderkinesis:wogor_hanging_sign",
+    "enderkinesis:wogor_wall_hanging_sign",
+    "enderkinesis:wohlon_lichen",
+    "enderkinesis:wohlon_lumpy_mushroom_block",
+    "enderkinesis:wohlon_cup_mushroom_block",
+    "enderkinesis:wohlon_mushroom_stem"
   ]
 }

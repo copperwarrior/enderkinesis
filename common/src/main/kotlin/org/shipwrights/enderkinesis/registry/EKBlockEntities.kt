@@ -6,8 +6,11 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
+import org.shipwrights.enderkinesis.blockentity.MysticBeamAnchorBlockEntity
+import org.shipwrights.enderkinesis.blockentity.OarscribeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
+import org.shipwrights.enderkinesis.blockentity.FountainOfBlessingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EchoCannonBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EnderAstrolabeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
@@ -155,6 +158,14 @@ object EKBlockEntities {
         }
 
     @Suppress("UNCHECKED_CAST")
+    val MYSTIC_BEAM_ANCHOR: RegistrySupplier<BlockEntityType<MysticBeamAnchorBlockEntity>> =
+        BLOCK_ENTITIES.register("mystic_beam_anchor") {
+            BlockEntityType.Builder.of(
+                ::MysticBeamAnchorBlockEntity, EKBlocks.MYSTIC_BEAM_ANCHOR.get()
+            ).build(null) as BlockEntityType<MysticBeamAnchorBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
     val ORB_OF_SCRYING: RegistrySupplier<BlockEntityType<OrbOfScryingBlockEntity>> =
         BLOCK_ENTITIES.register("orb_of_scrying") {
             BlockEntityType.Builder.of(
@@ -168,6 +179,14 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::CrystalExplosiveBlockEntity, EKBlocks.CRYSTAL_EXPLOSIVE.get()
             ).build(null) as BlockEntityType<CrystalExplosiveBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val FOUNTAIN_OF_BLESSING: RegistrySupplier<BlockEntityType<FountainOfBlessingBlockEntity>> =
+        BLOCK_ENTITIES.register("fountain_of_blessing") {
+            BlockEntityType.Builder.of(
+                ::FountainOfBlessingBlockEntity, EKBlocks.FOUNTAIN_OF_BLESSING.get()
+            ).build(null) as BlockEntityType<FountainOfBlessingBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -212,6 +231,14 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("scribes_desk") {
             BlockEntityType.Builder.of(::ScribesDeskBlockEntity, EKBlocks.SCRIBES_DESK.get())
                 .build(null) as BlockEntityType<ScribesDeskBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val OARSCRIBE: RegistrySupplier<BlockEntityType<OarscribeBlockEntity>> =
+        BLOCK_ENTITIES.register("oarscribe") {
+            BlockEntityType.Builder.of(
+                ::OarscribeBlockEntity, EKBlocks.OARSCRIBE.get(),
+            ).build(null) as BlockEntityType<OarscribeBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")

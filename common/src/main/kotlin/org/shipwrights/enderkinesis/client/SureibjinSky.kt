@@ -15,8 +15,6 @@ import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.client.renderer.ShaderInstance
-import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import net.minecraft.world.effect.MobEffects
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.level.material.FogType
@@ -60,7 +58,7 @@ object SureibjinSky {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
             sink.registerShader(
                 ShaderInstance(
-                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    namespacedShaderProvider(provider, EnderkinesisMod.MOD_ID),
                     "rendertype_sureibjin_sky",
                     DefaultVertexFormat.POSITION,
                 )
@@ -68,16 +66,6 @@ object SureibjinSky {
         }
     }
 
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
-        ResourceProvider { loc ->
-            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-                val rewritten = ResourceLocation(namespace, loc.path)
-                val attempt = delegate.getResource(rewritten)
-                if (attempt.isPresent) attempt else delegate.getResource(loc)
-            } else {
-                delegate.getResource(loc)
-            }
-        }
 
 
     // #1f272f — clear-fill mid tone. (The fragment shader hard-codes its own
@@ -99,9 +87,7 @@ object SureibjinSky {
     private const val SUN_B = 0.914f
 
 
-    private const val SKY_R_DIST = 100f
-    private const val LATITUDE_RINGS = 32
-    private const val LONGITUDE_SECTORS = 64
+    private const val SKY_R_DIST = SkySphereMesh.RADIUS
 
     // Sun: opaque bright disc with a thin gradient halo around it. The disc
     // is a hard-edged full circle ([SUN_DISC_RADIUS]); the halo is the
@@ -260,7 +246,7 @@ object SureibjinSky {
         val sunLen = kotlin.math.sqrt(SUN_DIST * SUN_DIST + SUN_Y * SUN_Y)
         shader.safeGetUniform("SunDir")?.set(SUN_DIST / sunLen, SUN_Y / sunLen, 0f)
 
-        val mesh = sphereMesh ?: buildSphereMesh().also { sphereMesh = it }
+        val mesh = SkySphereMesh.get()
         val modelView = Matrix4f(RenderSystem.getModelViewMatrix()).mul(poseStack.last().pose())
         mesh.bind()
         mesh.drawWithShader(modelView, RenderSystem.getProjectionMatrix(), shader)
@@ -268,61 +254,6 @@ object SureibjinSky {
     }
 
     private val IDENTITY = Matrix4f()
-
-    // Static geometry: built one time on the render thread, and kept for the life of the client.
-    private var sphereMesh: VertexBuffer? = null
-
-    private fun buildSphereMesh(): VertexBuffer {
-        // Precompute sin/cos rings.
-        val sinPhi = FloatArray(LATITUDE_RINGS + 1)
-        val cosPhi = FloatArray(LATITUDE_RINGS + 1)
-        for (r in 0..LATITUDE_RINGS) {
-            val phi = (Math.PI / 2.0) - (r.toDouble() / LATITUDE_RINGS) * Math.PI
-            sinPhi[r] = sin(phi).toFloat()
-            cosPhi[r] = cos(phi).toFloat()
-        }
-        val sinTh = FloatArray(LONGITUDE_SECTORS + 1)
-        val cosTh = FloatArray(LONGITUDE_SECTORS + 1)
-        for (s in 0..LONGITUDE_SECTORS) {
-            val th = (s.toDouble() / LONGITUDE_SECTORS) * Math.PI * 2.0
-            sinTh[s] = sin(th).toFloat()
-            cosTh[s] = cos(th).toFloat()
-        }
-
-        val builder = Tesselator.getInstance().builder
-        builder.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION)
-
-        for (r in 0 until LATITUDE_RINGS) {
-            val ySinT = sinPhi[r] * SKY_R_DIST
-            val ySinB = sinPhi[r + 1] * SKY_R_DIST
-            val cosT = cosPhi[r]
-            val cosB = cosPhi[r + 1]
-            for (s in 0 until LONGITUDE_SECTORS) {
-                val xT0 = cosT * cosTh[s] * SKY_R_DIST
-                val zT0 = cosT * sinTh[s] * SKY_R_DIST
-                val xT1 = cosT * cosTh[s + 1] * SKY_R_DIST
-                val zT1 = cosT * sinTh[s + 1] * SKY_R_DIST
-                val xB0 = cosB * cosTh[s] * SKY_R_DIST
-                val zB0 = cosB * sinTh[s] * SKY_R_DIST
-                val xB1 = cosB * cosTh[s + 1] * SKY_R_DIST
-                val zB1 = cosB * sinTh[s + 1] * SKY_R_DIST
-
-                builder.vertex(xT0.toDouble(), ySinT.toDouble(), zT0.toDouble()).endVertex()
-                builder.vertex(xB0.toDouble(), ySinB.toDouble(), zB0.toDouble()).endVertex()
-                builder.vertex(xB1.toDouble(), ySinB.toDouble(), zB1.toDouble()).endVertex()
-
-                builder.vertex(xT0.toDouble(), ySinT.toDouble(), zT0.toDouble()).endVertex()
-                builder.vertex(xB1.toDouble(), ySinB.toDouble(), zB1.toDouble()).endVertex()
-                builder.vertex(xT1.toDouble(), ySinT.toDouble(), zT1.toDouble()).endVertex()
-            }
-        }
-
-        val mesh = VertexBuffer(VertexBuffer.Usage.STATIC)
-        mesh.bind()
-        mesh.upload(builder.end())
-        VertexBuffer.unbind()
-        return mesh
-    }
 
     /** Upper limit of the shader `Time` uniform, in ticks (about 83 minutes). */
     private const val SKY_TIME_PERIOD = 100000.0

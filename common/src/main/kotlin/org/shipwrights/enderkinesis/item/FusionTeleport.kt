@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.item
 
 import com.mojang.logging.LogUtils
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongArrayList
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.core.BlockPos
@@ -31,6 +32,8 @@ internal class FusionTeleport {
     private var nextTry: Int = 0
     /** Ships with a block that cannot be moved alone; they give no blocks until the next weld. */
     private val refused = LongOpenHashSet()
+    /** Each source ship's blocks, for the random pick. Kept until a weld, or [CELLS_TICKS] old. */
+    private val sourceCells = Long2ObjectOpenHashMap<SourceCells>()
     private val blockPos = BlockPos.MutableBlockPos()
 
     /** A weld changed the ships, so the free spots and the refusals are stale. */
@@ -38,13 +41,16 @@ internal class FusionTeleport {
         targetId = NO_SHIP
         surface = null
         refused.clear()
+        sourceCells.clear()
     }
 
-    fun tick(level: ServerLevel, lifted: List<Lifted>, lastWeld: Int, now: Int): Move? {
+    /** While [summon] is active, its parts take the place of the random block. */
+    fun tick(level: ServerLevel, lifted: List<Lifted>, summon: FusionSummon, lastWeld: Int, now: Int): Move? {
         if (now - lastWeld < STALL_TICKS || now < nextTry) return null
         nextTry = now + TRY_TICKS
         if (level.random.nextFloat() >= CHANCE) return null
-        val target = chooseTarget(level, lifted) ?: return null
+        if (summon.active) return summon.teleport(level, now)
+        val target = FusionManager.keptShip(level, lifted) ?: return null
         val scale = FusionGeometry.uniformScale(target) ?: return null
         val sources = lifted.filter { entry ->
             entry.ship !== target && !refused.contains(entry.ship.id) && !FusionManager.isJointed(level, entry.ship) &&
@@ -55,30 +61,21 @@ internal class FusionTeleport {
             targetId = target.id
             surface = buildSurface(level, target) ?: return null
         }
-        return moveOne(level, target, sources[level.random.nextInt(sources.size)].ship, surface!!)
+        return moveOne(level, target, sources[level.random.nextInt(sources.size)].ship, surface!!, now)
     }
 
-    /** The ship that a weld would keep: jointed, then static, then the heaviest. */
-    private fun chooseTarget(level: ServerLevel, lifted: List<Lifted>): LoadedServerShip? {
-        var best: LoadedServerShip? = null
-        var bestJointed = false
-        for (entry in lifted) {
-            val jointed = FusionManager.isJointed(level, entry.ship)
-            val current = best
-            if (current == null || FusionManager.prefersAsTarget(entry.ship, jointed, current, bestJointed)) {
-                best = entry.ship
-                bestJointed = jointed
-            }
+    private fun moveOne(level: ServerLevel, target: LoadedServerShip, source: LoadedServerShip, surface: Surface, now: Int): Move? {
+        val cells = cellsOf(level, source, now) ?: return null
+        var index = level.random.nextInt(cells.list.size)
+        var from = BlockPos.of(cells.list.getLong(index))
+        var state = level.getBlockState(from)
+        if (state.isAir) {
+            // A block of the ship broke after the cache was read.
+            val fresh = rescan(level, source, now) ?: return null
+            index = level.random.nextInt(fresh.list.size)
+            from = BlockPos.of(fresh.list.getLong(index))
+            state = level.getBlockState(from)
         }
-        return best
-    }
-
-    private fun moveOne(level: ServerLevel, target: LoadedServerShip, source: LoadedServerShip, surface: Surface): Move? {
-        val cells = FusionGeometry.allBlocks(level, source) ?: return null
-        if (cells.isEmpty()) return null
-        val cell = cells[level.random.nextInt(cells.size)]
-        val from = BlockPos.of(cell)
-        val state = level.getBlockState(from)
         // The block turns to the target's nearest grid rotation, as a weld would turn it.
         val turn = FusionGeometry.alignment(target, source).relative
         val xAxis = axis(turn, 1.0, 0.0, 0.0)
@@ -108,10 +105,29 @@ internal class FusionTeleport {
         // The new block can offer spots on its own faces.
         addFaces(level, target, surface, to.asLong())
         val point = target.shipToWorld.transformPosition(Vector3d(to.x + 0.5, to.y + 0.5, to.z + 0.5))
-        if (cells.size > 1) return Move(point, state, false)
+        sourceCells.get(source.id)?.removeAt(index)
+        // The cell cache can be stale, so the empty test reads the ship.
+        if (FusionGeometry.countUpTo(level, source, 1) != 0) return Move(point, state, false)
+        sourceCells.remove(source.id)
         // An empty ship crashes the physics thread, so it goes in the same call.
         ShipAssembler.deleteShip(level, source, false, false)
         return Move(point, state, true)
+    }
+
+    private fun cellsOf(level: ServerLevel, source: LoadedServerShip, now: Int): SourceCells? {
+        val cached = sourceCells.get(source.id)
+        if (cached != null && now - cached.readTick < CELLS_TICKS && cached.list.size > 0) return cached
+        return rescan(level, source, now)
+    }
+
+    /** Null while a chunk of the ship is not loaded, or when the ship has no blocks. */
+    private fun rescan(level: ServerLevel, source: LoadedServerShip, now: Int): SourceCells? {
+        val blocks = FusionGeometry.allBlocks(level, source)
+        if (blocks == null || blocks.isEmpty()) {
+            sourceCells.remove(source.id)
+            return null
+        }
+        return SourceCells(LongArrayList(blocks), now).also { sourceCells.put(source.id, it) }
     }
 
     private fun axis(turn: Quaterniondc, x: Double, y: Double, z: Double): Direction {
@@ -123,8 +139,15 @@ internal class FusionTeleport {
      *  stall; null while a chunk is not loaded. */
     private fun buildSurface(level: ServerLevel, target: LoadedServerShip): Surface? {
         val blocks = FusionGeometry.allBlocks(level, target) ?: return null
+        val solid = LongOpenHashSet(blocks)
         val surface = Surface()
-        for (block in blocks) addFaces(level, target, surface, block)
+        var visited = 0
+        for (block in blocks) {
+            // A block with no air face has no free spot next to it.
+            if (DIRECTIONS.all { solid.contains(BlockPos.offset(block, it)) }) continue
+            if (++visited > MAX_SURFACE_BLOCKS) break
+            addFaces(level, target, surface, block)
+        }
         return surface
     }
 
@@ -150,10 +173,8 @@ internal class FusionTeleport {
         return null
     }
 
-    private fun isFreeSpot(level: ServerLevel, target: LoadedServerShip, spot: Long): Boolean {
-        val pos = blockPos.set(spot)
-        return target.chunkClaim.contains(pos.x shr 4, pos.z shr 4) && !level.isOutsideBuildHeight(pos) && level.getBlockState(pos).isAir
-    }
+    private fun isFreeSpot(level: ServerLevel, target: LoadedServerShip, spot: Long): Boolean =
+        FusionGeometry.isFreeCell(level, target, blockPos.set(spot))
 
     private fun touchesSturdyFace(level: ServerLevel, spot: Long): Boolean {
         val pos = BlockPos.MutableBlockPos()
@@ -163,6 +184,13 @@ internal class FusionTeleport {
             if (!neighbor.isAir && neighbor.isFaceSturdy(level, pos, direction.opposite)) return true
         }
         return false
+    }
+
+    private class SourceCells(val list: LongArrayList, val readTick: Int) {
+        fun removeAt(index: Int) {
+            list.set(index, list.getLong(list.size - 1))
+            list.removeLong(list.size - 1)
+        }
     }
 
     /** Free spots as a list for random picks and a set against repeats. */
@@ -193,5 +221,10 @@ internal class FusionTeleport {
         const val SPOT_TRIES: Int = 8
         /** Spots tried per move for a block that needs support at its new cell. */
         const val PLACE_TRIES: Int = 4
+        /** A cell list this old is read again, so blocks placed on a source ship can be picked. */
+        const val CELLS_TICKS: Int = 100
+        /** Hard cap on the blocks read for free spots in one tick. */
+        const val MAX_SURFACE_BLOCKS: Int = 65_536
+        val DIRECTIONS: Array<Direction> = Direction.values()
     }
 }

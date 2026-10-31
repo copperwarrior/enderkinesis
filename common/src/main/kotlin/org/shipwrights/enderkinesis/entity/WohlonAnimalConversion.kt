@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.entity
 
+import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -62,6 +63,7 @@ object WohlonAnimalConversion {
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
+        LifecycleEvent.SERVER_STOPPED.register { _ -> converting.clear() }
     }
 
     private fun tickLevel(level: ServerLevel) {
@@ -71,10 +73,9 @@ object WohlonAnimalConversion {
     }
 
     /** 1 Hz: only walk animals that could plausibly be in a Wohlon
-     *  biome — i.e. animals inside a tainted chunk (anywhere the
-     *  spreader has ever painted Wohlon) on a non-Wohlon dimension, or
-     *  any animal inside the Wohlonnogondonia dimension itself. Levels
-     *  with no Wohlon footprint at all are skipped entirely.
+     *  biome — i.e. animals inside a loaded chunk that holds Wohlon
+     *  cells on a non-Wohlon dimension, or any animal inside the
+     *  Wohlonnogondonia dimension itself.
      *
      *  Removal of stale entries is handled by [animateStep] — it drops
      *  any tracked UUID it finds outside Wohlon biome or fails to
@@ -87,16 +88,11 @@ object WohlonAnimalConversion {
             scanAnimals(level, null, gameTime)
             return
         }
-        val taintedChunks = WohlonnogondoniaSpreader.getTaintedChunkSnapshot(level)
-        if (taintedChunks.isEmpty()) return
-
-        val chunkSource = level.chunkSource
         val minY = level.minBuildHeight.toDouble()
         val maxY = level.maxBuildHeight.toDouble()
-        for (chunkLong in taintedChunks) {
+        WohlonnogondoniaSpreader.forEachLoadedWohlonChunk(level) { chunkLong ->
             val cx = ChunkPos.getX(chunkLong)
             val cz = ChunkPos.getZ(chunkLong)
-            if (chunkSource.getChunkNow(cx, cz) == null) continue
             val aabb = AABB(
                 cx * 16.0, minY, cz * 16.0,
                 cx * 16.0 + 16.0, maxY, cz * 16.0 + 16.0,

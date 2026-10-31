@@ -5,7 +5,7 @@ import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
@@ -24,6 +24,7 @@ import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.sselith.BookshelfPage
 import org.shipwrights.enderkinesis.sselith.SselithDustBurst
 import kotlin.math.cos
@@ -45,6 +46,7 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
             // Built on the server from the player's parallel, so a client cannot write its own text.
             context.itemInHand.getOrCreateTag().putString(TAG, BookshelfPage.text(pos.x, pos.y, pos.z, SselithParallel.get(player)))
             player.displayClientMessage(Component.translatable(SAVED_KEY), true)
+            playAt(player, EKSounds.EIDETIC_BOOKMARK_SAVE.get())
         }
         return InteractionResult.sidedSuccess(level.isClientSide)
     }
@@ -53,9 +55,6 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
         val stack = player.getItemInHand(hand)
         if (saved(stack) == null) return InteractionResultHolder.pass(stack)
         player.startUsingItem(hand)
-        if (!level.isClientSide) {
-            level.playSound(null, player.x, player.y, player.z, SoundEvents.PORTAL_TRIGGER, SoundSource.PLAYERS, 1f, 1f)
-        }
         return InteractionResultHolder.consume(stack)
     }
 
@@ -70,12 +69,16 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
     override fun releaseUsing(stack: ItemStack, level: Level, user: LivingEntity, timeLeft: Int) {
         val used = getUseDuration(stack) - timeLeft
         when {
-            used < TAP_TICKS -> if (level.isClientSide) saved(stack)?.let(BookshelfPageClient::openScroll)
+            used < TAP_TICKS -> if (level.isClientSide) {
+                saved(stack)?.let {
+                    BookshelfPageClient.openScroll(it)
+                    val read = EKSounds.EIDETIC_BOOKMARK_READ.get()
+                    level.playLocalSound(user.x, user.y, user.z, read, SoundSource.PLAYERS, 1f, 1f, false)
+                }
+            }
             used >= CHARGE_TICKS && user is ServerPlayer -> {
                 val page = saved(stack)
-                if (page != null && travel(user, page)) {
-                    user.level().playSound(null, user.x, user.y, user.z, SoundEvents.ENDERMAN_TELEPORT, SoundSource.PLAYERS, 1f, 1f)
-                }
+                if (page == null || !travel(user, page)) playAt(user, EKSounds.EIDETIC_BOOKMARK_FIZZLE.get())
                 user.cooldowns.addCooldown(this, COOLDOWN_TICKS)
             }
         }
@@ -105,12 +108,18 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
         val target = BlockPos(location.x, location.y, location.z)
         val spot = standingSpot(level, target) ?: target
         SselithDustBurst.at(player.serverLevel(), player)
+        playAt(player, EKSounds.EIDETIC_BOOKMARK_TRAVEL.get())
         player.teleportTo(level, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5, player.yRot, player.xRot)
         SselithDustBurst.at(level, player)
+        playAt(player, EKSounds.EIDETIC_BOOKMARK_TRAVEL.get())
         player.fallDistance = 0f
         // Set after the teleport: entering Sselith picks a new parallel.
         SselithParallel.set(player, location.parallel)
         return true
+    }
+
+    private fun playAt(player: Player, event: SoundEvent) {
+        player.level().playSound(null, player.x, player.y, player.z, event, SoundSource.PLAYERS, 1f, 1f)
     }
 
     /** The nearest feet position within [SEARCH_RADIUS] of [target] with ground below and room to stand. */

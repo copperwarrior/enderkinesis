@@ -128,7 +128,9 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             )
             return InteractionResult.SUCCESS
         }
-        if (target !is org.shipwrights.enderkinesis.entity.ConstriliarEntity) return InteractionResult.PASS
+        if (target !is org.shipwrights.enderkinesis.entity.ConstriliarEntity &&
+            target !is org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
+        ) return InteractionResult.PASS
         if (level.isClientSide) return InteractionResult.SUCCESS
         // NOT the `stack` param: in creative, Player.interactOn passes a COPY of the
         // held stack here, so NBT written to it is discarded. Toggle the real one.
@@ -323,6 +325,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             }
             if (serverLevel != null) {
                 var gaze: GazeTarget? = null
+                val gazeVictim by lazy(LazyThreadSafetyMode.NONE) { gazeLiving(serverLevel, player) }
                 var moveSlot = 0
                 for (entry in readEntityEntries(stack)) {
                     if (entry.typeId.toString() != selectedKey) continue
@@ -345,6 +348,23 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                                 // Spread each commanded walker to its own slot around the
                                 // gaze point (tangent-plane phyllotaxis) so they gather
                                 // beside each other instead of stacking on one block.
+                                // A ship block's face is in shipyard axes; only a world face is passed.
+                                val face = if (target.shipLocal == null) {
+                                    val n = target.normal
+                                    net.minecraft.core.Direction.getNearest(n.x, n.y, n.z)
+                                } else {
+                                    null
+                                }
+                                entity.commandMoveTo(constriliarSlot(moveSlot++, target.pos, target.normal), face, target.pos)
+                            }
+                        }
+                        is org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity -> {
+                            val target = gaze ?: gazeHit(serverLevel, player).also { gaze = it }
+                            if (aim) {
+                                entity.commandAim(gazeVictim, target.pos)
+                            } else if (target.pos.distanceToSqr(player.position()) <= RECALL_RADIUS_SQ) {
+                                entity.commandFollow()
+                            } else {
                                 entity.commandMoveTo(constriliarSlot(moveSlot++, target.pos, target.normal))
                             }
                         }
@@ -464,6 +484,27 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             return GazeTarget(hit.location, -1L, null, normal)
         }
 
+        /** The living entity under the wielder's crosshair, walls included as blockers. */
+        private fun gazeLiving(serverLevel: ServerLevel, player: Player): net.minecraft.world.entity.LivingEntity? {
+            val eye = player.getEyePosition(1f)
+            val look = player.getViewVector(1f)
+            val reach = org.shipwrights.enderkinesis.util.LoadedRay.range(serverLevel, eye, look, BEAM_GAZE_REACH)
+            val wall = serverLevel.clip(
+                net.minecraft.world.level.ClipContext(
+                    eye, eye.add(look.scale(reach)),
+                    net.minecraft.world.level.ClipContext.Block.COLLIDER,
+                    net.minecraft.world.level.ClipContext.Fluid.NONE,
+                    player,
+                ),
+            )
+            val end = wall.location
+            val sweep = player.boundingBox.expandTowards(end.subtract(eye)).inflate(1.0)
+            val hit = net.minecraft.world.entity.projectile.ProjectileUtil.getEntityHitResult(
+                serverLevel, player, eye, end, sweep,
+            ) { it is net.minecraft.world.entity.LivingEntity && it.isPickable && !it.isSpectator }
+            return hit?.entity as? net.minecraft.world.entity.LivingEntity
+        }
+
         /** Slot [index] of a phyllotaxis spiral around [center], laid out in the tangent
          *  plane of the surface [normal] so slots stay on the walkable surface. Slot 0 is
          *  the centre; radius grows as √index so any count packs evenly. */
@@ -566,6 +607,8 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
         /** Formation spread for a group "go there": golden-angle spiral, one footprint apart. */
         private const val GOLDEN_ANGLE = 2.399963229728653
         private const val SLOT_SPACING = 1.6
+        /** A "Go To" this near the wielder means "come back": raised skeletons drop their post and follow. */
+        private const val RECALL_RADIUS_SQ = 3.0 * 3.0
         private const val SPARK_COUNT = 8
         private const val SPARK_SPREAD = 0.22
         private const val SPARK_SPEED = 0.02
