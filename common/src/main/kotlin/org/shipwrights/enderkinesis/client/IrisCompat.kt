@@ -66,6 +66,22 @@ object IrisCompat {
         return live
     }
 
+    @Volatile private var isRenderingShadowPassMethod: Method? = null
+
+    /** Whether a shader pack is drawing its shadow pass right now: the world seen from the light,
+     *  through its own projection. Asked live (it changes within a frame), but only while a pack
+     *  is in use. */
+    fun isRenderingShadowPass(): Boolean {
+        if (!isShaderPackInUse()) return false
+        val instance = irisInstance ?: return false
+        val method = isRenderingShadowPassMethod ?: return false
+        return try {
+            method.invoke(instance) as Boolean
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     @Synchronized
     private fun probe() {
         if (probed) return
@@ -73,6 +89,7 @@ object IrisCompat {
             val apiClass = Class.forName(IRIS_API_CLASS)
             irisInstance = apiClass.getMethod("getInstance").invoke(null)
             isShaderPackInUseMethod = apiClass.getMethod("isShaderPackInUse")
+            isRenderingShadowPassMethod = runCatching { apiClass.getMethod("isRenderingShadowPass") }.getOrNull()
         } catch (_: Throwable) {
             // Iris / Oculus not installed, or API surface changed — treat as no shaders.
             irisInstance = null

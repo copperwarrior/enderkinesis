@@ -212,9 +212,11 @@ object SunderingClient {
         for (player in level.players()) {
             if (isWielding(player)) renderBoxFor(pose, consumers, camX, camY, camZ, player, tickDelta, level)
         }
-        // Mystic Scroll beams and merged beams share this style and this render pass.
-        ScrollBeamClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
+        // Mystic Scroll beams and merged beams share this style and this render pass. Beams are
+        // light and write no depth, so they go last: nothing translucent drawn after them can
+        // paint over them.
         SpellVfxClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
+        ScrollBeamClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
     }
 
     private fun isWielding(player: Player): Boolean {
@@ -490,13 +492,15 @@ object SunderingClient {
     /**
      * Draws [segments] as a beam in the Staff of Sundering's style, coloured [rgb] with a
      * whiter edge: Mystic Scroll beams, merged beams, and their Aegis reflections. Called
-     * from the same world-render hook as the staff's own beams.
+     * from the same world-render hook as the staff's own beams. [fadeBack]: whether it fades in
+     * from behind its start, as the staff's does.
      */
     @JvmStatic
     fun renderColouredBeam(
         pose: PoseStack, consumers: MultiBufferSource,
         camX: Double, camY: Double, camZ: Double,
         segments: List<BeamSegment>, rgb: Int, gameTime: Double,
+        fadeBack: Boolean = true,
     ) {
         if (segments.isEmpty()) return
         val core = Triple((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF)
@@ -509,7 +513,7 @@ object SunderingClient {
         val lastIdx = segments.lastIndex
         for ((idx, seg) in segments.withIndex()) {
             if (seg.length < 0.05) continue
-            renderBoxSegment(matrix, normal, consumers, seg, look, isFirst = idx == 0, isLast = idx == lastIdx, gameTime = gameTime)
+            renderBoxSegment(matrix, normal, consumers, seg, look, isFirst = idx == 0 && fadeBack, isLast = idx == lastIdx, gameTime = gameTime)
         }
         pose.popPose()
     }

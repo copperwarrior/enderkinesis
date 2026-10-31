@@ -15,7 +15,9 @@ import org.shipwrights.enderkinesis.spell.Element.SUNFIRE
 class SpellTest {
 
     @Test
-    fun `shape follows priority`() {
+    fun `shape follows the strongest element, ties by priority`() {
+        Spell(listOf(HEAT, HEAT, GRAVITY)).shape shouldBe Shape.SPRAY
+        Spell(listOf(GRAVITY, GRAVITY, HEAT, PURITY)).shape shouldBe Shape.BOLT
         Spell(listOf(HEAT, GRAVITY)).shape shouldBe Shape.BOLT
         Spell(listOf(HEAT, SUNFIRE, CHAOS)).shape shouldBe Shape.BEAM
         Spell(listOf(HEAT, CHAOS)).shape shouldBe Shape.CHAIN
@@ -25,7 +27,7 @@ class SpellTest {
     @Test
     fun `the spec's example name`() {
         val spell = Spell(listOf(GRAVITY, HEAT, HEAT, HEAT, HEAT, HEAT, GROWTH))
-        spell.name() shouldBe SpellName(Shape.BOLT, GRAVITY, listOf(HEAT to 3, GROWTH to 1))
+        spell.name() shouldBe SpellName(Shape.SPRAY, HEAT, listOf(GRAVITY to 1, GROWTH to 1))
     }
 
     @Test
@@ -37,8 +39,8 @@ class SpellTest {
     @Test
     fun `only the two strongest adjectives are named`() {
         val name = Spell(listOf(CHAOS, HEAT, BLOOD, BLOOD, POISON)).name()!!
-        name.core shouldBe CHAOS
-        name.adjectives shouldBe listOf(BLOOD to 1, HEAT to 1)
+        name.core shouldBe BLOOD
+        name.adjectives shouldBe listOf(CHAOS to 1, HEAT to 1)
     }
 
     @Test

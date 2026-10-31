@@ -162,35 +162,6 @@ object EKSounds {
         return event
     }
 
-    // Mystic Scrolls. Each points at a vanilla sound in sounds.json until real samples land.
-    val ALTAR_INSCRIBE: RegistrySupplier<SoundEvent> = spell("block.altar_of_illumination.inscribe")
-    val ALTAR_FUSE: RegistrySupplier<SoundEvent> = spell("block.altar_of_illumination.fuse")
-    val ALTAR_ANNIHILATE: RegistrySupplier<SoundEvent> = spell("block.altar_of_illumination.annihilate")
-    val ALTAR_FINISH: RegistrySupplier<SoundEvent> = spell("block.altar_of_illumination.finish")
-    val ALTAR_INK: RegistrySupplier<SoundEvent> = spell("block.altar_of_illumination.ink")
-    val BOLT_CHARGE: RegistrySupplier<SoundEvent> = spell("item.mystic_scroll.bolt_charge")
-    val BOLT_LAUNCH: RegistrySupplier<SoundEvent> = spell("item.mystic_scroll.bolt_launch")
-    val BOLT_IMPACT: RegistrySupplier<SoundEvent> = spell("entity.spell_bolt.impact")
-    val BEAM_LOOP: RegistrySupplier<SoundEvent> = spell("item.mystic_scroll.beam")
-    val CHAIN_ZAP: RegistrySupplier<SoundEvent> = spell("item.mystic_scroll.chain")
-    val SPRAY_LOOP: RegistrySupplier<SoundEvent> = spell("item.mystic_scroll.spray")
-    val SCROLL_USED: RegistrySupplier<SoundEvent> = spell("item.mystic_scroll.used")
-    val RUNE_PLACE: RegistrySupplier<SoundEvent> = spell("block.rune.place")
-    val RUNE_TRIGGER: RegistrySupplier<SoundEvent> = spell("block.rune.trigger")
-    val BEAM_MERGE: RegistrySupplier<SoundEvent> = spell("spell.beam.merge")
-    val BEAM_EXPLODE: RegistrySupplier<SoundEvent> = spell("spell.beam.explode")
-    val BEAM_SHOCKWAVE: RegistrySupplier<SoundEvent> = spell("spell.beam.shockwave")
-    val CRYSTALLIZED_SHATTER: RegistrySupplier<SoundEvent> = spell("effect.crystallized.shatter")
-    val FROZEN_LOCK: RegistrySupplier<SoundEvent> = spell("effect.frozen.lock")
-    val FROZEN_RELEASE: RegistrySupplier<SoundEvent> = spell("effect.frozen.release")
-    val SINGULARITY_HUM: RegistrySupplier<SoundEvent> = spell("entity.singularity.hum")
-    val ABSENT_VANISH: RegistrySupplier<SoundEvent> = spell("effect.absent.vanish")
-    val ABSENT_RETURN: RegistrySupplier<SoundEvent> = spell("effect.absent.return")
-    val POCKET_PHASE: RegistrySupplier<SoundEvent> = spell("spell.abyssal_pocket.phase")
-    val ENTHRALLED: RegistrySupplier<SoundEvent> = spell("effect.enthralled")
-
-    private fun spell(name: String): RegistrySupplier<SoundEvent> =
-        SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }
 
     private fun ambient(name: String): RegistrySupplier<SoundEvent> =
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }

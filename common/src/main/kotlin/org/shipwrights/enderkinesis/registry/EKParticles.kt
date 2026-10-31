@@ -6,6 +6,8 @@ import net.minecraft.core.particles.ParticleType
 import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.core.registries.Registries
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.spell.SpellGlyphOptions
+import org.shipwrights.enderkinesis.spell.SpellMote
 
 /** SimpleParticleType has a protected ctor; a tiny subclass exposes it. */
 class EKOceanParticleType : SimpleParticleType(false)
@@ -262,27 +264,35 @@ object EKParticles {
 
     fun ichaericInkDrip(): EKOceanParticleType = ICHAERIC_INK_DRIP.get() as EKOceanParticleType
 
-    // Mystic Scroll particles, drawn with vanilla textures tinted per kind (see SpellParticle).
-    /** Crystallized shatter: bright falling shards. */
-    val CRYSTAL_SHARD: RegistrySupplier<ParticleType<*>> = PARTICLES.register("crystal_shard") { EKOceanParticleType() }
-    /** Rot: drifting green spores. */
-    val ROT_SPORE: RegistrySupplier<ParticleType<*>> = PARTICLES.register("rot_spore") { EKOceanParticleType() }
-    /** Bleeding and Blood drain: falling drops. */
-    val BLOOD_DRIP: RegistrySupplier<ParticleType<*>> = PARTICLES.register("blood_drip") { EKOceanParticleType() }
-    /** Void: motes drifting into the dark. */
-    val VOID_MOTE: RegistrySupplier<ParticleType<*>> = PARTICLES.register("void_mote") { EKOceanParticleType() }
-    /** Looping beams: one expanding ring. */
-    val SHOCKWAVE_RING: RegistrySupplier<ParticleType<*>> = PARTICLES.register("shockwave_ring") { EKOceanParticleType() }
+    // Mystic Scroll particles: vanilla sprites with each one's own colour, size and motion
+    // (see SpellMote and the client's SpellParticle).
+    val SPELL_MOTES: Map<SpellMote, RegistrySupplier<ParticleType<*>>> =
+        SpellMote.entries.associateWith { mote -> PARTICLES.register(mote.id) { EKOceanParticleType() } }
 
-    fun crystalShard(): EKOceanParticleType = CRYSTAL_SHARD.get() as EKOceanParticleType
+    /** Leaf chips, cut from the oak leaves texture as they're drawn. */
+    val LEAF_CHIP: RegistrySupplier<ParticleType<*>> = PARTICLES.register("spell_leaf_chip") { EKOceanParticleType() }
 
-    fun rotSpore(): EKOceanParticleType = ROT_SPORE.get() as EKOceanParticleType
+    /** An enchanting glyph in a spell's colour. */
+    val SPELL_GLYPH: RegistrySupplier<ParticleType<*>> = PARTICLES.register("spell_glyph") { SpellGlyphOptions.Type() }
 
-    fun bloodDrip(): EKOceanParticleType = BLOOD_DRIP.get() as EKOceanParticleType
+    @Suppress("UNCHECKED_CAST")
+    fun spellGlyph(): ParticleType<SpellGlyphOptions> = SPELL_GLYPH.get() as ParticleType<SpellGlyphOptions>
 
-    fun voidMote(): EKOceanParticleType = VOID_MOTE.get() as EKOceanParticleType
+    fun mote(mote: SpellMote): EKOceanParticleType = SPELL_MOTES.getValue(mote).get() as EKOceanParticleType
 
-    fun shockwaveRing(): EKOceanParticleType = SHOCKWAVE_RING.get() as EKOceanParticleType
+    fun leafChip(): EKOceanParticleType = LEAF_CHIP.get() as EKOceanParticleType
+
+    fun bloodMist(): EKOceanParticleType = mote(SpellMote.BLOOD_MIST)
+
+    fun poisonMist(): EKOceanParticleType = mote(SpellMote.POISON_MIST)
+
+    fun crystalShard(): EKOceanParticleType = mote(SpellMote.CRYSTAL_SHARD)
+
+    fun rotSpore(): EKOceanParticleType = mote(SpellMote.ROT_SPORE)
+
+    fun bloodDrip(): EKOceanParticleType = mote(SpellMote.BLOOD_DRIP)
+
+    fun voidMote(): EKOceanParticleType = mote(SpellMote.VOID_MOTE)
 
     fun register() = PARTICLES.register()
 }

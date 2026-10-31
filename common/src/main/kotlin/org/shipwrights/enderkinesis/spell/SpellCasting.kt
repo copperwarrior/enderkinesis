@@ -1,21 +1,21 @@
 package org.shipwrights.enderkinesis.spell
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.particles.ParticleTypes
+import net.minecraft.core.particles.BlockParticleOption
 import net.minecraft.core.Direction
-import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.HumanoidArm
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.level.ClipContext
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
-import org.joml.Vector3f
 import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import kotlin.math.roundToInt
-import net.minecraft.sounds.SoundSource
-import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Turns a [Spell] into element effects for each cast mode. Every element on the scroll
@@ -23,11 +23,16 @@ import org.shipwrights.enderkinesis.registry.EKSounds
  *
  * - **Area:** a sphere around the caster per element, radius from that element's magnitude.
  * - **Bolt:** the same spheres around the impact (see [SpellBoltEntity][org.shipwrights.enderkinesis.entity.SpellBoltEntity]).
- * - **Beam, Chain, Spray:** held; each [PULSE_TICKS] re-applies every element as a pulse.
+ * - **Beam, Chain, Spray:** held; each [PULSE_TICKS] re-applies every element as a pulse. A
+ *   Beam or Spray applies every [STREAM_TICKS] instead, each a [STREAM_SHARE] of a pulse, so
+ *   what it sweeps across is reached while one held still does just what a pulse did.
  */
 object SpellCasting {
     /** Held shapes re-apply every 0.5 s. */
     const val PULSE_TICKS = 10
+    /** A Beam or Spray applies this often, each time this share of a pulse. */
+    const val STREAM_TICKS = 2
+    const val STREAM_SHARE = STREAM_TICKS.toFloat() / PULSE_TICKS
 
     /** Where a cast from [hand] starts: just in front of that hand, on the side its arm is
      *  on. Server and client share this, so a drawn beam leaves the hand it's cast from. */
@@ -43,17 +48,24 @@ object SpellCasting {
             .add(0.0, -HAND_DROP * entity.bbHeight / PLAYER_HEIGHT, 0.0)
     }
 
-    /** Aim from [origin] at the point [AIM_CONVERGE] blocks along the caster's view, so a cast
-     *  from the hand still lands where the caster looks. */
-    fun handAim(entity: LivingEntity, origin: Vec3, partialTick: Float = 1f): Vec3 =
-        entity.getEyePosition(partialTick).add(entity.getViewVector(partialTick).scale(AIM_CONVERGE)).subtract(origin).normalize()
+    /** Aim from [origin] at what's under the caster's crosshair (the first block along their
+     *  view, up to [AIM_CONVERGE] blocks and no nearer than [AIM_MIN]), so a cast from the hand
+     *  lands where the caster looks. */
+    fun handAim(entity: LivingEntity, origin: Vec3, partialTick: Float = 1f): Vec3 {
+        val eye = entity.getEyePosition(partialTick)
+        val view = entity.getViewVector(partialTick)
+        val hit = entity.level().clip(ClipContext(eye, eye.add(view.scale(AIM_CONVERGE)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity))
+        val distance = if (hit.type == HitResult.Type.MISS) AIM_CONVERGE else hit.location.distanceTo(eye).coerceAtLeast(AIM_MIN)
+        return eye.add(view.scale(distance)).subtract(origin).normalize()
+    }
 
     private val UP = Vec3(0.0, 1.0, 0.0)
     private const val HAND_FORWARD = 0.45
     private const val HAND_SIDE = 0.36
     private const val HAND_DROP = 0.35
     private const val PLAYER_HEIGHT = 1.8f
-    private const val AIM_CONVERGE = 16.0
+    private const val AIM_CONVERGE = 64.0
+    private const val AIM_MIN = 2.0
 
     /** Ticks a Forward cast can be held: 10 s at magnitude 1, rising linearly to 20 s at 7,
      *  from the magnitude of the element that chose the shape. */
@@ -62,16 +74,29 @@ object SpellCasting {
         return ((10f + (m - 1f) * 10f / 6f) * 20f).roundToInt()
     }
 
+    /** A fully drawn Bolt's burst deals this many times a one-shot cast's damage: it must be
+     *  drawn for 1.5 s and aimed, and spends a whole use. A full scroll's 3-base element
+     *  (10.2 a cast) bursts for 25.5. */
+    const val BOLT_DAMAGE = 2.5f
+
+    /** The damage [power][SpellContext.power] of a Bolt drawn to [charge] (0–1), eased in as a
+     *  bow's draw is, (c² + 2c) / 3: half drawn is about 42 % of a full draw, so a quick tap
+     *  never out-damages waiting for the full draw. */
+    fun boltPower(charge: Float): Float = BOLT_DAMAGE * (charge * charge + 2f * charge) / 3f
+
     /** One sphere per element around [centre], each at its magnitude × [scale]. [area] marks
      *  a cast centred on the caster. */
-    fun burst(ctx: SpellContext, spell: Spell, centre: Vec3, area: Boolean, scale: Float = 1f) {
+    fun burst(ctx: SpellContext, spell: Spell, centre: Vec3, area: Boolean, scale: Float = 1f, waves: Boolean = area) {
+        if (area) SpellVfx.runeCircle(ctx.level, centre, spell.markColour())
+        ctx.elements = spell.magnitudes.keys
         for ((element, magnitude) in spell.magnitudes) {
             val m = magnitude * scale
-            ElementEffects.of(element).apply(ctx, Delivery.Sphere(centre, SpellCurves.areaRadius(m), area), m)
+            ElementEffects.of(element).apply(ctx, Delivery.Sphere(centre, SpellCurves.areaRadius(m), area, waves), m)
         }
     }
 
     private fun applyAll(ctx: SpellContext, spell: Spell, delivery: Delivery, scale: Float) {
+        ctx.elements = spell.magnitudes.keys
         for ((element, magnitude) in spell.magnitudes) ElementEffects.of(element).apply(ctx, delivery, magnitude * scale)
     }
 
@@ -87,7 +112,7 @@ object SpellCasting {
             Shape.BEAM, Shape.SPRAY -> applyAll(ctx, spell, Delivery.SingleEntity(target), scale)
             Shape.CHAIN -> {
                 val chaos = spell.magnitude(spell.shapeElement!!) * scale
-                val targets = chainFrom(ctx, target as? LivingEntity ?: return, chaos, hit)
+                val targets = chainFrom(ctx, target as? LivingEntity ?: return, chaos, hit, spell.magnitudes.keys)
                 applyAll(ctx, spell, Delivery.Group(targets, target.position()), scale)
             }
         }
@@ -100,6 +125,10 @@ object SpellCasting {
      * jumps from the impact to the nearest entity and chains on.
      */
     fun strikeBlock(ctx: SpellContext, spell: Spell, pos: BlockPos, face: Direction, location: Vec3, scale: Float) {
+        SpellVfx.blockStrike(ctx.level, location, spell)
+        // Chips of the block fly off where it was hit.
+        val struck = ctx.level.getBlockState(pos)
+        if (!struck.isAir) ctx.level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, struck), location.x, location.y, location.z, 10, 0.1, 0.1, 0.1, 0.15)
         when (spell.shape ?: return) {
             Shape.BOLT -> {
                 burst(ctx, spell, location, area = false, scale)
@@ -111,16 +140,17 @@ object SpellCasting {
                     it.isAlive && !it.isSpectator && !ctx.isCaster(it) && it.distanceToSqr(location) <= CHAIN_JUMP * CHAIN_JUMP
                 }.minByOrNull { it.distanceToSqr(location) } ?: return
                 val chaos = spell.magnitude(spell.shapeElement!!) * scale
-                val targets = chainFrom(ctx, first, chaos, HashSet())
-                chainArcs(ctx, location, targets.take(1))
+                val targets = chainFrom(ctx, first, chaos, HashSet(), spell.magnitudes.keys)
+                chainArcs(ctx, location, targets.take(1), spell.magnitudes.keys)
                 applyAll(ctx, spell, Delivery.Group(targets, first.position()), scale)
             }
         }
     }
 
-    /** One pulse of a Chain or Spray cast from [origin] along the unit vector [look], or a
-     *  single application of a Beam (a tap, let go before it was ever held). [ctx] must be
-     *  pulsed. A held Beam goes through [beamTick] instead. */
+    /** One pulse of a Chain, or one application of a Spray ([ctx]'s share of a pulse), cast
+     *  from [origin] along the unit vector [look], or a single application of a Beam (a tap,
+     *  let go before it was ever held). [ctx] must be pulsed. A held Beam goes through
+     *  [beamTick] instead. */
     fun pulse(ctx: SpellContext, spell: Spell, origin: Vec3, look: Vec3) {
         val shapeElement = spell.shapeElement ?: return
         val magnitude = spell.magnitude(shapeElement)
@@ -132,13 +162,11 @@ object SpellCasting {
             }
             Shape.SPRAY -> {
                 applyAll(ctx, spell, spray(origin, look, magnitude, mirrors), 1f)
-                ctx.level.playSound(null, origin.x, origin.y, origin.z, EKSounds.SPRAY_LOOP.get(), SoundSource.PLAYERS, LOOP_VOLUME, 1f)
             }
             Shape.CHAIN -> {
-                val group = chain(ctx, origin, look, magnitude) ?: return
+                val group = chain(ctx, origin, look, magnitude, spell.magnitudes.keys) ?: return
                 applyAll(ctx, spell, group, 1f)
                 val at = group.anchor
-                ctx.level.playSound(null, at.x, at.y, at.z, EKSounds.CHAIN_ZAP.get(), SoundSource.PLAYERS, ZAP_VOLUME, 1.6f)
             }
             Shape.BOLT -> return
         }
@@ -153,9 +181,10 @@ object SpellCasting {
     /**
      * One tick of a held Beam: traces it from [origin] along [look], mirrored off other
      * casters' Aegis boxes, and registers it with [BeamManager] for crossings and loops.
-     * When [pulse], every element applies along the beam, up to where it feeds a merged beam.
+     * When [apply], every element applies along the beam (as [ctx]'s share of a pulse), up to
+     * where it feeds a merged beam.
      */
-    fun beamTick(ctx: SpellContext, spell: Spell, caster: LivingEntity, origin: Vec3, look: Vec3, pulse: Boolean) {
+    fun beamTick(ctx: SpellContext, spell: Spell, caster: LivingEntity, origin: Vec3, look: Vec3, apply: Boolean) {
         val shapeElement = spell.shapeElement ?: return
         val level = ctx.level
         val reach = beamReach(spell.magnitude(shapeElement))
@@ -169,9 +198,8 @@ object SpellCasting {
             BeamManager.clip(caster.uuid, trace),
             if (BeamManager.isCut(caster.uuid)) null else trace.finalBlockPos,
         )
-        if (pulse) {
+        if (apply) {
             for (line in beamLines(acting)) applyAll(ctx, spell, line, 1f)
-            level.playSound(null, origin.x, origin.y, origin.z, EKSounds.BEAM_LOOP.get(), SoundSource.PLAYERS, LOOP_VOLUME, 1.2f)
         }
     }
 
@@ -202,73 +230,93 @@ object SpellCasting {
     /** The nearest living target in a cone in front of [origin], then jumps to the nearest
      *  living entity not yet hit near the last one, each in sight of the one before. One
      *  pulse never hits an entity twice. An arc never crosses an Aegis box: it takes the
-     *  nearest target on the near side instead, or stops. Null when no target is reachable. */
-    fun chain(ctx: SpellContext, origin: Vec3, look: Vec3, magnitude: Float): Delivery.Group? {
+     *  nearest target on the near side instead, or stops. Null when no target is reachable.
+     *  The arcs carry the [payload] elements' particles along them. */
+    fun chain(ctx: SpellContext, origin: Vec3, look: Vec3, magnitude: Float, payload: Collection<Element> = emptyList()): Delivery.Group? {
         val mirrors = BeamManager.mirrors(ctx.level, ctx.caster)
         val cone = Delivery.Cone(origin, look, CHAIN_RANGE, CHAIN_HALF_ANGLE, mirrors)
         val first = cone.living(ctx).minByOrNull { it.distanceToSqr(origin) }
         if (first == null) {
-            // Nothing to strike: the lightning still lashes out into the air.
+            // Nothing to strike: the lightning still lashes out into the air, stopping at the
+            // first Aegis box in its way, as a chain's arcs always do.
             repeat(EMPTY_ARCS) {
                 val dir = look.add(
                     ctx.level.random.nextGaussian() * 0.35, ctx.level.random.nextGaussian() * 0.35, ctx.level.random.nextGaussian() * 0.35,
                 ).normalize()
-                SpellVfx.arc(ctx.level, origin, origin.add(dir.scale(CHAIN_RANGE * (0.3 + 0.4 * ctx.level.random.nextDouble()))), Element.CHAOS.color, 4)
+                var length = CHAIN_RANGE * (0.3 + 0.4 * ctx.level.random.nextDouble())
+                var struck: AegisBox.IntersectResult? = null
+                for (frame in mirrors) AegisBox.rayIntersect(origin, dir, frame)?.let { if (it.distance < length) { length = it.distance; struck = it } }
+                arc(ctx, origin, origin.add(dir.scale(length)), payload, 4)
+                // An arc stopped by an Aegis strikes its face.
+                struck?.let { SpellVfx.aegisStrike(ctx.level, origin.add(dir.scale(length)), it.normal) }
             }
             return null
         }
-        val targets = chainFrom(ctx, first, magnitude, HashSet())
-        chainArcs(ctx, origin, targets.take(1))
+        val targets = chainFrom(ctx, first, magnitude, HashSet(), payload)
+        chainArcs(ctx, origin, targets.take(1), payload)
         return Delivery.Group(targets, first.position())
     }
 
     /** [first] and up to [chainTargets] − 1 jumps from it, skipping anything in [hit], which
      *  collects every entity struck. Jumps show their arcs; the arc to [first] is the
      *  caller's. Empty when [first] was already hit. */
-    fun chainFrom(ctx: SpellContext, first: LivingEntity, magnitude: Float, hit: MutableSet<Entity>): List<LivingEntity> {
+    fun chainFrom(ctx: SpellContext, first: LivingEntity, magnitude: Float, hit: MutableSet<Entity>, payload: Collection<Element> = emptyList()): List<LivingEntity> {
         if (!hit.add(first)) return emptyList()
         val mirrors = BeamManager.mirrors(ctx.level, ctx.caster)
         val targets = mutableListOf(first)
         var from: LivingEntity = first
         while (targets.size < chainTargets(magnitude)) {
             val fromCentre = centre(from)
-            val next = ctx.level.getEntitiesOfClass(LivingEntity::class.java, from.boundingBox.inflate(CHAIN_JUMP)) {
+            val reachable = ctx.level.getEntitiesOfClass(LivingEntity::class.java, from.boundingBox.inflate(CHAIN_JUMP)) {
                 it.isAlive && !it.isSpectator && it !in hit && !ctx.isCaster(it) &&
-                    it.distanceToSqr(from) <= CHAIN_JUMP * CHAIN_JUMP && from.hasLineOfSight(it) &&
-                    !Delivery.shadowed(fromCentre, centre(it), mirrors)
-            }.minByOrNull { it.distanceToSqr(from) } ?: break
+                    it.distanceToSqr(from) <= CHAIN_JUMP * CHAIN_JUMP && from.hasLineOfSight(it)
+            }.sortedBy { it.distanceToSqr(from) }
+            val next = reachable.firstOrNull { !Delivery.shadowed(fromCentre, centre(it), mirrors) }
+            // A nearer target behind an Aegis draws the arc, which strikes the face instead.
+            reachable.firstOrNull()?.takeIf { it !== next }?.let { behind -> strikeAegis(ctx, fromCentre, centre(behind), mirrors) }
+            next ?: break
             hit += next
             targets += next
             from = next
         }
-        chainArcs(ctx, first.position().add(0.0, first.bbHeight * 0.5, 0.0), targets.drop(1))
+        chainArcs(ctx, first.position().add(0.0, first.bbHeight * 0.5, 0.0), targets.drop(1), payload)
         return targets
     }
 
-    private fun chainArcs(ctx: SpellContext, origin: Vec3, targets: List<Entity>) {
+    private fun chainArcs(ctx: SpellContext, origin: Vec3, targets: List<Entity>, payload: Collection<Element>) {
         var from = origin
         for (target in targets) {
             val to = target.position().add(0.0, target.bbHeight * 0.5, 0.0)
-            SpellVfx.arc(ctx.level, from, to, Element.CHAOS.color, ARC_LIFE)
+            arc(ctx, from, to, payload, ARC_LIFE)
             from = to
         }
     }
 
+    /** A Chain's lightning from [from] to [to], with the [payload] elements riding it. */
+    private fun arc(ctx: SpellContext, from: Vec3, to: Vec3, payload: Collection<Element>, life: Int) {
+        if (payload.isEmpty()) SpellVfx.arc(ctx.level, from, to, Element.CHAOS.color, life)
+        else SpellVfx.chainArc(ctx.level, from, to, payload, life)
+    }
+
     private fun centre(entity: Entity): Vec3 = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
 
-    fun dust(element: Element): DustParticleOptions = dust(element.color)
-
-    fun dust(rgb: Int): DustParticleOptions = DustParticleOptions(
-        Vector3f(((rgb shr 16) and 0xFF) / 255f, ((rgb shr 8) and 0xFF) / 255f, (rgb and 0xFF) / 255f), 1f,
-    )
+    /** A chain's arc from [from] toward [to] stopped by the first Aegis in the way. */
+    private fun strikeAegis(ctx: SpellContext, from: Vec3, to: Vec3, mirrors: List<AegisBox.Frame>) {
+        val span = to.subtract(from)
+        val dist = span.length()
+        if (dist < 1.0e-6) return
+        val dir = span.scale(1.0 / dist)
+        val hit = mirrors.mapNotNull { AegisBox.rayIntersect(from, dir, it) }.filter { it.distance < dist }.minByOrNull { it.distance } ?: return
+        val at = from.add(dir.scale(hit.distance))
+        SpellVfx.arc(ctx.level, from, at, Element.CHAOS.color, ARC_LIFE)
+        SpellVfx.aegisStrike(ctx.level, at, hit.normal)
+    }
 
     private const val BEAM_HALF_WIDTH = 0.5
     private const val BLOCK_BITE = 0.1
     private const val EMPTY_ARCS = 3
     /** A pulse's arcs last until the next pulse. */
     private const val ARC_LIFE = 8
-    private const val LOOP_VOLUME = 0.5f
-    private const val ZAP_VOLUME = 0.3f
     private val SPRAY_HALF_ANGLE = Math.toRadians(25.0)
     private const val CHAIN_RANGE = 12.0
     private val CHAIN_HALF_ANGLE = Math.toRadians(30.0)

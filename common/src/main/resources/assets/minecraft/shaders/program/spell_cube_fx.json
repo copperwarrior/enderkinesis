@@ -1,0 +1,34 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "one",
+    "dstrgb": "zero"
+  },
+  "vertex": "sureibjin_dream_vignette",
+  "fragment": "spell_cube_fx",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DiffuseSampler" },
+    { "name": "DepthSampler" }
+  ],
+  "uniforms": [
+    { "name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "InSize",  "type": "float", "count": 2, "values": [ 1.0, 1.0 ] },
+    { "name": "OutSize", "type": "float", "count": 2, "values": [ 1.0, 1.0 ] },
+    { "name": "Time",    "type": "float", "count": 1, "values": [ 0.0 ] },
+    { "name": "Count",   "type": "int",   "count": 1, "values": [ 0 ] },
+    { "name": "DepthTest", "type": "int", "count": 1, "values": [ 0 ] },
+    { "name": "DepthA",  "type": "float", "count": 1, "values": [ -1.0 ] },
+    { "name": "DepthB",  "type": "float", "count": 1, "values": [ -0.1 ] },
+    { "name": "Depths0", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] },
+    { "name": "Depths1", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] },
+    { "name": "Cube0",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube1",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube2",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube3",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube4",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube5",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube6",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+    { "name": "Cube7",   "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] }
+  ]
+}

@@ -117,7 +117,7 @@ object YgannAbyssRenderTypes {
      *  [namespace] first, falling back to the original lookup if absent. Lets vanilla
      *  shader-loading code (which hard-codes the `minecraft:` namespace via string
      *  concat) load files placed in our mod's namespace. */
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
+    internal fun namespaced(delegate: ResourceProvider, namespace: String) =
         ResourceProvider { loc ->
             if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
                 val rewritten = ResourceLocation(namespace, loc.path)

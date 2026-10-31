@@ -1,31 +1,30 @@
 package org.shipwrights.enderkinesis.client
 
 import dev.architectury.networking.NetworkManager
-import dev.architectury.event.events.client.ClientTickEvent
+import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.client.Minecraft
-import net.minecraft.client.multiplayer.ClientLevel
-import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.core.BlockPos
-import net.minecraft.world.level.block.Block
-import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.InteractionHand
+import net.minecraft.world.entity.player.Player
+import org.shipwrights.enderkinesis.item.MysticScrollItem
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.spell.AbyssalPockets
 import org.shipwrights.enderkinesis.spell.SpellNetwork
 import org.joml.Quaternionf
 import org.shipwrights.enderkinesis.spell.SpellVisuals
 
 /**
  * Client half of [SpellNetwork]: which entities are Absent (not drawn), which blocks an
- * Abyssal Pocket has phased (replaced with air locally, and restored when they return), and
- * Reveal's cloak stutters.
+ * Abyssal Pocket has phased (see [AbyssalPockets]), merged beams, visible effects, spell
+ * visuals, Reveal's cloak stutters, and other players' scroll uses (their arms' motions).
+ *
+ * Per-entity state lasts while the entity is here: it's forgotten when the entity leaves the
+ * client ([forget]), and the server sends it again if the entity comes back into view.
  */
 object SpellNetworkClient {
 
     private val absent = IntOpenHashSet()
-    /** Phased block positions, with the state each one is restored to. */
-    private val phased = Long2ObjectOpenHashMap<BlockState>()
 
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.ABSENT) { buf, ctx ->
@@ -35,19 +34,22 @@ object SpellNetworkClient {
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.PHASE) { buf, ctx ->
             val positions = LongArray(buf.readVarInt()) { buf.readLong() }
-            ctx.queue { phase(positions) }
+            ctx.queue { setPhased(positions, true) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.UNPHASE) { buf, ctx ->
             val positions = LongArray(buf.readVarInt()) { buf.readLong() }
-            ctx.queue { unphase(positions) }
+            ctx.queue { setPhased(positions, false) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.MERGED) { buf, ctx ->
             val beams = List(buf.readVarInt()) {
-                val rgb = buf.readInt()
+                val elements = buf.readVarInt()
+                val parentA = buf.readInt()
+                val parentB = buf.readInt()
+                val fused = buf.readVarInt()
                 val points = List(buf.readVarInt()) {
                     Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()) to Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
                 }
-                points to rgb
+                ScrollBeamClient.MergedWire(points, elements, parentA, parentB, fused)
             }
             val cuts = HashMap<Int, Double>()
             repeat(buf.readVarInt()) { cuts[buf.readVarInt()] = buf.readDouble() }
@@ -56,7 +58,8 @@ object SpellNetworkClient {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.VISUALS) { buf, ctx ->
             val id = buf.readVarInt()
             val bits = buf.readVarInt()
-            ctx.queue { SpellVisuals.setClientBits(id, bits) }
+            val magnitudes = buf.readByteArray()
+            ctx.queue { SpellVisuals.setClientBits(id, bits, magnitudes) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.FROZEN_POSE) { buf, ctx ->
             val id = buf.readVarInt()
@@ -73,8 +76,35 @@ object SpellNetworkClient {
             val seed = buf.readInt()
             ctx.queue { SpellVfxClient.add(kind, a, b, size, rgb, life, seed) }
         }
-        ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel(::tickPockets))
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.USED) { buf, ctx ->
+            val id = buf.readVarInt()
+            val use = MysticScrollItem.Companion.OtherUse.values().getOrNull(buf.readByte().toInt())
+            val hand = if (buf.readBoolean()) InteractionHand.MAIN_HAND else InteractionHand.OFF_HAND
+            ctx.queue {
+                val player = Minecraft.getInstance().level?.getEntity(id) as? Player ?: return@queue
+                if (use != null) SpellArmPoses.started(player, SpellHand.Use.valueOf(use.name), hand)
+            }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS) { buf, ctx ->
+            val chunk = buf.readLong()
+            val cells = Int2FloatOpenHashMap()
+            repeat(buf.readVarInt()) { cells.put(buf.readVarInt(), (buf.readByte().toInt() and 0xFF) / 255f) }
+            ctx.queue { GasFieldClient.received(chunk, cells) }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS_CELLS) { buf, ctx ->
+            val chunk = buf.readLong()
+            val cells = Int2FloatOpenHashMap()
+            repeat(buf.readVarInt()) { cells.put(buf.readVarInt(), (buf.readByte().toInt() and 0xFF) / 255f) }
+            ctx.queue { GasFieldClient.changed(chunk, cells) }
+        }
+        GasFieldClient.init()
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.RELEASED) { buf, ctx ->
+            val id = buf.readVarInt()
+            ctx.queue { (Minecraft.getInstance().level?.getEntity(id) as? Player)?.let(SpellArmPoses::released) }
+        }
         SpellVfxClient.init()
+        ScrollBeamClient.init()
+        SpellOverlays.init()
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.STUTTER) { buf, ctx ->
             val shipId = buf.readLong()
             val ticks = buf.readVarInt()
@@ -86,48 +116,26 @@ object SpellNetworkClient {
     @JvmStatic
     fun visuals(id: Int): Int = SpellVisuals.clientBits(id)
 
-    /** A faint void haze in the empty space of each phased block. */
-    private fun tickPockets(level: ClientLevel) {
-        if (phased.isEmpty()) return
-        val random = level.random
-        for (key in phased.keys) {
-            if (random.nextInt(POCKET_PARTICLE_CHANCE) != 0) continue
-            val pos = BlockPos.of(key)
-            level.addParticle(
-                ParticleTypes.REVERSE_PORTAL,
-                pos.x + random.nextDouble(), pos.y + random.nextDouble(), pos.z + random.nextDouble(),
-                0.0, 0.0, 0.0,
-            )
-            if (random.nextInt(4) == 0) {
-                level.addParticle(ParticleTypes.SQUID_INK, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, 0.0, 0.0, 0.0)
-            }
-        }
-    }
 
-    private const val POCKET_PARTICLE_CHANCE = 3
+    /** The entity with [id] left this client: drop what it carried. */
+    @JvmStatic
+    fun forget(id: Int) {
+        absent.remove(id)
+        SpellVisuals.setClientBits(id, 0)
+    }
 
     /** Whether the entity with [id] is Absent, so not drawn. */
     @JvmStatic
     fun isAbsent(id: Int): Boolean = absent.contains(id)
 
-    private fun phase(positions: LongArray) {
-        val level = Minecraft.getInstance().level ?: return
+    /** Phase or restore [positions]: the world keeps the blocks, the mesher and collision
+     *  skip them (see [AbyssalPockets]). Re-mesh around them, neighbours included. */
+    private fun setPhased(positions: LongArray, isPhased: Boolean) {
+        AbyssalPockets.setClientPhased(positions, isPhased)
+        val renderer = Minecraft.getInstance().levelRenderer
         for (key in positions) {
-            if (phased.containsKey(key)) continue
             val pos = BlockPos.of(key)
-            val state = level.getBlockState(pos)
-            if (state.isAir) continue
-            phased.put(key, state)
-            level.setBlock(pos, Blocks.AIR.defaultBlockState(), LOCAL_FLAGS)
-        }
-    }
-
-    private fun unphase(positions: LongArray) {
-        val level = Minecraft.getInstance().level ?: return
-        for (key in positions) {
-            val state = phased.remove(key) ?: continue
-            val pos = BlockPos.of(key)
-            if (level.getBlockState(pos).isAir) level.setBlock(pos, state, LOCAL_FLAGS)
+            renderer.setBlocksDirty(pos.x - 1, pos.y - 1, pos.z - 1, pos.x + 1, pos.y + 1, pos.z + 1)
         }
     }
 
@@ -135,11 +143,13 @@ object SpellNetworkClient {
     fun reset() {
         absent.clear()
         SpellVisuals.resetClient()
-        phased.clear()
+        AbyssalPockets.clearClient()
         ScrollBeamClient.reset()
         SpellVfxClient.reset()
+        SpellLayers.reset()
+        SpellArmPoses.reset()
+        FrozenPoses.reset()
+        GasFieldClient.reset()
     }
 
-    /** Redraw, no neighbour shape updates: the server never changed the block. */
-    private const val LOCAL_FLAGS = Block.UPDATE_CLIENTS or Block.UPDATE_KNOWN_SHAPE
 }

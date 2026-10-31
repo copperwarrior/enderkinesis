@@ -33,7 +33,15 @@ object BeamGeometry {
             } else {
                 val b = d1.dot(d2)
                 val denom = a * e - b * b
-                s = if (denom > EPS) ((b * f - c * e) / denom).coerceIn(0.0, 1.0) else 0.0
+                s = if (denom > EPS * a * e) ((b * f - c * e) / denom).coerceIn(0.0, 1.0) else {
+                    // Parallel: the middle of where they overlap, so beams meeting head-on
+                    // meet between their casters rather than at one caster's hand.
+                    val q0s = -c / a
+                    val q1s = (b - c) / a
+                    val lo = maxOf(0.0, minOf(q0s, q1s))
+                    val hi = minOf(1.0, maxOf(q0s, q1s))
+                    if (lo <= hi) (lo + hi) * 0.5 else (if (q0s < 0.0 && q1s < 0.0) 0.0 else 1.0)
+                }
                 t = (b * s + f) / e
                 if (t < 0.0) {
                     t = 0.0; s = (-c / a).coerceIn(0.0, 1.0)

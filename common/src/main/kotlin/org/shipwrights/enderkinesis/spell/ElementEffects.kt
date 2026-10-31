@@ -2,9 +2,7 @@ package org.shipwrights.enderkinesis.spell
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.particles.ParticleTypes
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.tags.BlockTags
 import net.minecraft.world.damagesource.DamageTypes
 import net.minecraft.world.effect.MobEffectInstance
@@ -12,6 +10,7 @@ import net.minecraft.world.effect.MobEffects
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.item.FallingBlockEntity
+import org.shipwrights.enderkinesis.registry.EKParticles
 import net.minecraft.world.entity.monster.Skeleton
 import net.minecraft.world.item.AxeItem
 import net.minecraft.world.item.BoneMealItem
@@ -27,13 +26,11 @@ import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.phys.Vec3
-import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.effect.FrozenEffect
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import kotlin.math.roundToInt
-import org.shipwrights.enderkinesis.registry.EKParticles
 
 /** One element's effect: what it does to the entities and blocks of a [Delivery] at a given
  *  magnitude, plus its particles and sound. */
@@ -42,22 +39,32 @@ fun interface ElementEffect {
 }
 
 /**
- * The element effects. A Mystic Gem's burst is exactly one of these as an Area cast at
- * magnitude 1, so at magnitude 1 every number here matches the old gems, apart from the
- * spec's changes: Growth no longer poisons, Purity crystallizes instead of withering, and
- * Blood's drain and buff use the new values.
+ * The element effects. A Mystic Gem's burst is a one-glyph scroll's Area cast, so the gems
+ * do exactly what these do at magnitude 1. That includes what the scrolls added beyond the
+ * old gems: Growth heals and burns the undead, Chaos and Void deal damage, Gravity crushes
+ * what its collapse catches, and Weighted hurts whatever drags it about. Cast Forward, Growth
+ * and Purity turn their harmful side on the caster's foes ([SpellContext.isFoe]) and keep
+ * tending everyone else.
  *
  * Gravity's and Chaos's block effects only happen on a [Delivery.SingleBlock] hit, never
  * across an area.
  */
 object ElementEffects {
 
-    /** [element]'s effect, followed by the volume it leaves where it lands ([SpellVfx]). */
+    /** [element]'s effect, followed by the volume it leaves where it lands ([SpellVfx]). Its
+     *  magnitude is raised by the elemental environment it's cast in. */
     fun of(element: Element): ElementEffect {
         val effect = base(element)
-        return ElementEffect { ctx, delivery, magnitude ->
-            effect.apply(ctx, delivery, magnitude)
-            SpellVfx.element(ctx, delivery, element, magnitude)
+        return ElementEffect { ctx, delivery, given ->
+            val magnitude = given + (ctx.environment[element] ?: 0f)
+            ctx.element = element
+            try {
+                effect.apply(ctx, delivery, magnitude)
+            } finally {
+                ctx.element = null
+            }
+            // The volume a held shape leaves comes once a pulse, not with every share of one.
+            if (ctx.beat) SpellVfx.element(ctx, delivery, element, magnitude)
         }
     }
 
@@ -90,25 +97,24 @@ object ElementEffects {
         val source = ctx.damage(DamageTypes.INDIRECT_MAGIC)
         for (target in delivery.entities(ctx)) {
             target.setSecondsOnFire(magnitude.roundToInt())
-            target.hurt(source, SUNDERING_DAMAGE_PER_STAGE * magnitude)
+            ctx.hurt(target, source, SUNDERING_DAMAGE_PER_STAGE * magnitude * ctx.share)
         }
-        SpellFx.burst(level, delivery, ParticleTypes.FLAME, 20)
     }
 
     // -----------------------------------------------------------------------
     // Heat — fire damage and burning, lights candles, sparse surface fire
     // -----------------------------------------------------------------------
 
-    /** 1-in-N chance per air-above-sturdy block. 12 ≈ a couple of fires per burst on flat
-     *  ground, sparse enough not to feel like a flamethrower. */
-    private const val SURFACE_FIRE_DENOMINATOR = 12
+    /** 1-in-N chance per air-above-sturdy block. 60 leaves a fire or two from a small burst on
+     *  flat ground and a handful from a full scroll's, scattered rather than a carpet. */
+    private const val SURFACE_FIRE_DENOMINATOR = 60
 
     private val HEAT = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         val burnSeconds = (4f * SpellCurves.curve(magnitude)).roundToInt()
         for (target in delivery.living(ctx)) {
             target.setSecondsOnFire(burnSeconds)
-            target.hurt(ctx.damage(DamageTypes.IN_FIRE), ctx.damageAmount(4f, magnitude))
+            ctx.hurt(target, ctx.damage(EKDamageSources.HEAT_KEY), ctx.damageAmount(4f, magnitude))
         }
         for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
@@ -119,7 +125,7 @@ object ElementEffects {
                     ctx.setBlock(pos, state.setValue(CandleCakeBlock.LIT, true))
                 // Sturdy top face below is what BaseFireBlock uses for "can rest here", so the
                 // fire survives at least one tick.
-                state.isAir && delivery.scatterRoll(level.random, SURFACE_FIRE_DENOMINATOR) -> {
+                ctx.surfaceFire && state.isAir && delivery.scatterRoll(ctx, SURFACE_FIRE_DENOMINATOR) -> {
                     val below = pos.below()
                     if (level.getBlockState(below).isFaceSturdy(level, below, Direction.UP)) {
                         ctx.setBlock(pos, Blocks.FIRE.defaultBlockState())
@@ -127,12 +133,7 @@ object ElementEffects {
                 }
             }
         }
-        // A FLAME shell with high outward speed reads as a detonation; SMALL_FLAME gives the
-        // slower trailing embers.
         NamedEffects.heat(ctx, delivery)
-        SpellFx.outwardBlast(level, delivery, ParticleTypes.FLAME, 100, 0.6)
-        SpellFx.burst(level, delivery, ParticleTypes.SMALL_FLAME, 60)
-        SpellFx.sound(level, delivery, SoundEvents.BLAZE_SHOOT)
     }
 
     // -----------------------------------------------------------------------
@@ -142,36 +143,33 @@ object ElementEffects {
     /** Freeze ticks per magnitude for one-shot deliveries; pulsed shapes give half. */
     private const val FREEZE_DOSE = 200
     private const val PULSED_FREEZE_DOSE = 100
+    private const val MAX_FREEZE_TICKS = FrozenEffect.THRESHOLD + 400
 
-    private val TINTED_SNOW = DustParticleOptions(Vector3f(0.78f, 0.88f, 1.0f), 1.5f)
 
     private val COLD = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
-        val dose = ((if (ctx.pulsed) PULSED_FREEZE_DOSE else FREEZE_DOSE) * magnitude).roundToInt()
+        val perPulse = (if (ctx.pulsed) PULSED_FREEZE_DOSE else FREEZE_DOSE) * magnitude
         for (living in delivery.living(ctx)) {
+            val dose = ctx.portion(perPulse)
             // Convert before the damage: convertTo discards the skeleton and returns a fresh
             // stray, which should be the one that takes the hit.
             val target = if (living is Skeleton && living.javaClass == Skeleton::class.java) {
                 living.convertTo(EntityType.STRAY, true) ?: living
             } else living
-            target.ticksFrozen += dose
+            // Never more than enough to keep it frozen a while: vanilla thaws 2 ticks a tick.
+            target.ticksFrozen = (target.ticksFrozen + dose).coerceAtMost(maxOf(target.ticksFrozen, MAX_FREEZE_TICKS))
             // Frozen: enough built-up cold freezes the target solid. Vanilla drains the ticks.
             val frozen = EKEffects.FROZEN.get()
             if (target.ticksFrozen >= FrozenEffect.THRESHOLD && !target.hasEffect(frozen)) {
                 target.addEffect(MobEffectInstance(frozen, SpellCurves.ticks(3f, 0.5f, magnitude)), ctx.caster)
             }
-            target.hurt(ctx.damage(DamageTypes.FREEZE), ctx.damageAmount(3f, magnitude))
+            ctx.hurt(target, ctx.damage(EKDamageSources.COLD_KEY), ctx.damageAmount(3f, magnitude))
         }
         for (pos in delivery.blocks(level)) {
             val frozen = FluidFreezing.frozen(level.getBlockState(pos)) ?: continue
             ctx.setBlock(pos, frozen)
         }
-        // SNOWFLAKE carries the visible swirl, TINTED_SNOW dust the cyan-blue tint.
         NamedEffects.cold(ctx, delivery)
-        SpellFx.swirl(level, delivery, ParticleTypes.SNOWFLAKE, 100, 1.0)
-        SpellFx.swirl(level, delivery, TINTED_SNOW, 140, 1.0)
-        SpellFx.sound(level, delivery, SoundEvents.GLASS_BREAK, pitch = 0.7f)
-        SpellFx.sound(level, delivery, SoundEvents.POWDER_SNOW_STEP, pitch = 0.5f)
     }
 
     // -----------------------------------------------------------------------
@@ -183,16 +181,25 @@ object ElementEffects {
 
     private val GROWTH = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
+        // Life burns the undead, as Instant Health does; cast Forward, it also drags the
+        // caster's foes back into the earth. Neither is healed (NamedEffects.growth).
+        for (target in delivery.living(ctx)) {
+            if (growthBurns(ctx, target)) ctx.hurt(target, ctx.damage(EKDamageSources.GROWTH_KEY), ctx.damageAmount(GROWTH_DAMAGE, magnitude))
+        }
         for (pos in delivery.blocks(level)) {
-            if (!delivery.scatterRoll(level.random, BONEMEAL_DENOMINATOR)) continue
+            if (!delivery.scatterRoll(ctx, BONEMEAL_DENOMINATOR)) continue
             if (!ctx.mayChange(pos, level.getBlockState(pos))) continue
-            BoneMealItem.growCrop(ItemStack(Items.BONE_MEAL), level, pos)
+            // Vanilla's green bone-meal sparkles where it takes.
+            if (BoneMealItem.growCrop(ItemStack(Items.BONE_MEAL), level, pos)) level.levelEvent(1505, pos, 0)
         }
         NamedEffects.growth(ctx, delivery, magnitude)
-        SpellFx.burst(level, delivery, ParticleTypes.HAPPY_VILLAGER, 80)
-        SpellFx.burst(level, delivery, ParticleTypes.COMPOSTER, 50)
-        SpellFx.sound(level, delivery, SoundEvents.SLIME_SQUISH, pitch = 1.5f)
     }
+
+    private const val GROWTH_DAMAGE = 3f
+
+    /** Whom Growth hurts rather than heals: the undead, and on a Forward cast the caster's foes. */
+    fun growthBurns(ctx: SpellContext, target: LivingEntity): Boolean =
+        SpellContext.isUndead(target) || (ctx.use == SpellUse.FORWARD && ctx.isFoe(target))
 
     // -----------------------------------------------------------------------
     // Purity — Crystallized; cleanses soils, logs, coral and organics
@@ -200,15 +207,20 @@ object ElementEffects {
 
     private val PURITY = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
-        // Cleanse first, so the scroll never strips what it applies.
-        NamedEffects.cleanse(ctx, delivery)
+        // A rune or an imbued blow crystallizes what it catches; Forward and Area casts, which
+        // reach friends too, cleanse instead, but a Forward cast crystallizes the caster's foes.
+        // Whatever it crystallizes takes the crystals' damage as they grow.
+        val (foes, others) = delivery.living(ctx).partition { ctx.use.hostile || (ctx.use == SpellUse.FORWARD && ctx.isFoe(it)) }
         val crystallized = EKEffects.CRYSTALLIZED.get()
-        for (target in delivery.living(ctx)) {
-            target.addEffect(
+        for (target in foes) {
+            // Once a pulse is enough to keep it growing.
+            if (ctx.beat) target.addEffect(
                 MobEffectInstance(crystallized, SpellCurves.ticks(4f, 1f, magnitude), SpellCurves.toAmplifier(magnitude)),
                 ctx.caster,
             )
+            ctx.hurt(target, ctx.damage(EKDamageSources.CRYSTALLIZATION_KEY), ctx.damageAmount(PURITY_DAMAGE, magnitude))
         }
+        NamedEffects.cleanse(ctx, others)
         for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
             val transformed = purityTransform(state)
@@ -224,10 +236,9 @@ object ElementEffects {
             }
         }
         NamedEffects.purity(ctx, delivery, magnitude)
-        SpellFx.outwardBlast(level, delivery, ParticleTypes.END_ROD, 80, 0.5)
-        SpellFx.burst(level, delivery, ParticleTypes.GLOW, 60)
-        SpellFx.sound(level, delivery, SoundEvents.AMETHYST_BLOCK_CHIME, pitch = 1.2f)
     }
+
+    private const val PURITY_DAMAGE = 3f
 
     /** Surface- and biome-block conversions, or null when none applies (the destroy path
      *  handles those). Keeps AXIS for stripped logs, and WATERLOGGED + HORIZONTAL_FACING for
@@ -305,31 +316,33 @@ object ElementEffects {
     )
 
     // -----------------------------------------------------------------------
-    // Gravity — pulls every entity toward the centre; a struck block falls
+    // Gravity — pulls every entity toward the centre and crushes the living; a struck block falls
     // -----------------------------------------------------------------------
 
     /** Pull speed at the edge of the effect, falling off linearly toward the centre. */
     private const val PULL_STRENGTH = 0.6
+    /** The collapse's crush, dealt to every creature it catches. */
+    private const val GRAVITY_CRUSH_DAMAGE = 3f
 
     private val GRAVITY = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         // Every entity, not just living ones: items, XP, projectiles, boats and minecarts too.
         val reach = (delivery as? Delivery.Sphere)?.radius ?: SpellCurves.BASE_RADIUS
         for (entity in delivery.entities(ctx)) {
+            if (NamedEffects.anchored(entity)) continue
             val toCentre = pullCentre(ctx, delivery, entity.position()).subtract(entity.position())
             val dist = toCentre.length()
             if (dist < 1.0e-3) continue
-            val factor = PULL_STRENGTH * (dist / reach).coerceAtMost(1.0)
+            val factor = PULL_STRENGTH * (dist / reach).coerceAtMost(1.0) * ctx.share
             entity.deltaMovement = entity.deltaMovement.add(toCentre.scale(factor / dist))
             entity.hurtMarked = true
         }
+        // Crush: the collapse bears down on every creature it catches, held fast or not.
+        for (target in delivery.living(ctx)) ctx.hurt(target, ctx.damage(EKDamageSources.GRAVITY_KEY), ctx.damageAmount(GRAVITY_CRUSH_DAMAGE, magnitude))
         if (delivery is Delivery.SingleBlock) dropBlock(ctx, delivery.pos)
         // Particles converge from the perimeter to match the pull; REVERSE_PORTAL marks the
         // collapse point.
         NamedEffects.gravity(ctx, delivery, magnitude)
-        SpellFx.inwardCollapse(level, delivery, ParticleTypes.PORTAL, 160, 2.0)
-        SpellFx.burst(level, delivery, ParticleTypes.REVERSE_PORTAL, 30)
-        SpellFx.sound(level, delivery, SoundEvents.ENDERMAN_TELEPORT, pitch = 0.6f)
     }
 
     /** Where Gravity pulls an entity at [from]: the sphere's centre, the nearest point on a
@@ -354,7 +367,8 @@ object ElementEffects {
         // A falling block can't leave a ship: it would fall through the shipyard instead.
         if (level.isBlockInShipyard(pos)) return
         if (!ctx.mayChange(pos, Blocks.AIR.defaultBlockState())) return
-        FallingBlockEntity.fall(level, pos, state)
+        val falling = FallingBlockEntity.fall(level, pos, state)
+        SpellVfx.press(level, pos, falling.id)
     }
 
     /** A block the spell can pick up: solid, breakable, and without a block entity. */
@@ -368,13 +382,15 @@ object ElementEffects {
 
     /** Tries at finding a swap partner before the block swap gives up. */
     private const val SWAP_ATTEMPTS = 16
+    private const val CHAOS_DAMAGE = 3f
 
     private val CHAOS = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
-        // An Area cast puts its caster in the cycle; with one mob nearby that swaps the two.
-        val includeCaster = delivery is Delivery.Sphere && delivery.area
-        val entities = delivery.living(ctx, includeCaster)
-        if (entities.size >= 2) {
+        // The cycle is the Area cast's alone, and puts its caster in it: with one mob nearby
+        // that swaps the two.
+        val cycles = ctx.use == SpellUse.AREA
+        val entities = if (cycles) delivery.living(ctx, includeCaster = true).filter { NamedEffects.mayTeleport(ctx.level, it) } else emptyList()
+        if (entities.size >= 2 && ctx.once()) {
             // One-cycle permutation: entity i takes entity i+1's position, the last wraps to
             // the first. Positions are captured up front, and n ≥ 2 leaves no fixed points.
             val positions = entities.map { it.position() }
@@ -385,10 +401,10 @@ object ElementEffects {
                 entities[i].teleportTo(target.x, target.y, target.z)
             }
         }
+        // Chaos damage to everything caught, never the caster.
+        for (target in delivery.living(ctx)) ctx.hurt(target, ctx.damage(EKDamageSources.CHAOS_KEY), ctx.damageAmount(CHAOS_DAMAGE, magnitude))
         if (delivery is Delivery.SingleBlock) swapBlock(ctx, delivery.pos, magnitude)
         NamedEffects.chaos(ctx, delivery, magnitude)
-        SpellFx.burst(level, delivery, ParticleTypes.REVERSE_PORTAL, 60)
-        SpellFx.sound(level, delivery, SoundEvents.ENDERMAN_TELEPORT, pitch = if (entities.size >= 2) 0.7f else 1.4f)
     }
 
     /** Swaps the struck block with a random block within 2 + magnitude. Neither may have a
@@ -410,7 +426,12 @@ object ElementEffects {
             if (!ctx.mayChange(pos, otherState) || !ctx.mayChange(other, state)) return
             level.setBlock(pos, otherState, 3)
             level.setBlock(other, state, 3)
-            level.sendParticles(ParticleTypes.PORTAL, other.x + 0.5, other.y + 0.5, other.z + 0.5, 20, 0.4, 0.4, 0.4, 0.1)
+            SpellVfx.blockSwap(level, pos, other, state, otherState)
+            // Lightning between the two, the glyphs swirling round each.
+            val a = net.minecraft.world.phys.Vec3.atCenterOf(pos)
+            val b = net.minecraft.world.phys.Vec3.atCenterOf(other)
+            SpellVfx.arc(level, a, b, Element.CHAOS.color, 8)
+            for (c in listOf(a, b)) level.sendParticles(EKParticles.mote(SpellMote.CHAOS_GLYPH), c.x, c.y, c.z, 10, 0.4, 0.3, 0.4, 0.05)
             return
         }
     }
@@ -424,25 +445,27 @@ object ElementEffects {
     private const val BUFF_TICKS_PER_DRAIN = 60
     private const val BUFF_CAP_TICKS_PER_MAGNITUDE = 200
 
-    private val BLOOD_DUST = DustParticleOptions(Vector3f(0.85f, 0.10f, 0.10f), 1.4f)
 
     private val BLOOD = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         // Undead have no life-force: they are never drained and never fed.
         val living = delivery.living(ctx).filter { !SpellContext.isUndead(it) }
         val recipient = bloodRecipient(ctx, living)
+        // A master's thralls are never drained by their master's blood.
+        val master = (ctx.caster ?: ctx.buffRecipient)?.uuid
         val drainedTargets = ArrayList<LivingEntity>()
         for (target in living) {
             if (target === recipient) continue
+            if (master != null && BloodPacts.isThrallOf(target, master)) continue
             // `hurt` is false for invulnerable, i-framed or immune targets, which then don't
             // count toward the buff.
-            if (target.hurt(ctx.damage(EKDamageSources.BLOOD_DRAIN_KEY), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drainedTargets += target
+            if (ctx.hurt(target, ctx.damage(EKDamageSources.BLOOD_DRAIN_KEY), ctx.damageAmount(DRAIN_DAMAGE, magnitude))) drainedTargets += target
         }
         val drained = drainedTargets.size
         // Enthralled and Bloodbound tie the drained to the caster, or a rune's owner.
         NamedEffects.blood(ctx, drainedTargets, ctx.caster ?: ctx.buffRecipient, magnitude)
         // The blood visibly flows from each drained target to whoever it feeds.
-        val sink = recipient?.takeIf { it.isAlive }
+        val sink = recipient?.takeIf { it.isAlive && ctx.beat }
         if (sink != null) {
             val to = sink.position().add(0.0, sink.bbHeight * 0.6, 0.0)
             for (target in drainedTargets) {
@@ -450,20 +473,17 @@ object ElementEffects {
             }
         }
         if (drained == 0) {
-            SpellFx.burst(level, delivery, ParticleTypes.SMOKE, 40)
-            SpellFx.sound(level, delivery, SoundEvents.WITHER_HURT, pitch = 1.4f)
+            // Nothing to drain: it fizzles, the glyphs falling grey.
+            if (ctx.beat) SpellVfx.fizzle(level, delivery.anchor)
             return@ElementEffect
         }
         if (recipient != null && recipient.isAlive && !SpellContext.isUndead(recipient)) {
             val cap = (BUFF_CAP_TICKS_PER_MAGNITUDE * magnitude).roundToInt()
             val duration = (BUFF_TICKS_PER_DRAIN * drained).coerceAtMost(cap)
             val amplifier = SpellCurves.tierAmplifier(magnitude)
-            recipient.addEffect(MobEffectInstance(MobEffects.HEALTH_BOOST, duration, amplifier), ctx.caster)
+            recipient.addEffect(MobEffectInstance(EKEffects.BLOOD_SURGE.get(), duration, amplifier), ctx.caster)
             recipient.addEffect(MobEffectInstance(MobEffects.REGENERATION, duration, amplifier), ctx.caster)
         }
-        SpellFx.burst(level, delivery, EKParticles.bloodDrip(), 80)
-        SpellFx.burst(level, delivery, BLOOD_DUST, 100)
-        SpellFx.sound(level, delivery, SoundEvents.AMETHYST_BLOCK_RESONATE, pitch = 0.6f)
     }
 
     /** The caster, an override (a rune's owner), or else the living non-undead target

@@ -3,6 +3,8 @@ package org.shipwrights.enderkinesis.spell
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
+import it.unimi.dsi.fastutil.longs.LongSet
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceKey
@@ -14,14 +16,14 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.RuneBlock
-import net.minecraft.sounds.SoundSource
-import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Void's Abyssal Pocket: full blocks without a block entity in a small core are phased out
- * of the world for a while. A phased block stays in the world data, so a ship's mass and
- * shape don't change, nothing can be placed in the gap and fluids can't flow in; but it has
- * no collision (entities fall through) and clients stop drawing it.
+ * of the world for a while. A phased block stays in the world data on both sides, so a
+ * ship's mass and shape don't change, nothing can be placed in the gap, fluids can't flow in
+ * and block updates can't undo it; but it has no collision or outline (entities fall
+ * through), and clients don't mesh it, so its neighbours show their faces into the hole.
+ * Clients learn the phased positions from [SpellNetwork] and keep them here too.
  *
  * The phased positions are just a timed list per level. Losing it (a restart) only means
  * the blocks are back early. When a pocket closes, anything standing inside a returning
@@ -44,25 +46,61 @@ object AbyssalPockets {
      *  by replacing them locally. Called from the collision mixin, so it's cheap when nothing
      *  is phased. */
     @JvmStatic
-    fun isPhased(getter: BlockGetter, pos: BlockPos): Boolean {
-        if (phased.isEmpty() || getter !is Level || getter.isClientSide) return false
+    fun isPhased(getter: BlockGetter?, pos: BlockPos?): Boolean {
+        // Mods ask for shapes with no level or position (Create builds its shapes that way).
+        if (pos == null) return false
+        if (getter !is Level) return false
+        if (getter.isClientSide) return isPhasedClient(pos)
+        if (phased.isEmpty()) return false
         return phased[getter.dimension()]?.containsKey(pos.asLong()) == true
     }
 
+    // Client copy, for the client's level only (render thread).
+    private val clientPhased = LongOpenHashSet()
+
+    /** Whether [pos] is phased in the client's level: not meshed, no collision. */
+    @JvmStatic
+    fun isPhasedClient(pos: BlockPos): Boolean = !clientPhased.isEmpty() && clientPhased.contains(pos.asLong())
+
+    fun clientPhased(): LongSet = clientPhased
+
+    fun setClientPhased(positions: LongArray, isPhased: Boolean) {
+        for (key in positions) if (isPhased) clientPhased.add(key) else clientPhased.remove(key)
+    }
+
+    fun clearClient() = clientPhased.clear()
+
     /** Opens a pocket of radius 1.5 + 0.5 × magnitude around [centre] for 3 + magnitude s. */
-    fun open(ctx: SpellContext, centre: Vec3, magnitude: Float) {
-        val level = ctx.level
-        val radius = 1.5 + 0.5 * magnitude
-        val until = level.gameTime + SpellCurves.ticks(3f, 1f, magnitude)
-        val map = phased.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
-        val added = ArrayList<Long>()
+    fun open(ctx: SpellContext, centre: Vec3, magnitude: Float) =
+        open(ctx, centre, 1.5 + 0.5 * magnitude, SpellCurves.ticks(3f, 1f, magnitude))
+
+    /** A pocket of [radius] round [centre], lasting [ticks]. */
+    fun open(ctx: SpellContext, centre: Vec3, radius: Double, ticks: Int) {
         val r = Math.ceil(radius).toInt()
         val origin = BlockPos.containing(centre)
-        for (pos in BlockPos.betweenClosed(origin.offset(-r, -r, -r), origin.offset(r, r, r))) {
-            if (Vec3.atCenterOf(pos).distanceToSqr(centre) > radius * radius) continue
-            val state = level.getBlockState(pos)
-            if (state.hasBlockEntity() || !state.isCollisionShapeFullBlock(level, pos)) continue
-            if (state.getDestroySpeed(level, pos) < 0f || !ctx.mayChange(pos, Blocks.AIR.defaultBlockState())) continue
+        val inside = BlockPos.betweenClosed(origin.offset(-r, -r, -r), origin.offset(r, r, r))
+            .filter { Vec3.atCenterOf(it).distanceToSqr(centre) <= radius * radius }
+            .map { it.immutable() }
+        phase(ctx, inside, ticks)
+    }
+
+    /** Whether the block at [pos] can be phased out: a full block, without a block entity,
+     *  that can be broken and that [ctx] may change. */
+    fun canPhase(ctx: SpellContext, pos: BlockPos): Boolean {
+        val level = ctx.level
+        val state = level.getBlockState(pos)
+        if (state.hasBlockEntity() || !state.isCollisionShapeFullBlock(level, pos)) return false
+        return state.getDestroySpeed(level, pos) >= 0f && ctx.mayChange(pos, Blocks.AIR.defaultBlockState())
+    }
+
+    /** Phases out those of [positions] that [canPhase], for [ticks]. */
+    fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int) {
+        val level = ctx.level
+        val until = level.gameTime + ticks
+        val map = phased.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
+        val added = ArrayList<Long>()
+        for (pos in positions) {
+            if (!canPhase(ctx, pos)) continue
             val key = pos.asLong()
             if (!map.containsKey(key)) added += key
             map.put(key, maxOf(map.get(key), until))
@@ -78,7 +116,6 @@ object AbyssalPockets {
         }
         if (added.isEmpty()) return
         SpellNetwork.broadcastPhase(level, added, true)
-        level.playSound(null, centre.x, centre.y, centre.z, EKSounds.POCKET_PHASE.get(), SoundSource.BLOCKS, 1f, 0.7f)
     }
 
     private fun expire(level: ServerLevel) {
@@ -118,4 +155,8 @@ object AbyssalPockets {
         }
         return null
     }
+
+    /** Every block phased in [level] right now, for a client starting a fresh copy of it
+     *  (see [SpellNetwork]). */
+    fun phasedIn(level: ServerLevel): LongArray = phased[level.dimension()]?.keys?.toLongArray() ?: LongArray(0)
 }

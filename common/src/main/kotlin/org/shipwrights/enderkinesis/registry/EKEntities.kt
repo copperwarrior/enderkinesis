@@ -16,6 +16,8 @@ import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
 import org.shipwrights.enderkinesis.entity.MagicMissileEntity
+import org.shipwrights.enderkinesis.entity.MiasmaEntity
+import org.shipwrights.enderkinesis.entity.SignatureEntity
 import org.shipwrights.enderkinesis.entity.SingularityEntity
 import org.shipwrights.enderkinesis.entity.SpellBoltEntity
 import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
@@ -41,9 +43,6 @@ object EKEntities {
                 .build(Cataloger.ID.toString())
         }
 
-    /** Magic Missile — homing projectile spawned by
-     *  [org.shipwrights.enderkinesis.item.MagicMissileItem] or via dispenser. See
-     *  [MagicMissileEntity] for the homing / target-filter / explosion logic. */
     /** A Mystic Scroll's Bolt; see [SpellBoltEntity]. */
     val SPELL_BOLT: RegistrySupplier<EntityType<SpellBoltEntity>> =
         ENTITIES.register("spell_bolt") {
@@ -52,6 +51,19 @@ object EKEntities {
                 .clientTrackingRange(8)
                 .updateInterval(10)
                 .build("spell_bolt")
+        }
+
+    /** A signature spell in the world; see [SignatureEntity]. Its visuals reach well past its
+     *  box, so its renderer, not the box, decides when it's drawn. */
+    val SIGNATURE: RegistrySupplier<EntityType<SignatureEntity>> =
+        ENTITIES.register("signature") {
+            EntityType.Builder.of(::SignatureEntity, MobCategory.MISC)
+                .sized(0.5f, 0.5f)
+                .clientTrackingRange(10)
+                .updateInterval(1)
+                .noSummon()
+                .fireImmune()
+                .build("signature")
         }
 
     /** Void's vortex; see [SingularityEntity]. */
@@ -64,6 +76,20 @@ object EKEntities {
                 .build("singularity")
         }
 
+    /** Poison's lingering cloud; see [MiasmaEntity]. */
+    val MIASMA: RegistrySupplier<EntityType<MiasmaEntity>> =
+        ENTITIES.register("miasma") {
+            EntityType.Builder.of(::MiasmaEntity, MobCategory.MISC)
+                .sized(0.5f, 0.5f)
+                .fireImmune()
+                .clientTrackingRange(10)
+                .updateInterval(Int.MAX_VALUE)
+                .build("miasma")
+        }
+
+    /** Magic Missile — homing projectile spawned by
+     *  [org.shipwrights.enderkinesis.item.MagicMissileItem] or via dispenser. See
+     *  [MagicMissileEntity] for the homing / target-filter / explosion logic. */
     val MAGIC_MISSILE: RegistrySupplier<EntityType<MagicMissileEntity>> =
         ENTITIES.register("magic_missile") {
             EntityType.Builder.of(::MagicMissileEntity, MobCategory.MISC)

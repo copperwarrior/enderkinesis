@@ -22,12 +22,27 @@ class Spell(val glyphs: List<Element>) {
             .entries.sortedBy { if (it.key == Element.PURITY) 0 else 1 }
             .associate { it.key to it.value }
 
-    /** The element that decides the Forward shape: the highest-priority shape present, then
-     *  the highest magnitude, then [NAME_ORDER]. Null for an empty scroll. */
+    /** The element that decides the Forward shape: the strongest (most glyphs), then on a tie
+     *  the highest-priority shape ([Shape]'s order), then [NAME_ORDER]. Null for an empty
+     *  scroll. */
     val shapeElement: Element? =
-        magnitudes.keys.minWithOrNull(compareBy<Element> { it.shape.ordinal }.then(strongestFirst()))
+        magnitudes.keys.minWithOrNull(
+            compareByDescending<Element> { magnitude(it) }.thenBy { it.shape.ordinal }.thenBy { NAME_ORDER.indexOf(it) }
+        )
 
     val shape: Shape? get() = shapeElement?.shape
+
+    /** The signature this scroll casts Forward instead of its shape, if its elements make one. */
+    val signature: Signature? by lazy { Signature.of(this) }
+
+    /** How a Forward cast of this scroll is held, for the hand's pose and what it shows while
+     *  held: a signature charges as a Bolt does, or is held as a Beam is. */
+    val castShape: Shape?
+        get() = when (signature?.style) {
+            null -> shape
+            Signature.Style.HELD -> Shape.BEAM
+            else -> Shape.BOLT
+        }
 
     fun magnitude(element: Element): Float = magnitudes[element] ?: 0f
 
@@ -47,7 +62,7 @@ class Spell(val glyphs: List<Element>) {
     fun glyphLine(): MutableComponent {
         val line = Component.empty()
         glyphRuns().forEachIndexed { i, (element, run) ->
-            if (i > 0) line.append(GLYPH_SEPARATOR)
+            if (i > 0) line.append(Component.translatable(GLYPH_SEPARATOR_KEY))
             line.append(
                 if (run == 1) element.displayName()
                 else Component.translatable(GLYPH_RUN_KEY, element.displayName(), run).withStyle { it.withColor(element.color) }
@@ -68,8 +83,10 @@ class Spell(val glyphs: List<Element>) {
 
     fun save(): ListTag = ListTag().apply { glyphs.forEach { add(StringTag.valueOf(it.id)) } }
 
-    /** The spell's colour (scroll wraps, runes): the average of its element colours, pushed
-     *  to full saturation so mixed hues don't wash out to grey. */
+    /** The spell's colour (scroll wraps, runes): the hue of its element colours mixed, as
+     *  saturated and as bright as they are on average, so mixed hues don't wash out to grey
+     *  and a single element is exactly its own colour (Purity's pale lavender stays pale, not
+     *  pushed to a deep blue). */
     fun tint(): Int {
         val elements = magnitudes.keys
         if (elements.isEmpty()) return 0xFFFFFF
@@ -78,14 +95,34 @@ class Spell(val glyphs: List<Element>) {
         val b = elements.sumOf { it.color and 0xFF } / elements.size
         val max = maxOf(r, g, b)
         val chroma = max - minOf(r, g, b)
-        // A near-grey average has no hue worth saturating.
+        // A near-grey average has no hue worth keeping.
         if (max == 0 || chroma.toFloat() / max < MIN_TINT_SATURATION) return (r shl 16) or (g shl 8) or b
         val sector = when (max) {
             r -> ((g - b).toFloat() / chroma).mod(6f)
             g -> (b - r).toFloat() / chroma + 2f
             else -> (r - g).toFloat() / chroma + 4f
         }
-        return Mth.hsvToRgb(sector / 6f, 1f, max / 255f)
+        val saturation = elements.map { saturation(it.color) }.average().toFloat()
+        val value = elements.map { brightness(it.color) }.average().toFloat()
+        return Mth.hsvToRgb(sector / 6f, saturation, value)
+    }
+
+    private fun channels(rgb: Int) = intArrayOf((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF)
+
+    private fun saturation(rgb: Int): Float {
+        val c = channels(rgb); val max = c.max()
+        return if (max == 0) 0f else (max - c.min()).toFloat() / max
+    }
+
+    private fun brightness(rgb: Int): Float = channels(rgb).max() / 255f
+
+    /** The spell's colour where it marks something (beams, runes, glints, glyphs): Purity
+     *  pulls it most of the way to white, as the Staff of Aegis burns white. */
+    fun markColour(): Int {
+        val rgb = tint()
+        if (Element.PURITY !in magnitudes) return rgb
+        fun white(c: Int) = c + ((255 - c) * PURITY_WHITENESS).toInt()
+        return (white((rgb shr 16) and 0xFF) shl 16) or (white((rgb shr 8) and 0xFF) shl 8) or white(rgb and 0xFF)
     }
 
     private fun strongestFirst(): Comparator<Element> =
@@ -96,8 +133,9 @@ class Spell(val glyphs: List<Element>) {
         /** NBT key for the glyph list on scrolls and the altar. */
         const val NBT_GLYPHS = "Glyphs"
         private const val MIN_TINT_SATURATION = 0.05f
+        private const val PURITY_WHITENESS = 0.8f
         const val GLYPH_RUN_KEY = "spell.enderkinesis.glyph_run"
-        private const val GLYPH_SEPARATOR = " + "
+        const val GLYPH_SEPARATOR_KEY = "spell.enderkinesis.glyph_separator"
 
         /** Tie-break order for the core noun and the adjectives. */
         val NAME_ORDER: List<Element> = listOf(

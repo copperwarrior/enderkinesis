@@ -47,7 +47,7 @@ enum class Element(val id: String, val color: Int) {
 
     val isFusion: Boolean get() = components.size > 1
 
-    /** The Forward shape this element decides when it's the highest-priority one present. */
+    /** The Forward shape this element decides when it's the strongest on a scroll. */
     val shape: Shape
         get() = when (this) {
             GRAVITY, VOID -> Shape.BOLT
@@ -73,8 +73,8 @@ enum class Element(val id: String, val color: Int) {
     }
 }
 
-/** A Forward cast's shape, in priority order: the highest-priority element on a scroll
- *  picks it, and every other glyph is payload. */
+/** A Forward cast's shape. The strongest element on a scroll picks it, and every other glyph
+ *  is payload; between elements of equal strength, the shape listed first here wins. */
 enum class Shape(val id: String) {
     BOLT("bolt"),
     BEAM("beam"),

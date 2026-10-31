@@ -5,6 +5,14 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.effect.MobEffect
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.effect.FlameCloakEffect
+import org.shipwrights.enderkinesis.effect.FrostCloakEffect
+import org.shipwrights.enderkinesis.effect.LightningCloakEffect
+import org.shipwrights.enderkinesis.effect.AbsorptionCloakEffect
+import org.shipwrights.enderkinesis.effect.PoisonCloakEffect
+import org.shipwrights.enderkinesis.effect.VoidCloakEffect
+import org.shipwrights.enderkinesis.effect.HaloEffect
+import org.shipwrights.enderkinesis.effect.AnchoredEffect
 import org.shipwrights.enderkinesis.effect.AmbrosialCravingEffect
 import org.shipwrights.enderkinesis.effect.CrepuscularFloatationEffect
 import org.shipwrights.enderkinesis.effect.CrystallizedEffect
@@ -14,6 +22,7 @@ import org.shipwrights.enderkinesis.effect.DiscordEffect
 import org.shipwrights.enderkinesis.effect.EnthralledEffect
 import org.shipwrights.enderkinesis.effect.BleedingEffect
 import org.shipwrights.enderkinesis.effect.BloodboundEffect
+import org.shipwrights.enderkinesis.effect.BloodSurgeEffect
 import org.shipwrights.enderkinesis.effect.RotEffect
 import org.shipwrights.enderkinesis.effect.HollowedEffect
 import org.shipwrights.enderkinesis.effect.FrozenEffect
@@ -80,6 +89,13 @@ object EKEffects {
     /** Blood: takes part of its binder's damage. See [BloodboundEffect]. */
     val BLOODBOUND: RegistrySupplier<MobEffect> = EFFECTS.register("bloodbound") { BloodboundEffect() }
 
+    /** Blood: extra hearts for whoever the drain feeds, fading when it ends. See [BloodSurgeEffect]. */
+    val BLOOD_SURGE: RegistrySupplier<MobEffect> = EFFECTS.register("blood_surge") { BloodSurgeEffect() }
+
+    /** Java-callable static accessor for [BLOOD_SURGE]. */
+    @JvmStatic
+    fun bloodSurgeEffect(): MobEffect = BLOOD_SURGE.get()
+
     /** Poison: a spreading venom that also harms undead. See [RotEffect]. */
     val ROT: RegistrySupplier<MobEffect> = EFFECTS.register("rot") { RotEffect() }
 
@@ -91,6 +107,31 @@ object EKEffects {
 
     /** Void: out of the world. See [AbsentEffect]. */
     val ABSENT: RegistrySupplier<MobEffect> = EFFECTS.register("absent") { AbsentEffect() }
+
+    /** Gravity's self-cast: no knockback or spell pulls, sinks, a little slower. See [AnchoredEffect]. */
+    val ANCHORED: RegistrySupplier<MobEffect> = EFFECTS.register("anchored") { AnchoredEffect() }
+
+    /** Sunfire's self-cast: undead nearby burn and are pushed away. See [HaloEffect]. */
+    val HALO: RegistrySupplier<MobEffect> = EFFECTS.register("halo") { HaloEffect() }
+
+
+    /** Heat's self-cast: burns whatever comes close, thaws you. See [FlameCloakEffect]. */
+    val FLAME_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("flame_cloak") { FlameCloakEffect() }
+
+    /** Cold's self-cast: chills and slows whatever comes close, keeps you from burning. See [FrostCloakEffect]. */
+    val FROST_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("frost_cloak") { FrostCloakEffect() }
+
+    /** Chaos's self-cast: arcs into whatever comes close. See [LightningCloakEffect]. */
+    val LIGHTNING_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("lightning_cloak") { LightningCloakEffect() }
+
+    /** Blood's self-cast: draws a little life from whatever comes very close. See [AbsorptionCloakEffect]. */
+    val ABSORPTION_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("absorption_cloak") { AbsorptionCloakEffect() }
+
+    /** Poison's self-cast: poisons whatever comes close, keeps poison off you. See [PoisonCloakEffect]. */
+    val POISON_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("poison_cloak") { PoisonCloakEffect() }
+
+    /** Void's self-cast: lashes enemies nearby with tentacles. See [VoidCloakEffect]. */
+    val VOID_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("void_cloak") { VoidCloakEffect() }
 
     fun register() = EFFECTS.register()
 }

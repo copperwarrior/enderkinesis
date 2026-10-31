@@ -17,9 +17,6 @@ object SpellCurves {
 
     fun damage(base: Float, magnitude: Float): Float = base * curve(magnitude)
 
-    /** [baseTicks] scaled by [curve], for the durations the gems already had. */
-    fun scaledTicks(baseTicks: Int, magnitude: Float): Int = (baseTicks * curve(magnitude)).roundToInt()
-
     /** The spec's "base + per magnitude" timers, in seconds, as ticks. */
     fun ticks(baseSeconds: Float, perMagnitudeSeconds: Float, magnitude: Float): Int =
         ((baseSeconds + perMagnitudeSeconds * magnitude) * 20f).roundToInt()

@@ -69,7 +69,7 @@ class InscriptionTest {
     }
 
     @Test
-    fun `every possible scroll is reachable and they share 549 names`() {
+    fun `every possible scroll is reachable and they share 685 names`() {
         val seen = HashSet<List<Element>>()
         val queue = ArrayDeque<List<Element>>()
         seen += emptyList<Element>()
@@ -83,6 +83,6 @@ class InscriptionTest {
         }
         val scrolls = seen.filter { it.isNotEmpty() }.map { glyphs -> glyphs.sortedBy { it.ordinal } }.toSet()
         scrolls.size shouldBe 4851
-        scrolls.map { Spell(it).name() }.toSet().size shouldBe 549
+        scrolls.map { Spell(it).name() }.toSet().size shouldBe 685
     }
 }

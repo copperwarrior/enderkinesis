@@ -10,16 +10,17 @@ import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.TooltipFlag
 import net.minecraft.world.level.Level
-import org.shipwrights.enderkinesis.spell.Delivery
 import org.shipwrights.enderkinesis.spell.Element
-import org.shipwrights.enderkinesis.spell.ElementEffects
+import org.shipwrights.enderkinesis.spell.Spell
+import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.spell.SpellContext
-import org.shipwrights.enderkinesis.spell.SpellCurves
+import org.shipwrights.enderkinesis.spell.SpellUse
 
 /**
  * Mystic Gem. Using it fires its element's burst and shatters it into [SHARDS_PER_GEM]
- * shards of that element. The burst is exactly a 1-shard Area cast of the element (see
- * [ElementEffects]), so it always fires: shatter gems somewhere safe.
+ * shards of that element. The burst is exactly an Area cast of a one-glyph scroll of the
+ * element, through the same code ([SpellCasting.burst]), so a gem always does just what a
+ * magnitude 1 scroll does. It always fires: shatter gems somewhere safe.
  *
  * Order matters: the gem is used up and the shards are handed over (or dropped at the
  * user's feet when the inventory is full) before the burst resolves, so a Chaos burst can't
@@ -32,9 +33,7 @@ class MysticGemItem(val element: Element, private val shard: () -> Item, propert
         if (level is ServerLevel) {
             if (!player.abilities.instabuild) stack.shrink(1)
             giveShards(level, player)
-            val ctx = SpellContext(level, player, player.position())
-            val delivery = Delivery.Sphere(player.position(), SpellCurves.areaRadius(1f), area = true)
-            ElementEffects.of(element).apply(ctx, delivery, 1f)
+            SpellCasting.burst(SpellContext(level, player, player.position(), use = SpellUse.AREA), Spell(listOf(element)), player.position(), area = true)
         }
         player.awardStat(net.minecraft.stats.Stats.ITEM_USED.get(this))
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide)

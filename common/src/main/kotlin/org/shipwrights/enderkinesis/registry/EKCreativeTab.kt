@@ -9,6 +9,10 @@ import net.minecraft.world.item.CreativeModeTab
 import net.minecraft.world.item.CreativeModeTabs
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.spell.Element
+import org.shipwrights.enderkinesis.spell.Inscription
+import org.shipwrights.enderkinesis.spell.Signature
+import org.shipwrights.enderkinesis.spell.Spell
 
 object EKCreativeTab {
     private val TABS: DeferredRegister<CreativeModeTab> =
@@ -20,8 +24,25 @@ object EKCreativeTab {
         }
     }
 
+    /** Finished Mystic Scrolls, ready to cast: a full scroll of each element, then each signature. */
+    val SCROLLS: RegistrySupplier<CreativeModeTab> = TABS.register("enderkinesis_mystic_scrolls") {
+        CreativeTabRegistry.create(Component.translatable("itemGroup.enderkinesis.mystic_scrolls")) {
+            scroll(List(Inscription.MAX_GLYPHS) { Element.VOID })
+        }
+    }
+
+    /** A Mystic Scroll inscribed with [glyphs], as the Altar of Illumination finishes one. */
+    private fun scroll(glyphs: List<Element>): ItemStack =
+        ItemStack(EKItems.MYSTIC_SCROLL.get()).apply { orCreateTag.put(Spell.NBT_GLYPHS, Spell(glyphs).save()) }
+
     fun register() {
         TABS.register()
+        CreativeTabRegistry.modify(SCROLLS) { _, output, _ ->
+            // Every element a scroll can hold, seven glyphs of it. Sundering is never inscribed.
+            for (element in Element.entries) if (element != Element.SUNDERING) output.accept(scroll(List(Inscription.MAX_GLYPHS) { element }))
+            // A scroll of each signature's recipe.
+            for (signature in Signature.entries) output.accept(scroll(signature.glyphs))
+        }
         // Populate the tab once everything is registered.
         CreativeTabRegistry.modify(MAIN) { _, output, _ ->
             output.accept(EKItems.CREPUSCULITE.get())

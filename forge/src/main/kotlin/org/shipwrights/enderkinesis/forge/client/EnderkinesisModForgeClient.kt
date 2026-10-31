@@ -63,9 +63,14 @@ class EnderkinesisModForgeClient {
 
         @JvmStatic
         fun registerParticleProviders(event: net.minecraftforge.client.event.RegisterParticleProvidersEvent) {
-            EnderkinesisModClient.registerParticleProviders { type, factory ->
-                event.registerSpriteSet(type) { sprites -> factory(sprites) }
-            }
+            EnderkinesisModClient.registerParticleProviders(object : EnderkinesisModClient.ParticleRegistrar {
+                override fun <T : net.minecraft.core.particles.ParticleOptions> register(
+                    type: net.minecraft.core.particles.ParticleType<T>,
+                    factory: (net.minecraft.client.particle.SpriteSet) -> net.minecraft.client.particle.ParticleProvider<T>,
+                ) {
+                    event.registerSpriteSet(type) { sprites -> factory(sprites) }
+                }
+            })
         }
 
         @JvmStatic

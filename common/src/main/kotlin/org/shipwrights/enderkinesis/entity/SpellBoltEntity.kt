@@ -2,6 +2,9 @@ package org.shipwrights.enderkinesis.entity
 
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.Tag
+import net.minecraft.network.syncher.EntityDataAccessor
+import net.minecraft.network.syncher.EntityDataSerializers
+import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
@@ -21,19 +24,18 @@ import org.shipwrights.enderkinesis.spell.Spell
 import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.spell.SpellContext
 import java.util.UUID
-import net.minecraft.sounds.SoundSource
-import org.shipwrights.enderkinesis.registry.EKSounds
-import org.shipwrights.enderkinesis.spell.SpellCurves
 import org.shipwrights.enderkinesis.spell.SpellVfx
 
 /**
  * A Bolt: the arcing projectile of a Forward cast whose shape is Bolt. It carries the whole
  * spell and detonates on hitting a block or entity, as a sphere per element around the
- * impact, like an Area cast. A block it lands on then falls, if it still qualifies after
- * the detonation's block effects. In flight it tugs nearby entities toward its path.
+ * impact, like an Area cast, its damage scaled by its [power] (how far it was drawn; see
+ * [SpellCasting.boltPower]). A block it lands on then falls, if it still qualifies after the
+ * detonation's block effects. In flight it tugs nearby entities toward its path.
  *
- * Drawn as a glowing knot of light in the shape element's colour (see `SpellBoltRenderer`),
- * trailing motes. Fizzles if it flies for [MAX_LIFETIME_TICKS].
+ * Drawn as a glowing knot of light in the spell's colour (see `SpellBoltRenderer`), trailing
+ * each of its elements' particles (see `SpellVfxClient`). Fizzles if it flies for
+ * [MAX_LIFETIME_TICKS].
  */
 class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : ThrowableItemProjectile(type, level) {
 
@@ -43,46 +45,45 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
     private var ownerUuid: UUID? = null
     private var castPoint: Vec3 = Vec3.ZERO
 
-    constructor(level: Level, caster: LivingEntity, spell: Spell, origin: Vec3) : this(EKEntities.SPELL_BOLT.get(), level) {
+    /** The burst's damage multiplier, from the draw ([SpellContext.power]). */
+    private var power: Float = 1f
+
+    /** Whether its burst may light fire on the ground ([SpellContext.surfaceFire]): false for
+     *  bolts another spell fires, which counts its own fires. */
+    var surfaceFire: Boolean = true
+
+    constructor(level: Level, caster: LivingEntity, spell: Spell, origin: Vec3, power: Float) : this(EKEntities.SPELL_BOLT.get(), level) {
         setOwner(caster)
         setPos(origin)
         this.spell = spell
+        this.power = power
         ownerUuid = caster.uuid
         castPoint = position()
         spell.shapeElement?.let { item = EKItems.glyphStack(it) }
+        entityData.set(ELEMENTS, SpellVfx.elementBits(spell.magnitudes.keys))
     }
+
+    override fun defineSynchedData() {
+        super.defineSynchedData()
+        entityData.define(ELEMENTS, 0)
+    }
+
+    /** The spell's elements (synced to clients), for its colour and trail. */
+    fun elements(): List<Element> = SpellVfx.elementsOf(entityData.get(ELEMENTS))
 
     override fun getDefaultItem(): Item = EKItems.MYSTIC_SHARD.get()
 
     override fun tick() {
         super.tick()
         if (isRemoved) return
-        if (level().isClientSide) {
-            trail()
-            return
-        }
+        if (level().isClientSide) return
         val level = level() as? ServerLevel ?: return
         if (tickCount >= MAX_LIFETIME_TICKS) {
-            discard()
+            // Out of flight: it goes off where it is rather than vanishing with its payload.
+            detonate(level, position(), null)
             return
         }
         pullAlongPath(level)
-    }
-
-    /** Client: a dust trail in the shape element's colour, read from the shard it's drawn as. */
-    private fun trail() {
-        val element = element() ?: return
-        val dust = SpellCasting.dust(element)
-        val from = Vec3(xo, yo, zo)
-        val to = position()
-        repeat(TRAIL_PARTICLES) { i ->
-            val p = from.lerp(to, (i + 1).toDouble() / TRAIL_PARTICLES)
-            val spread = 0.08
-            level().addParticle(
-                dust, p.x + random.nextGaussian() * spread, p.y + bbHeight / 2 + random.nextGaussian() * spread,
-                p.z + random.nextGaussian() * spread, 0.0, 0.0, 0.0,
-            )
-        }
     }
 
     /** The shape element, read from the shard the bolt carries (synced to clients). */
@@ -109,16 +110,16 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         super.onHit(result)
         val level = level() as? ServerLevel ?: return
         if (isRemoved) return
+        detonate(level, result.location, (result as? BlockHitResult)?.takeIf { it.type == HitResult.Type.BLOCK }?.blockPos)
+    }
+
+    /** The spell bursts at [at]; a struck block at [struck] then falls if it qualifies. */
+    private fun detonate(level: ServerLevel, at: Vec3, struck: net.minecraft.core.BlockPos?) {
         // A Staff of Aegis reflection makes its holder the owner, for claims too.
         val caster = owner as? LivingEntity
-        val ctx = SpellContext(level, caster, castPoint, caster?.uuid ?: ownerUuid)
-        SpellCasting.burst(ctx, spell, result.location, area = false)
-        // Impact: a flash and a shockwave shell the size of the largest burst, in the spell's colour.
-        val reach = spell.magnitudes.values.maxOfOrNull { SpellCurves.areaRadius(it) } ?: SpellCurves.BASE_RADIUS
-        SpellVfx.flash(level, result.location, 1.6, spell.tint())
-        SpellVfx.shell(level, result.location, reach, spell.tint(), 18)
-        level.playSound(null, result.location.x, result.location.y, result.location.z, EKSounds.BOLT_IMPACT.get(), SoundSource.NEUTRAL, 1f, 1f)
-        if (result is BlockHitResult && result.type == HitResult.Type.BLOCK) ElementEffects.dropBlock(ctx, result.blockPos)
+        val ctx = SpellContext(level, caster, castPoint, caster?.uuid ?: ownerUuid, power = power, surfaceFire = surfaceFire)
+        SpellCasting.burst(ctx, spell, at, area = false)
+        struck?.let { ElementEffects.dropBlock(ctx, it) }
         discard()
     }
 
@@ -131,20 +132,25 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         tag.putDouble(NBT_CAST_X, castPoint.x)
         tag.putDouble(NBT_CAST_Y, castPoint.y)
         tag.putDouble(NBT_CAST_Z, castPoint.z)
+        tag.putFloat(NBT_POWER, power)
+        tag.putBoolean(NBT_SURFACE_FIRE, surfaceFire)
     }
 
     override fun readAdditionalSaveData(tag: CompoundTag) {
         super.readAdditionalSaveData(tag)
         spell = Spell.load(tag, Spell.NBT_GLYPHS) ?: Spell(emptyList())
+        entityData.set(ELEMENTS, SpellVfx.elementBits(spell.magnitudes.keys))
         ownerUuid = if (tag.hasUUID(NBT_OWNER)) tag.getUUID(NBT_OWNER) else null
         castPoint = if (tag.contains(NBT_CAST_X, Tag.TAG_DOUBLE.toInt())) {
             Vec3(tag.getDouble(NBT_CAST_X), tag.getDouble(NBT_CAST_Y), tag.getDouble(NBT_CAST_Z))
         } else position()
+        power = if (tag.contains(NBT_POWER, Tag.TAG_FLOAT.toInt())) tag.getFloat(NBT_POWER) else 1f
+        surfaceFire = !tag.contains(NBT_SURFACE_FIRE) || tag.getBoolean(NBT_SURFACE_FIRE)
     }
 
     companion object {
         const val MAX_LIFETIME_TICKS = 200
-        private const val TRAIL_PARTICLES = 6
+        private val ELEMENTS: EntityDataAccessor<Int> = SynchedEntityData.defineId(SpellBoltEntity::class.java, EntityDataSerializers.INT)
         private const val PULL_RADIUS = 2.5
         private const val PULL_STRENGTH = 0.08
 
@@ -156,5 +162,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         private const val NBT_CAST_X = "CastX"
         private const val NBT_CAST_Y = "CastY"
         private const val NBT_CAST_Z = "CastZ"
+        private const val NBT_POWER = "Power"
+        private const val NBT_SURFACE_FIRE = "SurfaceFire"
     }
 }

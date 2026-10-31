@@ -26,7 +26,9 @@ object Inscription {
         data object Inscribed : Outcome
     }
 
-    class Result(val glyphs: List<Element>, val outcome: Outcome)
+    /** The glyphs after, how the shard resolved, and which glyph it met ([index] in the glyphs
+     *  before; -1 when it met none and was added at the end). */
+    class Result(val glyphs: List<Element>, val outcome: Outcome, val index: Int = -1)
 
     /** Resolves [shard] against [glyphs], oldest first. Returns null when the scroll is full
      *  and the shard would become another glyph. */
@@ -47,7 +49,7 @@ object Inscription {
                 val left = hit.components.firstOrNull { it != opposite }
                 val out = glyphs.toMutableList()
                 if (left != null) out[i] = left else out.removeAt(i)
-                return Result(out, Outcome.Annihilated(hit, left))
+                return Result(out, Outcome.Annihilated(hit, left), i)
             }
         }
         val partner = glyphs.indexOfLast { !it.isFusion && Element.fusionOf(it, shard) != null }
@@ -55,7 +57,7 @@ object Inscription {
             val fusion = Element.fusionOf(glyphs[partner], shard)!!
             val out = glyphs.toMutableList()
             out[partner] = fusion
-            return Result(out, Outcome.Fused(fusion))
+            return Result(out, Outcome.Fused(fusion), partner)
         }
         return Result(glyphs + shard, Outcome.Inscribed)
     }

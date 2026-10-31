@@ -320,15 +320,35 @@ object EKItems {
     /** The shard item of [element], or null for the fusions and Sundering, which have none. */
     fun shardOf(element: Element): Item? = SHARDS[element]?.get()
 
-    /** Base Mystic Shard, tinted with the element named in its tag. Only for drawing the
-     *  fusion glyphs, which have no shard item; kept out of the creative tab. */
+    /** The fusions' shards. A fusion is never inscribed as a shard, so these only draw its
+     *  glyph on the altar; kept out of the creative tab. */
+    private fun fusionShard(name: String): RegistrySupplier<Item> = ITEMS.register("mystic_${name}_shard") { Item(props()) }
+
+    val MYSTIC_SUNFIRE_SHARD: RegistrySupplier<Item> = fusionShard("sunfire")
+    val MYSTIC_POISON_SHARD: RegistrySupplier<Item> = fusionShard("poison")
+    val MYSTIC_VOID_SHARD: RegistrySupplier<Item> = fusionShard("void")
+
+    private val FUSION_SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
+        mapOf(Element.SUNFIRE to MYSTIC_SUNFIRE_SHARD, Element.POISON to MYSTIC_POISON_SHARD, Element.VOID to MYSTIC_VOID_SHARD)
+    }
+
+    /** Base Mystic Shard, tinted with the element named in its tag. Only for drawing a glyph
+     *  with no shard of its own (Sundering's); kept out of the creative tab. */
     val MYSTIC_SHARD: RegistrySupplier<Item> = ITEMS.register("mystic_shard") { Item(props()) }
 
     const val NBT_SHARD_ELEMENT = "Element"
 
-    /** A stack that draws [element]'s glyph: its shard, or the tinted base shard. */
+    /** The colour [element]'s glyph is drawn in: its halo on the altar, and the tint on the
+     *  base shard where it has no shard of its own. The element's own colour, but for Sunfire,
+     *  whose glyph is a bright yellow, as its shard is (its colour elsewhere stays as it is). */
+    fun glyphTint(element: Element): Int = if (element == Element.SUNFIRE) SUNFIRE_GLYPH else element.color
+
+    private const val SUNFIRE_GLYPH = 0xFFE03A
+
+    /** A stack that draws [element]'s glyph: its shard (a fusion's own), or the tinted base
+     *  shard. */
     fun glyphStack(element: Element): ItemStack {
-        shardOf(element)?.let { return ItemStack(it) }
+        (shardOf(element) ?: FUSION_SHARDS[element]?.get())?.let { return ItemStack(it) }
         return ItemStack(MYSTIC_SHARD.get()).apply { orCreateTag.putString(NBT_SHARD_ELEMENT, element.id) }
     }
 

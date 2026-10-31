@@ -3,8 +3,6 @@ package org.shipwrights.enderkinesis.spell
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleOptions
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundSource
 
 /**
  * Server-sent spell particles and sounds, using vanilla particle types tinted per element.
@@ -123,11 +121,6 @@ object SpellFx {
     /** Particles are accents now; the volume comes from [SpellVfx]. */
     private fun thin(count: Int): Int = (count * DENSITY).toInt().coerceAtLeast(1)
     private const val DENSITY = 0.5
-
-    fun sound(level: ServerLevel, delivery: Delivery, sound: SoundEvent, volume: Float = 1f, pitch: Float = 1f) {
-        if (held(delivery)) return
-        level.playSound(null, BlockPos.containing(delivery.anchor), sound, SoundSource.PLAYERS, volume, pitch)
-    }
 
     private fun fallbackCount(count: Int): Int = (count / 3).coerceAtLeast(4)
 

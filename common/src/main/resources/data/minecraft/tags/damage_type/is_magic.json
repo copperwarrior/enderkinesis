@@ -4,6 +4,12 @@
     "enderkinesis:light_damage",
     "enderkinesis:light_damage_sunburnt",
     "enderkinesis:light_damage_dark",
-    "enderkinesis:blood_drain"
+    "enderkinesis:blood_drain",
+    "enderkinesis:bleeding",
+    "enderkinesis:chaos",
+    "enderkinesis:sunfire",
+    "enderkinesis:rot",
+    "enderkinesis:growth",
+    "enderkinesis:void"
   ]
 }

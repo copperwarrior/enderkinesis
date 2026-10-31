@@ -30,6 +30,6 @@ public abstract class EntityRenderDispatcherSpellMixin {
         Entity stand = DiscordDisguise.standIn(entity);
         if (stand == null) return;
         ci.cancel();
-        ((EntityRenderDispatcher) (Object) this).render(stand, x, y, z, yaw, partialTick, poseStack, buffers, light);
+        DiscordDisguise.render((EntityRenderDispatcher) (Object) this, entity, stand, x, y, z, yaw, partialTick, poseStack, buffers, light);
     }
 }

@@ -1,7 +1,7 @@
 package org.shipwrights.enderkinesis.effect
 
+import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundSource
 import net.minecraft.world.effect.MobEffect
 import net.minecraft.world.effect.MobEffectCategory
 import net.minecraft.world.effect.MobEffectInstance
@@ -9,9 +9,9 @@ import net.minecraft.world.effect.MobEffects
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.ai.attributes.AttributeMap
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.SpellCurves
 import org.shipwrights.enderkinesis.spell.SpellVisuals
-import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
@@ -22,13 +22,13 @@ import org.shipwrights.enderkinesis.registry.EKParticles
  * The amplifier carries the spell's magnitude ([SpellCurves.toAmplifier]) so the shatter
  * can scale with it.
  */
-class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, 0xB7AEE2) {
+class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.PURITY.color) {
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = duration % 20 == 0
 
     override fun applyEffectTick(entity: LivingEntity, amplifier: Int) {
         val level = entity.level() as? ServerLevel ?: return
-        entity.hurt(EKDamageSources.crystallization(level), DAMAGE_PER_SECOND)
+        entity.hurt(EKDamageSources.ofEffect(entity, this, EKDamageSources.CRYSTALLIZATION_KEY), DAMAGE_PER_SECOND)
         val remaining = entity.getEffect(this)?.duration ?: return
         val slowness = when {
             remaining <= 40 -> 3
@@ -52,24 +52,23 @@ class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, 0xB7AEE2) {
         super.removeAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
         val level = entity.level() as? ServerLevel ?: return
-        if (!entity.isAlive || entity.hasEffect(this)) return
-        shatter(level, entity, SpellCurves.fromAmplifier(amplifier))
+        if (!entity.isAlive || EndingEffects.stillHas(entity, this)) return
+        shatter(level, entity, SpellCurves.fromAmplifier(amplifier), EKDamageSources.ofEffect(entity, this, EKDamageSources.CRYSTALLIZATION_KEY))
     }
 
-    private fun shatter(level: ServerLevel, entity: LivingEntity, magnitude: Float) {
+    private fun shatter(level: ServerLevel, entity: LivingEntity, magnitude: Float, source: DamageSource) {
         val damage = SpellCurves.damage(SHATTER_DAMAGE, magnitude)
         val centre = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
         val box = entity.boundingBox.inflate(SHATTER_RADIUS)
         for (target in level.getEntitiesOfClass(LivingEntity::class.java, box)) {
             if (!target.isAlive) continue
             if (target !== entity && target.boundingBox.distanceToSqr(centre) > SHATTER_RADIUS * SHATTER_RADIUS) continue
-            target.hurt(EKDamageSources.crystallization(level), damage)
+            target.hurt(source, damage)
         }
         level.sendParticles(
             EKParticles.crystalShard(), centre.x, centre.y, centre.z, 24,
             entity.bbWidth * 0.5, entity.bbHeight * 0.5, entity.bbWidth * 0.5, 0.15,
         )
-        level.playSound(null, entity.blockPosition(), EKSounds.CRYSTALLIZED_SHATTER.get(), SoundSource.HOSTILE, 1f, 1f)
     }
 
     companion object {

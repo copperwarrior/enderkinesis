@@ -6,6 +6,14 @@
     "enderkinesis:light_damage_dark",
     "enderkinesis:brink",
     "enderkinesis:crystallization",
-    "enderkinesis:blood_drain"
+    "enderkinesis:blood_drain",
+    "enderkinesis:bleeding",
+    "enderkinesis:chaos",
+    "enderkinesis:cold",
+    "enderkinesis:sunfire",
+    "enderkinesis:rot",
+    "enderkinesis:growth",
+    "enderkinesis:gravity",
+    "enderkinesis:void"
   ]
 }

@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.command
 
+import net.minecraft.resources.ResourceKey
+import net.minecraft.world.level.Level
 import com.mojang.brigadier.Command
 import dev.architectury.event.events.common.CommandRegistrationEvent
 import dev.architectury.networking.NetworkManager
@@ -41,16 +43,16 @@ object AegisDebugCommands {
      *  too (the client list is purely visual and the server doesn't see it
      *  otherwise). Keyed by owner UUID so `/aegisbox clear` can target one
      *  player's boxes without nuking everyone else's. */
-    private val serverBoxes: MutableMap<UUID, MutableList<AegisBox.Frame>> = ConcurrentHashMap()
+    private val serverBoxes: MutableMap<UUID, MutableList<Pair<ResourceKey<Level>, AegisBox.Frame>>> = ConcurrentHashMap()
 
     /** Snapshot every debug box across every player into one list — used
      *  by [org.shipwrights.enderkinesis.item.SunderingBeamTrace] as the
      *  shield set for ray intersection. Returns a fresh list so callers
      *  can iterate without worrying about concurrent map modification. */
-    fun allDebugBoxes(): List<AegisBox.Frame> {
+    fun allDebugBoxes(level: Level): List<AegisBox.Frame> {
         if (serverBoxes.isEmpty()) return emptyList()
         val out = ArrayList<AegisBox.Frame>()
-        for (list in serverBoxes.values) out.addAll(list)
+        for (list in serverBoxes.values) for ((dimension, frame) in list) if (dimension == level.dimension()) out += frame
         return out
     }
 
@@ -62,7 +64,7 @@ object AegisDebugCommands {
                     .executes { ctx ->
                         val player = ctx.source.playerOrException
                         val frame = AegisBox.forPlayer(player, 1f)
-                        serverBoxes.getOrPut(player.uuid) { mutableListOf() }.add(frame)
+                        serverBoxes.getOrPut(player.uuid) { mutableListOf() }.add(player.level().dimension() to frame)
                         sendAdd(player, frame)
                         ctx.source.sendSuccess(
                             { Component.literal("Spawned Aegis debug box at your current pose.") },

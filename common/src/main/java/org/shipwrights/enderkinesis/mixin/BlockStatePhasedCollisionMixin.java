@@ -12,8 +12,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/** A block phased by an Abyssal Pocket keeps its state but loses its collision on the server,
- *  so entities fall through it. Clients hide it by replacing it locally. */
+/** A block phased by an Abyssal Pocket keeps its state but has no collision or outline, on
+ *  both sides: entities fall through it and nothing can target it. */
 @Mixin(BlockBehaviour.BlockStateBase.class)
 public abstract class BlockStatePhasedCollisionMixin {
 
@@ -26,6 +26,12 @@ public abstract class BlockStatePhasedCollisionMixin {
     @Inject(method = "getCollisionShape(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/phys/shapes/CollisionContext;)Lnet/minecraft/world/phys/shapes/VoxelShape;",
         at = @At("HEAD"), cancellable = true)
     private void enderkinesis$phasedWithContext(BlockGetter level, BlockPos pos, CollisionContext context, CallbackInfoReturnable<VoxelShape> cir) {
+        if (AbyssalPockets.isPhased(level, pos)) cir.setReturnValue(Shapes.empty());
+    }
+
+    @Inject(method = "getShape(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/phys/shapes/CollisionContext;)Lnet/minecraft/world/phys/shapes/VoxelShape;",
+        at = @At("HEAD"), cancellable = true)
+    private void enderkinesis$phasedOutline(BlockGetter level, BlockPos pos, CollisionContext context, CallbackInfoReturnable<VoxelShape> cir) {
         if (AbyssalPockets.isPhased(level, pos)) cir.setReturnValue(Shapes.empty());
     }
 }

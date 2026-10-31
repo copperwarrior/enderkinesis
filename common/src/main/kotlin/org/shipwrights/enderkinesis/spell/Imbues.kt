@@ -6,12 +6,12 @@ import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.InteractionEvent
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.ChatFormatting
+import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.Tag
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvents
-import net.minecraft.sounds.SoundSource
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.damagesource.DamageTypes
@@ -49,8 +49,14 @@ import java.util.UUID
  *   off on its first impact, entity or block. Multishot splits it evenly across the shots.
  *
  * Against duplication: the scroll is taken before the item is written, and the imbue
- * records the item's stack count; if the count has changed when it triggers, it fizzles.
- * Grindstone and anvil merges drop it (see the mixins).
+ * records the item's stack count; if the count has changed when it triggers, it fizzles. A
+ * weapon that breaks on the hit or shot that triggers it is the exception: an empty stack
+ * can't be split, so its imbue still goes off. Grindstone and anvil merges drop it, and so
+ * does every crafting, smithing, stonecutting and cartography result (see the mixins).
+ *
+ * Whoever wields the item is the one casting, for claim checks too: the attacker for a melee
+ * hit, the shooter for a shot. Imbuing shares the scrolls' cooldown with Area casts and runes
+ * (see [MysticScrollItem.startCooldown]).
  */
 object Imbues {
     /** Item and projectile NBT key. */
@@ -122,31 +128,40 @@ object Imbues {
     // -----------------------------------------------------------------------
 
     /** Imbues the main-hand item from an off-hand scroll, using up the main hand's
-     *  right-click. True when it applies, on both sides; the work is server-side. */
+     *  right-click. True when it applies, on both sides; the work is server-side. While the
+     *  scrolls are cooling down the click is still used up, but nothing is written and the
+     *  arm doesn't move. */
     private fun tryImbue(player: Player, hand: InteractionHand): Boolean {
         if (hand != InteractionHand.MAIN_HAND) return false
         val target = player.mainHandItem
         val scroll = player.offhandItem
         val spell = MysticScrollItem.spellOf(scroll) ?: return false
         if (target.isEmpty || target.item is MysticScrollItem) return false
-        if (player.level().isClientSide) return true
-        // The scroll goes first, so nothing can copy the item mid-write with the scroll intact.
-        if (!player.abilities.instabuild) scroll.shrink(1)
+        if (MysticScrollItem.coolingDown(player)) return true
+        if (player.level().isClientSide) {
+            MysticScrollItem.clientUsed?.invoke(player, MysticScrollItem.Companion.OtherUse.IMBUE, InteractionHand.OFF_HAND)
+            return true
+        }
+        // The scroll's use goes first, so nothing can copy the item mid-write with it unspent.
+        MysticScrollItem.spend(player.level() as ServerLevel, player, scroll)
         val overwritten = of(target) != null
         target.orCreateTag.put(NBT, Imbue(spell, player.uuid, target.count).save())
+        MysticScrollItem.startCooldown(player)
         if (overwritten) player.displayClientMessage(Component.translatable(OVERWRITTEN_KEY), true)
-        player.level().playSound(null, player.x, player.y, player.z, SoundEvents.ENCHANTMENT_TABLE_USE, SoundSource.PLAYERS, 1f, 1.3f)
+        (player as? ServerPlayer)?.let { SpellNetwork.broadcastUsed(it.serverLevel(), it, MysticScrollItem.Companion.OtherUse.IMBUE, InteractionHand.OFF_HAND) }
+        SpellVfx.imbue(player.level() as ServerLevel, player, spell)
         return true
     }
 
     /** Removes and returns [stack]'s imbue. Null, after telling [holder], if the stack's count
-     *  changed since it was imbued. */
+     *  changed since it was imbued. A stack that's empty broke on this very hit or shot (its
+     *  tag is still there): it can't have been split, so the imbue goes off. */
     private fun take(stack: ItemStack, holder: LivingEntity): Imbue? {
         val imbue = of(stack) ?: return null
         stack.removeTagKey(NBT)
-        if (imbue.count != stack.count) {
+        if (imbue.count != stack.count && !stack.isEmpty) {
             (holder as? Player)?.displayClientMessage(Component.translatable(FIZZLED_KEY), true)
-            holder.level().playSound(null, holder.x, holder.y, holder.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.PLAYERS, 0.6f, 1.6f)
+            (holder.level() as? ServerLevel)?.let { SpellVfx.fizzle(it, SpellCasting.handOrigin(holder, InteractionHand.MAIN_HAND)) }
             return null
         }
         return imbue
@@ -176,14 +191,18 @@ object Imbues {
         for ((attacker, attack) in attacks) {
             val level = attacker.level() as? ServerLevel ?: continue
             val imbue = take(attack.weapon, attacker) ?: continue
-            val ctx = SpellContext(level, attacker, attacker.position(), imbue.owner)
+            // The wielder casts, as the shooter does for a shot (see [context]).
+            val ctx = SpellContext(level, attacker, attacker.position(), use = SpellUse.IMBUE)
             val primary = attack.targets.first()
+            // The spell's glyphs burst out where the blade lands.
+            val toAttacker = attacker.position().subtract(primary.position()).multiply(1.0, 0.0, 1.0).normalize()
+            SpellVfx.glyphBurst(level, primary.position().add(0.0, primary.bbHeight * 0.6, 0.0).add(toAttacker.scale(primary.bbWidth * 0.6)), imbue.spell)
             if (attack.targets.size == 1 || imbue.spell.shape == Shape.BOLT) {
-                SpellCasting.strikeEntity(ctx, imbue.spell, primary, 1f)
+                strike(ctx, imbue.spell, primary, 1f)
             } else {
                 val share = 1f / attack.targets.size
                 val hit = HashSet<Entity>()
-                for (target in attack.targets) SpellCasting.strikeEntity(ctx, imbue.spell, target, share, hit)
+                for (target in attack.targets) strike(ctx, imbue.spell, target, share, hit)
             }
         }
     }
@@ -204,18 +223,44 @@ object Imbues {
             Imbue(taken.spell, taken.owner, taken.count, 1f / shotsPerFire(weapon)).also { shots[weapon] = it }
         }
         projectile.`enderkinesis$setImbue`(imbue.save())
+        SpellVfx.imbuedShot(projectile.level() as ServerLevel, projectile, imbue.spell)
         // A thrown trident carries a copy of the trident, which it gives back on pickup.
-        if (projectile is ThrownTrident) (projectile as ThrownTridentItemAccessor).`enderkinesis$getTridentItem`().removeTagKey(NBT)
+        if (projectile is ThrownTrident) {
+            val trident = (projectile as ThrownTridentItemAccessor).`enderkinesis$getTridentItem`()
+            trident.removeTagKey(NBT)
+            // Its glint is synced from the item when thrown: now it's the bare trident's.
+            projectile.entityData.set(ThrownTridentItemAccessor.`enderkinesis$idFoil`(), trident.hasFoil())
+        }
     }
 
+    /** The weapon firing right now. A bow or crossbow that broke on this shot is already an
+     *  empty stack (its item reads as air), but it's still the one in use or in hand and
+     *  still carries its tags, imbue included. */
     private fun firingWeapon(shooter: LivingEntity): ItemStack? {
         val using = shooter.useItem
-        if (shooter.isUsingItem && (using.item is ProjectileWeaponItem || using.item is TridentItem)) return using
-        return listOf(shooter.mainHandItem, shooter.offhandItem).firstOrNull { it.item is CrossbowItem && CrossbowItem.isCharged(it) }
+        if (shooter.isUsingItem && (using.item is ProjectileWeaponItem || using.item is TridentItem || brokenImbued(using))) return using
+        return listOf(shooter.mainHandItem, shooter.offhandItem).firstOrNull {
+            (it.item is CrossbowItem || brokenImbued(it)) && CrossbowItem.isCharged(it)
+        }
     }
 
+    private fun brokenImbued(stack: ItemStack): Boolean = stack.isEmpty && stack.tag?.contains(NBT, Tag.TAG_COMPOUND.toInt()) == true
+
+    /** Multishot read from the enchantment tags directly, which a broken crossbow still has. */
     private fun shotsPerFire(weapon: ItemStack): Int =
-        if (weapon.item is CrossbowItem && EnchantmentHelper.getItemEnchantmentLevel(Enchantments.MULTISHOT, weapon) > 0) 3 else 1
+        if ((EnchantmentHelper.getEnchantments(weapon)[Enchantments.MULTISHOT] ?: 0) > 0) 3 else 1
+
+    /**
+     * [SpellCasting.strikeEntity], except that a Chain striking something that isn't alive
+     * (a boat, a minecart, an end crystal) isn't lost: it jumps from there to the nearest
+     * living thing, as from a struck block.
+     */
+    private fun strike(ctx: SpellContext, spell: Spell, target: Entity, scale: Float, hit: MutableSet<Entity> = HashSet()) {
+        if (spell.shape == Shape.CHAIN && target !is LivingEntity) {
+            val at = target.boundingBox.center
+            SpellCasting.strikeBlock(ctx, spell, target.blockPosition(), Direction.UP, at, scale)
+        } else SpellCasting.strikeEntity(ctx, spell, target, scale, hit)
+    }
 
     private fun takeFrom(projectile: Projectile): Imbue? {
         val holder = projectile as ImbuedProjectile
@@ -228,7 +273,7 @@ object Imbues {
      *  and the imbue, claims included, belongs to them from then on. */
     private fun context(projectile: Projectile, level: ServerLevel, imbue: Imbue): SpellContext {
         val shooter = projectile.owner as? LivingEntity
-        return SpellContext(level, shooter, shooter?.position() ?: projectile.position(), shooter?.uuid ?: imbue.owner)
+        return SpellContext(level, shooter, shooter?.position() ?: projectile.position(), shooter?.uuid ?: imbue.owner, use = SpellUse.IMBUE)
     }
 
     /** An imbued projectile's first impact, entity or block, sets the spell off. Loyalty
@@ -240,7 +285,7 @@ object Imbues {
         val imbue = takeFrom(projectile) ?: return
         val ctx = context(projectile, level, imbue)
         when (result) {
-            is EntityHitResult -> SpellCasting.strikeEntity(ctx, imbue.spell, result.entity, imbue.share)
+            is EntityHitResult -> strike(ctx, imbue.spell, result.entity, imbue.share)
             is BlockHitResult -> SpellCasting.strikeBlock(ctx, imbue.spell, result.blockPos, result.direction, result.location, imbue.share)
         }
     }

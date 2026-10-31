@@ -42,6 +42,7 @@ object EnderkinesisModClient {
         if (earlyDone) return
         earlyDone = true
         WyllandTomeKeys.init()
+        SpellKeys.init()
 
         // The Cataloger uses a custom HumanoidModel-based geometry (robed humanoid;
         // see CatalogerModel). The model layer is registered platform-side (Forge
@@ -115,8 +116,16 @@ object EnderkinesisModClient {
             net.minecraft.client.renderer.entity.NoopRenderer(ctx)
         }
 
+        // Miasma — a dome of soft poison puffs.
+        EntityRendererRegistry.register(EKEntities.MIASMA) { ctx -> MiasmaRenderer(ctx) }
+
         // Spell Bolt — a knot of light in its shape element's colour, no item model.
         EntityRendererRegistry.register(EKEntities.SPELL_BOLT) { ctx -> SpellBoltRenderer(ctx) }
+
+        // Signature spells — each drawn by its own signature's visual.
+        EntityRendererRegistry.register(EKEntities.SIGNATURE) { ctx -> org.shipwrights.enderkinesis.client.signature.SignatureRenderer(ctx) }
+        org.shipwrights.enderkinesis.client.signature.SignatureVisuals.init()
+        SpellDarkness.init()
     }
 
     @JvmStatic
@@ -142,6 +151,11 @@ object EnderkinesisModClient {
         org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
         // Spell effects clients must see: Absent entities, Abyssal Pocket blocks, Reveal stutters.
         SpellNetworkClient.init()
+        org.shipwrights.enderkinesis.item.MysticScrollItem.clientUsed = { player, use, hand ->
+            SpellHand.startUse(player, SpellHand.Use.valueOf(use.name), hand)
+            SpellArmPoses.started(player, SpellHand.Use.valueOf(use.name), hand)
+        }
+        org.shipwrights.enderkinesis.item.MysticScrollItem.clientReleased = { player -> SpellArmPoses.released(player) }
         // Shatter cloud spawned on cage break — owns its own per-tick
         // physics, so init separately from the network init.
         org.shipwrights.enderkinesis.client.GamylanCageShatter.init()
@@ -244,8 +258,8 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CRYSTAL_EXPLOSIVE.get())
 
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ICHAERIC_INK_JAR.get())
-        // Rune decal: alpha-cut glyph, tinted from its spell.
-        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.RUNE.get())
+        // Rune: drawn by its block entity (RuneVfx), never as a chunk model, so it needs no render
+        // layer. Its colour still tints the bits that fly off it as it's broken.
         ColorHandlerRegistry.registerBlockColors(
             BlockColor { _, getter, pos, _ ->
                 (pos?.let { getter?.getBlockEntity(it) } as? RuneBlockEntity)?.spell?.tint() ?: 0xFFFFFF
@@ -264,10 +278,10 @@ object EnderkinesisModClient {
         dev.architectury.event.events.client.ClientTooltipEvent.ITEM.register { stack, lines, _ ->
             org.shipwrights.enderkinesis.spell.Imbues.tooltip(stack)?.let { lines.add(minOf(1, lines.size), it) }
         }
-        // Base Mystic Shard, drawn for fusion glyphs on the altar, in the fusion's colour.
+        // Base Mystic Shard, drawn for a glyph with no shard of its own, in its colour.
         ColorHandlerRegistry.registerItemColors(
             ItemColor { stack, _ ->
-                stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.color ?: -1
+                stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.let(EKItems::glyphTint) ?: -1
             },
             EKItems.MYSTIC_SHARD.get(),
         )
@@ -311,6 +325,8 @@ object EnderkinesisModClient {
         }
 
         // The astrolabe is drawn by a BlockEntityRenderer (translucent + no backface culling).
+        // Runes glow, flicker and write themselves in.
+        BlockEntityRendererRegistry.register(EKBlockEntities.RUNE.get()) { ctx -> RuneVfx.Renderer(ctx) }
         BlockEntityRendererRegistry.register(EKBlockEntities.ENDER_ASTROLABE.get()) { _ ->
             EnderAstrolabeRenderer()
         }
@@ -435,13 +451,22 @@ object EnderkinesisModClient {
                 TomeSummonOverlay.closeRefractionEffect()
                 ScryingClient.closeRefractionEffect()
                 SureibjinDreamVignette.close()
+                SpellScreen.close()
+                // Run after vanilla's own listeners, once the atlases are rebuilt: any sprite
+                // looked up in a frame drawn while they were being rebuilt is dropped too.
+                SpellArt.invalidate()
             },
             org.shipwrights.enderkinesis.EnderkinesisMod.id("post_effects"),
         )
         if (!particlesDone) {
-            registerParticleProviders { type, factory ->
-                ParticleProviderRegistry.register(type) { sprites -> factory(sprites) }
-            }
+            registerParticleProviders(object : ParticleRegistrar {
+                override fun <T : net.minecraft.core.particles.ParticleOptions> register(
+                    type: net.minecraft.core.particles.ParticleType<T>,
+                    factory: (net.minecraft.client.particle.SpriteSet) -> net.minecraft.client.particle.ParticleProvider<T>,
+                ) {
+                    ParticleProviderRegistry.register(type) { sprites -> factory(sprites) }
+                }
+            })
         }
 
 
@@ -487,6 +512,8 @@ object EnderkinesisModClient {
         // deep-blob pass. Must register before the overlay so the shader is loaded by
         // the time the overlay first draws.
         YgannAbyssRenderTypes.init()
+        PocketPortalRenderType.init()
+        SpellVfxRenderTypes.init()
         org.shipwrights.enderkinesis.client.remnant.RemnantRenderTypes.init()
 
         // Sureibjin: dream-sky noise shader sampled per-fragment from spherical
@@ -629,11 +656,10 @@ object EnderkinesisModClient {
 
     private var particlesDone = false
 
-    fun interface ParticleRegistrar {
-        fun register(
-            type: net.minecraft.core.particles.ParticleType<net.minecraft.core.particles.SimpleParticleType>,
-            factory: (net.minecraft.client.particle.SpriteSet) ->
-            net.minecraft.client.particle.ParticleProvider<net.minecraft.core.particles.SimpleParticleType>,
+    interface ParticleRegistrar {
+        fun <T : net.minecraft.core.particles.ParticleOptions> register(
+            type: net.minecraft.core.particles.ParticleType<T>,
+            factory: (net.minecraft.client.particle.SpriteSet) -> net.minecraft.client.particle.ParticleProvider<T>,
         )
     }
 
@@ -642,23 +668,12 @@ object EnderkinesisModClient {
      *  call through Architectury registers late, with a warning for each provider. */
     fun registerParticleProviders(registrar: ParticleRegistrar) {
         particlesDone = true
-        // Mystic Scroll particles: vanilla textures, tinted per kind.
-        registrar.register(EKParticles.CRYSTAL_SHARD.get() as EKOceanParticleType) { sprites ->
-            SpellParticle.Provider(sprites, SpellParticle.Kind.CRYSTAL_SHARD)
+        // Mystic Scroll particles: vanilla sprites, each with its own colour, size and motion.
+        for (mote in org.shipwrights.enderkinesis.spell.SpellMote.entries) {
+            registrar.register(EKParticles.mote(mote)) { sprites -> SpellParticle.Provider(sprites, mote) }
         }
-        registrar.register(EKParticles.ROT_SPORE.get() as EKOceanParticleType) { sprites ->
-            SpellParticle.Provider(sprites, SpellParticle.Kind.ROT_SPORE)
-        }
-        registrar.register(EKParticles.BLOOD_DRIP.get() as EKOceanParticleType) { sprites ->
-            SpellParticle.Provider(sprites, SpellParticle.Kind.BLOOD_DRIP)
-        }
-        registrar.register(EKParticles.VOID_MOTE.get() as EKOceanParticleType) { sprites ->
-            SpellParticle.Provider(sprites, SpellParticle.Kind.VOID_MOTE)
-        }
-        registrar.register(EKParticles.SHOCKWAVE_RING.get() as EKOceanParticleType) { sprites ->
-            SpellParticle.Provider(sprites, SpellParticle.Kind.SHOCKWAVE_RING)
-        }
-
+        registrar.register(EKParticles.leafChip()) { LeafChipParticle.Provider() }
+        registrar.register(EKParticles.spellGlyph()) { sprites -> SpellGlyphParticle.Provider(sprites) }
         // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
         registrar.register(EKParticles.ocean()) { sprites ->
             OceanParticle.Provider(sprites, OceanParticle.Mode.SURFACE)
