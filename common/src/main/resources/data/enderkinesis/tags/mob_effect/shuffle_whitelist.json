@@ -1,0 +1,30 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:speed",
+    "minecraft:slowness",
+    "minecraft:haste",
+    "minecraft:mining_fatigue",
+    "minecraft:strength",
+    "minecraft:jump_boost",
+    "minecraft:nausea",
+    "minecraft:regeneration",
+    "minecraft:resistance",
+    "minecraft:fire_resistance",
+    "minecraft:water_breathing",
+    "minecraft:invisibility",
+    "minecraft:blindness",
+    "minecraft:night_vision",
+    "minecraft:hunger",
+    "minecraft:weakness",
+    "minecraft:poison",
+    "minecraft:wither",
+    "minecraft:glowing",
+    "minecraft:levitation",
+    "minecraft:luck",
+    "minecraft:unluck",
+    "minecraft:slow_falling",
+    "minecraft:dolphins_grace",
+    "minecraft:darkness"
+  ]
+}

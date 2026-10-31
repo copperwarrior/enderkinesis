@@ -14,6 +14,7 @@ import net.minecraft.world.item.SignItem
 import net.minecraft.world.item.Instrument
 import net.minecraft.world.item.InstrumentItem
 import net.minecraft.world.item.Item
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.item.RecordItem
 import net.minecraft.world.item.Rarity
@@ -24,13 +25,10 @@ import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.GuideToStratusItem
 import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
-import org.shipwrights.enderkinesis.item.MysticAquamarineItem
-import org.shipwrights.enderkinesis.item.MysticBloodstoneItem
-import org.shipwrights.enderkinesis.item.MysticCitrineItem
-import org.shipwrights.enderkinesis.item.MysticJadeItem
-import org.shipwrights.enderkinesis.item.MysticMoonstoneItem
-import org.shipwrights.enderkinesis.item.MysticOnyxItem
-import org.shipwrights.enderkinesis.item.MysticSpinelItem
+import org.shipwrights.enderkinesis.item.MysticGemItem
+import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.MysticShardItem
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.item.EideticBookmarkItem
 import org.shipwrights.enderkinesis.item.OldPaperItem
 import org.shipwrights.enderkinesis.item.SatchelOfShelvingItem
@@ -308,23 +306,68 @@ object EKItems {
     val GRAND_STAFF_OF_THE_DEAD: RegistrySupplier<Item> =
         ITEMS.register("grand_staff_of_the_dead") { GrandStaffOfTheDeadItem(props().stacksTo(1)) }
 
-    /** Mystic Gems — right-click triggers a 7-block-diameter themed burst centred on the
-     *  holder; per-stack 10-second cooldown, item is not consumed. See [MysticGemItem]
-     *  for shared scaffolding and each subclass for the effect. */
-    val MYSTIC_CITRINE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_citrine") { MysticCitrineItem(props().stacksTo(1)) }
-    val MYSTIC_ONYX: RegistrySupplier<Item> =
-        ITEMS.register("mystic_onyx") { MysticOnyxItem(props().stacksTo(1)) }
-    val MYSTIC_JADE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_jade") { MysticJadeItem(props().stacksTo(1)) }
-    val MYSTIC_AQUAMARINE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_aquamarine") { MysticAquamarineItem(props().stacksTo(1)) }
-    val MYSTIC_MOONSTONE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_moonstone") { MysticMoonstoneItem(props().stacksTo(1)) }
-    val MYSTIC_SPINEL: RegistrySupplier<Item> =
-        ITEMS.register("mystic_spinel") { MysticSpinelItem(props().stacksTo(1)) }
-    val MYSTIC_BLOODSTONE: RegistrySupplier<Item> =
-        ITEMS.register("mystic_bloodstone") { MysticBloodstoneItem(props().stacksTo(1)) }
+    private fun shard(name: String, element: Element): RegistrySupplier<Item> =
+        ITEMS.register("mystic_${name}_shard") { MysticShardItem(element, props().fireResistant()) }
+
+    val MYSTIC_CITRINE_SHARD: RegistrySupplier<Item> = shard("citrine", Element.HEAT)
+    val MYSTIC_ONYX_SHARD: RegistrySupplier<Item> = shard("onyx", Element.GRAVITY)
+    val MYSTIC_JADE_SHARD: RegistrySupplier<Item> = shard("jade", Element.GROWTH)
+    val MYSTIC_AQUAMARINE_SHARD: RegistrySupplier<Item> = shard("aquamarine", Element.COLD)
+    val MYSTIC_MOONSTONE_SHARD: RegistrySupplier<Item> = shard("moonstone", Element.PURITY)
+    val MYSTIC_SPINEL_SHARD: RegistrySupplier<Item> = shard("spinel", Element.CHAOS)
+    val MYSTIC_BLOODSTONE_SHARD: RegistrySupplier<Item> = shard("bloodstone", Element.BLOOD)
+
+    private val SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
+        mapOf(
+            Element.HEAT to MYSTIC_CITRINE_SHARD, Element.GRAVITY to MYSTIC_ONYX_SHARD,
+            Element.GROWTH to MYSTIC_JADE_SHARD, Element.COLD to MYSTIC_AQUAMARINE_SHARD,
+            Element.PURITY to MYSTIC_MOONSTONE_SHARD, Element.CHAOS to MYSTIC_SPINEL_SHARD,
+            Element.BLOOD to MYSTIC_BLOODSTONE_SHARD,
+        )
+    }
+
+    /** Null for the fusions and Sundering, which have no inscribable shard. */
+    fun shardOf(element: Element): Item? = SHARDS[element]?.get()
+
+    /** A fusion is never inscribed as a shard. These only draw its glyph on the altar. */
+    private fun fusionShard(name: String): RegistrySupplier<Item> = ITEMS.register("mystic_${name}_shard") { Item(props()) }
+
+    val MYSTIC_SUNFIRE_SHARD: RegistrySupplier<Item> = fusionShard("sunfire")
+    val MYSTIC_POISON_SHARD: RegistrySupplier<Item> = fusionShard("poison")
+    val MYSTIC_VOID_SHARD: RegistrySupplier<Item> = fusionShard("void")
+
+    private val FUSION_SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
+        mapOf(Element.SUNFIRE to MYSTIC_SUNFIRE_SHARD, Element.POISON to MYSTIC_POISON_SHARD, Element.VOID to MYSTIC_VOID_SHARD)
+    }
+
+    /** Tinted from [NBT_SHARD_ELEMENT]. Only draws a glyph that has no shard (Sundering). */
+    val MYSTIC_SHARD: RegistrySupplier<Item> = ITEMS.register("mystic_shard") { Item(props()) }
+
+    const val NBT_SHARD_ELEMENT = "Element"
+
+    /** Sunfire glyphs use the bright yellow of its shard. Its [Element.color] stays the same elsewhere. */
+    fun glyphTint(element: Element): Int = if (element == Element.SUNFIRE) SUNFIRE_GLYPH else element.color
+
+    private const val SUNFIRE_GLYPH = 0xFFE03A
+
+    fun glyphStack(element: Element): ItemStack {
+        (shardOf(element) ?: FUSION_SHARDS[element]?.get())?.let { return ItemStack(it) }
+        return ItemStack(MYSTIC_SHARD.get()).apply { orCreateTag.putString(NBT_SHARD_ELEMENT, element.id) }
+    }
+
+    private fun gem(name: String, element: Element, shard: RegistrySupplier<Item>): RegistrySupplier<Item> =
+        ITEMS.register("mystic_$name") { MysticGemItem(element, shard::get, props().stacksTo(1).fireResistant()) }
+
+    val MYSTIC_CITRINE: RegistrySupplier<Item> = gem("citrine", Element.HEAT, MYSTIC_CITRINE_SHARD)
+    val MYSTIC_ONYX: RegistrySupplier<Item> = gem("onyx", Element.GRAVITY, MYSTIC_ONYX_SHARD)
+    val MYSTIC_JADE: RegistrySupplier<Item> = gem("jade", Element.GROWTH, MYSTIC_JADE_SHARD)
+    val MYSTIC_AQUAMARINE: RegistrySupplier<Item> = gem("aquamarine", Element.COLD, MYSTIC_AQUAMARINE_SHARD)
+    val MYSTIC_MOONSTONE: RegistrySupplier<Item> = gem("moonstone", Element.PURITY, MYSTIC_MOONSTONE_SHARD)
+    val MYSTIC_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, MYSTIC_SPINEL_SHARD)
+    val MYSTIC_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, MYSTIC_BLOODSTONE_SHARD)
+
+    val MYSTIC_SCROLL: RegistrySupplier<Item> =
+        ITEMS.register("mystic_scroll") { MysticScrollItem(props().stacksTo(1)) }
 
     /** Realm robe sets — three families (End Cult / Scholar / Blue Witch) × four slots
      *  (helmet / chest / legs / boots). All share [ScalingRobeArmorItem] which derives
@@ -439,6 +482,7 @@ object EKItems {
 
     val ANCRITE_BLOCK_ITEM = blockItem("ancrite_block", EKBlocks.ANCRITE_BLOCK)
     val CRYSTAL_PEDESTAL_ITEM = blockItem("crystal_pedestal", EKBlocks.CRYSTAL_PEDESTAL)
+    val ALTAR_OF_ILLUMINATION_ITEM = blockItem("altar_of_illumination", EKBlocks.ALTAR_OF_ILLUMINATION)
     val WOHLON_ROOT_ITEM = blockItem("wohlon_root", EKBlocks.WOHLON_ROOT)
     val RAW_ANCRITE_ITEM = blockItem("raw_ancrite", EKBlocks.RAW_ANCRITE)
     val REFINED_ANCRITE_ITEM = blockItem("refined_ancrite", EKBlocks.REFINED_ANCRITE)

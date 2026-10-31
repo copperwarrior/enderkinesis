@@ -1,0 +1,33 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "spell_gas_field_volume",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" }
+  ],
+  "uniforms": [
+    { "name": "ViewProj",     "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "LocalToView",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "BoxMin",       "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "BoxMax",       "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "InvViewProj",  "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "FieldNow",     "type": "int",       "count": 1,  "values": [ 4 ] },
+    { "name": "FieldWas",     "type": "int",       "count": 1,  "values": [ 5 ] },
+    { "name": "SpellTicks",   "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "CameraPos",    "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "DarkColor",    "type": "float",     "count": 3,  "values": [ 0.14, 0.22, 0.1 ] },
+    { "name": "LightColor",   "type": "float",     "count": 3,  "values": [ 0.5, 0.68, 0.29 ] },
+    { "name": "FieldOrigin",  "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "FieldSize",    "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "FieldTexSize", "type": "float",     "count": 3,  "values": [ 128.0, 64.0, 128.0 ] },
+    { "name": "FieldBlend",   "type": "float",     "count": 1,  "values": [ 1.0 ] }
+  ]
+}

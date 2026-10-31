@@ -22,6 +22,10 @@ import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKOceanParticleType
+import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.registry.EKParticles
 
 /**
@@ -36,11 +40,13 @@ object EnderkinesisModClient {
      * Forge calls this from the mod constructor; on Fabric [initClient] calls it. Nothing here
      * may call `RegistrySupplier.get()`.
      */
+    @Suppress("LongMethod") // Flat list of client registrations; splitting it hides the load order.
     @JvmStatic
     fun initClientEarly() {
         if (earlyDone) return
         earlyDone = true
         WyllandTomeKeys.init()
+        SpellKeys.init()
 
         // The Cataloger uses a custom HumanoidModel-based geometry (robed humanoid;
         // see CatalogerModel). The model layer is registered platform-side (Forge
@@ -117,8 +123,21 @@ object EnderkinesisModClient {
         EntityRendererRegistry.register(EKEntities.MAGIC_MISSILE) { ctx ->
             MagicMissileRenderer(ctx)
         }
+
+        EntityRendererRegistry.register(EKEntities.SINGULARITY) { ctx ->
+            net.minecraft.client.renderer.entity.NoopRenderer(ctx)
+        }
+
+        EntityRendererRegistry.register(EKEntities.MIASMA) { ctx -> MiasmaRenderer(ctx) }
+
+        EntityRendererRegistry.register(EKEntities.SPELL_BOLT) { ctx -> SpellBoltRenderer(ctx) }
+
+        EntityRendererRegistry.register(EKEntities.SIGNATURE) { ctx -> org.shipwrights.enderkinesis.client.signature.SignatureRenderer(ctx) }
+        org.shipwrights.enderkinesis.client.signature.SignatureVisuals.init()
+        SpellDarkness.init()
     }
 
+    @Suppress("LongMethod") // Flat list of client registrations and listener wiring.
     @JvmStatic
     fun initClient() {
         initClientEarly()
@@ -140,6 +159,12 @@ object EnderkinesisModClient {
 
         // Wand of Ga'Mylan cage S2C receivers (added / removed / hp).
         org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
+        SpellNetworkClient.init()
+        org.shipwrights.enderkinesis.item.MysticScrollItem.clientUsed = { player, use, hand ->
+            SpellHand.startUse(player, SpellHand.Use.valueOf(use.name), hand)
+            SpellArmPoses.started(player, SpellHand.Use.valueOf(use.name), hand)
+        }
+        org.shipwrights.enderkinesis.item.MysticScrollItem.clientReleased = { player -> SpellArmPoses.released(player) }
         // Shatter cloud spawned on cage break — owns its own per-tick
         // physics, so init separately from the network init.
         org.shipwrights.enderkinesis.client.GamylanCageShatter.init()
@@ -218,6 +243,31 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CRYSTAL_EXPLOSIVE.get())
 
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ICHAERIC_INK_JAR.get())
+        // The rune draws only through its block entity, so it needs no render layer. This tint colours its break particles.
+        ColorHandlerRegistry.registerBlockColors(
+            BlockColor { _, getter, pos, _ ->
+                (pos?.let { getter?.getBlockEntity(it) } as? RuneBlockEntity)?.spell?.tint() ?: 0xFFFFFF
+            },
+            EKBlocks.RUNE.get(),
+        )
+        // Translucent for the basin ink, as the jar is.
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ALTAR_OF_ILLUMINATION.get())
+
+        // Tint index 1 is the scroll wrap.
+        ColorHandlerRegistry.registerItemColors(
+            ItemColor { stack, tintIndex -> if (tintIndex == 1) MysticScrollItem.wrapColor(stack) else -1 },
+            EKItems.MYSTIC_SCROLL.get(),
+        )
+        dev.architectury.event.events.client.ClientTooltipEvent.ITEM.register { stack, lines, _ ->
+            org.shipwrights.enderkinesis.spell.Imbues.tooltip(stack)?.let { lines.add(minOf(1, lines.size), it) }
+        }
+        // The base shard stands in for glyphs that have no shard item of their own.
+        ColorHandlerRegistry.registerItemColors(
+            ItemColor { stack, _ ->
+                stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.let(EKItems::glyphTint) ?: -1
+            },
+            EKItems.MYSTIC_SHARD.get(),
+        )
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.INEGRIC_RETORT.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.OARSCRIBE.get())
@@ -278,6 +328,7 @@ object EnderkinesisModClient {
             RenderTypeRegistry.register(RenderType.solid(), clothBlock.get())
         }
 
+        BlockEntityRendererRegistry.register(EKBlockEntities.RUNE.get()) { ctx -> RuneVfx.Renderer(ctx) }
         // The astrolabe is drawn by a BlockEntityRenderer (translucent + no backface culling).
         BlockEntityRendererRegistry.register(EKBlockEntities.ENDER_ASTROLABE.get()) { _ ->
             EnderAstrolabeRenderer()
@@ -389,6 +440,10 @@ object EnderkinesisModClient {
             ForgottenItemRenderer(ctx)
         }
 
+        BlockEntityRendererRegistry.register(EKBlockEntities.ALTAR_OF_ILLUMINATION.get()) { ctx ->
+            AltarOfIlluminationRenderer(ctx)
+        }
+
         // Shulker Strut lid — vanilla shulker lid shell, drawn at the lid block's ship-local
         // position. VS2's render hook applies the lid ship's transform around this BER, so
         // the lid follows the joint-driven motion (and any blocks the player added to the
@@ -406,13 +461,21 @@ object EnderkinesisModClient {
                 TomeSummonOverlay.closeRefractionEffect()
                 ScryingClient.closeRefractionEffect()
                 SureibjinDreamVignette.close()
+                SpellScreen.close()
+                // Runs after the vanilla listeners rebuild the atlases, so sprites cached during the rebuild are dropped too.
+                SpellArt.invalidate()
             },
             org.shipwrights.enderkinesis.EnderkinesisMod.id("post_effects"),
         )
         if (!particlesDone) {
-            registerParticleProviders { type, factory ->
-                ParticleProviderRegistry.register(type) { sprites -> factory(sprites) }
-            }
+            registerParticleProviders(object : ParticleRegistrar {
+                override fun <T : net.minecraft.core.particles.ParticleOptions> register(
+                    type: net.minecraft.core.particles.ParticleType<T>,
+                    factory: (net.minecraft.client.particle.SpriteSet) -> net.minecraft.client.particle.ParticleProvider<T>,
+                ) {
+                    ParticleProviderRegistry.register(type) { sprites -> factory(sprites) }
+                }
+            })
         }
 
 
@@ -482,6 +545,8 @@ object EnderkinesisModClient {
         // deep-blob pass. Must register before the overlay so the shader is loaded by
         // the time the overlay first draws.
         YgannAbyssRenderTypes.init()
+        PocketPortalRenderType.init()
+        SpellVfxRenderTypes.init()
         org.shipwrights.enderkinesis.client.remnant.RemnantRenderTypes.init()
 
         // Sureibjin: dream-sky noise shader sampled per-fragment from spherical
@@ -652,6 +717,8 @@ object EnderkinesisModClient {
     private fun clearClientSession() {
         GamylanCageClientRegistry.clearSession()
         GamylanCageAlignSounds.reset()
+        SpellNetworkClient.reset()
+        DiscordDisguise.reset()
         GamylanCageShatter.clearSession()
         AegisClient.clearSession()
         FusionClient.clearSession()
@@ -673,19 +740,24 @@ object EnderkinesisModClient {
 
     private var particlesDone = false
 
-    fun interface ParticleRegistrar {
-        fun register(
-            type: net.minecraft.core.particles.ParticleType<net.minecraft.core.particles.SimpleParticleType>,
-            factory: (net.minecraft.client.particle.SpriteSet) ->
-            net.minecraft.client.particle.ParticleProvider<net.minecraft.core.particles.SimpleParticleType>,
+    interface ParticleRegistrar {
+        fun <T : net.minecraft.core.particles.ParticleOptions> register(
+            type: net.minecraft.core.particles.ParticleType<T>,
+            factory: (net.minecraft.client.particle.SpriteSet) -> net.minecraft.client.particle.ParticleProvider<T>,
         )
     }
 
     /** Forge takes providers only in `RegisterParticleProvidersEvent`, which is before
      *  `initClient`. Architectury's own listener for that event runs first, so a later
      *  call through Architectury registers late, with a warning for each provider. */
+    @Suppress("LongMethod") // Flat list of particle provider registrations.
     fun registerParticleProviders(registrar: ParticleRegistrar) {
         particlesDone = true
+        for (mote in org.shipwrights.enderkinesis.spell.SpellMote.entries) {
+            registrar.register(EKParticles.mote(mote)) { sprites -> SpellParticle.Provider(sprites, mote) }
+        }
+        registrar.register(EKParticles.leafChip()) { LeafChipParticle.Provider() }
+        registrar.register(EKParticles.spellGlyph()) { sprites -> SpellGlyphParticle.Provider(sprites) }
         // Virtual-ocean particles: wave-following surface, subsurface volume, and hull splash.
         registrar.register(EKParticles.ocean()) { sprites ->
             OceanParticle.Provider(sprites, OceanParticle.Mode.SURFACE)

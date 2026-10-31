@@ -676,45 +676,12 @@ object GamylanCageManager {
             // `loadedStandaloneBodies.add(body.id)` now returns true,
             // the wrapper is created cleanly, and both scaling +
             // deletion work end-to-end.
-            unregisterPreemptiveStandaloneBody(shipWorld, body.id)
+            org.shipwrights.enderkinesis.util.VsBodies.unregisterPreemptiveStandaloneBody(shipWorld, body.id)
             body.id
         } catch (t: Throwable) {
             LOG.warn("[ga'mylan] VS body creation failed at {}", hoverPos, t)
             null
         }
-    }
-
-    /** Reflect into [org.valkyrienskies.core.impl.game.ships.ShipObjectServerWorld]
-     *  and remove [bodyId] from its private `loadedStandaloneBodies`
-     *  set. See the callsite comment in [tryCreateDynamicBody] for the
-     *  full VS Core bug description. Safe no-op if the field can't be
-     *  resolved (vs-core version drift) — worst case the scaling stays
-     *  broken until we notice. */
-    private fun unregisterPreemptiveStandaloneBody(shipWorld: Any, bodyId: Long) {
-        try {
-            val field = findFieldInHierarchy(shipWorld.javaClass, "loadedStandaloneBodies")
-                ?: run {
-                    return
-                }
-            field.isAccessible = true
-            @Suppress("UNCHECKED_CAST")
-            val set = field.get(shipWorld) as? MutableSet<Long> ?: return
-            set.remove(bodyId)
-        } catch (t: Throwable) {
-            LOG.warn("[ga'mylan] failed to unregister preemptive standalone body id={}", bodyId, t)
-        }
-    }
-
-    private fun findFieldInHierarchy(cls: Class<*>, name: String): java.lang.reflect.Field? {
-        var c: Class<*>? = cls
-        while (c != null) {
-            try {
-                return c.getDeclaredField(name)
-            } catch (_: NoSuchFieldException) {
-                c = c.superclass
-            }
-        }
-        return null
     }
 
     /** Once per level, [STALE_SWEEP_GRACE_TICKS] after SERVER_LEVEL_LOAD:

@@ -17,6 +17,11 @@ import org.shipwrights.enderkinesis.client.ConcealmentShipFB;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer;
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderType;
 import org.shipwrights.enderkinesis.client.OrbLinkVolume;
+import org.shipwrights.enderkinesis.client.BlackSunVolume;
+import org.shipwrights.enderkinesis.client.GasFieldClient;
+import org.shipwrights.enderkinesis.client.SpellCloakVolume;
+import org.shipwrights.enderkinesis.client.SpellCubeFx;
+import org.shipwrights.enderkinesis.client.StillpointGlowVolume;
 import org.shipwrights.enderkinesis.client.WindConeVolume;
 import org.shipwrights.enderkinesis.client.OarscribeGlyphLight;
 import org.shipwrights.enderkinesis.client.ScryingClient;
@@ -128,6 +133,11 @@ public abstract class LevelRendererBubblePassMixin {
         OrbLinkVolume.render(poseStack, projectionMatrix, camera);
         OarscribeGlyphLight.render(poseStack, projectionMatrix, camera, partialTick);
         WindConeVolume.render(poseStack, projectionMatrix, camera, partialTick);
+        GasFieldClient.render(poseStack, projectionMatrix, camera);
+        SpellCloakVolume.render(poseStack, projectionMatrix, camera);
+        BlackSunVolume.render(poseStack, projectionMatrix, camera);
+        StillpointGlowVolume.render(poseStack, projectionMatrix, camera);
+        SpellCubeFx.captureView(poseStack, projectionMatrix, camera);
 
         // Before the fog, like the orb links.
         SselithEclipseGlow.render(poseStack, projectionMatrix, camera, partialTick);

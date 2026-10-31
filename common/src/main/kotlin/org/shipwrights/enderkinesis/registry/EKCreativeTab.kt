@@ -9,6 +9,10 @@ import net.minecraft.world.item.CreativeModeTab
 import net.minecraft.world.item.CreativeModeTabs
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.spell.Element
+import org.shipwrights.enderkinesis.spell.Inscription
+import org.shipwrights.enderkinesis.spell.Signature
+import org.shipwrights.enderkinesis.spell.Spell
 
 object EKCreativeTab {
     private val TABS: DeferredRegister<CreativeModeTab> =
@@ -20,8 +24,23 @@ object EKCreativeTab {
         }
     }
 
+    val SCROLLS: RegistrySupplier<CreativeModeTab> = TABS.register("enderkinesis_mystic_scrolls") {
+        CreativeTabRegistry.create(Component.translatable("itemGroup.enderkinesis.mystic_scrolls")) {
+            scroll(List(Inscription.MAX_GLYPHS) { Element.VOID })
+        }
+    }
+
+    private fun scroll(glyphs: List<Element>): ItemStack =
+        ItemStack(EKItems.MYSTIC_SCROLL.get()).apply { orCreateTag.put(Spell.NBT_GLYPHS, Spell(glyphs).save()) }
+
+    @Suppress("LongMethod") // Registration: one flat list of creative-tab entries.
     fun register() {
         TABS.register()
+        CreativeTabRegistry.modify(SCROLLS) { _, output, _ ->
+            // Sundering is never inscribed.
+            for (element in Element.entries) if (element != Element.SUNDERING) output.accept(scroll(List(Inscription.MAX_GLYPHS) { element }))
+            for (signature in Signature.entries) output.accept(scroll(signature.glyphs))
+        }
         // Populate the tab once everything is registered.
         CreativeTabRegistry.modify(MAIN) { _, output, _ ->
             output.accept(EKItems.CREPUSCULITE.get())
@@ -35,6 +54,7 @@ object EKCreativeTab {
             output.accept(EKItems.CREPUSCULITE_LATTICE_ITEM.get())
             output.accept(EKItems.CREPUSCULITE_LIGHTSTONE_ITEM.get())
             output.accept(EKItems.CRYSTAL_PEDESTAL_ITEM.get())
+            output.accept(EKItems.ALTAR_OF_ILLUMINATION_ITEM.get())
             output.accept(EKItems.ENDER_ASTROLABE_ITEM.get())
             output.accept(EKItems.MAGIC_MISSILE_LAUNCHER_ITEM.get())
             output.accept(EKItems.EYEROSCOPE_ITEM.get())
@@ -158,6 +178,13 @@ object EKCreativeTab {
             output.accept(EKItems.MYSTIC_MOONSTONE.get())
             output.accept(EKItems.MYSTIC_SPINEL.get())
             output.accept(EKItems.MYSTIC_BLOODSTONE.get())
+            output.accept(EKItems.MYSTIC_CITRINE_SHARD.get())
+            output.accept(EKItems.MYSTIC_ONYX_SHARD.get())
+            output.accept(EKItems.MYSTIC_JADE_SHARD.get())
+            output.accept(EKItems.MYSTIC_AQUAMARINE_SHARD.get())
+            output.accept(EKItems.MYSTIC_MOONSTONE_SHARD.get())
+            output.accept(EKItems.MYSTIC_SPINEL_SHARD.get())
+            output.accept(EKItems.MYSTIC_BLOODSTONE_SHARD.get())
 
             output.accept(EKItems.END_CULT_HOOD.get())
             output.accept(EKItems.END_CULT_ROBES.get())

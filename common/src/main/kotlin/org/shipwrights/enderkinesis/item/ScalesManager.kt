@@ -83,10 +83,10 @@ object ScalesManager {
     }
 
     /** True if the player's current dimension is on [BLACKLISTED_DIMENSIONS]. */
-    fun isDimensionBlacklisted(player: ServerPlayer): Boolean {
-        val dim = player.level().dimension().location()
-        return dim in BLACKLISTED_DIMENSIONS
-    }
+    fun isDimensionBlacklisted(player: ServerPlayer): Boolean = isDimensionBlacklisted(player.level())
+
+    fun isDimensionBlacklisted(level: net.minecraft.world.level.Level): Boolean =
+        level.dimension().location() in BLACKLISTED_DIMENSIONS
 
     /** Apply a new uniform scale. Clamps to [MIN_SCALE, MAX_SCALE].
      *

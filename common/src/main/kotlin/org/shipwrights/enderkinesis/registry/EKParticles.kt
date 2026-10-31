@@ -6,6 +6,8 @@ import net.minecraft.core.particles.ParticleType
 import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.core.registries.Registries
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.spell.SpellGlyphOptions
+import org.shipwrights.enderkinesis.spell.SpellMote
 
 /** SimpleParticleType has a protected ctor; a tiny subclass exposes it. */
 class EKOceanParticleType : SimpleParticleType(false)
@@ -296,6 +298,33 @@ object EKParticles {
         PARTICLES.register("ichaeric_ink_drip") { EKOceanParticleType() }
 
     fun ichaericInkDrip(): EKOceanParticleType = ICHAERIC_INK_DRIP.get() as EKOceanParticleType
+
+    val SPELL_MOTES: Map<SpellMote, RegistrySupplier<ParticleType<*>>> =
+        SpellMote.entries.associateWith { mote -> PARTICLES.register(mote.id) { EKOceanParticleType() } }
+
+    /** The client cuts these from the oak leaves texture at draw time. */
+    val LEAF_CHIP: RegistrySupplier<ParticleType<*>> = PARTICLES.register("spell_leaf_chip") { EKOceanParticleType() }
+
+    val SPELL_GLYPH: RegistrySupplier<ParticleType<*>> = PARTICLES.register("spell_glyph") { SpellGlyphOptions.Type() }
+
+    @Suppress("UNCHECKED_CAST") // The registry holds the type with an erased generic.
+    fun spellGlyph(): ParticleType<SpellGlyphOptions> = SPELL_GLYPH.get() as ParticleType<SpellGlyphOptions>
+
+    fun mote(mote: SpellMote): EKOceanParticleType = SPELL_MOTES.getValue(mote).get() as EKOceanParticleType
+
+    fun leafChip(): EKOceanParticleType = LEAF_CHIP.get() as EKOceanParticleType
+
+    fun bloodMist(): EKOceanParticleType = mote(SpellMote.BLOOD_MIST)
+
+    fun poisonMist(): EKOceanParticleType = mote(SpellMote.POISON_MIST)
+
+    fun crystalShard(): EKOceanParticleType = mote(SpellMote.CRYSTAL_SHARD)
+
+    fun rotSpore(): EKOceanParticleType = mote(SpellMote.ROT_SPORE)
+
+    fun bloodDrip(): EKOceanParticleType = mote(SpellMote.BLOOD_DRIP)
+
+    fun voidMote(): EKOceanParticleType = mote(SpellMote.VOID_MOTE)
 
     fun register() = PARTICLES.register()
 }

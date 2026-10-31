@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:ender_dragon",
+    "minecraft:wither",
+    { "id": "#c:bosses", "required": false },
+    { "id": "#forge:bosses", "required": false }
+  ]
+}

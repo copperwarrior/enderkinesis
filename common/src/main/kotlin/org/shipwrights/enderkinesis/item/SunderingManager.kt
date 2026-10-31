@@ -22,6 +22,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.spell.BeamManager
 import java.util.UUID
 
 /** Server-side per-tick logic for the Staff of Sundering.
@@ -229,6 +230,7 @@ object SunderingManager {
         return RANGE * (1.0 + infinity * INFINITY_PER_LEVEL)
     }
 
+    @Suppress("LongMethod") // One enchant pipeline per tick; the length predates the spell merge.
     fun tick(level: ServerLevel, player: Player) {
         val stack = player.useItem
         val rawElapsed = elapsed(player, stack)
@@ -249,8 +251,7 @@ object SunderingManager {
         // Infinity multiplies effective range by `1 + level`.
         val effectiveRange = RANGE * (1.0 + ench.infinity * INFINITY_PER_LEVEL)
 
-        val shields = SunderingBeamTrace.collectWieldedShields(level, player)
-        val trace = SunderingBeamTrace.trace(level, player, origin, viewVec, effectiveRange, shields)
+        val trace = traceAndRegister(level, player, origin, viewVec, effectiveRange, effectiveElapsed)
 
         // Advance the i-frame-matched damage cadence. Counter starts at 1
         // on the first tick of a wielding session and increments on each
@@ -308,6 +309,26 @@ object SunderingManager {
         } else {
             miningProgress.remove(player.uuid)
         }
+    }
+
+    // The ramp stage is the beam's Sundering magnitude. Past a merge crossing the merged beam
+    // takes over, so the clipped trace ends there.
+    private fun traceAndRegister(
+        level: ServerLevel, player: Player, origin: Vec3, viewVec: Vec3,
+        effectiveRange: Double, effectiveElapsed: Int,
+    ): BeamTrace {
+        val shields = BeamManager.mirrors(level, player)
+        val fullTrace = SunderingBeamTrace.trace(level, player, origin, viewVec, effectiveRange, shields, ENTITY_DAMAGE_RADIUS)
+        BeamManager.register(
+            BeamManager.Beam(
+                player.uuid, level, player, emptyList(), stageOf(effectiveElapsed).toFloat(),
+                fullTrace, effectiveRange, ENTITY_DAMAGE_RADIUS, fromStaff = true,
+            ) { player.releaseUsingItem() },
+        )
+        return BeamTrace(
+            BeamManager.clip(player.uuid, fullTrace),
+            if (BeamManager.isCut(player.uuid)) null else fullTrace.finalBlockPos,
+        )
     }
 
     private fun damageEntitiesAlong(

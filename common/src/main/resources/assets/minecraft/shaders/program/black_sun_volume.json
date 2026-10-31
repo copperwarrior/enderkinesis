@@ -1,0 +1,29 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "volume_proxy",
+  "fragment": "black_sun_volume",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" },
+    { "name": "SceneSampler" }
+  ],
+  "uniforms": [
+    { "name": "ViewProj",    "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "LocalToView", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "BoxMin",      "type": "float",     "count": 3,  "values": [ -1.0, -1.0, -1.0 ] },
+    { "name": "BoxMax",      "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "DepthParams", "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "ScreenSize",  "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "SunCentre",   "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "Radii",       "type": "float",     "count": 2,  "values": [ 0.5, 1.0 ] },
+    { "name": "Tip",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Shown",       "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "SpellTicks",  "type": "float",     "count": 1,  "values": [ 0.0 ] }
+  ]
+}

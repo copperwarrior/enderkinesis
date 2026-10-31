@@ -184,6 +184,11 @@
       "sselith": "navielkh",
       "tag": "[compound: bad + use]"
     },
+    "abyssal": {
+      "pos": "ADJ",
+      "sselith": "moroundsiskegh",
+      "tag": "[abyss + ADJ]"
+    },
     "acacia": {
       "pos": "NOUN",
       "sselith": "thornsavtruekh",
@@ -1039,6 +1044,11 @@
       "sselith": "krevirkmorzhirsk",
       "tag": "[alternate]"
     },
+    "altar": {
+      "pos": "NOUN",
+      "sselith": "zhdivplankht",
+      "tag": "[compound: god + table]"
+    },
     "alter": {
       "pos": "VERB",
       "sselith": "krekraekh",
@@ -1174,6 +1184,11 @@
       "sselith": "zhirsk",
       "tag": "[detective]"
     },
+    "anarchic": {
+      "pos": "ADJ",
+      "sselith": "naregarnskregh",
+      "tag": "[NEG + law + ADJ]"
+    },
     "ancestor": {
       "pos": "NOUN",
       "sselith": "morvrenkh",
@@ -1263,6 +1278,11 @@
       "pos": "NOUN",
       "sselith": "pedoletkh",
       "tag": "[compound: toe + joint]"
+    },
+    "annihilate": {
+      "pos": "VERB",
+      "sselith": "naistkhmornktkraekh",
+      "tag": "[compound: cancel + destroy]"
     },
     "anniversary": {
       "pos": "NOUN",
@@ -2979,6 +2999,11 @@
       "sselith": "blutkh",
       "tag": "[compound: blood + out]"
     },
+    "bleeding": {
+      "pos": "NOUN",
+      "sselith": "blutkhend",
+      "tag": "[bleed + PROG]"
+    },
     "blend": {
       "pos": "VERB",
       "sselith": "unteltkhend",
@@ -3033,6 +3058,11 @@
       "pos": "NOUN",
       "sselith": "blutkh",
       "tag": "[root]"
+    },
+    "bloodbound": {
+      "pos": "ADJ",
+      "sselith": "blutkhunteltkhegh",
+      "tag": "[compound: blood + bound]"
     },
     "bloody": {
       "pos": "ADJ",
@@ -4283,6 +4313,11 @@
       "pos": "NOUN",
       "sselith": "naregarkhust",
       "tag": "[compound: NEG + order + ABSTRACT]"
+    },
+    "chaotic": {
+      "pos": "ADJ",
+      "sselith": "naregarkhustegh",
+      "tag": "[chaos + ADJ]"
     },
     "chapter": {
       "pos": "NOUN",
@@ -6399,6 +6434,11 @@
       "sselith": "siskstkhegh",
       "tag": "[cracked + ADJ]"
     },
+    "crackle": {
+      "pos": "VERB",
+      "sselith": "glouvkhsiskvel",
+      "tag": "[compound: fire + break + DIM]"
+    },
     "crackles": {
       "pos": "VERB",
       "sselith": "glouvkh",
@@ -6679,6 +6719,11 @@
       "sselith": "morsisk",
       "tag": "[compound: break + flatten]"
     },
+    "crushing": {
+      "pos": "ADJ",
+      "sselith": "morsiskend",
+      "tag": "[crush + PROG]"
+    },
     "cry": {
       "pos": "VERB",
       "sselith": "plouvkh",
@@ -6693,6 +6738,16 @@
       "pos": "NOUN",
       "sselith": "morgloumkh",
       "tag": "[compound: light + stone]"
+    },
+    "crystallization": {
+      "pos": "NOUN",
+      "sselith": "morgloumkhkrevirkhust",
+      "tag": "[crystallize + ABSTRACT]"
+    },
+    "crystallize": {
+      "pos": "VERB",
+      "sselith": "morgloumkhkrevirkh",
+      "tag": "[compound: crystal + become]"
     },
     "cube": {
       "pos": "NOUN",
@@ -7689,6 +7744,11 @@
       "sselith": "kwerstekhegh",
       "tag": "[determine + ADJ]"
     },
+    "detonate": {
+      "pos": "VERB",
+      "sselith": "morsiskkraekh",
+      "tag": "[compound: explode + make]"
+    },
     "devastate": {
       "pos": "VERB",
       "sselith": "morruekkh",
@@ -8058,6 +8118,11 @@
       "pos": "VERB",
       "sselith": "ontunteltkhakht",
       "tag": "[disconnect + PAST]"
+    },
+    "discord": {
+      "pos": "NOUN",
+      "sselith": "nakwielkhust",
+      "tag": "[disorder + ABSTRACT]"
     },
     "discount": {
       "pos": "NOUN",
@@ -9699,6 +9764,16 @@
       "sselith": "morfielkh",
       "tag": "[compound: convince + make]"
     },
+    "entangle": {
+      "pos": "VERB",
+      "sselith": "oundkhvelunteltkh",
+      "tag": "[compound: root + bind]"
+    },
+    "entangled": {
+      "pos": "ADJ",
+      "sselith": "oundkhvelunteltkhacht",
+      "tag": "[entangle + PAST]"
+    },
     "enter": {
       "pos": "VERB",
       "sselith": "iskmt",
@@ -9723,6 +9798,16 @@
       "pos": "NOUN",
       "sselith": "dhoekhlumkust",
       "tag": "[entertain + ABSTRACT]"
+    },
+    "enthrall": {
+      "pos": "VERB",
+      "sselith": "blutkhmorschekh",
+      "tag": "[compound: blood + imprison]"
+    },
+    "enthralled": {
+      "pos": "ADJ",
+      "sselith": "blutkhmorschekhacht",
+      "tag": "[enthrall + PAST]"
     },
     "enthusiasm": {
       "pos": "NOUN",
@@ -10914,6 +10999,11 @@
       "sselith": "veltrenkh",
       "tag": "[compound: thin + thread]"
     },
+    "fickle": {
+      "pos": "ADJ",
+      "sselith": "krekraekhegh",
+      "tag": "[change + ADJ]"
+    },
     "fiction": {
       "pos": "NOUN",
       "sselith": "nazharkhust",
@@ -11779,6 +11869,11 @@
       "sselith": "morsdrankhend",
       "tag": "[frighten + PROG]"
     },
+    "frigid": {
+      "pos": "ADJ",
+      "sselith": "mornaisgloumkhegh",
+      "tag": "[AUG + cold]"
+    },
     "frog": {
       "pos": "NOUN",
       "sselith": "frokh",
@@ -11983,6 +12078,11 @@
       "pos": "ADV",
       "sselith": "morschrkh",
       "tag": "[further + AUG]"
+    },
+    "fuse": {
+      "pos": "VERB",
+      "sselith": "kreunteltkh",
+      "tag": "[RE + merge]"
     },
     "future": {
       "pos": "NOUN",
@@ -12328,6 +12428,11 @@
       "pos": "INTJ",
       "sselith": "vielkzh",
       "tag": "[good luck]"
+    },
+    "glacial": {
+      "pos": "ADJ",
+      "sselith": "naglouvkhegh",
+      "tag": "[ice + ADJ]"
     },
     "glad": {
       "pos": "ADJ",
@@ -13549,6 +13654,11 @@
       "sselith": "naviethegh",
       "tag": "[empty]"
     },
+    "hollowed": {
+      "pos": "ADJ",
+      "sselith": "naviethacht",
+      "tag": "[hollow + PAST]"
+    },
     "holy": {
       "pos": "ADJ",
       "sselith": "zhedivkh",
@@ -13723,6 +13833,11 @@
       "pos": "ADJ",
       "sselith": "morischkh",
       "tag": "[enormous]"
+    },
+    "hum": {
+      "pos": "VERB",
+      "sselith": "velzhsathorgh",
+      "tag": "[DIM + hiss]"
     },
     "human": {
       "pos": "NOUN",
@@ -13988,6 +14103,16 @@
       "pos": "NOUN",
       "sselith": "navirkust",
       "tag": "[disease]"
+    },
+    "illuminate": {
+      "pos": "VERB",
+      "sselith": "gloumkhdhoekh",
+      "tag": "[compound: light + give]"
+    },
+    "illumination": {
+      "pos": "NOUN",
+      "sselith": "gloumkhdhoekhust",
+      "tag": "[illuminate + ABSTRACT]"
     },
     "illusion": {
       "pos": "NOUN",
@@ -14628,6 +14753,11 @@
       "pos": "NOUN",
       "sselith": "siskstkzhust",
       "tag": "[broken + mind + ABSTRACT]"
+    },
+    "inscribe": {
+      "pos": "VERB",
+      "sselith": "siskzhskrimkh",
+      "tag": "[compound: carve + write]"
     },
     "inscribed": {
       "pos": "ADJ",
@@ -19509,6 +19639,16 @@
       "sselith": "morsalvkh",
       "tag": "[compound: defeat + AUG]"
     },
+    "overgrow": {
+      "pos": "VERB",
+      "sselith": "ouvkrelkh",
+      "tag": "[compound: over + grow]"
+    },
+    "overgrown": {
+      "pos": "ADJ",
+      "sselith": "ouvkrelkhakt",
+      "tag": "[overgrow + PERF]"
+    },
     "overhear": {
       "pos": "VERB",
       "sselith": "krezhsath",
@@ -20458,6 +20598,16 @@
       "pos": "NOUN",
       "sselith": "placstrkhust",
       "tag": "[compound: place + ABSTRACT]"
+    },
+    "plague": {
+      "pos": "NOUN",
+      "sselith": "mornavirkust",
+      "tag": "[AUG + disease]"
+    },
+    "plagued": {
+      "pos": "ADJ",
+      "sselith": "mornavirkustacht",
+      "tag": "[plague + PAST]"
     },
     "plain": {
       "pos": "ADJ",
@@ -21959,6 +22109,11 @@
       "sselith": "solknavkhorl",
       "tag": "[pure + ADV]"
     },
+    "purity": {
+      "pos": "NOUN",
+      "sselith": "solknavkhust",
+      "tag": "[pure + ABSTRACT]"
+    },
     "purple": {
       "pos": "ADJ",
       "sselith": "purpoulegh",
@@ -22188,6 +22343,11 @@
       "pos": "NOUN",
       "sselith": "morviuthkzh",
       "tag": "[compound: far + sight]"
+    },
+    "radiant": {
+      "pos": "ADJ",
+      "sselith": "gloumkhend",
+      "tag": "[shine + PROG]"
     },
     "radiation": {
       "pos": "NOUN",
@@ -22468,6 +22628,11 @@
       "pos": "NOUN",
       "sselith": "krekr",
       "tag": "[revolution]"
+    },
+    "rebound": {
+      "pos": "VERB",
+      "sselith": "krelokttockh",
+      "tag": "[RE + throw]"
     },
     "rebuild": {
       "pos": "VERB",
@@ -23699,6 +23864,11 @@
       "sselith": "rougphlouhrkh",
       "tag": "[Sselith compound]"
     },
+    "rot": {
+      "pos": "NOUN",
+      "sselith": "mornktnavirk",
+      "tag": "[compound: death + sick]"
+    },
     "rotate": {
       "pos": "VERB",
       "sselith": "krevolkr",
@@ -23813,6 +23983,11 @@
       "pos": "VERB",
       "sselith": "morvolkh",
       "tag": "[AUG + volkh]"
+    },
+    "rune": {
+      "pos": "NOUN",
+      "sselith": "zhskrimkhsthoun",
+      "tag": "[compound: write + stone]"
     },
     "rung": {
       "pos": "VERB",
@@ -23988,6 +24163,11 @@
       "pos": "ADV",
       "sselith": "olmzhorl",
       "tag": "[sane + ADV]"
+    },
+    "sanguine": {
+      "pos": "ADJ",
+      "sselith": "blutkhegh",
+      "tag": "[blood + ADJ]"
     },
     "sanity": {
       "pos": "NOUN",
@@ -24273,6 +24453,11 @@
       "pos": "NOUN",
       "sselith": "kwieltkh",
       "tag": "[compound: close + cover]"
+    },
+    "sear": {
+      "pos": "VERB",
+      "sselith": "morglouvkh",
+      "tag": "[AUG + burn]"
     },
     "search": {
       "pos": "VERB",
@@ -25244,6 +25429,11 @@
       "sselith": "virlumkh",
       "tag": "[compound: one + player]"
     },
+    "singularity": {
+      "pos": "NOUN",
+      "sselith": "solkust",
+      "tag": "[single + ABSTRACT]"
+    },
     "sinister": {
       "pos": "ADJ",
       "sselith": "sintregh",
@@ -26199,6 +26389,11 @@
       "sselith": "morsuolkharn",
       "tag": "[married + AGENT]"
     },
+    "spray": {
+      "pos": "NOUN",
+      "sselith": "plouvlokt",
+      "tag": "[compound: water + throw]"
+    },
     "spread": {
       "pos": "VERB",
       "sselith": "morviuthkkh",
@@ -27129,6 +27324,11 @@
       "sselith": "solarkh",
       "tag": "[compound: schest-vir + day]"
     },
+    "sunfire": {
+      "pos": "NOUN",
+      "sselith": "gloumkhglouvkh",
+      "tag": "[compound: sun + fire]"
+    },
     "sunflower": {
       "pos": "NOUN",
       "sselith": "phlouhrkh",
@@ -27533,6 +27733,16 @@
       "pos": "NOUN",
       "sselith": "schrend",
       "tag": "[compound: end + body]"
+    },
+    "taint": {
+      "pos": "VERB",
+      "sselith": "viuthkraekh",
+      "tag": "[compound: dirt + make]"
+    },
+    "tainted": {
+      "pos": "ADJ",
+      "sselith": "viuthkraekhacht",
+      "tag": "[taint + PAST]"
     },
     "take": {
       "pos": "VERB",
@@ -29904,6 +30114,11 @@
       "sselith": "corkh",
       "tag": "[compound: body + blood + path]"
     },
+    "venomous": {
+      "pos": "ADJ",
+      "sselith": "mornkhegh",
+      "tag": "[poison + ADJ]"
+    },
     "venture": {
       "pos": "NOUN",
       "sselith": "drankh",
@@ -30558,6 +30773,11 @@
       "pos": "ADJ",
       "sselith": "morwegh",
       "tag": "[weight + ADJ]"
+    },
+    "weighty": {
+      "pos": "ADJ",
+      "sselith": "mormorwegh",
+      "tag": "[AUG + heavy]"
     },
     "weird": {
       "pos": "ADJ",
@@ -37129,6 +37349,11 @@
       "sselith": "terkhtphlouhrvel",
       "tag": "[grass-land]"
     },
+    "searing": {
+      "pos": "ADJ",
+      "sselith": "morglouvkhend",
+      "tag": "[sear + PROG]"
+    },
     "seaside": {
       "pos": "NOUN",
       "sselith": "seaskide",
@@ -37633,6 +37858,11 @@
       "pos": "ADJ",
       "sselith": "drankhargegh",
       "tag": "[fear-inducing]"
+    },
+    "chill": {
+      "pos": "ADJ",
+      "sselith": "velnaisgloumkhegh",
+      "tag": "[DIM + cold]"
     },
     "chimes": {
       "pos": "NOUN",
@@ -38174,6 +38404,11 @@
       "sselith": "kwieltukhelk",
       "tag": "[calm + PL]"
     },
+    "crumble": {
+      "pos": "VERB",
+      "sselith": "velsiskstkh",
+      "tag": "[DIM + break]"
+    },
     "crumbles": {
       "pos": "NOUN",
       "sselith": "krumbleelk",
@@ -38398,6 +38633,16 @@
       "pos": "VERB",
       "sselith": "zhspraekhend",
       "tag": "[talk + 3SG]"
+    },
+    "flush": {
+      "pos": "VERB",
+      "sselith": "rouvkraekh",
+      "tag": "[compound: red + make]"
+    },
+    "flushed": {
+      "pos": "ADJ",
+      "sselith": "rouvkraekhacht",
+      "tag": "[flush + PAST]"
     },
     "flutters": {
       "pos": "NOUN",

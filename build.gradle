@@ -80,6 +80,13 @@ allprojects {
                     password = project.vs_maven_password
                 }
             }
+            // The VS mirror has POMs for these but not every artifact (Forge's -sources jar, KFF's -all jar).
+            // Gradle pins a module to the first repo that has its POM, so let their own Mavens serve them:
+            // the Forge Maven (declared in forge/build.gradle) and the Kotlin for Forge Maven below.
+            content {
+                excludeModule "net.minecraftforge", "forge"
+                excludeGroup "thedarkcolour"
+            }
         }
         maven {
             name = 'Kotlin for Forge'

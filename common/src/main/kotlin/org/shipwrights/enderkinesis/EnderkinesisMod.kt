@@ -55,6 +55,7 @@ object EnderkinesisMod {
 
     fun id(path: String): ResourceLocation = ResourceLocation(MOD_ID, path)
 
+    @Suppress("LongMethod") // Mod-wide registration and listener wiring; the order of calls is load-bearing.
     @JvmStatic
     fun init() {
         // Order matters: blocks before items (block items reference blocks); sounds before
@@ -217,11 +218,30 @@ object EnderkinesisMod {
             PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.FountainBlessings, id("fountain_blessing"),
         )
         ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.item.RaisingRites, id("raising_rite"))
+        ReloadListenerRegistry.register(
+            PackType.SERVER_DATA, org.shipwrights.enderkinesis.spell.FluidFreezing, id("fluid_freezing"),
+        )
 
         org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.register()
         org.shipwrights.enderkinesis.body.OrbCollisionSounds.register()
         org.shipwrights.enderkinesis.entity.ConstriliarImpactSounds.register()
         org.shipwrights.enderkinesis.physics.ConstriliarContacts.register()
+        org.shipwrights.enderkinesis.spell.RuneCollisionRouter.register()
+        org.shipwrights.enderkinesis.spell.RuneTriggers.init()
+        org.shipwrights.enderkinesis.spell.Imbues.init()
+        org.shipwrights.enderkinesis.spell.SpellDeaths.init()
+        org.shipwrights.enderkinesis.spell.BeamManager.init()
+        org.shipwrights.enderkinesis.spell.DarkZones.init()
+        org.shipwrights.enderkinesis.spell.BloodPacts.init()
+        org.shipwrights.enderkinesis.spell.FrozenBodies.init()
+        org.shipwrights.enderkinesis.spell.GasField.init()
+        org.shipwrights.enderkinesis.spell.Absence.init()
+        org.shipwrights.enderkinesis.effect.BloodSurgeFades.init()
+        org.shipwrights.enderkinesis.spell.SpellHolds.init()
+        org.shipwrights.enderkinesis.spell.AbyssalPockets.init()
+        org.shipwrights.enderkinesis.spell.SpellNetwork.init()
+        org.shipwrights.enderkinesis.spell.ElementalEnvironment.init()
+        org.shipwrights.enderkinesis.spell.SelfCasts.init()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
         org.shipwrights.enderkinesis.dimension.SselithMothSpawner.init()
@@ -336,12 +356,15 @@ object EnderkinesisMod {
             org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter.clearSession()
             org.shipwrights.enderkinesis.body.OrbCollisionSounds.clearSession()
             org.shipwrights.enderkinesis.entity.ConstriliarImpactSounds.clearSession()
+            org.shipwrights.enderkinesis.spell.RuneCollisionRouter.clearSession()
             org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity.clearSession()
             org.shipwrights.enderkinesis.item.RodOfLevitationManager.clearSession()
             org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.clearSession()
             org.shipwrights.enderkinesis.item.ScalesManager.clearSession()
             org.shipwrights.enderkinesis.dimension.MothClothShipRegistry.clearSession()
             org.shipwrights.enderkinesis.item.VentriloquismNetwork.clearSession()
+            org.shipwrights.enderkinesis.spell.signature.Signatures.clearSession()
+            org.shipwrights.enderkinesis.spell.signature.LinkSignatures.VampiresBallroom.clearSession()
             org.shipwrights.enderkinesis.physics.LatticeRegistry.dropLevels(clientSide = false)
             org.shipwrights.enderkinesis.physics.LatticeOcean.dropLevels(clientSide = false)
             org.shipwrights.enderkinesis.blockentity.OrbOfLinkingClientRegistry.dropLevels(clientSide = false)

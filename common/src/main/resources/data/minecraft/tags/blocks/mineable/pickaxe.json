@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
+    "enderkinesis:altar_of_illumination",
     "enderkinesis:ancrite_block",
     "enderkinesis:oarscribe",
     "enderkinesis:jar_receptacle",

@@ -15,6 +15,11 @@ object ClientShipCloakingState {
 
     private val states: MutableMap<Long, CloakState> = ConcurrentHashMap()
 
+    // Reveal (Purity): ship id to the wall-clock ms when its flicker stops.
+    private val stutters: MutableMap<Long, Long> = ConcurrentHashMap()
+
+    private const val STUTTER_FLICKER_MS: Long = 150L
+
     private class CloakState(
         var direction: Int,            // +1 cloaking, -1 uncloaking, 0 settled
         var progress: Float,           // 0.0 (visible) → 1.0 (fully cloaked)
@@ -47,8 +52,25 @@ object ClientShipCloakingState {
         ConcealmentSounds.onTransfer(fromShipId, toShipId)
     }
 
+    fun stutter(shipId: Long, ticks: Int) {
+        stutters[shipId] = nowMs() + ticks * 50L
+    }
+
     /** Per-frame query. Returns 0.0 (fully visible) → 1.0 (fully cloaked). */
     fun getProgress(shipId: Long): Float {
+        val progress = cloakProgress(shipId)
+        val until = stutters[shipId] ?: return progress
+        val now = nowMs()
+        if (now >= until) {
+            stutters.remove(shipId)
+            return progress
+        }
+        // Offset by ship, so fleets do not flicker together.
+        val phase = (now + shipId * 37L) / STUTTER_FLICKER_MS
+        return if (phase % 2L == 0L) 0f else progress
+    }
+
+    private fun cloakProgress(shipId: Long): Float {
         val state = states[shipId] ?: return 0f
         advance(state, nowMs())
         // Once fully uncloaked, drop the entry to keep the map sparse.
@@ -63,6 +85,7 @@ object ClientShipCloakingState {
     /** Disconnect cleanup — wipe everything. Called on world-change / world-leave. */
     fun reset() {
         states.clear()
+        stutters.clear()
         ConcealmentSounds.reset()
     }
 

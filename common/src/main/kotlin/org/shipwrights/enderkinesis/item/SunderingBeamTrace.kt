@@ -8,6 +8,7 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.spell.BeamGeometry
 import org.shipwrights.enderkinesis.util.LoadedRay
 
 /** One straight-line piece of a Sundering beam. The beam is a polyline of
@@ -28,6 +29,8 @@ data class BeamTrace(
     /** Block position of the final terminating hit, or null when the
      *  beam ran out of range without landing on a block. */
     val finalBlockPos: BlockPos?,
+    /** Where the beam meets itself, or null. The cast that holds the beam cancels at a loop. */
+    val loopPoint: Vec3? = null,
 )
 
 /** Polyline tracer shared by [SunderingManager] (server damage / mining)
@@ -36,10 +39,11 @@ data class BeamTrace(
  *  physical effect agree segment-for-segment.
  *
  *  Mirror reflection off Aegis shields uses `D − 2(D·N)N` with [N] being
- *  the outward normal returned by [AegisBox.rayIntersect]. Capped at
- *  [MAX_REFLECTIONS] bounces so two facing shields don't lock the beam
- *  into infinite recursion. Total path length across all segments stays
- *  ≤ `maxRange`. */
+ *  the outward normal returned by [AegisBox.rayIntersect]. Total path
+ *  length across all segments stays ≤ `maxRange`.
+ *
+ *  A head-on reflection or a segment in the beam width of an earlier one is a loop.
+ *  [MAX_REFLECTIONS] caps a path that never crosses itself. */
 object SunderingBeamTrace {
 
     /** Max bounces — including the initial straight segment, the trace
@@ -56,7 +60,7 @@ object SunderingBeamTrace {
      *  only `isUsingItem` one item at a time so they can't simultaneously
      *  fire Sundering and project an Aegis box, but the explicit skip
      *  keeps the contract obvious. */
-    fun collectWieldedShields(level: Level, exclude: Player): List<AegisBox.Frame> {
+    fun collectWieldedShields(level: Level, exclude: net.minecraft.world.entity.Entity?): List<AegisBox.Frame> {
         val out = ArrayList<AegisBox.Frame>()
         for (p in level.players()) {
             if (p === exclude) continue
@@ -72,7 +76,39 @@ object SunderingBeamTrace {
      *  Returns the segment list plus the block hit at the polyline's end
      *  (null if the beam terminated without hitting a block). */
     fun trace(
-        level: Level, player: net.minecraft.world.entity.Entity,
+        level: Level, player: net.minecraft.world.entity.Entity?,
+        origin: Vec3, dir: Vec3, maxRange: Double,
+        shields: List<AegisBox.Frame>,
+        halfWidth: Double = DEFAULT_HALF_WIDTH,
+    ): BeamTrace {
+        val traced = traceStraight(level, player, origin, dir, maxRange, shields)
+        return truncateAtLoop(traced, halfWidth)
+    }
+
+    /** Must agree with the entity-hit radius of the beams. */
+    const val DEFAULT_HALF_WIDTH: Double = 0.5
+
+    fun truncateAtLoop(traced: BeamTrace, halfWidth: Double): BeamTrace {
+        val segments = traced.segments
+        for (k in 1 until segments.size) {
+            val seg = segments[k]
+            val prev = segments[k - 1]
+            if (BeamGeometry.headOn(seg.direction, prev.direction)) {
+                return BeamTrace(segments.subList(0, k), null, seg.start)
+            }
+            for (j in 0 until k - 1) {
+                val other = segments[j]
+                val c = BeamGeometry.closest(seg.start, seg.end, other.start, other.end)
+                if (c.distance >= 2.0 * halfWidth) continue
+                val cut = BeamSegment(seg.start, seg.direction, c.a, seg.length * c.s)
+                return BeamTrace(segments.subList(0, k) + cut, null, c.midpoint)
+            }
+        }
+        return traced
+    }
+
+    private fun traceStraight(
+        level: Level, player: net.minecraft.world.entity.Entity?,
         origin: Vec3, dir: Vec3, maxRange: Double,
         shields: List<AegisBox.Frame>,
     ): BeamTrace {

@@ -31,6 +31,7 @@ import net.minecraft.world.level.block.state.properties.WoodType
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.material.MapColor
+import net.minecraft.world.level.material.PushReaction
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.block.AetherPadBlock
 import org.shipwrights.enderkinesis.block.AncriteBarsBlock
@@ -54,6 +55,9 @@ import org.shipwrights.enderkinesis.block.ShulkerStrutBlock
 import org.shipwrights.enderkinesis.block.IchaericInkBlock
 import org.shipwrights.enderkinesis.block.IchaericInkJarBlock
 import org.shipwrights.enderkinesis.block.InegricRetortBlock
+import org.shipwrights.enderkinesis.block.AltarOfIlluminationBlock
+import org.shipwrights.enderkinesis.block.PhantomLightBlock
+import org.shipwrights.enderkinesis.block.RuneBlock
 import org.shipwrights.enderkinesis.block.ForgottenItemBlock
 import org.shipwrights.enderkinesis.block.ScribesDeskBlock
 import org.shipwrights.enderkinesis.block.OarscribeBlock
@@ -609,6 +613,43 @@ object EKBlocks {
 
     val JAR_RECEPTACLE: RegistrySupplier<Block> = BLOCKS.register("jar_receptacle") {
         JarReceptacleBlock(BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES).noOcclusion())
+    }
+
+    val ALTAR_OF_ILLUMINATION: RegistrySupplier<Block> = BLOCKS.register("altar_of_illumination") {
+        AltarOfIlluminationBlock(
+            BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES)
+                .mapColor(MapColor.DEEPSLATE)
+                .noOcclusion()
+        )
+    }
+
+    /** No item. */
+    val RUNE: RegistrySupplier<Block> = BLOCKS.register("rune") {
+        RuneBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.NONE)
+                .noCollission()
+                .noOcclusion()
+                .instabreak()
+                .noLootTable()
+                .sound(SoundType.SMALL_AMETHYST_BUD)
+                .lightLevel { 5 }
+                .pushReaction(PushReaction.DESTROY)
+        )
+    }
+
+    /** No item. */
+    val PHANTOM_LIGHT: RegistrySupplier<Block> = BLOCKS.register("phantom_light") {
+        PhantomLightBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.NONE)
+                .replaceable()
+                .noCollission()
+                .noOcclusion()
+                .noLootTable()
+                .lightLevel { 15 }
+                .pushReaction(PushReaction.DESTROY)
+        )
     }
 
     val FORGOTTEN_ITEM: RegistrySupplier<Block> = BLOCKS.register("forgotten_item") {

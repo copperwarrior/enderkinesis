@@ -18,6 +18,11 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.duck.ImbuedProjectile
+import org.shipwrights.enderkinesis.entity.SpellBoltEntity
+import org.shipwrights.enderkinesis.spell.Element
+import org.shipwrights.enderkinesis.spell.Spell
+import org.shipwrights.enderkinesis.spell.SpellVfx
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
@@ -172,7 +177,10 @@ object AegisManager {
         // accessor mixin, and arrows are unlikely to be stationary inside a
         // shield projection at 4 blocks away in normal play.)
         proj.hasImpulse = true
-        playFeedback(proj, player, EKSounds.AEGIS_DEFLECT.get(), DEFLECT_RIPPLE_HALF_SIZE)
+        if (playFeedback(proj, player, EKSounds.AEGIS_DEFLECT.get(), DEFLECT_RIPPLE_HALF_SIZE)) {
+            val elements = spellElements(proj)
+            if (elements.isNotEmpty()) (proj.level() as? ServerLevel)?.let { SpellVfx.deflect(it, proj.boundingBox.center, look, elements) }
+        }
     }
 
     /** Adds a single-tick away-from-player impulse (with a small upward
@@ -198,16 +206,24 @@ object AegisManager {
         playFeedback(entity, player, EKSounds.AEGIS_PUSH.get(), rippleHalfSize)
     }
 
+    private fun spellElements(proj: Projectile): Collection<Element> {
+        if (proj is SpellBoltEntity) return proj.elements()
+        val tag = (proj as? ImbuedProjectile)?.`enderkinesis$getImbue`() ?: return emptyList()
+        return Spell.load(tag, Spell.NBT_GLYPHS)?.magnitudes?.keys ?: emptyList()
+    }
+
     // A push runs each tick while the entity stays in the box. A reflected projectile also
-    // stays in the detection volume for some ticks, and the shield reflects it again.
-    private fun playFeedback(entity: Entity, wielder: Player, sound: SoundEvent, rippleHalfSize: Float) {
-        val level = entity.level() as? ServerLevel ?: return
+    // stays in the detection volume for some ticks, and the shield reflects it again. Returns
+    // true when the feedback plays.
+    private fun playFeedback(entity: Entity, wielder: Player, sound: SoundEvent, rippleHalfSize: Float): Boolean {
+        val level = entity.level() as? ServerLevel ?: return false
         val now = level.gameTime
-        if (feedbackTicks.containsKey(entity.id) && !isFeedbackExpired(now, feedbackTicks.get(entity.id))) return
+        if (feedbackTicks.containsKey(entity.id) && !isFeedbackExpired(now, feedbackTicks.get(entity.id))) return false
         feedbackTicks.put(entity.id, now)
         val pos = entity.boundingBox.center
         level.playSound(null, pos.x, pos.y, pos.z, sound, SoundSource.PLAYERS, 1f, 1f)
         AegisNetwork.broadcastRipple(level, wielder, pos, rippleHalfSize)
+        return true
     }
 
     // A time in the future is from a different world session.

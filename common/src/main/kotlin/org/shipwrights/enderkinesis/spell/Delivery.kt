@@ -1,0 +1,165 @@
+package org.shipwrights.enderkinesis.spell
+
+import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.util.Mth
+import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.level.ClipContext
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.HitResult
+import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.item.AegisBox
+import org.shipwrights.enderkinesis.util.colliderClip
+
+sealed class Delivery {
+    abstract val anchor: Vec3
+
+    fun entities(ctx: SpellContext, includeCaster: Boolean = false): List<Entity> =
+        (foundEntities ?: candidates(ctx).also { foundEntities = it })
+            .filter { it.isAlive && !it.isSpectator && (includeCaster || !ctx.isCaster(it)) }
+
+    // Each element of a cast and each named effect ask for the same entities and blocks, so find them once.
+    private var foundEntities: List<Entity>? = null
+    private var foundBlocks: List<BlockPos>? = null
+
+    fun living(ctx: SpellContext, includeCaster: Boolean = false): List<LivingEntity> =
+        entities(ctx, includeCaster).filterIsInstance<LivingEntity>()
+
+    protected abstract fun candidates(ctx: SpellContext): List<Entity>
+
+    fun bounds(): AABB = when (this) {
+        is Sphere -> AABB(center, center).inflate(radius)
+        is Line -> AABB(from, to).inflate(halfWidth)
+        is Cone -> AABB(origin, origin).inflate(length)
+        is Group -> targets.map { it.boundingBox }.reduceOrNull(AABB::minmax) ?: AABB(anchor, anchor)
+        is SingleEntity -> entity.boundingBox
+        is SingleBlock -> AABB(pos)
+    }
+
+    fun blocks(level: Level): List<BlockPos> = foundBlocks ?: findBlocks(level).also { foundBlocks = it }
+
+    protected abstract fun findBlocks(level: Level): List<BlockPos>
+
+    open fun scatterRoll(ctx: SpellContext, denominator: Int): Boolean = ctx.chance(1f / denominator)
+
+    /** [area] marks an Area cast at the caster's feet: visuals sit one block higher, and Chaos includes the caster.
+     *  [waves] draws waves that go out from the centre, not one burst. */
+    class Sphere(val center: Vec3, val radius: Double, val area: Boolean = false, val waves: Boolean = area) : Delivery() {
+        override val anchor: Vec3 = if (area) center.add(0.0, 1.0, 0.0) else center
+
+        override fun candidates(ctx: SpellContext): List<Entity> {
+            val r2 = radius * radius
+            return ctx.level.getEntities(null as Entity?, AABB.ofSize(center, radius * 2, radius * 2, radius * 2)) {
+                it.position().distanceToSqr(center) <= r2
+            }
+        }
+
+        override fun findBlocks(level: Level): List<BlockPos> {
+            val r = Math.ceil(radius).toInt()
+            val cx = Mth.floor(center.x); val cy = Mth.floor(center.y); val cz = Mth.floor(center.z)
+            val r2 = radius * radius
+            val out = ArrayList<BlockPos>()
+            for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
+                if (dx * dx + dy * dy + dz * dz > r2) continue
+                out += BlockPos(cx + dx, cy + dy, cz + dz)
+            }
+            return out
+        }
+    }
+
+    class Line(val from: Vec3, val to: Vec3, val halfWidth: Double = 0.5) : Delivery() {
+        override val anchor: Vec3 get() = to
+
+        override fun candidates(ctx: SpellContext): List<Entity> =
+            ctx.level.getEntities(null as Entity?, AABB(from, to).inflate(halfWidth)) {
+                val box = it.boundingBox.inflate(halfWidth)
+                box.contains(from) || box.clip(from, to).isPresent
+            }
+
+        override fun findBlocks(level: Level): List<BlockPos> {
+            val length = from.distanceTo(to)
+            val steps = Math.ceil(length / STEP).toInt().coerceAtLeast(1)
+            val out = LinkedHashSet<BlockPos>()
+            for (i in 0..steps) out += BlockPos.containing(from.lerp(to, i.toDouble() / steps))
+            return out.toList()
+        }
+
+        private companion object {
+            const val STEP = 0.25
+        }
+    }
+
+    /** [direction] must be a unit vector. [halfAngle] is in radians. */
+    class Cone(
+        val origin: Vec3, val direction: Vec3, val length: Double, val halfAngle: Double,
+        val blockers: List<AegisBox.Frame> = emptyList(),
+    ) : Delivery() {
+        override val anchor: Vec3 get() = origin.add(direction.scale(length * 0.5))
+        private val cosHalf = Math.cos(halfAngle)
+
+        fun contains(point: Vec3): Boolean {
+            val to = point.subtract(origin)
+            val dist = to.length()
+            if (dist > length) return false
+            if (dist < 1.0e-3) return true
+            return to.dot(direction) / dist >= cosHalf
+        }
+
+        private fun visible(level: Level, point: Vec3, target: BlockPos?): Boolean {
+            if (shadowed(origin, point, blockers)) return false
+            val hit = level.clip(colliderClip(origin, point))
+            return hit.type == HitResult.Type.MISS || (target != null && hit.blockPos == target)
+        }
+
+        override fun candidates(ctx: SpellContext): List<Entity> =
+            ctx.level.getEntities(null as Entity?, AABB(origin, origin).inflate(length)) {
+                val centre = it.boundingBox.center
+                contains(centre) && visible(ctx.level, centre, null)
+            }
+
+        override fun findBlocks(level: Level): List<BlockPos> {
+            val r = Math.ceil(length).toInt()
+            val o = BlockPos.containing(origin)
+            val out = ArrayList<BlockPos>()
+            for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
+                val pos = o.offset(dx, dy, dz)
+                val centre = Vec3.atCenterOf(pos)
+                if (contains(centre) && visible(level, centre, pos)) out += pos
+            }
+            return out
+        }
+    }
+
+    class Group(val targets: List<Entity>, override val anchor: Vec3) : Delivery() {
+        override fun candidates(ctx: SpellContext): List<Entity> = targets
+        override fun findBlocks(level: Level): List<BlockPos> = emptyList()
+    }
+
+    companion object {
+        fun shadowed(from: Vec3, to: Vec3, frames: List<AegisBox.Frame>): Boolean {
+            if (frames.isEmpty()) return false
+            val span = to.subtract(from)
+            val dist = span.length()
+            if (dist < 1.0e-6) return false
+            val dir = span.scale(1.0 / dist)
+            return frames.any { frame -> AegisBox.rayIntersect(from, dir, frame)?.let { it.distance < dist } == true }
+        }
+    }
+
+    class SingleEntity(val entity: Entity) : Delivery() {
+        override val anchor: Vec3 get() = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
+        override fun candidates(ctx: SpellContext): List<Entity> = listOf(entity)
+        override fun findBlocks(level: Level): List<BlockPos> = emptyList()
+    }
+
+    /** Includes the air in front of [face], so effects that place a block (fire) have room. */
+    class SingleBlock(val pos: BlockPos, val face: Direction) : Delivery() {
+        override val anchor: Vec3 get() = Vec3.atCenterOf(pos).relative(face, 0.5)
+        override fun candidates(ctx: SpellContext): List<Entity> = emptyList()
+        override fun findBlocks(level: Level): List<BlockPos> = listOf(pos, pos.relative(face))
+        // Always pass, so a spell aimed at one block is never wasted.
+        override fun scatterRoll(ctx: SpellContext, denominator: Int): Boolean = true
+    }
+}

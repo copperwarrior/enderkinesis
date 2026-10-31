@@ -69,7 +69,8 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
         // mirror exists because Sodium's mesh build reads light from
         // its cloned `DataLayer` arrays, bypassing the vanilla
         // `LightEngine.getLightValue` hook.
-        if (mixinClassName.endsWith(".WorldSliceOrbDynamicLightMixin")) {
+        if (mixinClassName.endsWith(".WorldSliceOrbDynamicLightMixin") || mixinClassName.endsWith(".WorldSliceSpellDarknessMixin")
+            || mixinClassName.endsWith(".WorldSlicePhasedMixin")) {
             return sodiumPresent || embeddiumPresent;
         }
         // Sodium overwrites `LevelRenderer.setupRender` with an

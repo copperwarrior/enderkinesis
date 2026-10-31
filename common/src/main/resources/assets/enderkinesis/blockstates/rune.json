@@ -1,0 +1,56 @@
+{
+  "variants": {
+    "facing=up,waterlogged=false": {
+      "model": "enderkinesis:block/rune"
+    },
+    "facing=up,waterlogged=true": {
+      "model": "enderkinesis:block/rune"
+    },
+    "facing=down,waterlogged=false": {
+      "model": "enderkinesis:block/rune",
+      "x": 180
+    },
+    "facing=down,waterlogged=true": {
+      "model": "enderkinesis:block/rune",
+      "x": 180
+    },
+    "facing=north,waterlogged=false": {
+      "model": "enderkinesis:block/rune",
+      "x": 90
+    },
+    "facing=north,waterlogged=true": {
+      "model": "enderkinesis:block/rune",
+      "x": 90
+    },
+    "facing=south,waterlogged=false": {
+      "model": "enderkinesis:block/rune",
+      "x": 90,
+      "y": 180
+    },
+    "facing=south,waterlogged=true": {
+      "model": "enderkinesis:block/rune",
+      "x": 90,
+      "y": 180
+    },
+    "facing=east,waterlogged=false": {
+      "model": "enderkinesis:block/rune",
+      "x": 90,
+      "y": 90
+    },
+    "facing=east,waterlogged=true": {
+      "model": "enderkinesis:block/rune",
+      "x": 90,
+      "y": 90
+    },
+    "facing=west,waterlogged=false": {
+      "model": "enderkinesis:block/rune",
+      "x": 90,
+      "y": 270
+    },
+    "facing=west,waterlogged=true": {
+      "model": "enderkinesis:block/rune",
+      "x": 90,
+      "y": 270
+    }
+  }
+}

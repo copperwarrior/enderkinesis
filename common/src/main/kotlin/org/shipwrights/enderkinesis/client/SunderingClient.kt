@@ -211,6 +211,10 @@ object SunderingClient {
         for (player in level.players()) {
             if (isWielding(player)) renderBoxFor(pose, consumers, camX, camY, camZ, player, tickDelta, level)
         }
+        // Beams write no depth, so they go last. Then no translucent pass after them can paint over them.
+        org.shipwrights.enderkinesis.client.signature.SignatureVisuals.renderDeferred(pose, consumers, camX, camY, camZ, tickDelta)
+        SpellVfxClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
+        ScrollBeamClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
     }
 
     private fun isWielding(player: Player): Boolean {
@@ -447,8 +451,9 @@ object SunderingClient {
 
         val viewVec = player.getViewVector(tickDelta).normalize()
         val origin = beamOrigin(player, viewVec, tickDelta)
-        val trace = computeBeamTrace(level, player, origin, viewVec)
-        if (trace.segments.isEmpty()) return
+        // A beam feeding a merged beam is drawn only up to the crossing.
+        val segments = ScrollBeamClient.clip(player.id, computeBeamTrace(level, player, origin, viewVec).segments)
+        if (segments.isEmpty()) return
 
         pose.pushPose()
         pose.translate(-camX, -camY, -camZ)
@@ -456,17 +461,53 @@ object SunderingClient {
         val normal = pose.last().normal()
         val gameTime = level.gameTime.toDouble() + tickDelta.toDouble()
 
-        val lastIdx = trace.segments.lastIndex
-        for ((idx, seg) in trace.segments.withIndex()) {
+        val edge = lerpRgb(ORANGE_R, ORANGE_G, ORANGE_B, WHITE_R, WHITE_G, WHITE_B, sub.t34)
+        val look = BeamLook(sub.t23, edge, Triple(ORANGE_R, ORANGE_G, ORANGE_B), edge)
+        val lastIdx = segments.lastIndex
+        for ((idx, seg) in segments.withIndex()) {
             if (seg.length < 0.05) continue
             renderBoxSegment(
-                matrix, normal, consumers, seg, sub,
+                matrix, normal, consumers, seg, look,
                 isFirst = (idx == 0), isLast = (idx == lastIdx), gameTime = gameTime,
             )
         }
 
         pose.popPose()
     }
+
+    /** [width] also scales the glow and wire opacity. */
+    class BeamLook(
+        val width: Float,
+        val glowEdge: Triple<Int, Int, Int>,
+        val glowCore: Triple<Int, Int, Int>,
+        val wire: Triple<Int, Int, Int>,
+    )
+
+    /** Call only from the world-render hook of the staff beams. [fadeBack] fades the beam in behind its start. */
+    @JvmStatic
+    fun renderColouredBeam(
+        pose: PoseStack, consumers: MultiBufferSource,
+        camX: Double, camY: Double, camZ: Double,
+        segments: List<BeamSegment>, rgb: Int, gameTime: Double,
+        fadeBack: Boolean = true,
+    ) {
+        if (segments.isEmpty()) return
+        val core = Triple((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF)
+        val edge = lerpRgb(core.first, core.second, core.third, WHITE_R, WHITE_G, WHITE_B, COLOURED_EDGE_WHITENESS)
+        val look = BeamLook(1f, edge, core, core)
+        pose.pushPose()
+        pose.translate(-camX, -camY, -camZ)
+        val matrix = pose.last().pose()
+        val normal = pose.last().normal()
+        val lastIdx = segments.lastIndex
+        for ((idx, seg) in segments.withIndex()) {
+            if (seg.length < 0.05) continue
+            renderBoxSegment(matrix, normal, consumers, seg, look, isFirst = idx == 0 && fadeBack, isLast = idx == lastIdx, gameTime = gameTime)
+        }
+        pose.popPose()
+    }
+
+    private const val COLOURED_EDGE_WHITENESS = 0.4f
 
     /** Render one polyline segment as a complete sundering box: face glow
      *  + cross beam + wireframe outline, all sharing the per-segment
@@ -477,7 +518,7 @@ object SunderingClient {
     private fun renderBoxSegment(
         matrix: Matrix4f, normal: org.joml.Matrix3f,
         consumers: MultiBufferSource,
-        seg: BeamSegment, sub: SubStages,
+        seg: BeamSegment, look: BeamLook,
         isFirst: Boolean, isLast: Boolean, gameTime: Double,
     ) {
         val segDir = seg.direction
@@ -495,7 +536,7 @@ object SunderingClient {
             -right.z * sinPhi + up.z * cosPhi,
         )
 
-        val half = BOX_HALF_WIDTH * sub.t23.toDouble()
+        val half = BOX_HALF_WIDTH * look.width.toDouble()
 
         // 4 perpendicular cross-section layers. Reflected (non-first /
         // non-last) ends collapse to zero-length fade regions so the
@@ -515,37 +556,30 @@ object SunderingClient {
         val innerEndCorners = buildPlanarCorners(innerEnd, rotRight, rotUp, half)
         val outerEndCorners = buildPlanarCorners(outerEnd, rotRight, rotUp, half)
 
-        val glowAlpha = (BOX_GLOW_OUTER_ALPHA * sub.t23).toInt().coerceIn(0, 255)
+        val glowAlpha = (BOX_GLOW_OUTER_ALPHA * look.width).toInt().coerceIn(0, 255)
         if (glowAlpha > 0) {
-            val (outerR, outerG, outerB) = lerpRgb(
-                ORANGE_R, ORANGE_G, ORANGE_B,
-                WHITE_R, WHITE_G, WHITE_B,
-                sub.t34,
-            )
+            val (outerR, outerG, outerB) = look.glowEdge
+            val (coreR, coreG, coreB) = look.glowCore
             val glowConsumer = consumers.getBuffer(AegisRenderType.FACE_GLOW)
             renderBoxFaceGlowWithFade(
                 glowConsumer, matrix,
                 outerStartCorners, innerStartCorners, innerEndCorners, outerEndCorners,
                 outerR, outerG, outerB,
-                ORANGE_R, ORANGE_G, ORANGE_B,
+                coreR, coreG, coreB,
                 glowAlpha,
             )
             renderCentreCrossBeamSegment(
                 glowConsumer, matrix,
                 seg.start, segDir, seg.length, rotRight, rotUp,
                 outerR, outerG, outerB,
-                ORANGE_R, ORANGE_G, ORANGE_B,
+                coreR, coreG, coreB,
                 glowAlpha,
                 extendBackward = isFirst, extendForward = isLast,
             )
         }
 
-        val (wireR, wireG, wireB) = lerpRgb(
-            ORANGE_R, ORANGE_G, ORANGE_B,
-            WHITE_R, WHITE_G, WHITE_B,
-            sub.t34,
-        )
-        val wireAlpha = (255 * sub.t23).toInt().coerceIn(0, 255)
+        val (wireR, wireG, wireB) = look.wire
+        val wireAlpha = (255 * look.width).toInt().coerceIn(0, 255)
         if (wireAlpha > 0) {
             val lineConsumer = consumers.getBuffer(RenderType.lines())
             renderWireframeWithFade(

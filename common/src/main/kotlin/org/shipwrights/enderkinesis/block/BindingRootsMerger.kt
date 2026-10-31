@@ -15,6 +15,7 @@ import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.physics.BindingRootsPullAttachment
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.spell.RuneTriggers
 import org.valkyrienskies.core.api.attachment.getOrPutAttachment
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.api.ships.ServerShip
@@ -378,8 +379,11 @@ object BindingRootsMerger {
         // A block merge that cannot run (occupied target, failed move) welds, or the pair
         // would pull and scan again each tick with no end.
         val canMerge = !involvesStrutLid && areUpAligned(shipA, shipB) && scalesMatch(shipA, shipB)
-        val fired = (canMerge && performBlockMerge(level, posA, posB, shipA, shipB)) ||
-            performJointWeld(level, posA, posB, shipA, shipB, centreA, centreB)
+        // Both paths remove and re-place blocks; runes on them must not take that as a trigger.
+        val fired = RuneTriggers.suppressMoves(level) {
+            (canMerge && performBlockMerge(level, posA, posB, shipA, shipB)) ||
+                performJointWeld(level, posA, posB, shipA, shipB, centreA, centreB)
+        }
         return if (fired) PairOutcome.MERGED else PairOutcome.ENGAGED
     }
 
