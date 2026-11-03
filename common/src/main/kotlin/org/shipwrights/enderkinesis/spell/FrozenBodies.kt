@@ -1,8 +1,6 @@
 package org.shipwrights.enderkinesis.spell
 
 import dev.architectury.event.events.common.LifecycleEvent
-import dev.architectury.event.events.common.TickEvent
-import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.server.level.ServerPlayer
@@ -16,6 +14,7 @@ import org.shipwrights.enderkinesis.util.VsBodies
 import org.valkyrienskies.core.api.bodies.VsBodyCreateData
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.hooks.VSGameEvents
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
 import java.util.EnumSet
@@ -36,7 +35,8 @@ object FrozenBodies {
     private const val PLAYER_SLACK = 0.01
 
     fun init() {
-        TickEvent.SERVER_POST.register(TickEvent.Server(::follow))
+        // After VS2 sets this tick's body poses and before it drags entities with ships.
+        VSGameEvents.shipPositionsUpdated.on { level, _ -> follow(level) }
         LifecycleEvent.SERVER_STOPPING.register { dropAll() }
     }
 
@@ -98,13 +98,12 @@ object FrozenBodies {
 
     // A dead or unloaded entity loses its body but keeps its SpellHolds hold.
     // An entity that lost the effect without a removal call (milk, `/effect clear`) thaws here.
-    private fun follow(server: MinecraftServer) {
+    private fun follow(level: ServerLevel) {
         if (frozen.isEmpty()) return
-        for ((mob, state) in frozen.entries.map { it.key to it.value }) {
-            val level = mob.level() as? ServerLevel
-            if (level == null || mob.isRemoved || !mob.isAlive) {
+        for ((mob, state) in frozen.entries.filter { it.key.level() === level }.map { it.key to it.value }) {
+            if (mob.isRemoved || !mob.isAlive) {
                 frozen.remove(mob)
-                if (level != null) VsBodies.delete(level, state.bodyId)
+                VsBodies.delete(level, state.bodyId)
                 continue
             }
             if (!mob.hasEffect(EKEffects.FROZEN.get())) {

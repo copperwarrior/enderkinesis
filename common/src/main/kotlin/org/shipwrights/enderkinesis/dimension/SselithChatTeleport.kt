@@ -3,6 +3,9 @@ package org.shipwrights.enderkinesis.dimension
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.ChatEvent
 import net.minecraft.core.particles.SimpleParticleType
+import net.minecraft.core.registries.Registries
+import net.minecraft.nbt.CompoundTag
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundEvent
@@ -67,7 +70,28 @@ object SselithChatTeleport {
         val dimension: ResourceKey<Level>,
         val x: Double, val y: Double, val z: Double,
         val yRot: Float, val xRot: Float,
-    )
+    ) {
+        fun save(tag: CompoundTag): CompoundTag {
+            tag.putString("Dim", dimension.location().toString())
+            tag.putDouble("X", x)
+            tag.putDouble("Y", y)
+            tag.putDouble("Z", z)
+            tag.putFloat("YRot", yRot)
+            tag.putFloat("XRot", xRot)
+            return tag
+        }
+
+        companion object {
+            fun load(tag: CompoundTag): ReturnPoint? {
+                val dim = ResourceLocation.tryParse(tag.getString("Dim")) ?: return null
+                return ReturnPoint(
+                    ResourceKey.create(Registries.DIMENSION, dim),
+                    tag.getDouble("X"), tag.getDouble("Y"), tag.getDouble("Z"),
+                    tag.getFloat("YRot"), tag.getFloat("XRot"),
+                )
+            }
+        }
+    }
 
     fun init() {
         ChatEvent.RECEIVED.register(ChatEvent.Received { player, message ->

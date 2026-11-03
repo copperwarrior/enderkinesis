@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.shaders.FogShape;
@@ -33,7 +34,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@code setupFog} to stomp the start/end uniforms past vanilla's {@code farPlaneDistance}
  * clamp.
  */
-@Mixin(FogRenderer.class)
+@Mixin(value = FogRenderer.class, priority = DistantHorizonsCompat.FOG_MIXIN_PRIORITY)
 public abstract class FogRendererSselithRepertoryMixin {
 
     private static final float DARKNESS_FOG_END = 15.0f;

@@ -29,6 +29,8 @@ import org.shipwrights.enderkinesis.registry.EKPoiTypes
 class WanderToTaggedBlockGoal(
     private val mob: PathfinderMob,
     private val searchRadius: Int,
+    // False for the ghost that walks a possessed player: the player must not rewrite lecterns.
+    private val scribes: Boolean = true,
 ) : Goal() {
 
     private enum class Phase { MOVING, STARING }
@@ -167,7 +169,7 @@ class WanderToTaggedBlockGoal(
                 // a book-and-quill or written book, the Cataloger rewrites
                 // it into Sselith. No-op for any other POI. Fires once,
                 // on the final stare tick.
-                if (!scribed && ticksInPhase >= STARE_DURATION_TICKS) {
+                if (scribes && !scribed && ticksInPhase >= STARE_DURATION_TICKS) {
                     scribed = true
                     (mob.level() as? ServerLevel)?.let { CatalogerScribe.fileLectern(it, t) }
                 }
@@ -193,6 +195,20 @@ class WanderToTaggedBlockGoal(
             pos.y + (bb.minY + bb.maxY) * 0.5,
             pos.z + (bb.minZ + bb.maxZ) * 0.5,
         )
+    }
+
+    /** The point this goal stares at, or null when it is not staring. */
+    val staringAt: Vec3?
+        get() = lookAt.takeIf { target != null && phase == Phase.STARING }
+
+    /** Starts the goal on [poi] at once, the way [canUse] and [start] would. False when no path reaches it. */
+    fun beginAt(poi: BlockPos): Boolean {
+        val path = mob.navigation.createPath(poi, NAVIGATION_REGION_OFFSET)?.takeIf { it.canReach() } ?: return false
+        target = poi
+        lastTarget = poi
+        pendingPath = frontApproachPath(poi, path) ?: path
+        start()
+        return true
     }
 
     override fun stop() {
@@ -324,9 +340,7 @@ class WanderToTaggedBlockGoal(
 
         /** Block immediately in front of [state]'s horizontal facing — the side a
          *  reader/viewer stands on (lecterns, signs, chiseled bookshelves…). Null
-         *  when the block carries no horizontal facing. Shared with the client
-         *  menu-walk (`SselithMenuWalk`) so a possessed player approaches faced
-         *  POIs the same way a Cataloger does. */
+         *  when the block carries no horizontal facing. */
         fun frontTileOf(state: BlockState, pos: BlockPos): BlockPos? {
             val facing = when {
                 state.hasProperty(BlockStateProperties.HORIZONTAL_FACING) ->

@@ -16,8 +16,9 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.RuneBlock
 import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipMoves
 import org.valkyrienskies.mod.common.dimensionId
 import java.util.Collections
@@ -112,6 +113,7 @@ object RuneTriggers {
         val ctx = SpellContext(level, null, centre, rune.owner, buffRecipient = owner, nearestRecipient = false, use = SpellUse.RUNE)
         // Not an Area cast (a Void rune opens a pocket), but it shows as Area waves.
         SpellVfx.runeBurst(level, rune.pos, rune.facing, rune.spell)
+        SpellSounds.play(level, centre, EKSounds.SPELL_RUNE_TRIGGER)
         SpellCasting.burst(ctx, rune.spell, centre, area = false, waves = true)
     }
 
@@ -128,26 +130,27 @@ object RuneTriggers {
      *  the block breaks, and the Fabric client sends the click to the server only when accepted. */
     private fun place(player: Player, hand: InteractionHand, pos: BlockPos, face: Direction): EventResult {
         val stack = player.getItemInHand(hand)
-        val spell = MysticScrollItem.spellOf(stack) ?: return EventResult.pass()
+        val spell = UlderScrollItem.spellOf(stack) ?: return EventResult.pass()
         val level = player.level()
         val target = pos.relative(face)
         val host = level.getBlockState(pos)
         val there = level.getBlockState(target)
         val water = there.`is`(Blocks.WATER) && there.fluidState.isSource
-        if (MysticScrollItem.coolingDown(player)) return EventResult.interruptTrue()
+        if (UlderScrollItem.coolingDown(player)) return EventResult.interruptTrue()
         if (host.isAir || host.block is RuneBlock || !(there.isAir || water)) return EventResult.interruptTrue()
         if (level !is ServerLevel) {
-            MysticScrollItem.clientUsed?.invoke(player, MysticScrollItem.Companion.OtherUse.RUNE, hand)
+            UlderScrollItem.clientUsed?.invoke(player, UlderScrollItem.Companion.OtherUse.RUNE, hand)
             return EventResult.interruptTrue()
         }
         val rune = EKBlocks.RUNE.get().defaultBlockState().setValue(RuneBlock.FACING, face).setValue(RuneBlock.WATERLOGGED, water)
         val ctx = SpellContext(level, player, player.position())
         if (!ctx.setBlock(target, rune)) return EventResult.interruptTrue()
         (level.getBlockEntity(target) as? RuneBlockEntity)?.write(spell, player.uuid, host)
-        (player as? ServerPlayer)?.let { SpellNetwork.broadcastUsed(level, it, MysticScrollItem.Companion.OtherUse.RUNE, hand) }
+        SpellSounds.play(level, Vec3.atCenterOf(target), EKSounds.SPELL_RUNE_INSCRIBE)
+        (player as? ServerPlayer)?.let { SpellNetwork.broadcastUsed(level, it, UlderScrollItem.Companion.OtherUse.RUNE, hand) }
         SpellVfx.inscribe(level, target, player, hand, spell)
-        MysticScrollItem.spend(level, player, stack)
-        MysticScrollItem.startCooldown(player)
+        UlderScrollItem.spend(level, player, stack)
+        UlderScrollItem.startCooldown(player)
         player.displayClientMessage(Component.translatable(PLACED_KEY), true)
         return EventResult.interruptTrue()
     }

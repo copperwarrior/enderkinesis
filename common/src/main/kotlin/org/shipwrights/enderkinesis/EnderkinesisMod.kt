@@ -209,6 +209,9 @@ object EnderkinesisMod {
         CreateCompat.init()
 
         ReloadListenerRegistry.register(PackType.SERVER_DATA, DimensionFilter, id("dimension_filter"))
+        ReloadListenerRegistry.register(
+            PackType.SERVER_DATA, org.shipwrights.enderkinesis.dimension.WeheloDestinations, id("wehelo_destinations"),
+        )
         ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.item.Scraps, id("scraps"))
         ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.WohlonStaffRites, id("wohlon_staff_rites"))
         ReloadListenerRegistry.register(
@@ -247,7 +250,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.dimension.SselithMothSpawner.init()
         org.shipwrights.enderkinesis.dimension.MothClothShipRegistry.init()
         org.shipwrights.enderkinesis.dimension.SselithBlockTracker.init()
-        org.shipwrights.enderkinesis.remnant.IrreverantRemnantManager.init()
+        org.shipwrights.enderkinesis.remnant.IrreverentRemnantManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaSpreader.init()
         org.shipwrights.enderkinesis.block.BindingRootsMerger.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaTreeGrower.init()
@@ -259,7 +262,10 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.worldgen.YgannAnchorShipifyProcessor.init()
         org.shipwrights.enderkinesis.worldgen.RoamingEndShipShipifyProcessor.init()
         org.shipwrights.enderkinesis.util.ServerTicks.init()
+        // Before the other death redirects, so a death in a pocket always returns the player.
+        org.shipwrights.enderkinesis.dimension.WeheloPocket.init()
         org.shipwrights.enderkinesis.entity.WikLakDeathRedirect.init()
+        org.shipwrights.enderkinesis.item.WeheloBlade.init()
         org.shipwrights.enderkinesis.entity.WohlonAnimalConversion.init()
         org.shipwrights.enderkinesis.item.GamylanCageManager.init()
         // Wand of Ga'Mylan capture pipeline.
@@ -269,6 +275,7 @@ object EnderkinesisMod {
         YgannAbyssVoidFade.init()
         YgannMadnessOnExit.init()
         YgannMadnessBehavior.init()
+        org.shipwrights.enderkinesis.dimension.WohlonDeathWisp.init()
 
         SselithVoidWrap.init()
         org.shipwrights.enderkinesis.dimension.SselithParallel.init()
@@ -277,6 +284,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.block.ScribesDeskNetwork.init()
         org.shipwrights.enderkinesis.item.SatchelOfShelvingNetwork.init()
         SselithMadness.init()
+        org.shipwrights.enderkinesis.possession.Possession.init()
         SselithRepertoryChunkGenerator.init()
         SselithMadnessTomeSummon.init()
         SselithChatTeleport.init()
@@ -302,6 +310,8 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.item.CommandNetwork.init()
         org.shipwrights.enderkinesis.item.VanillaCommandables.init()
         org.shipwrights.enderkinesis.dimension.YgannBarnacleSpreader.init()
+        org.shipwrights.enderkinesis.block.GuardianSpikeOuterBlock.registerEvents()
+        org.shipwrights.enderkinesis.block.GuardianSpikeImpaler.init()
         org.shipwrights.enderkinesis.barnacle.YgannBarnacleLimbNetwork.init()
         org.shipwrights.enderkinesis.dimension.YgannDiscoveries.init()
         org.shipwrights.enderkinesis.item.StaffOfCommandItem.initEvents()

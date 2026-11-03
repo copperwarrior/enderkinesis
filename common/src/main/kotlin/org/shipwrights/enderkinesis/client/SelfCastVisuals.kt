@@ -55,7 +55,7 @@ object SelfCastVisuals {
             val entity = level.getEntity(c.id)
             val age = (now - c.start).toInt()
             when (c.element) {
-                Element.GROWTH -> spiral(level, entity, c.at, age, c.life)
+                Element.GENESIS -> spiral(level, entity, c.at, age, c.life)
                 Element.GRAVITY -> if (age == PRESS_TICKS) settle(level, entity?.position() ?: c.at, entity)
                 else -> {}
             }

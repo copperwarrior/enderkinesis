@@ -15,6 +15,7 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.client.PocketPortalRenderType
 import org.shipwrights.enderkinesis.client.SpellArt
 import org.shipwrights.enderkinesis.client.SpellGeom
@@ -84,8 +85,7 @@ object BodySignatureVisuals {
                 val p = fall.at(t)
                 val pos = BlockPos.containing(p)
                 if (!level.getBlockState(pos).getCollisionShape(level, pos).isEmpty) { s.gone[k] = true; continue }
-                if (t == 0.0) level.playLocalSound(p.x, p.y, p.z, SoundEvents.BLAZE_SHOOT, SoundSource.PLAYERS, 4f, 0.4f, false)
-                if (t == Starfall.FALL - 6.0) level.playLocalSound(fall.mark.x, fall.mark.y, fall.mark.z, SoundEvents.FIRECHARGE_USE, SoundSource.PLAYERS, 2f, 0.5f, false)
+                if (t == 0.0) level.playLocalSound(fall.mark.x, fall.mark.y, fall.mark.z, EKSounds.SIGNATURE_STARFALL_FALL.get(), SoundSource.PLAYERS, 4f, 1f, false)
                 val back = fall.from.subtract(fall.mark).normalize()
                 repeat(3) {
                     val q = p.add(back.scale(r.nextDouble() * 2.5))
@@ -192,7 +192,6 @@ object BodySignatureVisuals {
                 level.addParticle(ParticleTypes.SNOWFLAKE, p.x + r.nextGaussian() * spread, p.y + r.nextGaussian() * spread * 0.4, p.z + r.nextGaussian() * spread, 0.0, -0.01, 0.0)
             }
             if (stuck && e.tickCount % 3 == 0) level.addParticle(ParticleTypes.ITEM_SNOWBALL, p.x + r.nextGaussian() * spread, p.y, p.z + r.nextGaussian() * spread, 0.0, 0.0, 0.0)
-            if (stuck && e.tickCount % 10 == 0) level.playLocalSound(p.x, p.y, p.z, SoundEvents.AMETHYST_BLOCK_CHIME, SoundSource.PLAYERS, 1f, 1.4f + r.nextFloat() * 0.4f, false)
         }
 
         override fun render(d: SignatureDraw) {
@@ -366,18 +365,19 @@ object BodySignatureVisuals {
             o.trail.addFirst(p)
             while (o.trail.size > TRAIL) o.trail.removeLast()
             if (Faespark.chainsNow(e)) {
-                val chain = Faespark.chain(level, p, Faespark.chainMetal(e), e.owner())
+                val metal = Faespark.chainMetal(e)
+                if (metal != null) level.playLocalSound(p.x, p.y, p.z, EKSounds.SIGNATURE_FAESPARK_ARC.get(), SoundSource.PLAYERS, 1f, 1f, false)
+                val chain = Faespark.chain(level, p, metal, e.owner())
                 if (chain.points.size > 1) {
                     o.chain = chain.points
                     o.chainAt = e.tickCount
-                    level.playLocalSound(p.x, p.y, p.z, SoundEvents.LIGHTNING_BOLT_IMPACT, SoundSource.PLAYERS, 0.7f, 1.6f + level.random.nextFloat() * 0.4f, false)
+                    level.playLocalSound(p.x, p.y, p.z, EKSounds.SIGNATURE_FAESPARK_ZAP.get(), SoundSource.PLAYERS, 0.7f, 1f, false)
                     for (q in chain.points.drop(1)) repeat(4) {
                         level.addParticle(ParticleTypes.ELECTRIC_SPARK, q.x, q.y, q.z, level.random.nextGaussian() * 0.15, 0.1, level.random.nextGaussian() * 0.15)
                     }
                 }
             }
             level.addParticle(if (e.tickCount % 2 == 0) ParticleTypes.ELECTRIC_SPARK else ParticleTypes.SMALL_FLAME, p.x, p.y, p.z, level.random.nextGaussian() * 0.05, level.random.nextGaussian() * 0.05, level.random.nextGaussian() * 0.05)
-            if (e.tickCount % 10 == 0) level.playLocalSound(p.x, p.y, p.z, SoundEvents.FIRE_AMBIENT, SoundSource.PLAYERS, 1f, 1.6f, false)
         }
 
         override fun render(d: SignatureDraw) {
@@ -488,7 +488,7 @@ object BodySignatureVisuals {
                 ray.to = Supernova.rayTargets(level, p, e.owner()).map { it.position().add(0.0, it.bbHeight * 0.5, 0.0) }
                 ray.at = e.tickCount
                 for (q in ray.to) repeat(3) { level.addParticle(ParticleTypes.END_ROD, q.x, q.y, q.z, r.nextGaussian() * 0.1, r.nextGaussian() * 0.1, r.nextGaussian() * 0.1) }
-                if (ray.to.isNotEmpty()) level.playLocalSound(p.x, p.y, p.z, SoundEvents.AMETHYST_BLOCK_HIT, SoundSource.PLAYERS, 1.2f, 1.8f + r.nextFloat() * 0.2f, false)
+                if (ray.to.isNotEmpty()) level.playLocalSound(p.x, p.y, p.z, EKSounds.SIGNATURE_SUPERNOVA_RAY.get(), SoundSource.PLAYERS, 1.2f, 1f, false)
             }
             if (Supernova.phase(e) == Supernova.BURST) {
                 val c = Supernova.charge(e)

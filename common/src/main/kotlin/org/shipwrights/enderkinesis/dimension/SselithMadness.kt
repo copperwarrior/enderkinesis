@@ -77,17 +77,6 @@ object SselithMadness {
      *  Sselith, decay outside). Transient server-memory. */
     private val progress = Object2IntOpenHashMap<UUID>().apply { defaultReturnValue(0) }
 
-    private const val MENU_WALK_DUST_MIN_INTERVAL_TICKS = 2
-
-    // Server tick of the last accepted dust packet for each player. Server thread only.
-    private val lastMenuWalkDustTick =
-        Object2IntOpenHashMap<UUID>().apply { defaultReturnValue(-MENU_WALK_DUST_MIN_INTERVAL_TICKS) }
-
-    /** C2S: the menu-walk client (`SselithMenuWalk`) pings this each dust tick while
-     *  the possessed body is walking. The server emits the dust here so every nearby
-     *  player sees the trail — a client-side `addParticle` would be local-only. */
-    val MENU_WALK_DUST: ResourceLocation = EnderkinesisMod.id("sselith_madness/menu_walk_dust")
-
     /** S2C: the player's level went up to the given stage (VarInt). Level 1 has no announcement. */
     val STAGE_UP: ResourceLocation = EnderkinesisMod.id("sselith_madness/stage_up")
 
@@ -102,10 +91,6 @@ object SselithMadness {
     /** Particles per emit, matching the Cataloger's `spawnDustTrail`. */
     private const val DUST_PER_EMIT = 1
 
-    /** Amplifier (level − 1) gating the menu-walk dust — 3 = level 4, matching the
-     *  client's `SselithMenuWalk` activation threshold. */
-    private const val MENU_WALK_MIN_AMP = 3
-
     /** Cube-radius for the "near a statue" aura. Standing within this many blocks of
      *  any Ulder Statue speeds madness growth; see [statueGrowthRate]. Backed by a PoiManager
      *  `getInRange` query against [EKPoiTypes.STATUE_KEY] so cost is constant
@@ -119,22 +104,10 @@ object SselithMadness {
         PlayerEvent.CHANGE_DIMENSION.register(::onChangeDimension)
         PlayerEvent.PLAYER_QUIT.register(::onQuit)
         PlayerEvent.PLAYER_JOIN.register(::sendAfflictedTable)
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, MENU_WALK_DUST) { _, ctx ->
-            val player = ctx.player as? ServerPlayer ?: return@registerReceiver
-            ctx.queue { spawnMenuWalkDust(player) }
-        }
     }
 
-    /** Emit the Cataloger's [EKParticles.sselithDust] from the player's bounding box,
-     *  broadcast to all nearby clients. Gated on the player actually having the
-     *  effect at the menu-walk level, so a spoofed packet can't trail dust off a
-     *  player who isn't possessed. */
-    private fun spawnMenuWalkDust(player: ServerPlayer) {
-        val amp = player.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: return
-        if (amp < MENU_WALK_MIN_AMP) return
-        val now = player.server.tickCount
-        if (now - lastMenuWalkDustTick.getInt(player.uuid) < MENU_WALK_DUST_MIN_INTERVAL_TICKS) return
-        lastMenuWalkDustTick.put(player.uuid, now)
+    /** The Cataloger's [EKParticles.sselithDust] trail, from the bounding box of a body the madness walks. */
+    fun spawnMenuWalkDust(player: ServerPlayer) {
         val level = player.level() as? ServerLevel ?: return
         val bb = player.boundingBox
         val sx = bb.maxX - bb.minX
@@ -166,7 +139,6 @@ object SselithMadness {
 
     private fun onQuit(player: ServerPlayer) {
         progress.removeInt(player.uuid)
-        lastMenuWalkDustTick.removeInt(player.uuid)
         if (announced.remove(player.uuid)) broadcastAfflicted(player, afflicted = false)
     }
 

@@ -218,15 +218,15 @@ object AreaWaves {
 
     private fun tickWave(level: ClientLevel, w: Wave, s: Double, random: Random) {
         when (w.element) {
-            Element.HEAT -> tickHeat(level, w, s, random)
-            Element.COLD -> tickCold(level, w, s, random)
-            Element.GROWTH -> tickGrowth(level, w, s, random)
-            Element.PURITY -> tickPurity(level, w, s, random)
+            Element.PYRE -> tickHeat(level, w, s, random)
+            Element.WINTER -> tickCold(level, w, s, random)
+            Element.GENESIS -> tickGrowth(level, w, s, random)
+            Element.QUINTESSENCE -> tickPurity(level, w, s, random)
             Element.GRAVITY -> tickGravity(level, w, s, random)
             Element.CHAOS -> tickChaos(level, w, s, random)
             Element.BLOOD -> tickBlood(level, w, s, random)
             Element.SUNFIRE -> tickSunfire(level, w, s, random)
-            Element.POISON -> cells(w, s, { it.k % 4 == 0 }, every = 33.0, lasting = 44.0) { c -> mote(level, SpellMote.POISON_SWIRL, Vec3(c.x, c.top + 0.15, c.z), Vec3(0.0, 0.04, 0.0)) }
+            Element.CORRUPTION -> cells(w, s, { it.k % 4 == 0 }, every = 33.0, lasting = 44.0) { c -> mote(level, SpellMote.POISON_SWIRL, Vec3(c.x, c.top + 0.15, c.z), Vec3(0.0, 0.04, 0.0)) }
             Element.VOID -> tickVoid(level, w, s, random)
             Element.SUNDERING -> {}
         }
@@ -386,9 +386,9 @@ object AreaWaves {
         for (w in waves) {
             val s = time - w.start.toDouble()
             when (w.element) {
-                Element.HEAT -> fires(blocks, m, level, w, s, time)
-                Element.COLD -> shardsInAir(blocks, m, level, w, s)
-                Element.GROWTH -> { roots(blocks, m, level, w, s); vinesInAir(blocks, m, level, w, s) }
+                Element.PYRE -> fires(blocks, m, level, w, s, time)
+                Element.WINTER -> shardsInAir(blocks, m, level, w, s)
+                Element.GENESIS -> { roots(blocks, m, level, w, s); vinesInAir(blocks, m, level, w, s) }
                 else -> {}
             }
         }
@@ -397,9 +397,9 @@ object AreaWaves {
             for (w in waves) if (w.element == Element.BLOOD) stains(particles, m, level, w, time - w.start.toDouble())
         }
         if (SpellVfxRenderTypes.isDissolveReady()) {
-            if (waves.any { it.element == Element.COLD }) {
+            if (waves.any { it.element == Element.WINTER }) {
                 val ice = buffers.getBuffer(SpellVfxRenderTypes.dissolve(BLOCK_ATLAS))
-                for (w in waves) if (w.element == Element.COLD) frost(ice, m, level, w, time - w.start.toDouble())
+                for (w in waves) if (w.element == Element.WINTER) frost(ice, m, level, w, time - w.start.toDouble())
             }
             if (waves.any { it.element == Element.VOID }) {
                 val sea = buffers.getBuffer(SpellVfxRenderTypes.dissolve(SEA))
@@ -414,7 +414,7 @@ object AreaWaves {
         for (w in waves) {
             val s = time - w.start.toDouble()
             when (w.element) {
-                Element.PURITY -> { purityCubes(glow, m, w, s); SpellShapes.glowCubeFaces(glow, m, aegisCube(w, s), 0xFFFFFF, 0.25f * airFade(s), 0.25) }
+                Element.QUINTESSENCE -> { purityCubes(glow, m, w, s); SpellShapes.glowCubeFaces(glow, m, aegisCube(w, s), 0xFFFFFF, 0.25f * airFade(s), 0.25) }
                 Element.SUNFIRE -> { sunlitGround(glow, m, w, s); sunRays(glow, m, view, w, s) }
                 Element.VOID -> { massRim(glow, m, w, s); tearsGlow(glow, m, view, level, w, s, time) }
                 else -> {}
@@ -432,9 +432,9 @@ object AreaWaves {
     }
 
     private fun renderWires(pose: PoseStack, buffers: MultiBufferSource, time: Float) {
-        if (waves.none { it.element == Element.PURITY }) return
+        if (waves.none { it.element == Element.QUINTESSENCE }) return
         val lines = buffers.getBuffer(RenderType.lines())
-        for (w in waves) if (w.element == Element.PURITY) {
+        for (w in waves) if (w.element == Element.QUINTESSENCE) {
             val s = time - w.start.toDouble()
             SpellShapes.wire(lines, pose.last(), aegisCube(w, s), 0xFFFFFF, airFade(s))
             for ((cube, a) in risingCubes(w, s)) SpellShapes.wire(lines, pose.last(), cube, 0xFFFFFF, a)

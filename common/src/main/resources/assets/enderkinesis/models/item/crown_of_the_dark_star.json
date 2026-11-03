@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": { "layer0": "enderkinesis:item/crown_of_the_dark_star" },
+  "display": {
+    "head": { "scale": [0, 0, 0] }
+  }
+}

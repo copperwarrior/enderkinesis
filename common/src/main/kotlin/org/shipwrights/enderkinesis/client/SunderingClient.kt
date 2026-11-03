@@ -214,7 +214,10 @@ object SunderingClient {
         // Beams write no depth, so they go last. Then no translucent pass after them can paint over them.
         org.shipwrights.enderkinesis.client.signature.SignatureVisuals.renderDeferred(pose, consumers, camX, camY, camZ, tickDelta)
         SpellVfxClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
+        WeheloPocketClient.render(pose, consumers, camX, camY, camZ, tickDelta)
         ScrollBeamClient.renderAll(pose, consumers, camX, camY, camZ, tickDelta)
+        AbyssTentacles.render(pose, consumers, camX, camY, camZ, tickDelta)
+        RiverWasher.render(pose, consumers, camX, camY, camZ, tickDelta)
     }
 
     private fun isWielding(player: Player): Boolean {

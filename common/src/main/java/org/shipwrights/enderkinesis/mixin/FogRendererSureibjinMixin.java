@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.shaders.FogShape;
@@ -31,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * colour just before GPU upload — vanilla's call path resets the statics on some frames
  * before they reach the shader.
  */
-@Mixin(FogRenderer.class)
+@Mixin(value = FogRenderer.class, priority = DistantHorizonsCompat.FOG_MIXIN_PRIORITY)
 public abstract class FogRendererSureibjinMixin {
 
     // Above-water fog tint: #1f272f.

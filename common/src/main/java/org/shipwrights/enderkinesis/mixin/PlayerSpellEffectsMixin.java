@@ -4,7 +4,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import org.shipwrights.enderkinesis.item.MysticScrollItem;
+import org.shipwrights.enderkinesis.item.UlderScrollItem;
 import org.shipwrights.enderkinesis.spell.BloodPacts;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,6 +23,6 @@ public abstract class PlayerSpellEffectsMixin {
 
     @Inject(method = "drop(Lnet/minecraft/world/item/ItemStack;ZZ)Lnet/minecraft/world/entity/item/ItemEntity;", at = @At("HEAD"))
     private void enderkinesis$fizzleDroppedCast(ItemStack stack, boolean dropAround, boolean includeThrowerName, CallbackInfoReturnable<ItemEntity> cir) {
-        MysticScrollItem.Companion.dropped((Player) (Object) this, stack);
+        UlderScrollItem.Companion.dropped((Player) (Object) this, stack);
     }
 }

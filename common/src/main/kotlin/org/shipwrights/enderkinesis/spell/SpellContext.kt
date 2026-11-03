@@ -37,6 +37,7 @@ class SpellContext(
     val use: SpellUse = SpellUse.FORWARD,
     val power: Float = 1f,
     val surfaceFire: Boolean = true, // False for a bolt that another spell fires; that spell counts its own fire.
+    val charge: Float = 1f, // Only an Area release is charged; gems and runes are always full.
 ) {
     /** A fake player when the owner is offline. */
     private val ownerPlayer: ServerPlayer? by lazy {
@@ -113,11 +114,12 @@ class SpellContext(
     /** Purity's Cleanse does not remove what these elements apply. */
     var elements: Set<Element> = emptySet()
 
-    fun setBlock(pos: BlockPos, state: BlockState): Boolean {
+    /** [directed] false when [castPoint] is not where the change comes from. The client then picks a random side. */
+    fun setBlock(pos: BlockPos, state: BlockState, directed: Boolean = true): Boolean {
         if (!mayChange(pos, state)) return false
         val old = level.getBlockState(pos)
         if (!level.setBlock(pos, state, 3)) return false
-        if (!old.isAir && old.block != state.block) SpellNetwork.queueBlockShift(level, pos, old, castPoint, element)
+        if (!old.isAir && old.block != state.block) SpellNetwork.queueBlockShift(level, pos, old, castPoint, element, directed)
         return true
     }
 

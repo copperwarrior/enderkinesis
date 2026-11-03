@@ -62,6 +62,11 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         ) {
             org.shipwrights.enderkinesis.client.model.WohlemModel.createBodyLayer()
         }
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel.createBodyLayer()
+        }
 
         // Heart of the Wild — block-entity model registered the same way.
         // Drawn by [HeartOfTheWildRenderer] (registered in the common
@@ -260,12 +265,19 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 stack, mode, poseStack, vertexConsumers, light, overlay,
             )
         }
-
-        // Magic Missile — renders as the vanilla ShulkerBulletModel via [MagicMissileBEWLR].
         BuiltinItemRendererRegistry.INSTANCE.register(
-            EKItems.MAGIC_MISSILE.get(),
+            EKItems.QUASAR_OF_PURITY_ITEM.get(),
         ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
-            org.shipwrights.enderkinesis.client.MagicMissileBEWLR.renderByItem(
+            org.shipwrights.enderkinesis.client.QuasarOfPurityBEWLR.renderByItem(
+                stack, mode, poseStack, vertexConsumers, light, overlay,
+            )
+        }
+
+        // Lodestar Dart — renders as the vanilla ShulkerBulletModel via [LodestarDartBEWLR].
+        BuiltinItemRendererRegistry.INSTANCE.register(
+            EKItems.LODESTAR_DART.get(),
+        ) { stack, mode, poseStack, vertexConsumers, light, overlay ->
+            org.shipwrights.enderkinesis.client.LodestarDartBEWLR.renderByItem(
                 stack, mode, poseStack, vertexConsumers, light, overlay,
             )
         }
@@ -298,6 +310,10 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             org.shipwrights.enderkinesis.client.YgannBarnacleDeathRenderer.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
+            // Entity pass, so that water drawn later composites over a waterlogged bud.
+            org.shipwrights.enderkinesis.client.WogorBudRenderer.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
         })
 
         // Orb-network beam line — drawn after translucent blocks so it composites correctly
@@ -308,9 +324,9 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             OrbBeamLineRenderer.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
-            // Magic Missile pulse-beam trails — same render-type and pipeline stage as the
+            // Lodestar Dart pulse-beam trails — same render-type and pipeline stage as the
             // orb network beam so the visual reads consistently with the rest of the mod.
-            org.shipwrights.enderkinesis.client.MagicMissileTrailRenderer.renderAll(
+            org.shipwrights.enderkinesis.client.LodestarDartTrailRenderer.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
             // Crepusculite Lattice virtual sea — additive mesh over the existing particle

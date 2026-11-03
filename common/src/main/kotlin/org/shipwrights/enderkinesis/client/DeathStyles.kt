@@ -22,6 +22,7 @@ import org.joml.Matrix4f
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.SpellDeaths
 import org.shipwrights.enderkinesis.spell.SpellMote
@@ -58,6 +59,16 @@ object DeathStyles {
         SpellDeaths.setClient(entityId, element, level.gameTime)
         val entity = level.getEntity(entityId) as? LivingEntity
         deaths[entityId] = Death(element, SpellClock.now(level), at, height.toDouble(), (entity?.bbWidth ?: 0.6f).toDouble())
+        when (element) {
+            Element.GRAVITY -> EKSounds.SPELL_GRAVITY_DEATH
+            Element.QUINTESSENCE -> EKSounds.SPELL_QUINTESSENCE_DEATH
+            Element.CHAOS -> EKSounds.SPELL_CHAOS_DEATH
+            Element.BLOOD -> EKSounds.SPELL_BLOOD_DEATH
+            Element.SUNFIRE -> EKSounds.SPELL_SUNFIRE_DEATH
+            Element.CORRUPTION -> EKSounds.SPELL_CORRUPTION_DEATH
+            Element.VOID -> EKSounds.SPELL_VOID_DEATH
+            else -> null
+        }?.let { SpellSoundsClient.playAt(level, at, it) }
         if (element == Element.CHAOS) {
             val r = Random(entityId)
             val c = at.add(0.0, height * 0.5, 0.0)
@@ -80,14 +91,14 @@ object DeathStyles {
     }
 
     private fun styleId(element: Element): Int = when (element) {
-        Element.HEAT -> 1
-        Element.GROWTH -> 2
-        Element.PURITY -> 3
+        Element.PYRE -> 1
+        Element.GENESIS -> 2
+        Element.QUINTESSENCE -> 3
         Element.GRAVITY -> 4
         Element.CHAOS -> 5
         Element.BLOOD -> 6
         Element.SUNFIRE -> 7
-        Element.POISON -> 8
+        Element.CORRUPTION -> 8
         Element.VOID -> 9
         else -> 0
     }
@@ -123,16 +134,16 @@ object DeathStyles {
         val d = (entity.deathTime - 1 + partialTick) / 20f
         val time = entity.tickCount + partialTick
         val gone = when (element) {
-            Element.PURITY -> d > 0.9f
+            Element.QUINTESSENCE -> d > 0.9f
             Element.CHAOS -> d >= 0.3f || sin(time * 2.2f) <= -0.3f
             Element.SUNFIRE -> d >= 0.2f
             Element.BLOOD -> d > 2.3f
-            Element.POISON -> d > 2.2f
+            Element.CORRUPTION -> d > 2.2f
             else -> false
         }
         var fade = 1f
         val adjust: ((PoseStack) -> Unit)? = when (element) {
-            Element.GROWTH -> { pose -> pose.translate(0.0, -(entity.bbHeight * 1.08 + 0.05) * ((d - 0.7) / 1.8).coerceIn(0.0, 1.0).pow(1.6), 0.0) }
+            Element.GENESIS -> { pose -> pose.translate(0.0, -(entity.bbHeight * 1.08 + 0.05) * ((d - 0.7) / 1.8).coerceIn(0.0, 1.0).pow(1.6), 0.0) }
             Element.GRAVITY -> {
                 val slam = (d / 0.3f).coerceIn(0f, 1f)
                 val sy = if (d > 0.3f) 0.12f + 0.06f * exp(-(d - 0.3f) * 6f) * sin((d - 0.3f) * 30f) else 1f - 0.88f * slam * slam
@@ -163,9 +174,9 @@ object DeathStyles {
         val d = t / 20f
         val f = death.feet
         when (death.element) {
-            Element.HEAT -> tickHeat(level, death, d, r)
-            Element.GROWTH -> tickGrowth(level, death, d, r)
-            Element.PURITY -> if (d < 0.9f) { if (r.nextFloat() < 0.5f) mote(level, SpellMote.PURITY_GLITTER, bodyPoint(death, r)) }
+            Element.PYRE -> tickHeat(level, death, d, r)
+            Element.GENESIS -> tickGrowth(level, death, d, r)
+            Element.QUINTESSENCE -> if (d < 0.9f) { if (r.nextFloat() < 0.5f) mote(level, SpellMote.PURITY_GLITTER, bodyPoint(death, r)) }
             Element.GRAVITY -> if (crossed(d, 0.3f)) repeat(40) { i ->
                 val an = i / 40.0 * Math.PI * 2 + r.nextDouble() * 0.2
                 mote(level, SpellMote.SPRAY_SMOKE, f.add(cos(an) * 0.4, 0.08, sin(an) * 0.4), Vec3(cos(an) * 0.08, 0.005, sin(an) * 0.08))
@@ -173,9 +184,9 @@ object DeathStyles {
             Element.CHAOS -> tickChaos(level, death, d, r)
             Element.BLOOD -> {}
             Element.SUNFIRE -> tickSunfire(level, death, d, r)
-            Element.POISON -> {
+            Element.CORRUPTION -> {
                 if (d < 2.2f && r.nextFloat() < 0.6f) mote(level, SpellMote.POISON_SWIRL, bodyPoint(death, r), Vec3(0.0, 0.03, 0.0))
-                if (crossed(d, 2.0f)) SpellVfxClient.addLocal(SpellVfx.Kind.PUFFS, f.add(0.0, 0.3, 0.0), f, 0.8f, Element.POISON.color, 30, r.nextInt())
+                if (crossed(d, 2.0f)) SpellVfxClient.addLocal(SpellVfx.Kind.PUFFS, f.add(0.0, 0.3, 0.0), f, 0.8f, Element.CORRUPTION.color, 30, r.nextInt())
             }
             Element.VOID -> {
                 if (d in 0.3f..1.0f && r.nextFloat() < 0.15f) mote(level, SpellMote.YGANN_EYE, bodyPoint(death, r))
@@ -195,6 +206,7 @@ object DeathStyles {
     private fun mote(level: ClientLevel, m: SpellMote, at: Vec3, v: Vec3 = Vec3.ZERO) = particle(level, EKParticles.mote(m), at, v)
 
     private fun tickHeat(level: ClientLevel, death: Death, d: Float, r: Random) {
+        if (crossed(d, 1.0f)) SpellSoundsClient.playAt(level, death.feet, EKSounds.SPELL_PYRE_DEATH)
         if (d !in 1.0f..2.4f) return
         repeat(2) {
             val top = death.height * (1 - smooth((d - 1.0) / 1.4))
@@ -204,6 +216,7 @@ object DeathStyles {
     }
 
     private fun tickGrowth(level: ClientLevel, death: Death, d: Float, r: Random) {
+        if (crossed(d, 0.7f)) SpellSoundsClient.playAt(level, death.feet, EKSounds.SPELL_GENESIS_DEATH)
         if (d !in 0.7f..2.5f || r.nextFloat() >= 0.4f) return
         val an = r.nextDouble() * Math.PI * 2
         val p = death.feet.add(cos(an) * 0.3, 0.05, sin(an) * 0.3)
@@ -253,7 +266,6 @@ object DeathStyles {
         if (!SpellVfxRenderTypes.isReady()) return
         renderFlashes(buffers, m, view, time)
         renderBlocks(buffers, m, level, time)
-        renderPools(buffers, m, level, time)
     }
 
     private fun renderGlow(buffers: MultiBufferSource, m: Matrix4f, view: SpellView, time: Float) {
@@ -262,7 +274,7 @@ object DeathStyles {
             val d = (time - death.start) / 20f
             val f = death.feet
             when (death.element) {
-                Element.PURITY -> if (d in 0.9f..1.15f) SpellShapes.disc(glow, m, view, f.add(0.0, death.height * 0.5, 0.0), 1.3, 0xFFFFFF, 0.9f * (1f - (d - 0.9f) / 0.25f))
+                Element.QUINTESSENCE -> if (d in 0.9f..1.15f) SpellShapes.disc(glow, m, view, f.add(0.0, death.height * 0.5, 0.0), 1.3, 0xFFFFFF, 0.9f * (1f - (d - 0.9f) / 0.25f))
                 Element.SUNFIRE -> {
                     val e = d - 0.2f
                     if (e >= 0f) {
@@ -295,8 +307,8 @@ object DeathStyles {
             val f = death.feet
             val light = SpellShapes.lightAt(level, f.add(0.0, 0.5, 0.0))
             when (death.element) {
-                Element.PURITY -> if (d > 0.9f) shards(blocks, m, death, d - 0.9f, light)
-                Element.GROWTH -> {
+                Element.QUINTESSENCE -> if (d > 0.9f) shards(blocks, m, death, d - 0.9f, light)
+                Element.GENESIS -> {
                     val grass = smooth((d - 2.2f) / 0.5f)
                     if (grass > 0f) {
                         val s = 0.55 * grass
@@ -305,20 +317,6 @@ object DeathStyles {
                 }
                 else -> {}
             }
-        }
-    }
-
-    private fun renderPools(buffers: MultiBufferSource, m: Matrix4f, level: ClientLevel, time: Float) {
-        val drops = buffers.getBuffer(SpellVfxRenderTypes.sprite(PARTICLE_ATLAS))
-        for (death in deaths.values) if (death.element == Element.BLOOD) {
-            val d = (time - death.start) / 20f
-            val pool = 0.55 * smooth(d / 2f)
-            val dry = 1f - smooth((d - 4.5f) / 1f)
-            val f = death.feet
-            if (pool > 0.01 && dry > 0f) SpellShapes.tquad(
-                drops, m, f.add(-pool, 0.015, pool), f.add(pool, 0.015, pool), f.add(pool, 0.015, -pool), f.add(-pool, 0.015, -pool),
-                SpellArt.particle("drip_land"), floatArrayOf(0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f), 0x5A0610, 0.95f * dry, SpellShapes.lightAt(level, f.add(0.0, 0.5, 0.0)),
-            )
         }
     }
 

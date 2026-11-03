@@ -32,8 +32,9 @@ import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.EntityHitResult
 import net.minecraft.world.phys.HitResult
 import org.shipwrights.enderkinesis.duck.ImbuedProjectile
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.mixin.ThrownTridentItemAccessor
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.IdentityHashMap
 import java.util.UUID
 
@@ -107,21 +108,22 @@ object Imbues {
         if (hand != InteractionHand.MAIN_HAND) return false
         val target = player.mainHandItem
         val scroll = player.offhandItem
-        val spell = MysticScrollItem.spellOf(scroll) ?: return false
-        if (target.isEmpty || target.item is MysticScrollItem) return false
-        if (MysticScrollItem.coolingDown(player)) return true
+        val spell = UlderScrollItem.spellOf(scroll) ?: return false
+        if (target.isEmpty || target.item is UlderScrollItem) return false
+        if (UlderScrollItem.coolingDown(player)) return true
         if (player.level().isClientSide) {
-            MysticScrollItem.clientUsed?.invoke(player, MysticScrollItem.Companion.OtherUse.IMBUE, InteractionHand.OFF_HAND)
+            UlderScrollItem.clientUsed?.invoke(player, UlderScrollItem.Companion.OtherUse.IMBUE, InteractionHand.OFF_HAND)
             return true
         }
         // Spend the scroll first, so nothing can copy the item while the scroll is not spent.
-        MysticScrollItem.spend(player.level() as ServerLevel, player, scroll)
+        UlderScrollItem.spend(player.level() as ServerLevel, player, scroll)
         val overwritten = of(target) != null
         target.orCreateTag.put(NBT, Imbue(spell, player.uuid, target.count).save())
-        MysticScrollItem.startCooldown(player)
+        UlderScrollItem.startCooldown(player)
         if (overwritten) player.displayClientMessage(Component.translatable(OVERWRITTEN_KEY), true)
-        (player as? ServerPlayer)?.let { SpellNetwork.broadcastUsed(it.serverLevel(), it, MysticScrollItem.Companion.OtherUse.IMBUE, InteractionHand.OFF_HAND) }
+        (player as? ServerPlayer)?.let { SpellNetwork.broadcastUsed(it.serverLevel(), it, UlderScrollItem.Companion.OtherUse.IMBUE, InteractionHand.OFF_HAND) }
         SpellVfx.imbue(player.level() as ServerLevel, player, spell)
+        SpellSounds.play(player.level() as ServerLevel, player.position(), EKSounds.SPELL_IMBUE)
         return true
     }
 
@@ -132,7 +134,11 @@ object Imbues {
         stack.removeTagKey(NBT)
         if (imbue.count != stack.count && !stack.isEmpty) {
             (holder as? Player)?.displayClientMessage(Component.translatable(FIZZLED_KEY), true)
-            (holder.level() as? ServerLevel)?.let { SpellVfx.fizzle(it, SpellCasting.handOrigin(holder, InteractionHand.MAIN_HAND)) }
+            (holder.level() as? ServerLevel)?.let {
+                val at = SpellCasting.handOrigin(holder, InteractionHand.MAIN_HAND)
+                SpellVfx.fizzle(it, at)
+                SpellSounds.play(it, at, EKSounds.SPELL_IMBUE_FIZZLE)
+            }
             return null
         }
         return imbue
@@ -251,7 +257,7 @@ object Imbues {
         val level = projectile.level() as? ServerLevel ?: return
         val tag = (projectile as ImbuedProjectile).`enderkinesis$getImbue`() ?: return
         val spell = Spell.load(tag, Spell.NBT_GLYPHS) ?: return
-        if (spell.magnitude(Element.COLD) <= 0f) return
+        if (spell.magnitude(Element.WINTER) <= 0f) return
         val from = projectile.position()
         val to = from.add(projectile.deltaMovement)
         val hit = level.clip(ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, projectile))

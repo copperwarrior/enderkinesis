@@ -15,7 +15,7 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
-import org.shipwrights.enderkinesis.item.MysticShardItem
+import org.shipwrights.enderkinesis.item.UlderShardItem
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.spell.Element
@@ -57,7 +57,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
 
     fun elements(): List<Element> = SpellVfx.elementsOf(entityData.get(ELEMENTS))
 
-    override fun getDefaultItem(): Item = EKItems.MYSTIC_SHARD.get()
+    override fun getDefaultItem(): Item = EKItems.ULDER_SHARD.get()
 
     override fun tick() {
         super.tick()
@@ -73,7 +73,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
 
     fun element(): Element? {
         val stack = item
-        return (stack.item as? MysticShardItem)?.element
+        return (stack.item as? UlderShardItem)?.element
             ?: stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)
     }
 

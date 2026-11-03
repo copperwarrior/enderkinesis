@@ -14,7 +14,9 @@ import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.spell.Absence
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.SpellContext
+import org.shipwrights.enderkinesis.spell.SpellSounds
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import java.util.UUID
 
@@ -45,16 +47,21 @@ class SingularityEntity(type: EntityType<out SingularityEntity>, level: Level) :
         super.tick()
         val level = level() as? ServerLevel ?: return
         if (tickCount >= lifetime) {
+            SpellSounds.play(level, position(), EKSounds.SPELL_VOID_SINGULARITY_COLLAPSE)
             discard()
             return
         }
         val centre = position()
+        var swallowed = false
         for (entity in level.getEntities(this, boundingBox.inflate(radius)) { it is ItemEntity || it is ExperienceOrb }) {
             val toCentre = centre.subtract(entity.position())
             val dist = toCentre.length()
             if (dist > radius) continue
             if (dist < SWALLOW_DISTANCE) {
                 entity.discard()
+                // A broken chest can feed in many items in one tick.
+                if (!swallowed) SpellSounds.play(level, centre, EKSounds.SPELL_VOID_SWALLOW)
+                swallowed = true
                 continue
             }
             entity.deltaMovement = toCentre.scale(PULL / dist)

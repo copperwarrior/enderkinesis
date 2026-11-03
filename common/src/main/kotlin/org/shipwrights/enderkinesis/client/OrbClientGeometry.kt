@@ -5,9 +5,9 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.block.MysticBeamAnchorBlock
+import org.shipwrights.enderkinesis.block.UlderBeamAnchorBlock
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
-import org.shipwrights.enderkinesis.blockentity.MysticBeamAnchorBlockEntity
+import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 
@@ -35,12 +35,12 @@ object OrbClientGeometry {
         return faceOffsetPoint(level, pos, state.getValue(OrbOfLinkingBlock.FACING), ACTIVE_FACE_OFFSET)
     }
 
-    /** The anchor cube centre of the Mystic Beam Anchor at [pos], or null when there is none. */
+    /** The anchor cube centre of the Ulder Beam Anchor at [pos], or null when there is none. */
     fun anchorPoint(level: ClientLevel, pos: BlockPos): Vec3? {
         val state = level.getBlockState(pos)
-        if (state.block !is MysticBeamAnchorBlock) return null
+        if (state.block !is UlderBeamAnchorBlock) return null
         return faceOffsetPoint(
-            level, pos, state.getValue(MysticBeamAnchorBlock.FACING), MysticBeamAnchorBlockEntity.ANCHOR_FACE_OFFSET,
+            level, pos, state.getValue(UlderBeamAnchorBlock.FACING), UlderBeamAnchorBlockEntity.ANCHOR_FACE_OFFSET,
         )
     }
 

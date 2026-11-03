@@ -65,6 +65,10 @@ object TendrilVolume {
     private val viewToLocal = Matrix4d()
     private val localToView = Matrix4f()
     private val camLocal = Vector3d()
+    private val boxMin = Vector3d()
+    private val boxMax = Vector3d()
+    private val viewMin = Vector3d()
+    private val viewMax = Vector3d()
     private var drawn = 0
 
     /** The shared writhe wave phase, in radians; the CPU copy of the shader's `Writhe`. */
@@ -97,9 +101,16 @@ object TendrilVolume {
         } else {
             localToViewD.translation(-view.camX, -view.camY, -view.camZ).mul(toWorld).translate(o.x, o.y, o.z)
         }
+        curveBox(o, curve, style.radius * 3f + curve.wild.toFloat())
+        localToViewD.transformAab(boxMin, boxMax, viewMin, viewMax)
+        if (!view.boxVisible(
+                viewMin.x.toFloat(), viewMin.y.toFloat(), viewMin.z.toFloat(),
+                viewMax.x.toFloat(), viewMax.y.toFloat(), viewMax.z.toFloat(),
+            )
+        ) return
         localToView.set(localToViewD)
         viewToLocal.set(localToViewD).invertAffine().getTranslation(camLocal)
-        pushCurve(u, o, curve, style.radius * 3f + curve.wild.toFloat())
+        pushCurve(u, o, curve)
         u.localToView.set(localToView)
         u.camLocal.set(camLocal.x.toFloat(), camLocal.y.toFloat(), camLocal.z.toFloat())
         u.reach.set(reach.toFloat())
@@ -126,17 +137,23 @@ object TendrilVolume {
         if (drawn > 0) VolumeProxy.end(Minecraft.getInstance().mainRenderTarget, eff)
     }
 
-    private fun pushCurve(u: Uniforms, o: Vector3d, c: TendrilCurve, margin: Float) {
-        u.boxMin.set(
-            (minOf(c.p0.x, c.p1.x, c.p2.x) - o.x).toFloat() - margin,
-            (minOf(c.p0.y, c.p1.y, c.p2.y) - o.y).toFloat() - margin,
-            (minOf(c.p0.z, c.p1.z, c.p2.z) - o.z).toFloat() - margin,
+    // Float math, so the box the shader gets is the same one the cull tests.
+    private fun curveBox(o: Vector3d, c: TendrilCurve, margin: Float) {
+        boxMin.set(
+            ((minOf(c.p0.x, c.p1.x, c.p2.x) - o.x).toFloat() - margin).toDouble(),
+            ((minOf(c.p0.y, c.p1.y, c.p2.y) - o.y).toFloat() - margin).toDouble(),
+            ((minOf(c.p0.z, c.p1.z, c.p2.z) - o.z).toFloat() - margin).toDouble(),
         )
-        u.boxMax.set(
-            (maxOf(c.p0.x, c.p1.x, c.p2.x) - o.x).toFloat() + margin,
-            (maxOf(c.p0.y, c.p1.y, c.p2.y) - o.y).toFloat() + margin,
-            (maxOf(c.p0.z, c.p1.z, c.p2.z) - o.z).toFloat() + margin,
+        boxMax.set(
+            ((maxOf(c.p0.x, c.p1.x, c.p2.x) - o.x).toFloat() + margin).toDouble(),
+            ((maxOf(c.p0.y, c.p1.y, c.p2.y) - o.y).toFloat() + margin).toDouble(),
+            ((maxOf(c.p0.z, c.p1.z, c.p2.z) - o.z).toFloat() + margin).toDouble(),
         )
+    }
+
+    private fun pushCurve(u: Uniforms, o: Vector3d, c: TendrilCurve) {
+        u.boxMin.set(boxMin.x.toFloat(), boxMin.y.toFloat(), boxMin.z.toFloat())
+        u.boxMax.set(boxMax.x.toFloat(), boxMax.y.toFloat(), boxMax.z.toFloat())
         u.p0.set((c.p0.x - o.x).toFloat(), (c.p0.y - o.y).toFloat(), (c.p0.z - o.z).toFloat())
         u.p1.set((c.p1.x - o.x).toFloat(), (c.p1.y - o.y).toFloat(), (c.p1.z - o.z).toFloat())
         u.p2.set((c.p2.x - o.x).toFloat(), (c.p2.y - o.y).toFloat(), (c.p2.z - o.z).toFloat())

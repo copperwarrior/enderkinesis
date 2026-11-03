@@ -24,14 +24,14 @@ object EKCreativeTab {
         }
     }
 
-    val SCROLLS: RegistrySupplier<CreativeModeTab> = TABS.register("enderkinesis_mystic_scrolls") {
-        CreativeTabRegistry.create(Component.translatable("itemGroup.enderkinesis.mystic_scrolls")) {
+    val SCROLLS: RegistrySupplier<CreativeModeTab> = TABS.register("enderkinesis_ulder_scrolls") {
+        CreativeTabRegistry.create(Component.translatable("itemGroup.enderkinesis.ulder_scrolls")) {
             scroll(List(Inscription.MAX_GLYPHS) { Element.VOID })
         }
     }
 
     private fun scroll(glyphs: List<Element>): ItemStack =
-        ItemStack(EKItems.MYSTIC_SCROLL.get()).apply { orCreateTag.put(Spell.NBT_GLYPHS, Spell(glyphs).save()) }
+        ItemStack(EKItems.ULDER_SCROLL.get()).apply { orCreateTag.put(Spell.NBT_GLYPHS, Spell(glyphs).save()) }
 
     @Suppress("LongMethod") // Registration: one flat list of creative-tab entries.
     fun register() {
@@ -45,6 +45,7 @@ object EKCreativeTab {
         CreativeTabRegistry.modify(MAIN) { _, output, _ ->
             output.accept(EKItems.CREPUSCULITE.get())
             output.accept(EKItems.CREPUSCULITE_CHARM.get())
+            output.accept(EKItems.CROWN_OF_THE_DARK_STAR.get())
             output.accept(EKItems.LEDGER_OF_WATCHING_EYES.get())
             output.accept(EKItems.LEDGER_OF_HUNTING_PINCERS.get())
             output.accept(EKItems.PARALLELOGRAPH.get())
@@ -56,13 +57,13 @@ object EKCreativeTab {
             output.accept(EKItems.CRYSTAL_PEDESTAL_ITEM.get())
             output.accept(EKItems.ALTAR_OF_ILLUMINATION_ITEM.get())
             output.accept(EKItems.ENDER_ASTROLABE_ITEM.get())
-            output.accept(EKItems.MAGIC_MISSILE_LAUNCHER_ITEM.get())
+            output.accept(EKItems.LODESTAR_LAUNCHER_ITEM.get())
             output.accept(EKItems.EYEROSCOPE_ITEM.get())
             output.accept(EKItems.PURPUR_BALLAST_ITEM.get())
             output.accept(EKItems.ENDER_LINKAGE_ITEM.get())
             output.accept(EKItems.ROD_OF_LEVITATION.get())
             output.accept(EKItems.WAND_OF_GAMYLAN.get())
-            output.accept(EKItems.MAGIC_MISSILE.get())
+            output.accept(EKItems.LODESTAR_DART.get())
             output.accept(EKItems.PLANAR_ANCHOR_ITEM.get())
             output.accept(EKItems.ANCRITE_CHAIN_ITEM.get())
             output.accept(EKItems.ANCRITE_EYE_ITEM.get())
@@ -94,10 +95,12 @@ object EKCreativeTab {
             output.accept(EKItems.SSELITH_LECTERN_ITEM.get())
             output.accept(EKItems.ORB_OF_LINKING_ITEM.get())
             output.accept(EKItems.ORB_OF_SCRYING_ITEM.get())
-            output.accept(EKItems.MYSTIC_BEAM_ANCHOR_ITEM.get())
+            output.accept(EKItems.QUASAR_OF_PURITY_ITEM.get())
+            output.accept(EKItems.ULDER_BEAM_ANCHOR_ITEM.get())
             output.accept(EKItems.HEART_OF_THE_WILD_ITEM.get())
             output.accept(EKItems.CRYSTAL_EXPLOSIVE_ITEM.get())
             output.accept(EKItems.HEART_CANDLE_ITEM.get())
+            output.accept(EKItems.GUARDIAN_SPIKE_ITEM.get())
             output.accept(EKItems.WOGOR_LOG_ITEM.get())
             output.accept(EKItems.WOGOR_WOOD_ITEM.get())
             output.accept(EKItems.WOGOR_PLANKS_ITEM.get())
@@ -139,13 +142,18 @@ object EKCreativeTab {
             output.accept(EKItems.WOHLON_CUP_MUSHROOM_BLOCK_ITEM.get())
             output.accept(EKItems.WOHLON_MUSHROOM_STEM_ITEM.get())
             output.accept(EKItems.WOHLON_TALL_FERN_ITEM.get())
+            output.accept(EKItems.WILLFAER.get())
+            output.accept(EKItems.WILLFAER_LANTERN_ITEM.get())
+            output.accept(EKItems.WILLFAER_TORCH_ITEM.get())
             output.accept(EKItems.BINDING_ROOTS_ITEM.get())
             output.accept(EKItems.ALMANAC_OF_EVERYWHERE.get())
             output.accept(EKItems.WYLLAND_TOME.get())
             output.accept(EKItems.MUSIC_DISC_MYSTERY.get())
             output.accept(EKItems.GUIDE_TO_STRATUS.get())
             output.accept(EKItems.INCANTATION_OF_WINDS.get())
-            output.accept(EKItems.IRREVERANT_REMNANT_SPAWN_EGG.get())
+            output.accept(EKItems.INCANTATION_OF_THE_RIVER.get())
+            output.accept(EKItems.INCANTATION_OF_THE_ABYSS.get())
+            output.accept(EKItems.IRREVERENT_REMNANT_SPAWN_EGG.get())
             output.accept(EKItems.TOME_OF_SIGNAL.get())
             output.accept(EKItems.TOME_OF_BINDING.get())
             output.accept(EKItems.TOME_OF_CHAINING.get())
@@ -170,21 +178,23 @@ object EKCreativeTab {
             output.accept(EKItems.STAFF_OF_AEGIS.get())
             output.accept(EKItems.STAFF_OF_SUNDERING.get())
             output.accept(EKItems.GRAND_STAFF_OF_THE_DEAD.get())
+            output.accept(EKItems.GRAND_STAFF_OF_DREAD.get())
+            output.accept(EKItems.GRAND_STAFF_OF_DECAY.get())
 
-            output.accept(EKItems.MYSTIC_CITRINE.get())
-            output.accept(EKItems.MYSTIC_ONYX.get())
-            output.accept(EKItems.MYSTIC_JADE.get())
-            output.accept(EKItems.MYSTIC_AQUAMARINE.get())
-            output.accept(EKItems.MYSTIC_MOONSTONE.get())
-            output.accept(EKItems.MYSTIC_SPINEL.get())
-            output.accept(EKItems.MYSTIC_BLOODSTONE.get())
-            output.accept(EKItems.MYSTIC_CITRINE_SHARD.get())
-            output.accept(EKItems.MYSTIC_ONYX_SHARD.get())
-            output.accept(EKItems.MYSTIC_JADE_SHARD.get())
-            output.accept(EKItems.MYSTIC_AQUAMARINE_SHARD.get())
-            output.accept(EKItems.MYSTIC_MOONSTONE_SHARD.get())
-            output.accept(EKItems.MYSTIC_SPINEL_SHARD.get())
-            output.accept(EKItems.MYSTIC_BLOODSTONE_SHARD.get())
+            output.accept(EKItems.ULDER_CITRINE.get())
+            output.accept(EKItems.ULDER_ONYX.get())
+            output.accept(EKItems.ULDER_JADE.get())
+            output.accept(EKItems.ULDER_AQUAMARINE.get())
+            output.accept(EKItems.ULDER_MOONSTONE.get())
+            output.accept(EKItems.ULDER_SPINEL.get())
+            output.accept(EKItems.ULDER_BLOODSTONE.get())
+            output.accept(EKItems.ULDER_CITRINE_SHARD.get())
+            output.accept(EKItems.ULDER_ONYX_SHARD.get())
+            output.accept(EKItems.ULDER_JADE_SHARD.get())
+            output.accept(EKItems.ULDER_AQUAMARINE_SHARD.get())
+            output.accept(EKItems.ULDER_MOONSTONE_SHARD.get())
+            output.accept(EKItems.ULDER_SPINEL_SHARD.get())
+            output.accept(EKItems.ULDER_BLOODSTONE_SHARD.get())
 
             output.accept(EKItems.END_CULT_HOOD.get())
             output.accept(EKItems.END_CULT_ROBES.get())
@@ -206,6 +216,7 @@ object EKCreativeTab {
             output.accept(EKItems.SSELITH_BOOK.get())
             output.accept(EKItems.WAYBREAD.get())
             output.accept(EKItems.BLESSED_RAZOR.get())
+            output.accept(EKItems.WEHELO_BLADE.get())
             output.accept(EKItems.EIDETIC_BOOKMARK.get())
             output.accept(EKItems.SATCHEL_OF_SHELVING.get())
             output.accept(EKItems.SCRIBES_DESK_ITEM.get())
@@ -259,6 +270,8 @@ object EKCreativeTab {
             output.accept(EKItems.SSELITH_MOTH_SPAWN_EGG.get())
             output.accept(EKItems.CONSTRILIAR_SPAWN_EGG.get())
             output.accept(EKItems.SHULKONAUT_SPAWN_EGG.get())
+            output.accept(EKItems.SHILLEAGK_DEER_SPAWN_EGG.get())
+            output.accept(EKItems.WILL_O_THE_WISP_SPAWN_EGG.get())
         }
     }
 }

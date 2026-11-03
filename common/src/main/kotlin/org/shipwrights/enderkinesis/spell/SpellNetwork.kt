@@ -23,7 +23,7 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.mixin.ChunkMapEntityMapAccessor
 import org.shipwrights.enderkinesis.mixin.TrackedEntitySeenByAccessor
 import org.valkyrienskies.mod.common.toWorldCoordinates
@@ -49,7 +49,8 @@ object SpellNetwork {
     private var holdingMerges = HashSet<ServerPlayer>()
     private val sentMerges = HashSet<ServerPlayer>()
 
-    private class ShiftBatch(val level: ServerLevel, val from: Vec3, val element: Int) {
+    /** [from] also picks the players that get the batch, so it is kept when the batch is not [directed]. */
+    private class ShiftBatch(val level: ServerLevel, val from: Vec3, val element: Int, val directed: Boolean) {
         val positions = LongArrayList()
         val states = IntArrayList()
     }
@@ -87,7 +88,7 @@ object SpellNetwork {
         }
 
     /** Skips [player], whose client played it from the click. Send it before the visual of the use. */
-    fun broadcastUsed(level: ServerLevel, player: ServerPlayer, use: MysticScrollItem.Companion.OtherUse, hand: InteractionHand) =
+    fun broadcastUsed(level: ServerLevel, player: ServerPlayer, use: UlderScrollItem.Companion.OtherUse, hand: InteractionHand) =
         sendTo(tracking(level, player).filter { it !== player }, USED) { buf ->
             buf.writeVarInt(player.id); buf.writeByte(use.ordinal); buf.writeBoolean(hand == InteractionHand.MAIN_HAND)
         }
@@ -167,11 +168,11 @@ object SpellNetwork {
             buf.writeInt(seed)
         }
 
-    fun queueBlockShift(level: ServerLevel, pos: BlockPos, old: BlockState, from: Vec3, element: Element?) {
+    fun queueBlockShift(level: ServerLevel, pos: BlockPos, old: BlockState, from: Vec3, element: Element?, directed: Boolean) {
         val e = element?.ordinal ?: -1
         val last = pendingShifts.lastOrNull()
-        val batch = if (last != null && last.level === level && last.element == e && last.from == from) last
-        else ShiftBatch(level, from, e).also { pendingShifts += it }
+        val batch = if (last != null && last.level === level && last.element == e && last.from == from && last.directed == directed) last
+        else ShiftBatch(level, from, e, directed).also { pendingShifts += it }
         batch.positions.add(pos.asLong())
         batch.states.add(Block.getId(old))
     }
@@ -214,7 +215,8 @@ object SpellNetwork {
         while (start < shifts.size) {
             val end = minOf(start + MAX_SHIFTS_PER_PACKET, shifts.size)
             sendTo(listOf(player), BLOCK_SHIFTS) { buf ->
-                buf.writeDouble(batch.from.x); buf.writeDouble(batch.from.y); buf.writeDouble(batch.from.z)
+                buf.writeBoolean(batch.directed)
+                if (batch.directed) { buf.writeDouble(batch.from.x); buf.writeDouble(batch.from.y); buf.writeDouble(batch.from.z) }
                 buf.writeVarInt(batch.element + 1)
                 buf.writeVarInt(end - start)
                 for (k in start until end) {

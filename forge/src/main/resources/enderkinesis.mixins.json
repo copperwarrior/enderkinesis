@@ -9,12 +9,13 @@
   ],
   "client": [
     "HumanoidArmorLayerRobeForgeMixin",
-    "ItemForgeMagicMissileMixin",
+    "ItemForgeLodestarDartMixin",
     "ItemForgeStatueMixin",
     "ItemForgeWyllandTomeMixin",
     "ItemForgeParallelographMixin",
     "ItemForgeIchaericInkJarMixin",
-    "ItemForgeHeartOfTheWildMixin"
+    "ItemForgeHeartOfTheWildMixin",
+    "ItemForgeQuasarOfPurityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

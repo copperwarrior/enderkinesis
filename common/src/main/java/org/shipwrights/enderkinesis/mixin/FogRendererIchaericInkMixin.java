@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.shaders.FogShape;
@@ -15,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Ink is no FogType, so the camera in ink gets its own dense purple-black fog. The dimension fog mixins step aside. */
-@Mixin(FogRenderer.class)
+@Mixin(value = FogRenderer.class, priority = DistantHorizonsCompat.FOG_MIXIN_PRIORITY)
 public abstract class FogRendererIchaericInkMixin {
 
     @Shadow private static float fogRed;

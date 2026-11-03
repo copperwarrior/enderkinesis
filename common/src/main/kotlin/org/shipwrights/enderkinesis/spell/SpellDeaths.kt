@@ -35,14 +35,14 @@ object SpellDeaths {
     }
 
     fun elementOf(source: DamageSource): Element? = when {
-        source.`is`(EKDamageSources.HEAT_KEY) -> Element.HEAT
-        source.`is`(EKDamageSources.GROWTH_KEY) -> Element.GROWTH
-        source.`is`(EKDamageSources.CRYSTALLIZATION_KEY) -> Element.PURITY
+        source.`is`(EKDamageSources.PYRE_KEY) -> Element.PYRE
+        source.`is`(EKDamageSources.GENESIS_KEY) -> Element.GENESIS
+        source.`is`(EKDamageSources.CRYSTALLIZATION_KEY) -> Element.QUINTESSENCE
         source.`is`(EKDamageSources.GRAVITY_KEY) -> Element.GRAVITY
         source.`is`(EKDamageSources.CHAOS_KEY) -> Element.CHAOS
         source.`is`(EKDamageSources.BLOOD_DRAIN_KEY) || source.`is`(EKDamageSources.BLEEDING_KEY) -> Element.BLOOD
         source.`is`(EKDamageSources.SUNFIRE_KEY) -> Element.SUNFIRE
-        source.`is`(EKDamageSources.ROT_KEY) -> Element.POISON
+        source.`is`(EKDamageSources.ROT_KEY) -> Element.CORRUPTION
         source.`is`(EKDamageSources.VOID_KEY) -> Element.VOID
         else -> null
     }
@@ -64,18 +64,18 @@ object SpellDeaths {
     fun keepsPoof(entity: LivingEntity): Boolean = of(entity).let { it == null || it == Element.BLOOD }
 
     @JvmStatic
-    fun tipsOver(entity: LivingEntity): Boolean = of(entity).let { it == null || it == Element.BLOOD || it == Element.POISON }
+    fun tipsOver(entity: LivingEntity): Boolean = of(entity).let { it == null || it == Element.BLOOD || it == Element.CORRUPTION }
 
     /** Ticks. Each value is the length of its client death animation. */
     fun bodyTicks(element: Element): Int = when (element) {
-        Element.HEAT -> 50
-        Element.GROWTH -> 54
-        Element.PURITY -> 19
+        Element.PYRE -> 50
+        Element.GENESIS -> 54
+        Element.QUINTESSENCE -> 19
         Element.GRAVITY -> 60
         Element.CHAOS -> 7
         Element.BLOOD -> 47
         Element.SUNFIRE -> 5
-        Element.POISON -> 45
+        Element.CORRUPTION -> 45
         Element.VOID -> 56
         else -> 20
     }

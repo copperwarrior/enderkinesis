@@ -2,7 +2,7 @@ package org.shipwrights.enderkinesis.spell
 
 import kotlin.math.roundToInt
 
-/** Magnitude is a float because imbue splits divide it. Each curve gives the old Mystic Gem value at magnitude 1. */
+/** Magnitude is a float because imbue splits divide it. Each curve gives the old Ulder Gem value at magnitude 1. */
 object SpellCurves {
     const val BASE_RADIUS: Double = 5.5
 

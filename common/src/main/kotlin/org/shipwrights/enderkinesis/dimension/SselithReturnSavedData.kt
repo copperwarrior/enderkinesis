@@ -1,12 +1,9 @@
 package org.shipwrights.enderkinesis.dimension
 
 import java.util.UUID
-import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
-import net.minecraft.resources.ResourceKey
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
 import net.minecraft.world.level.saveddata.SavedData
 
@@ -30,14 +27,8 @@ internal class SselithReturnSavedData : SavedData() {
     override fun save(tag: CompoundTag): CompoundTag {
         val list = ListTag()
         for ((uuid, point) in points) {
-            val entry = CompoundTag()
+            val entry = point.save(CompoundTag())
             entry.putUUID("UUID", uuid)
-            entry.putString("Dim", point.dimension.location().toString())
-            entry.putDouble("X", point.x)
-            entry.putDouble("Y", point.y)
-            entry.putDouble("Z", point.z)
-            entry.putFloat("YRot", point.yRot)
-            entry.putFloat("XRot", point.xRot)
             list.add(entry)
         }
         tag.put("Points", list)
@@ -52,15 +43,8 @@ internal class SselithReturnSavedData : SavedData() {
             val list = tag.getList("Points", Tag.TAG_COMPOUND.toInt())
             for (i in 0 until list.size) {
                 val entry = list.getCompound(i)
-                val dim = ResourceLocation.tryParse(entry.getString("Dim")) ?: continue
-                data.points[entry.getUUID("UUID")] = SselithChatTeleport.ReturnPoint(
-                    dimension = ResourceKey.create(Registries.DIMENSION, dim),
-                    x = entry.getDouble("X"),
-                    y = entry.getDouble("Y"),
-                    z = entry.getDouble("Z"),
-                    yRot = entry.getFloat("YRot"),
-                    xRot = entry.getFloat("XRot"),
-                )
+                val point = SselithChatTeleport.ReturnPoint.load(entry) ?: continue
+                data.points[entry.getUUID("UUID")] = point
             }
             return data
         }

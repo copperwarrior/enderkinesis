@@ -20,10 +20,10 @@ enum class SpellMote(
     FLAME("spell_flame", 0xFFFFFF, 0.2f, 12, glows = true, animated = false),
     EMBER_FLAME("spell_ember_flame", 0xFFFFFF, 0.13f, 12, glows = true, animated = false),
     AREA_FLAME("spell_area_flame", 0xFFFFFF, 0.3f, 18, gravity = -0.075f, friction = 0.825f, fadeTo = 0f, glows = true, animated = false),
-    HEAT_DUST("spell_heat_dust", Element.HEAT.color, 0.15f, 14, fadeTo = 0.6f),
+    HEAT_DUST("spell_pyre_dust", Element.PYRE.color, 0.15f, 14, fadeTo = 0.6f),
     SPRAY_SMOKE("spell_spray_smoke", 0x4A4648, 0.22f, 18, grow = 1.03f, alpha = 0.85f),
-    HEAT_SMOKE("spell_heat_smoke", 0x3D3A40, 0.7f, 20, friction = 0.9f, grow = 1.02f, fadeTo = 0f, alpha = 0.8f),
-    HEAT_EMBER("spell_heat_ember", Element.HEAT.color, 0.14f, 28, gravity = 0.6f, friction = 1f, fadeTo = 0.4f, rgbAlt = 0xFFC070, altEvery = 2),
+    HEAT_SMOKE("spell_pyre_smoke", 0x3D3A40, 0.7f, 20, friction = 0.9f, grow = 1.02f, fadeTo = 0f, alpha = 0.8f),
+    HEAT_EMBER("spell_pyre_ember", Element.PYRE.color, 0.14f, 28, gravity = 0.6f, friction = 1f, fadeTo = 0.4f, rgbAlt = 0xFFC070, altEvery = 2),
     CLOAK_FLAME("spell_cloak_flame", 0xFFFFFF, 0.16f, 16, gravity = -0.05f, friction = 0.9f, fadeTo = 0f, glows = true, animated = false, motion = Motion.ORBIT),
 
     FROST("spell_frost", 0xF6FCFF, 0.14f, 18, gravity = 0.15f),
@@ -33,15 +33,15 @@ enum class SpellMote(
     SNOW_PUFF("spell_snow_puff", 0xF4FBFF, 0.16f, 28, friction = 1f, fadeTo = 0.3f),
     CLOAK_SPARK("spell_cloak_spark", 0xF7C4DA, 0.12f, 10, friction = 0.9f, fadeTo = 0f, glows = true, motion = Motion.ORBIT),
     CLOAK_BLOOD("spell_cloak_blood", 0x7A0C14, 0.18f, 18, friction = 0.9f, fadeTo = 0.2f, alpha = 0.9f, rgbAlt = 0xA8141E, altEvery = 3, motion = Motion.ORBIT),
-    CLOAK_SPORE("spell_cloak_spore", Element.POISON.color, 0.14f, 22, friction = 0.9f, fadeTo = 0.1f, rgbAlt = 0x5E8A2E, altEvery = 2, motion = Motion.ORBIT),
+    CLOAK_SPORE("spell_cloak_spore", Element.CORRUPTION.color, 0.14f, 22, friction = 0.9f, fadeTo = 0.1f, rgbAlt = 0x5E8A2E, altEvery = 2, motion = Motion.ORBIT),
     CLOAK_VOID("spell_cloak_void", 0x1C0C2C, 0.18f, 20, friction = 0.9f, fadeTo = 0.2f, alpha = 0.9f, motion = Motion.ORBIT),
     CLOAK_VOID_GLINT("spell_cloak_void_glint", Element.VOID.color, 0.08f, 16, friction = 0.9f, fadeTo = 0f, glows = true, animated = false, motion = Motion.ORBIT),
     CLOAK_SNOW("spell_cloak_snow", 0xF6FCFF, 0.14f, 22, friction = 0.9f, fadeTo = 0.1f, motion = Motion.ORBIT),
     CLOAK_GLINT("spell_cloak_glint", 0xD4ECFA, 0.08f, 20, friction = 0.9f, fadeTo = 0f, glows = true, animated = false, motion = Motion.ORBIT),
 
-    GROWTH_GLINT("spell_growth_glint", 0x8CE06A, 0.14f, 14, animated = false),
+    GROWTH_GLINT("spell_genesis_glint", 0x8CE06A, 0.14f, 14, animated = false),
 
-    PURITY_GLITTER("spell_purity_glitter", 0xFFFFFF, 0.14f, 16, glows = true),
+    PURITY_GLITTER("spell_quintessence_glitter", 0xFFFFFF, 0.14f, 16, glows = true),
     /** Stays white here because `EffectFlows` tints it with the colour of the effect. */
     EFFECT_SWIRL("spell_effect_swirl", 0xFFFFFF, 0.22f, 10),
     CRYSTAL_SHARD("crystal_shard", 0xFFFFFF, 0.18f, 20, gravity = 0.6f, glows = true, animated = false),
@@ -59,8 +59,8 @@ enum class SpellMote(
     BLOOD_HAZE("spell_blood_haze", 0x6E0A10, 0.45f, 60, friction = 1f, grow = 1.0085f, fadeTo = 0f, alpha = 0.8f),
 
     POISON_MIST("poison_mist", 0x5E8A2E, 0.46f, 20, friction = 0.9f, grow = 1.04f, alpha = 0.85f),
-    ROT_SPORE("rot_spore", Element.POISON.color, 0.13f, 40, gravity = -0.02f),
-    POISON_SWIRL("spell_poison_swirl", Element.POISON.color, 0.2f, 28, friction = 0.98f, fadeTo = 0.5f, rgbAlt = 0x5E8A2E, altEvery = 2),
+    ROT_SPORE("rot_spore", Element.CORRUPTION.color, 0.13f, 40, gravity = -0.02f),
+    POISON_SWIRL("spell_corruption_swirl", Element.CORRUPTION.color, 0.2f, 28, friction = 0.98f, fadeTo = 0.5f, rgbAlt = 0x5E8A2E, altEvery = 2),
 
     SUNFIRE_SPARK("spell_sunfire_spark", Element.SUNFIRE.color, 0.15f, 14, glows = true, rgbAlt = 0xFFF0B0, altEvery = 3),
     SUNFIRE_EMBER("spell_sunfire_ember", Element.SUNFIRE.color, 0.18f, 28, friction = 0.9f, fadeTo = 0f, glows = true,

@@ -14,7 +14,7 @@ class Spell(val glyphs: List<Element>) {
      *  what the rest of the spell applies. */
     val magnitudes: Map<Element, Float> =
         glyphs.groupingBy { it }.eachCount().mapValues { it.value.toFloat() }
-            .entries.sortedBy { if (it.key == Element.PURITY) 0 else 1 }
+            .entries.sortedBy { if (it.key == Element.QUINTESSENCE) 0 else 1 }
             .associate { it.key to it.value }
 
     val shapeElement: Element? =
@@ -102,7 +102,7 @@ class Spell(val glyphs: List<Element>) {
     /** Purity moves the colour most of the way to white, as the Staff of Aegis burns white. */
     fun markColour(): Int {
         val rgb = tint()
-        if (Element.PURITY !in magnitudes) return rgb
+        if (Element.QUINTESSENCE !in magnitudes) return rgb
         fun white(c: Int) = c + ((255 - c) * PURITY_WHITENESS).toInt()
         return (white((rgb shr 16) and 0xFF) shl 16) or (white((rgb shr 8) and 0xFF) shl 8) or white(rgb and 0xFF)
     }
@@ -120,8 +120,8 @@ class Spell(val glyphs: List<Element>) {
 
         /** Tie-break order for the core noun and the adjectives. */
         val NAME_ORDER: List<Element> = listOf(
-            Element.GRAVITY, Element.VOID, Element.GROWTH, Element.PURITY, Element.SUNFIRE,
-            Element.CHAOS, Element.HEAT, Element.COLD, Element.POISON, Element.BLOOD, Element.SUNDERING,
+            Element.GRAVITY, Element.VOID, Element.GENESIS, Element.QUINTESSENCE, Element.SUNFIRE,
+            Element.CHAOS, Element.PYRE, Element.WINTER, Element.CORRUPTION, Element.BLOOD, Element.SUNDERING,
         )
 
         fun adjectiveTier(magnitude: Float): Int = when {

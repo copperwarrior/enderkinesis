@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
@@ -33,7 +34,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@code fog_color = sky_color}, so vanilla's setupColor + brightness modulation drives them in
  * lockstep; the {@link WohlonAtmosphere} drift tints both by the same factor.
  */
-@Mixin(FogRenderer.class)
+@Mixin(value = FogRenderer.class, priority = DistantHorizonsCompat.FOG_MIXIN_PRIORITY)
 public abstract class FogRendererWohlonBiomeMixin {
 
     @Shadow private static float fogRed;
@@ -101,8 +102,12 @@ public abstract class FogRendererWohlonBiomeMixin {
         float end = farPlaneDistance * WohlonAtmosphere.INSTANCE.getFogEndScale();
         float thin = (1f - WohlonBiomeFog.fogDensityAt(camera.getPosition().y)) / (1f - WohlonBiomeFog.FOG_MIN_DENSITY);
         float start = end * ENDERKINESIS$START_THIN * thin;
-        RenderSystem.setShaderFogStart(Mth.lerp(blend, RenderSystem.getShaderFogStart(), start));
-        RenderSystem.setShaderFogEnd(Mth.lerp(blend, RenderSystem.getShaderFogEnd(), end));
+        // Distant Horizons can push the fog out past the far plane before we run; blend from vanilla's range then.
+        boolean pushedOut = RenderSystem.getShaderFogEnd() > farPlaneDistance;
+        float baseStart = pushedOut ? farPlaneDistance - Mth.clamp(farPlaneDistance / 10f, 4f, 64f) : RenderSystem.getShaderFogStart();
+        float baseEnd = pushedOut ? farPlaneDistance : RenderSystem.getShaderFogEnd();
+        RenderSystem.setShaderFogStart(Mth.lerp(blend, baseStart, start));
+        RenderSystem.setShaderFogEnd(Mth.lerp(blend, baseEnd, end));
         enderkinesis$recordTerrainFog();
     }
 

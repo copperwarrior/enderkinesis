@@ -1,0 +1,14 @@
+{
+  "gem": "enderkinesis:heart_of_the_wild",
+  "result": "enderkinesis:grand_staff_of_decay",
+  "colour": "#11A5E0",
+  "body_colour": "#24261B",
+  "slots": [
+    "enderkinesis:wogor_wood",
+    "enderkinesis:wogor_wood",
+    "enderkinesis:wogor_wood"
+  ],
+  "advancements": [
+    "enderkinesis:sureibjin/knowledge_of_death"
+  ]
+}

@@ -49,8 +49,8 @@ object ScrollBeamDetail {
         pose.translate(-cam.x, -cam.y, -cam.z)
         val m = pose.last().pose()
 
-        if (Element.POISON in els) poisonPuffs(buffers, m, view, segments, time)
-        if (SpellVfxRenderTypes.isReady() && (Element.GROWTH in els || Element.COLD in els)) {
+        if (Element.CORRUPTION in els) poisonPuffs(buffers, m, view, segments, time)
+        if (SpellVfxRenderTypes.isReady() && (Element.GENESIS in els || Element.WINTER in els)) {
             blockAccents(buffers, m, level, view, segments, els, gameTime, time)
         }
         val prism = ScrollBeamClient.prism(spell)
@@ -75,8 +75,8 @@ object ScrollBeamDetail {
         els: Set<Element>, gameTime: Double, time: Float,
     ) {
         val blocks = buffers.getBuffer(SpellVfxRenderTypes.sprite(BLOCK_ATLAS))
-        if (Element.GROWTH in els) vines(blocks, m, level, view, segments, gameTime)
-        if (Element.COLD in els) {
+        if (Element.GENESIS in els) vines(blocks, m, level, view, segments, gameTime)
+        if (Element.WINTER in els) {
             val ice = SpellArt.block("packed_ice")
             each(segments, 2.5, 0.025, time) { p, _, _, k, g, s ->
                 if (k % 4 == 0) {
@@ -105,7 +105,7 @@ object ScrollBeamDetail {
         }
         if (sunfire) sunfireBody(glow, m, cam, view, segments, prism, time, pulse)
         if (Element.CHAOS in els) zaps(glow, m, view, segments, time)
-        if (Element.PURITY in els) {
+        if (Element.QUINTESSENCE in els) {
             each(segments, 3.0, 0.04, time) { p, _, r, k, g, s ->
                 if (k % 6 == 0) {
                     val q = p.add(SpellGeom.around(SpellGeom.basis(s.direction), r.nextDouble() * Math.PI * 2 + time * 0.03, 0.18 + 0.3 * r.nextDouble()))

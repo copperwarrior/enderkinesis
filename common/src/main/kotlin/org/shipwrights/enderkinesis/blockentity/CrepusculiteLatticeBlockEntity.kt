@@ -341,6 +341,8 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
 
     fun serverTick(level: Level, pos: BlockPos, state: BlockState) {
         if (level !is ServerLevel) return
+        // VS2 assembly can leave duplicate BEs ticking at this pos; one that outlives the real lattice re-adds the inducer.
+        if (level.getBlockEntity(pos) !== this) return
 
         val curDimId = level.dimension().location().toString()
         val ship = level.getLoadedShipManagingPos(pos)
@@ -550,11 +552,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         var catchPlayed = false
 
         for (entity in level.getEntities(null as Entity?, box) { it.isAlive }) {
-            // Magic missile: homing projectile with its own deliberate trajectory; the
+            // Lodestar Dart: homing projectile with its own deliberate trajectory; the
             // lattice's lift + horizontal drag would steer it away from its target. The
             // fluid probe already skips non-LivingEntity, so the only remaining contact
             // surface is this float loop — exclude here.
-            if (entity is org.shipwrights.enderkinesis.entity.MagicMissileEntity) continue
+            if (entity is org.shipwrights.enderkinesis.entity.LodestarDartEntity) continue
 
             val living = entity as? LivingEntity
             // Intentional flight/riding hard-stops floating at once (never fight creative flight);

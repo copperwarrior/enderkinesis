@@ -57,6 +57,9 @@ dependencies {
     // ships without a hard runtime dep on Sodium.
     modCompileOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
 
+    // Only the DH API is referenced, and only behind DistantHorizonsCompat's isModLoaded gate.
+    compileOnly("maven.modrinth:distanthorizons:3.3.3-1.20.1")
+
 
     // For unit testing.
     var kotestVersion = "5.4.1"
@@ -102,7 +105,7 @@ tasks.register("downloadSselithModels") {
             }
         }
         modelsDir.mkdirs()
-        fetch("https://opennlp.sourceforge.net/models-1.5/en-pos-maxent.bin", posModel)
+        fetch("https://downloads.sourceforge.net/project/opennlp/models-1.5/en-pos-maxent.bin", posModel)
         fetch("https://raw.githubusercontent.com/richardwilly98/elasticsearch-opennlp-auto-tagging/master/src/main/resources/models/en-lemmatizer.dict", lemmaDict)
     }
 }

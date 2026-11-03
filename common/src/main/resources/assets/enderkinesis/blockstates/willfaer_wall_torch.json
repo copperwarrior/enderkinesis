@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "enderkinesis:block/willfaer_wall_torch"
+    },
+    "facing=north": {
+      "model": "enderkinesis:block/willfaer_wall_torch",
+      "y": 270
+    },
+    "facing=south": {
+      "model": "enderkinesis:block/willfaer_wall_torch",
+      "y": 90
+    },
+    "facing=west": {
+      "model": "enderkinesis:block/willfaer_wall_torch",
+      "y": 180
+    }
+  }
+}

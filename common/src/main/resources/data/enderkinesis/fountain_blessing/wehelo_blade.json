@@ -1,0 +1,6 @@
+{
+  "ingredient": { "item": "enderkinesis:wehelo_blade" },
+  "outcomes": [
+    { "type": "recharge", "amount": 1.0 }
+  ]
+}

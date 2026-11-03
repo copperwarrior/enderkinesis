@@ -105,12 +105,13 @@ class WohlonUnderstoryFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<
             }
             if (random.nextFloat() >= LOG_CARPET_CHANCE * mossPatch) return false
             // Nurse logs: seedlings take on mossy logs. Static bud, no growth tick, so it stays a seedling.
+            val at = pos.set(c.x, c.groundY + 1, c.z)
             val top = if (fallen && random.nextFloat() < NURSE_BUD_SHARE) {
-                EKBlocks.WOGOR_BUD.get().defaultBlockState().setValue(WogorBudBlock.FACING, Direction.DOWN)
+                WogorBudBlock.newBud(level, at)
             } else {
                 EKBlocks.WOHLON_MOSS_CARPET.get().defaultBlockState()
             }
-            return place(level, pos.set(c.x, c.groundY + 1, c.z), top)
+            return place(level, at, top)
         }
         if (!ground.`is`(EKBlocks.WOHLON_MUD.get())) return false
 

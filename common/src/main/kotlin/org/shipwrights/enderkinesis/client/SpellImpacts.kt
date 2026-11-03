@@ -7,6 +7,7 @@ import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.SpellMote
+import org.shipwrights.enderkinesis.spell.SpellSounds
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import kotlin.math.cos
 import kotlin.math.pow
@@ -56,19 +57,20 @@ object SpellImpacts {
 
     private fun mote(level: ClientLevel, mote: SpellMote, p: Vec3, v: Vec3 = Vec3.ZERO) = add(level, EKParticles.mote(mote), p, v)
 
-    fun spawn(level: ClientLevel, element: Element, at: Vec3, size: Double, seed: Int, delay: Int) =
-        later(level, delay) { spawn(level, element, at, size, seed) }
+    fun spawn(level: ClientLevel, element: Element, at: Vec3, size: Double, seed: Int, delay: Int, magnitude: Float) =
+        later(level, delay) { spawn(level, element, at, size, seed, magnitude) }
 
-    fun spawn(level: ClientLevel, element: Element, at: Vec3, size: Double, seed: Int) {
+    fun spawn(level: ClientLevel, element: Element, at: Vec3, size: Double, seed: Int, magnitude: Float) {
+        SpellSounds.of(element)?.let { SpellSoundsClient.playAt(level, at, it.impact, SpellSounds.magnitudeVolume(magnitude)) }
         val r = Random(seed)
         when (element) {
-            Element.HEAT -> heat(level, at, size, r)
-            Element.COLD -> cold(level, at, size, seed, r)
-            Element.GROWTH -> growth(level, at, size, r)
+            Element.PYRE -> heat(level, at, size, r)
+            Element.WINTER -> cold(level, at, size, seed, r)
+            Element.GENESIS -> growth(level, at, size, r)
             Element.BLOOD -> blood(level, at, size, r)
-            Element.POISON -> poison(level, at, size, seed, r)
+            Element.CORRUPTION -> poison(level, at, size, seed, r)
             Element.SUNFIRE -> sunfire(level, at, size, seed, r)
-            Element.PURITY -> purity(level, at, size, seed, r)
+            Element.QUINTESSENCE -> purity(level, at, size, seed, r)
             Element.GRAVITY -> {
                 SpellVfxClient.addLocal(SpellVfx.Kind.CRUSH, at, at, (size * 1.6).toFloat(), element.color, LIFE, seed)
                 inward(level, at, size * 1.4, SpellMote.GRAVITY_MOTE, 36, r, LIFE * 2 / 3)
@@ -88,7 +90,7 @@ object SpellImpacts {
     }
 
     private fun poison(level: ClientLevel, at: Vec3, size: Double, seed: Int, r: Random) {
-        SpellVfxClient.addLocal(SpellVfx.Kind.PUFFS, at, at, size.toFloat(), Element.POISON.color, LIFE, seed)
+        SpellVfxClient.addLocal(SpellVfx.Kind.PUFFS, at, at, size.toFloat(), Element.CORRUPTION.color, LIFE, seed)
         repeat(30) {
             val angle = r.nextDouble() * Math.PI * 2
             val rad = size * (0.2 + 0.7 * r.nextDouble())

@@ -30,7 +30,15 @@ in vec3 viewPos;
 
 out vec4 fragColor;
 
-const int STEPS = 28;
+// Fixed even steps alias on long tendrils (0.6-block gaps around a 0.2-block tube), so the march skips
+// empty space by distance and takes MIN_STEP_RADII * Radius steps only near the tube.
+const int MAX_STEPS = 96;
+const float MIN_STEP_RADII = 0.4;
+// Past this many halo radii the halo is below 1e-4.
+const float HALO_REACH = 3.0;
+// Bounds for the writhe field: its length, and how fast the warped point moves for each block of p.
+const float WARP_LENGTH = 1.7320508;
+const float WARP_SLOPE = 2.5;
 // Dark core, faint glowing rim: the tube absorbs, and only the halo outside it gives light.
 const float HALO_SCALE = 2.2;
 const float CORE_SHADE = 0.06;
@@ -52,22 +60,41 @@ vec3 bezier(float t) {
     return s * s * P0 + 2.0 * s * t * P1 + t * t * P2;
 }
 
+// The terms of closest() that depend only on the curve; main sets them one time.
+vec3 curveA;
+vec3 curveB;
+vec3 curveC;
+float curveBB;
+float curveK;
+float curveKX;
+float curveAA2;
+
+void initCurve() {
+    curveA = P1 - P0;
+    curveB = P0 - 2.0 * P1 + P2;
+    curveC = curveA * 2.0;
+    curveBB = dot(curveB, curveB);
+    curveK = 1.0 / curveBB;
+    curveKX = curveK * dot(curveA, curveB);
+    curveAA2 = 2.0 * dot(curveA, curveA);
+}
+
 // Distance and curve parameter of the closest point on the Bézier (Inigo Quilez, sdBezier).
 vec2 closest(vec3 pos) {
-    vec3 a = P1 - P0;
-    vec3 b = P0 - 2.0 * P1 + P2;
-    vec3 c = a * 2.0;
+    vec3 a = curveA;
+    vec3 b = curveB;
+    vec3 c = curveC;
     vec3 d = P0 - pos;
-    float bb = dot(b, b);
+    float bb = curveBB;
     if (bb < 1.0e-6) {
         // Straight curve: closest point on the segment.
         vec3 ab = P2 - P0;
         float t = clamp(dot(pos - P0, ab) / max(dot(ab, ab), 1.0e-6), 0.0, 1.0);
         return vec2(length(pos - P0 - ab * t), t);
     }
-    float kk = 1.0 / bb;
-    float kx = kk * dot(a, b);
-    float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
+    float kk = curveK;
+    float kx = curveKX;
+    float ky = kk * (curveAA2 + dot(d, b)) / 3.0;
     float kz = kk * dot(d, a);
     float p = ky - kx * kx;
     float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
@@ -113,19 +140,33 @@ void main() {
     }
     if (t1 <= t0 || Reach <= 0.0) discard;
 
-    float dt = (t1 - t0) / float(STEPS);
+    float minStep = Radius * MIN_STEP_RADII;
+    float extent = Radius * HALO_SCALE * HALO_REACH;
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    initCurve();
     vec3 tip = bezier(Reach);
     vec3 emitted = vec3(0.0);
     float through = 1.0;
-    for (int i = 0; i < STEPS; i++) {
-        vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
-        if (Wild > 0.0) {
-            // The unwarped closest point says where along the tendril this is; the bend is 0 at both ends.
-            float along = clamp(closest(p).y, 0.0, 1.0);
-            p += writhe(p) * Wild * sin(3.14159265 * along);
+    float t = t0 + jitter * minStep;
+    for (int i = 0; i < MAX_STEPS; i++) {
+        if (t >= t1) break;
+        vec3 p = CamLocal + dir * t;
+        // The unwarped closest point says where along the tendril this is; the bend is 0 at both ends.
+        vec2 calm = closest(p);
+        float calmFree = calm.x - Wild * WARP_LENGTH - extent;
+        if (calmFree > minStep) {
+            t += calmFree;
+            continue;
         }
+        if (Wild > 0.0) p += writhe(p) * Wild * sin(3.14159265 * clamp(calm.y, 0.0, 1.0));
         vec2 hit = closest(p);
+        float warpedFree = (hit.x - extent) / (1.0 + Wild * WARP_SLOPE);
+        if (warpedFree > minStep) {
+            t += warpedFree;
+            continue;
+        }
+        float dt = min(minStep, t1 - t);
+        t += dt;
         float d = hit.x;
         float s = hit.y;
         // Past the grown part, the nearest drawn point is the tip.

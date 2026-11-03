@@ -28,6 +28,22 @@ const vec3 LIGHT_BLUE = vec3(0.50, 0.80, 1.00);
 const vec3 TEAL = vec3(0.10, 0.70, 0.70);
 const vec3 CYAN = vec3(0.00, 1.00, 1.00);
 
+// Indices of the march samples t0 + (i + jitter) * dt that can lie in [tA, tB], one more on each side for float error.
+ivec2 stepRange(float tA, float tB, float t0, float dt, float jitter) {
+    vec2 r = vec2(floor((tA - t0) / dt - jitter) - 1.0, floor((tB - t0) / dt - jitter) + 2.0);
+    return ivec2(clamp(r, 0.0, float(STEPS)));
+}
+
+// The samples with rn <= 1; the step grid stays the box's, so the image does not change.
+ivec2 sphereSteps(vec3 dir, float t0, float dt, float jitter) {
+    float b = dot(CamLocal, dir);
+    // A little past the surface, so float error cannot drop an edge sample.
+    float disc = b * b - (dot(CamLocal, CamLocal) - Radius * Radius * 1.002);
+    if (disc <= 0.0) return ivec2(0);
+    float s = sqrt(disc);
+    return stepRange(-b - s, -b + s, t0, dt, jitter);
+}
+
 void main() {
     vec2 texCoord = gl_FragCoord.xy / ScreenSize;
     vec3 toFar = localPos - CamLocal;
@@ -50,7 +66,8 @@ void main() {
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec3 emitted = vec3(0.0);
     float veil = 0.0;
-    for (int i = 0; i < STEPS; i++) {
+    ivec2 steps = sphereSteps(dir, t0, dt, jitter);
+    for (int i = steps.x; i < steps.y; i++) {
         vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
         float rn = length(p) / Radius;
         if (rn > 1.0) continue;

@@ -89,7 +89,7 @@ object TomeSummonOverlay {
         maxOf(
             currentEnvelopeIntensity(partialTick),
             SselithMadnessStageFx.intensity(),
-            SselithControlLoss.vignetteIntensity(partialTick),
+            PossessionClient.vignetteIntensity(partialTick),
         )
 
     private val LOG: org.slf4j.Logger =

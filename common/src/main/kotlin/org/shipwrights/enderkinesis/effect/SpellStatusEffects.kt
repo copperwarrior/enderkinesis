@@ -1,5 +1,9 @@
 package org.shipwrights.enderkinesis.effect
 
+import dev.architectury.registry.registries.RegistrySupplier
+import net.minecraft.sounds.SoundEvent
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.spell.SpellSounds
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.effect.MobEffect
 import net.minecraft.world.effect.MobEffectCategory
@@ -34,7 +38,9 @@ import org.shipwrights.enderkinesis.mixin.LivingEntityLastHurtAccessor
 
 // Jump, fall damage, heal and redirected damage parts are in LivingEntitySpellEffectsMixin and PlayerSpellEffectsMixin.
 
-class EntangledEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GROWTH.color) {
+class EntangledEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GENESIS.color) {
+    private val refreshes = RefreshMarks(this)
+
     init {
         addAttributeModifier(Attributes.MOVEMENT_SPEED, "6f3a2c41-7b1e-4c0d-9b5a-2e8f1d6c3a01", -1.0, AttributeModifier.Operation.MULTIPLY_TOTAL)
     }
@@ -42,11 +48,14 @@ class EntangledEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GROWTH.colo
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
+        if (refreshes.isNew(entity)) playAt(entity, EKSounds.SPELL_GENESIS_ENTANGLE)
     }
 
     override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.removeAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
+        refreshes.removed(entity)
+        if (!EndingEffects.stillHas(entity, this)) playAt(entity, EKSounds.SPELL_GENESIS_RELEASE)
     }
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = true
@@ -58,6 +67,8 @@ class EntangledEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GROWTH.colo
 }
 
 class WeightedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GRAVITY.color) {
+    private val refreshes = RefreshMarks(this)
+
     init {
         addAttributeModifier(Attributes.KNOCKBACK_RESISTANCE, "0c9d7e52-3f4a-4b6e-8a1d-5b2c7f9e4d02", 1.0, AttributeModifier.Operation.ADDITION)
     }
@@ -65,10 +76,12 @@ class WeightedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GRAVITY.colo
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
+        if (refreshes.isNew(entity)) playAt(entity, EKSounds.SPELL_GRAVITY_WEIGHTED_ON)
     }
 
     override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.removeAttributeModifiers(entity, attributes, amplifier)
+        refreshes.removed(entity)
         SpellVisuals.update(entity)
         lastPositions.remove(entity)
         falls.remove(entity)
@@ -144,12 +157,26 @@ class WeightedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.GRAVITY.colo
             if (fallDamage <= 0 || !entity.isAlive || entity.level().isClientSide) return
             if (!entity.hasEffect(EKEffects.WEIGHTED.get())) return
             entity.invulnerableTime = 0
-            entity.hurt(EKDamageSources.ofEffect(entity, EKEffects.WEIGHTED.get(), EKDamageSources.GRAVITY_KEY), fallDamage.toFloat())
+            if (entity.hurt(EKDamageSources.ofEffect(entity, EKEffects.WEIGHTED.get(), EKDamageSources.GRAVITY_KEY), fallDamage.toFloat())) {
+                playAt(entity, EKSounds.SPELL_GRAVITY_WEIGHTED_SLAM)
+            }
         }
     }
 }
 
 class DiscordEffect : MobEffect(MobEffectCategory.HARMFUL, Element.CHAOS.color) {
+    private val refreshes = RefreshMarks(this)
+
+    override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.addAttributeModifiers(entity, attributes, amplifier)
+        if (refreshes.isNew(entity)) playAt(entity, EKSounds.SPELL_CHAOS_DISCORD)
+    }
+
+    override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
+        super.removeAttributeModifiers(entity, attributes, amplifier)
+        refreshes.removed(entity)
+    }
+
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = duration % 20 == 0
 
     override fun applyEffectTick(entity: LivingEntity, amplifier: Int) {
@@ -212,7 +239,7 @@ class BloodboundEffect : MobEffect(MobEffectCategory.HARMFUL, Element.BLOOD.colo
 class HollowedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.VOID.color)
 
 /** Keep the damage above the heal rate of Regeneration III and lower. */
-class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.POISON.color) {
+class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.CORRUPTION.color) {
     // Server thread only. Not saved.
     private val steps = WeakHashMap<LivingEntity, Int>()
 
@@ -249,6 +276,7 @@ class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.POISON.color) {
         entity.hurt(EKDamageSources.ofEffect(entity, this, EKDamageSources.ROT_KEY), amount)
         entity.invulnerableTime = frames
         (entity as LivingEntityLastHurtAccessor).`enderkinesis$setLastHurt`(last)
+        playAt(entity, EKSounds.SPELL_CORRUPTION_ROT)
     }
 
     private fun spread(level: ServerLevel, entity: LivingEntity, step: Int) {
@@ -257,7 +285,10 @@ class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.POISON.color) {
         val next = level.getEntitiesOfClass(Mob::class.java, entity.boundingBox.inflate(SPREAD_RANGE)) {
             it !== entity && it.isAlive && !it.hasEffect(this) && it.distanceToSqr(entity) <= SPREAD_RANGE * SPREAD_RANGE
         }.minByOrNull { it.distanceToSqr(entity) } ?: return
-        if (next.addEffect(MobEffectInstance(this, remaining / 2, current.amplifier), SpellCredit.caster(entity, this))) steps[next] = step + 1
+        if (next.addEffect(MobEffectInstance(this, remaining / 2, current.amplifier), SpellCredit.caster(entity, this))) {
+            steps[next] = step + 1
+            playAt(next, EKSounds.SPELL_CORRUPTION_ROT_SPREAD)
+        }
     }
 
     companion object {
@@ -276,7 +307,9 @@ class RotEffect : MobEffect(MobEffectCategory.HARMFUL, Element.POISON.color) {
     }
 }
 
-class FrozenEffect : MobEffect(MobEffectCategory.HARMFUL, Element.COLD.color) {
+class FrozenEffect : MobEffect(MobEffectCategory.HARMFUL, Element.WINTER.color) {
+    private val refreshes = RefreshMarks(this)
+
     init {
         addAttributeModifier(Attributes.MOVEMENT_SPEED, "a3f1e0d2-5c6b-4a79-8e2d-9f4b1c7a6e03", -1.0, AttributeModifier.Operation.MULTIPLY_TOTAL)
     }
@@ -284,14 +317,17 @@ class FrozenEffect : MobEffect(MobEffectCategory.HARMFUL, Element.COLD.color) {
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         FrozenBodies.freeze(entity)
+        if (refreshes.isNew(entity)) playAt(entity, EKSounds.SPELL_WINTER_FREEZE)
         SpellVisuals.update(entity)
     }
 
     override fun removeAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.removeAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
+        refreshes.removed(entity)
         if (EndingEffects.stillHas(entity, this)) return
         FrozenBodies.thaw(entity)
+        playAt(entity, EKSounds.SPELL_WINTER_THAW)
     }
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = true
@@ -344,7 +380,7 @@ class AnchoredEffect : MobEffect(MobEffectCategory.BENEFICIAL, Element.GRAVITY.c
 }
 
 /** The amplifier is the rounded magnitude minus one. */
-class HaloEffect : MobEffect(MobEffectCategory.BENEFICIAL, Element.SUNFIRE.color) {
+class PaleCrownEffect : MobEffect(MobEffectCategory.BENEFICIAL, Element.SUNFIRE.color) {
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
@@ -365,6 +401,7 @@ class HaloEffect : MobEffect(MobEffectCategory.BENEFICIAL, Element.SUNFIRE.color
             it !== entity && it.isAlive && SpellContext.isUndead(it) && it.distanceToSqr(centre) <= radius * radius
         }) {
             undead.setSecondsOnFire(HALO_BURN_SECONDS)
+            SpellSounds.smite(level, undead, SpellSounds.magnitudeVolume(amplifier + 1f))
             val away = undead.position().subtract(centre).multiply(1.0, 0.0, 1.0)
             if (away.lengthSqr() < 1.0e-4) continue
             undead.deltaMovement = undead.deltaMovement.add(away.normalize().scale(HALO_PUSH))
@@ -382,7 +419,7 @@ class HaloEffect : MobEffect(MobEffectCategory.BENEFICIAL, Element.SUNFIRE.color
 }
 
 /** The amplifier is the cast tier. */
-abstract class ElementCloakEffect(element: Element) : MobEffect(MobEffectCategory.BENEFICIAL, element.color) {
+abstract class ElementMantleEffect(element: Element) : MobEffect(MobEffectCategory.BENEFICIAL, element.color) {
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
@@ -422,14 +459,14 @@ abstract class ElementCloakEffect(element: Element) : MobEffect(MobEffectCategor
     }
 }
 
-class FlameCloakEffect : ElementCloakEffect(Element.HEAT) {
+class MantleOfFlameEffect : ElementMantleEffect(Element.PYRE) {
     override fun wearer(entity: LivingEntity) {
         entity.ticksFrozen = 0
     }
 
     override fun touch(ctx: SpellContext, target: LivingEntity, amplifier: Int) {
         target.setSecondsOnFire(BURN_SECONDS)
-        ctx.hurt(target, ctx.damage(EKDamageSources.HEAT_KEY), damage(amplifier))
+        ctx.hurt(target, ctx.damage(EKDamageSources.PYRE_KEY), damage(amplifier))
     }
 
     private companion object {
@@ -438,7 +475,7 @@ class FlameCloakEffect : ElementCloakEffect(Element.HEAT) {
 }
 
 /** The chill goes to vanilla freezing, never to [FrozenEffect]. */
-class FrostCloakEffect : ElementCloakEffect(Element.COLD) {
+class MantleOfFrostEffect : ElementMantleEffect(Element.WINTER) {
     override fun wearer(entity: LivingEntity) {
         entity.clearFire()
     }
@@ -446,7 +483,7 @@ class FrostCloakEffect : ElementCloakEffect(Element.COLD) {
     override fun touch(ctx: SpellContext, target: LivingEntity, amplifier: Int) {
         target.ticksFrozen = maxOf(target.ticksFrozen, minOf(target.ticksRequiredToFreeze + CHILL_OVER, target.ticksFrozen + CHILL))
         target.addEffect(MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, SLOW_TICKS, amplifier), ctx.caster)
-        ctx.hurt(target, ctx.damage(EKDamageSources.COLD_KEY), damage(amplifier))
+        ctx.hurt(target, ctx.damage(EKDamageSources.WINTER_KEY), damage(amplifier))
     }
 
     private companion object {
@@ -458,15 +495,15 @@ class FrostCloakEffect : ElementCloakEffect(Element.COLD) {
     }
 }
 
-class LightningCloakEffect : ElementCloakEffect(Element.CHAOS) {
+class MantleOfLightningEffect : ElementMantleEffect(Element.CHAOS) {
     override fun touch(ctx: SpellContext, target: LivingEntity, amplifier: Int) {
         val wearer = ctx.caster ?: return
-        SpellVfx.arc(ctx.level, chest(wearer), chest(target), Element.CHAOS.color)
+        SpellVfx.soundedArc(ctx.level, chest(wearer), chest(target), Element.CHAOS.color)
         ctx.hurt(target, ctx.damage(EKDamageSources.CHAOS_KEY), damage(amplifier))
     }
 }
 
-class AbsorptionCloakEffect : ElementCloakEffect(Element.BLOOD) {
+class MantleOfAbsorptionEffect : ElementMantleEffect(Element.BLOOD) {
     override val radius = REACH
 
     override fun touch(ctx: SpellContext, target: LivingEntity, amplifier: Int) {
@@ -475,17 +512,21 @@ class AbsorptionCloakEffect : ElementCloakEffect(Element.BLOOD) {
         if (!ctx.hurt(target, ctx.damage(EKDamageSources.BLOOD_DRAIN_KEY), drain)) return
         wearer.heal(drain)
         SpellVfx.stream(ctx.level, chest(target), chest(wearer), Element.BLOOD.color, STREAM_TICKS)
+        // One bite can drain many targets in the same tick.
+        if (lastStreams.put(wearer, ctx.level.gameTime) != ctx.level.gameTime) playAt(wearer, EKSounds.SPELL_BLOOD_STREAM)
     }
 
     private companion object {
         const val REACH = 1.75
         const val DRAIN = 0.5f
         const val STREAM_TICKS = 10
+        // Server thread only.
+        val lastStreams = WeakHashMap<LivingEntity, Long>()
     }
 }
 
 /** [org.shipwrights.enderkinesis.spell.GasField] also skips the wearer. */
-class PoisonCloakEffect : ElementCloakEffect(Element.POISON) {
+class MantleOfPoisonEffect : ElementMantleEffect(Element.CORRUPTION) {
     override fun wearer(entity: LivingEntity) {
         entity.removeEffect(MobEffects.POISON)
         entity.removeEffect(EKEffects.ROT.get())
@@ -500,7 +541,7 @@ class PoisonCloakEffect : ElementCloakEffect(Element.POISON) {
     }
 }
 
-class VoidCloakEffect : ElementCloakEffect(Element.VOID) {
+class MantleOfVoidEffect : ElementMantleEffect(Element.VOID) {
     override val radius = REACH
 
     override fun bites(wearer: LivingEntity, target: LivingEntity): Boolean =
@@ -509,6 +550,7 @@ class VoidCloakEffect : ElementCloakEffect(Element.VOID) {
     override fun touch(ctx: SpellContext, target: LivingEntity, amplifier: Int) {
         val wearer = ctx.caster ?: return
         SpellVfx.lash(ctx.level, wearer, chest(target))
+        SpellSounds.play(ctx.level, chest(target), EKSounds.SPELL_VOID_LASH)
         if (ctx.hurt(target, ctx.damage(EKDamageSources.VOID_KEY), damage(amplifier))) {
             target.knockback(KNOCKBACK, wearer.x - target.x, wearer.z - target.z)
         }
@@ -521,3 +563,7 @@ class VoidCloakEffect : ElementCloakEffect(Element.VOID) {
 }
 
 private fun chest(entity: Entity): Vec3 = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
+
+private fun playAt(entity: LivingEntity, sound: RegistrySupplier<SoundEvent>) {
+    (entity.level() as? ServerLevel)?.let { SpellSounds.play(it, entity.position(), sound) }
+}

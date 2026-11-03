@@ -1,16 +1,7 @@
 package org.shipwrights.enderkinesis.item
 
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundSource
-import net.minecraft.world.InteractionHand
-import net.minecraft.world.InteractionResultHolder
-import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.item.Item
-import net.minecraft.world.item.ItemStack
-import net.minecraft.world.item.UseAnim
-import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
 import net.minecraft.world.entity.projectile.Projectile
@@ -22,62 +13,29 @@ import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 
-/** Incantation of Winds — hold right-click to blast a gale along a cone from the caster's view.
+/** Incantation of Winds: hold right-click to blast a gale along a cone from the caster's view.
  *
  *  Ships and entities in the cone get a push along the ray from the eye through their contact point,
  *  weaker with distance; on ships it is applied at that point. The wind also turns fireballs, blows smoke off
  *  fire (and sometimes puts it out), puts out candles, strips snow ([WindBlockEffects]) and speeds up Create windmills. The stream visuals are client-side, in
- *  [org.shipwrights.enderkinesis.client.IncantationOfWindsClient].
- *
- *  Costs 1 XP per second in survival (half a heart per second once XP runs dry); free in creative. */
-class IncantationOfWindsItem(properties: Properties) : Item(properties) {
+ *  [org.shipwrights.enderkinesis.client.IncantationOfWindsClient]. */
+class IncantationOfWindsItem(properties: Properties) : IncantationItem(
+    properties,
+    HAND_COLOUR,
+    EKSounds.INCANTATION_OF_WINDS_START,
+    EKSounds.INCANTATION_OF_WINDS_STOP,
+    EKSounds.INCANTATION_OF_WINDS_LOOP,
+) {
 
-    override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
-        val stack = player.getItemInHand(hand)
-        player.startUsingItem(hand)
-        if (!level.isClientSide) playAtCaster(level, player, EKSounds.INCANTATION_OF_WINDS_START.get())
-        return InteractionResultHolder.consume(stack)
-    }
-
-    override fun releaseUsing(stack: ItemStack, level: Level, entity: LivingEntity, timeLeft: Int) {
-        if (!level.isClientSide) playAtCaster(level, entity, EKSounds.INCANTATION_OF_WINDS_STOP.get())
-    }
-
-    private fun playAtCaster(level: Level, caster: LivingEntity, sound: SoundEvent) {
-        level.playSound(null, caster.x, caster.y, caster.z, sound, SoundSource.PLAYERS, 1f, 1f)
-    }
-
-    override fun getUseDuration(stack: ItemStack): Int = Int.MAX_VALUE
-    override fun getUseAnimation(stack: ItemStack): UseAnim = UseAnim.NONE
-
-    override fun onUseTick(level: Level, entity: LivingEntity, stack: ItemStack, remainingUseDuration: Int) {
-        if (level !is ServerLevel) return
-        if (entity !is Player) return
-        if (!entity.abilities.instabuild) {
-            val used = getUseDuration(stack) - remainingUseDuration
-            if (used > 0 && used % 20 == 0) {
-                if (hasXp(entity)) {
-                    entity.giveExperiencePoints(-1)
-                } else {
-                    // Out of XP: the incantation feeds on the caster
-                    // instead — half a heart per second, cast continues.
-                    org.shipwrights.enderkinesis.sselith.SselithEclipse.applyLightDamage(
-                        level, entity, NO_XP_HEALTH_COST,
-                    )
-                }
-            }
-        }
-        val look = entity.lookAngle
-        val eye = entity.eyePosition
+    override fun cast(level: ServerLevel, player: Player) {
+        val look = player.lookAngle
+        val eye = player.eyePosition
         val radius = RANGE * TAN_HALF_ANGLE
         val bounds = AABB(eye, eye.add(look.scale(RANGE))).inflate(radius)
         pushShips(level, bounds, eye, look)
-        pushEntities(level, entity, bounds, eye, look)
-        WindBlockEffects.blow(level, entity, eye, look)
+        pushEntities(level, player, bounds, eye, look)
+        WindBlockEffects.blow(level, player, eye, look)
     }
-
-    private fun hasXp(player: Player): Boolean =
-        player.experienceLevel > 0 || player.experienceProgress > 0f
 
     private fun pushShips(
         level: ServerLevel,
@@ -102,7 +60,6 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
         }
     }
 
-    /** ServerPlayers need the explicit motion packet or the client never feels the push. */
     private fun pushEntities(
         level: ServerLevel,
         player: Player,
@@ -128,13 +85,7 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
                 )
             }
             if (CREATE_LOADED) CreateWindmillWind.blow(entity, wind.length().toFloat(), level.gameTime)
-            entity.hasImpulse = true
-            if (entity is net.minecraft.server.level.ServerPlayer) {
-                entity.hurtMarked = true
-                entity.connection.send(
-                    net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket(entity),
-                )
-            }
+            markPushed(entity)
         }
     }
 
@@ -227,7 +178,6 @@ class IncantationOfWindsItem(properties: Properties) : Item(properties) {
         /** Below this apex-to-contact distance the ray direction is unstable, so the look vector is used. */
         private const val MIN_RAY_LENGTH = 0.1
 
-        /** Half a heart per second while casting with no XP left. */
-        private const val NO_XP_HEALTH_COST = 1.0f
+        private const val HAND_COLOUR = 0xFFEB8C
     }
 }

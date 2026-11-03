@@ -69,29 +69,40 @@ object BlockShifts {
     private const val CHARRED = 0x231C17
     private val ATLAS = Sprite(BLOCK_ATLAS, 0f, 0f, 1f, 1f)
 
-    fun add(level: ClientLevel, from: Vec3, at: Vec3, element: Element?, oldId: Int) {
+    /** A null [from] starts the shift from a random point on the block's surface. */
+    fun add(level: ClientLevel, from: Vec3?, at: Vec3, element: Element?, oldId: Int) {
         val old = Block.stateById(oldId)
         if (old.isAir) return
         val pos = BlockPos.containing(at)
-        if (element == Element.HEAT && (old.`is`(Blocks.SNOW) || old.`is`(Blocks.SNOW_BLOCK) || old.`is`(Blocks.POWDER_SNOW))) {
+        if (element == Element.PYRE && (old.`is`(Blocks.SNOW) || old.`is`(Blocks.SNOW_BLOCK) || old.`is`(Blocks.POWDER_SNOW))) {
             sinks += Sink(pos, old, SpellClock.now(level))
+            SpellSoundsClient.melt(level, Vec3.atCenterOf(pos))
             return
         }
         val cells = cells(level, pos, old)
         if (cells.isEmpty()) return
-        val origin = Vec3(from.x.coerceIn(pos.x.toDouble(), pos.x + 1.0), from.y.coerceIn(pos.y.toDouble(), pos.y + 1.0), from.z.coerceIn(pos.z.toDouble(), pos.z + 1.0))
+        val toward = from ?: randomSide(level.random, pos)
+        val origin = Vec3(toward.x.coerceIn(pos.x.toDouble(), pos.x + 1.0), toward.y.coerceIn(pos.y.toDouble(), pos.y + 1.0), toward.z.coerceIn(pos.z.toDouble(), pos.z + 1.0))
         val edge = when (element) {
             Element.SUNFIRE -> if (old.`is`(BlockTags.LEAVES)) Edge.ASH else Edge.SPARKS
-            Element.PURITY -> Edge.GLITTER
-            Element.HEAT -> Edge.STEAM
-            Element.COLD -> if (old.fluidState.`is`(FluidTags.LAVA)) Edge.STEAM else Edge.GLITTER
+            Element.QUINTESSENCE -> Edge.GLITTER
+            Element.PYRE -> Edge.STEAM
+            Element.WINTER -> if (old.fluidState.`is`(FluidTags.LAVA)) Edge.STEAM else Edge.GLITTER
             else -> Edge.NONE
         }
         val far = cells.maxOf { it.mid.distanceTo(origin) }
         val life = (if (edge == Edge.ASH) CRUMBLE_DELAY + far / (RATE * CRUMBLE_RATE) else far / RATE).toInt() + 2
-        val drips = element == Element.HEAT && (old.`is`(Blocks.ICE) || old.`is`(Blocks.FROSTED_ICE))
-        val flakes = element == Element.PURITY && BuiltInRegistries.BLOCK.getKey(old.block).path.contains("mossy")
+        val drips = element == Element.PYRE && (old.`is`(Blocks.ICE) || old.`is`(Blocks.FROSTED_ICE))
+        val flakes = element == Element.QUINTESSENCE && BuiltInRegistries.BLOCK.getKey(old.block).path.contains("mossy")
         shifts += Shift(edge, origin, SpellClock.now(level), cells, life, pos, drips, flakes)
+        if (drips) SpellSoundsClient.melt(level, Vec3.atCenterOf(pos))
+    }
+
+    /** Gaussian components give a uniform direction. Scale it out to the block's surface. */
+    private fun randomSide(random: RandomSource, pos: BlockPos): Vec3 {
+        val dir = Vec3(random.nextGaussian(), random.nextGaussian(), random.nextGaussian())
+        val reach = maxOf(Math.abs(dir.x), Math.abs(dir.y), Math.abs(dir.z)).coerceAtLeast(1.0e-6)
+        return Vec3.atCenterOf(pos).add(dir.scale(0.5 / reach))
     }
 
     fun swap(level: ClientLevel, a: Vec3, b: Vec3, oldA: Int, oldB: Int) {

@@ -75,12 +75,6 @@ object SureibjinSky {
     private const val MID_G = 0.153f
     private const val MID_B = 0.184f
 
-    // Star outline — muted grey, darker than white so it reads as a trim
-    // rather than a bright bezel against the dim sky.
-    private const val OUTLINE_R = 90
-    private const val OUTLINE_G = 90
-    private const val OUTLINE_B = 90
-
     // #deeae9 — sun bloom.
     private const val SUN_R = 0.871f
     private const val SUN_G = 0.918f
@@ -107,33 +101,6 @@ object SureibjinSky {
     private const val STAR_DIST = SKY_R_DIST - 2.0f
     /** Ticks for one full turn of a star along its great circle. */
     private const val STAR_ORBIT_TICKS = 24_000.0
-    /** Half-edge of the inner black square. */
-    private const val STAR_HALF = 0.55f
-    /** Half-edge of the outer white square — outline is `OUTLINE_HALF − HALF`
-     *  thick on each side. Kept tight so the white reads as a trim, not a
-     *  border. */
-    private const val STAR_OUTLINE_HALF = 0.65f
-    /** Half-edge of the inverted-glow halo. */
-    private const val HALO_HALF = 2.8f
-    private const val HALO_ALPHA = 180
-
-    private val HALO_PERIMETER_RU = floatArrayOf(
-         1.000f,  0.000f,
-         0.707f,  0.707f,
-         0.000f,  1.000f,
-        -0.707f,  0.707f,
-        -1.000f,  0.000f,
-        -0.707f, -0.707f,
-         0.000f, -1.000f,
-         0.707f, -0.707f,
-    )
-
-    private val STAR_CORNER_RU = floatArrayOf(
-        -1f, +1f,
-        +1f, +1f,
-        +1f, -1f,
-        -1f, -1f,
-    )
 
 
     @JvmStatic
@@ -325,70 +292,12 @@ object SureibjinSky {
             val rX = ch * tX - sh * nX; val rY = ch * tY - sh * nY; val rZ = ch * tZ - sh * nZ
             val uX = sh * tX + ch * nX; val uY = sh * tY + ch * nY; val uZ = sh * tZ + ch * nZ
 
-            // 1. Inverted black halo (no outline) — fan from black centre
-            //    (alpha HALO_ALPHA) to black perimeter (alpha 0).
-            for (k in 0 until 8) {
-                val k0 = k * 2
-                val k1 = ((k + 1) and 7) * 2
-                val r0 = HALO_PERIMETER_RU[k0];     val u0 = HALO_PERIMETER_RU[k0 + 1]
-                val r1 = HALO_PERIMETER_RU[k1];     val u1 = HALO_PERIMETER_RU[k1 + 1]
-                val x0 = cx + (rX * r0 + uX * u0) * HALO_HALF
-                val y0 = cy + (rY * r0 + uY * u0) * HALO_HALF
-                val z0 = cz + (rZ * r0 + uZ * u0) * HALO_HALF
-                val x1 = cx + (rX * r1 + uX * u1) * HALO_HALF
-                val y1 = cy + (rY * r1 + uY * u1) * HALO_HALF
-                val z1 = cz + (rZ * r1 + uZ * u1) * HALO_HALF
-                builder.vertex(matrix, cx, cy, cz).color(0, 0, 0, HALO_ALPHA).endVertex()
-                builder.vertex(matrix, x0, y0, z0).color(0, 0, 0, 0).endVertex()
-                builder.vertex(matrix, x1, y1, z1).color(0, 0, 0, 0).endVertex()
-            }
-
-            // 2. Outline square — larger grey square drawn under the smaller
-            //    black square. The visible difference at the perimeter becomes
-            //    the outline.
-            emitStarSquare(builder, matrix, cx, cy, cz, rX, rY, rZ, uX, uY, uZ,
-                STAR_OUTLINE_HALF, OUTLINE_R, OUTLINE_G, OUTLINE_B)
-
-            // 3. Black inner square on top of the white — leaves a thin white
-            //    band around the star.
-            emitStarSquare(builder, matrix, cx, cy, cz, rX, rY, rZ, uX, uY, uZ,
-                STAR_HALF, 0, 0, 0)
+            DarkStarGlyph.emit(builder, matrix, cx, cy, cz, rX, rY, rZ, uX, uY, uZ, 1f)
         }
 
         BufferUploader.drawWithShader(builder.end())
     }
 
-    private fun emitStarSquare(
-        builder: com.mojang.blaze3d.vertex.BufferBuilder,
-        matrix: Matrix4f,
-        cx: Float, cy: Float, cz: Float,
-        rX: Float, rY: Float, rZ: Float,
-        uX: Float, uY: Float, uZ: Float,
-        half: Float, cr: Int, cg: Int, cb: Int,
-    ) {
-        val cR0 = STAR_CORNER_RU[0]; val cU0 = STAR_CORNER_RU[1]
-        val cR1 = STAR_CORNER_RU[2]; val cU1 = STAR_CORNER_RU[3]
-        val cR2 = STAR_CORNER_RU[4]; val cU2 = STAR_CORNER_RU[5]
-        val cR3 = STAR_CORNER_RU[6]; val cU3 = STAR_CORNER_RU[7]
-        val xTL = cx + (rX * cR0 + uX * cU0) * half
-        val yTL = cy + (rY * cR0 + uY * cU0) * half
-        val zTL = cz + (rZ * cR0 + uZ * cU0) * half
-        val xTR = cx + (rX * cR1 + uX * cU1) * half
-        val yTR = cy + (rY * cR1 + uY * cU1) * half
-        val zTR = cz + (rZ * cR1 + uZ * cU1) * half
-        val xBR = cx + (rX * cR2 + uX * cU2) * half
-        val yBR = cy + (rY * cR2 + uY * cU2) * half
-        val zBR = cz + (rZ * cR2 + uZ * cU2) * half
-        val xBL = cx + (rX * cR3 + uX * cU3) * half
-        val yBL = cy + (rY * cR3 + uY * cU3) * half
-        val zBL = cz + (rZ * cR3 + uZ * cU3) * half
-        builder.vertex(matrix, xTL, yTL, zTL).color(cr, cg, cb, 255).endVertex()
-        builder.vertex(matrix, xBL, yBL, zBL).color(cr, cg, cb, 255).endVertex()
-        builder.vertex(matrix, xBR, yBR, zBR).color(cr, cg, cb, 255).endVertex()
-        builder.vertex(matrix, xTL, yTL, zTL).color(cr, cg, cb, 255).endVertex()
-        builder.vertex(matrix, xBR, yBR, zBR).color(cr, cg, cb, 255).endVertex()
-        builder.vertex(matrix, xTR, yTR, zTR).color(cr, cg, cb, 255).endVertex()
-    }
 
 
     /** Sun = solid bright disc + thin gradient halo ring around it. Two

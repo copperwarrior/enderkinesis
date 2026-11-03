@@ -7,7 +7,7 @@ import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.BeamSegment
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.spell.Element
@@ -98,7 +98,7 @@ object AegisContacts {
         val out = ArrayList<Contact>()
         for (player in level.players()) {
             if (!player.isUsingItem) continue
-            val spell = MysticScrollItem.spellOf(player.useItem)?.takeIf { it.castShape == Shape.SPRAY } ?: continue
+            val spell = UlderScrollItem.spellOf(player.useItem)?.takeIf { UlderScrollItem.heldShape(player.useItem) == Shape.SPRAY } ?: continue
             val origin = SpellCasting.handOrigin(player, player.usedItemHand)
             val aim = SpellCasting.handAim(player, origin)
             val reach = SpellCasting.sprayLength(spell.magnitude(spell.shapeElement!!))

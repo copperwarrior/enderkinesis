@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.spell
 
+import net.minecraft.tags.FluidTags
+import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.particles.ParticleTypes
@@ -36,7 +38,7 @@ fun interface ElementEffect {
     fun apply(ctx: SpellContext, delivery: Delivery, magnitude: Float)
 }
 
-/** A Mystic Gem burst is a one-glyph Area cast, so a change here also changes the gems at magnitude 1. */
+/** A Ulder Gem burst is a one-glyph Area cast, so a change here also changes the gems at magnitude 1. */
 object ElementEffects {
 
     fun of(element: Element): ElementEffect {
@@ -55,16 +57,16 @@ object ElementEffects {
     }
 
     private fun base(element: Element): ElementEffect = when (element) {
-        Element.HEAT -> HEAT
-        Element.COLD -> COLD
-        Element.GROWTH -> GROWTH
-        Element.PURITY -> PURITY
+        Element.PYRE -> PYRE
+        Element.WINTER -> WINTER
+        Element.GENESIS -> GENESIS
+        Element.QUINTESSENCE -> QUINTESSENCE
         Element.GRAVITY -> GRAVITY
         Element.CHAOS -> CHAOS
         Element.BLOOD -> BLOOD
         Element.SUNDERING -> SUNDERING
         Element.SUNFIRE -> FusionEffects.SUNFIRE
-        Element.POISON -> FusionEffects.POISON
+        Element.CORRUPTION -> FusionEffects.CORRUPTION
         Element.VOID -> FusionEffects.VOID
     }
 
@@ -84,12 +86,12 @@ object ElementEffects {
     /** 60 gives scattered fires on flat ground, not a carpet of fire. */
     private const val SURFACE_FIRE_DENOMINATOR = 60
 
-    private val HEAT = ElementEffect { ctx, delivery, magnitude ->
+    private val PYRE = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         val burnSeconds = (4f * SpellCurves.curve(magnitude)).roundToInt()
         for (target in delivery.living(ctx)) {
             target.setSecondsOnFire(burnSeconds)
-            ctx.hurt(target, ctx.damage(EKDamageSources.HEAT_KEY), ctx.damageAmount(4f, magnitude))
+            ctx.hurt(target, ctx.damage(EKDamageSources.PYRE_KEY), ctx.damageAmount(4f, magnitude))
         }
         for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
@@ -114,7 +116,7 @@ object ElementEffects {
     private const val PULSED_FREEZE_DOSE = 100
     private const val MAX_FREEZE_TICKS = FrozenEffect.THRESHOLD + 400
 
-    private val COLD = ElementEffect { ctx, delivery, magnitude ->
+    private val WINTER = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         val perPulse = (if (ctx.pulsed) PULSED_FREEZE_DOSE else FREEZE_DOSE) * magnitude
         for (living in delivery.living(ctx)) {
@@ -129,11 +131,16 @@ object ElementEffects {
             if (target.ticksFrozen >= FrozenEffect.THRESHOLD && !target.hasEffect(frozen)) {
                 target.addEffect(MobEffectInstance(frozen, SpellCurves.ticks(3f, 0.5f, magnitude)), ctx.caster)
             }
-            ctx.hurt(target, ctx.damage(EKDamageSources.COLD_KEY), ctx.damageAmount(3f, magnitude))
+            ctx.hurt(target, ctx.damage(EKDamageSources.WINTER_KEY), ctx.damageAmount(3f, magnitude))
         }
+        val volume = SpellSounds.magnitudeVolume(magnitude)
+        val water = SpellSounds.FirstChange(ctx, EKSounds.SPELL_WINTER_WATER_FREEZE, volume)
+        val lava = SpellSounds.FirstChange(ctx, EKSounds.SPELL_WINTER_LAVA_FREEZE, volume)
         for (pos in delivery.blocks(level)) {
-            val frozen = FluidFreezing.frozen(level.getBlockState(pos)) ?: continue
-            ctx.setBlock(pos, frozen)
+            val old = level.getBlockState(pos)
+            val frozen = FluidFreezing.frozen(old) ?: continue
+            if (!ctx.setBlock(pos, frozen)) continue
+            (if (old.fluidState.`is`(FluidTags.LAVA)) lava else water).at(pos)
         }
         NamedEffects.cold(ctx, delivery)
     }
@@ -141,11 +148,11 @@ object ElementEffects {
     /** 3 gives approximately 33 % coverage, not instant overgrowth. */
     private const val BONEMEAL_DENOMINATOR = 3
 
-    private val GROWTH = ElementEffect { ctx, delivery, magnitude ->
+    private val GENESIS = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         // NamedEffects.growth does not heal the targets that this loop hurts.
         for (target in delivery.living(ctx)) {
-            if (growthBurns(ctx, target)) ctx.hurt(target, ctx.damage(EKDamageSources.GROWTH_KEY), ctx.damageAmount(GROWTH_DAMAGE, magnitude))
+            if (growthBurns(ctx, target)) ctx.hurt(target, ctx.damage(EKDamageSources.GENESIS_KEY), ctx.damageAmount(GROWTH_DAMAGE, magnitude))
         }
         for (pos in delivery.blocks(level)) {
             if (!delivery.scatterRoll(ctx, BONEMEAL_DENOMINATOR)) continue
@@ -160,7 +167,7 @@ object ElementEffects {
     fun growthBurns(ctx: SpellContext, target: LivingEntity): Boolean =
         SpellContext.isUndead(target) || (ctx.use == SpellUse.FORWARD && ctx.isFoe(target))
 
-    private val PURITY = ElementEffect { ctx, delivery, magnitude ->
+    private val QUINTESSENCE = ElementEffect { ctx, delivery, magnitude ->
         val level = ctx.level
         // Forward and Area casts also reach friends, so they cleanse. A Forward cast still crystallizes foes.
         val (foes, others) = delivery.living(ctx).partition { ctx.use.hostile || (ctx.use == SpellUse.FORWARD && ctx.isFoe(it)) }
@@ -173,16 +180,23 @@ object ElementEffects {
             ctx.hurt(target, ctx.damage(EKDamageSources.CRYSTALLIZATION_KEY), ctx.damageAmount(PURITY_DAMAGE, magnitude))
         }
         NamedEffects.cleanse(ctx, others)
+        val volume = SpellSounds.magnitudeVolume(magnitude)
+        val purified = SpellSounds.FirstChange(ctx, EKSounds.SPELL_QUINTESSENCE_PURIFY_BLOCK, volume)
+        val purged = SpellSounds.FirstChange(ctx, EKSounds.SPELL_QUINTESSENCE_PURGE, volume)
         for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
             val transformed = purityTransform(state)
             when {
                 transformed != null -> {
-                    if (ctx.setBlock(pos, transformed)) SpellFx.blockMark(level, ParticleTypes.END_ROD, pos)
+                    if (ctx.setBlock(pos, transformed)) {
+                        SpellFx.blockMark(level, ParticleTypes.END_ROD, pos)
+                        purified.at(pos)
+                    }
                 }
                 purityDestroys(state) && ctx.mayChange(pos, Blocks.AIR.defaultBlockState()) -> {
                     level.destroyBlock(pos, false)
                     SpellFx.blockMark(level, ParticleTypes.END_ROD, pos)
+                    purged.at(pos)
                 }
             }
         }
@@ -307,6 +321,7 @@ object ElementEffects {
         if (!ctx.mayChange(pos, Blocks.AIR.defaultBlockState())) return
         val falling = FallingBlockEntity.fall(level, pos, state)
         SpellVfx.press(level, pos, falling.id)
+        SpellSounds.play(level, Vec3.atCenterOf(pos), EKSounds.SPELL_GRAVITY_BLOCK_PRESS)
     }
 
     private fun canMove(ctx: SpellContext, pos: BlockPos, state: BlockState): Boolean =
@@ -329,6 +344,7 @@ object ElementEffects {
                 SpellVfx.arc(level, positions[i].add(0.0, entities[i].bbHeight * 0.5, 0.0), target.add(0.0, entities[i].bbHeight * 0.5, 0.0), Element.CHAOS.color)
                 entities[i].teleportTo(target.x, target.y, target.z)
             }
+            SpellSounds.play(level, (delivery as? Delivery.Sphere)?.center ?: positions[0], EKSounds.SPELL_CHAOS_SWAP, SpellSounds.magnitudeVolume(magnitude))
         }
         for (target in delivery.living(ctx)) ctx.hurt(target, ctx.damage(EKDamageSources.CHAOS_KEY), ctx.damageAmount(CHAOS_DAMAGE, magnitude))
         if (delivery is Delivery.SingleBlock) swapBlock(ctx, delivery.pos, magnitude)
@@ -353,6 +369,7 @@ object ElementEffects {
             level.setBlock(pos, otherState, 3)
             level.setBlock(other, state, 3)
             SpellVfx.blockSwap(level, pos, other, state, otherState)
+            SpellSounds.play(level, Vec3.atCenterOf(pos), EKSounds.SPELL_CHAOS_SWAP, SpellSounds.magnitudeVolume(magnitude))
             val a = net.minecraft.world.phys.Vec3.atCenterOf(pos)
             val b = net.minecraft.world.phys.Vec3.atCenterOf(other)
             SpellVfx.arc(level, a, b, Element.CHAOS.color, 8)
@@ -385,9 +402,13 @@ object ElementEffects {
             for (target in drainedTargets) {
                 SpellVfx.stream(level, target.position().add(0.0, target.bbHeight * 0.6, 0.0), to, Element.BLOOD.color)
             }
+            if (drainedTargets.isNotEmpty()) SpellSounds.play(level, to, EKSounds.SPELL_BLOOD_STREAM, SpellSounds.magnitudeVolume(magnitude))
         }
         if (drained == 0) {
-            if (ctx.beat) SpellVfx.fizzle(level, delivery.anchor)
+            if (ctx.beat) {
+                SpellVfx.fizzle(level, delivery.anchor)
+                SpellSounds.play(level, delivery.anchor, EKSounds.SPELL_BLOOD_FIZZLE, SpellSounds.magnitudeVolume(magnitude))
+            }
             return@ElementEffect
         }
         if (recipient != null && recipient.isAlive && !SpellContext.isUndead(recipient)) {

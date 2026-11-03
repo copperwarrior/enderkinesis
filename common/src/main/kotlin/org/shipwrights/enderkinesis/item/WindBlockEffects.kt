@@ -76,7 +76,7 @@ object WindBlockEffects {
         }
     }
 
-    private fun isSmoking(state: BlockState): Boolean =
+    fun isSmoking(state: BlockState): Boolean =
         state.block is BaseFireBlock || CampfireBlock.isLitCampfire(state)
 
     private fun isChanged(state: BlockState): Boolean =
@@ -112,7 +112,7 @@ object WindBlockEffects {
         }
     }
 
-    private fun extinguish(level: ServerLevel, player: Player, pos: BlockPos, state: BlockState) {
+    fun extinguish(level: ServerLevel, player: Player, pos: BlockPos, state: BlockState) {
         level.levelEvent(null, LevelEvent.SOUND_EXTINGUISH_FIRE, pos, 0)
         if (state.block is BaseFireBlock) {
             level.removeBlock(pos, false)

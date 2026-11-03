@@ -42,6 +42,27 @@ vec4 tentacleHash(float k) {
 }
 const vec3 TINT = vec3(0.30, 0.62, 0.66);
 
+// Indices of the march samples t0 + (i + jitter) * dt that can lie in [tA, tB], one more on each side for float error.
+ivec2 stepRange(float tA, float tB, float t0, float dt, float jitter) {
+    vec2 r = vec2(floor((tA - t0) / dt - jitter) - 1.0, floor((tB - t0) / dt - jitter) + 2.0);
+    return ivec2(clamp(r, 0.0, float(STEPS)));
+}
+
+// The samples with rn <= 1; the step grid stays the box's, so the image does not change.
+ivec2 cylinderSteps(vec3 dir, float t0, float dt, float jitter) {
+    vec2 o = CamLocal.xz;
+    vec2 d = dir.xz;
+    float a = dot(d, d);
+    // A ray along Y keeps one radius; the per-sample test decides it.
+    if (a < 1.0e-8) return ivec2(0, STEPS);
+    float b = dot(o, d);
+    // A little past the surface, so float error cannot drop an edge sample.
+    float disc = b * b - a * (dot(o, o) - Reach * Reach * 1.002);
+    if (disc <= 0.0) return ivec2(0);
+    float s = sqrt(disc);
+    return stepRange((-b - s) / a, (-b + s) / a, t0, dt, jitter);
+}
+
 void main() {
     vec2 texCoord = gl_FragCoord.xy / ScreenSize;
     vec3 toFar = localPos - CamLocal;
@@ -64,7 +85,18 @@ void main() {
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec3 colour = vec3(0.0);
     float through = 1.0;
-    for (int i = 0; i < STEPS; i++) {
+    // Terms that do not change along the ray, out of the step loop.
+    vec4 hs[TENTACLES];
+    float headings[TENTACLES];
+    float tilts[TENTACLES];
+    for (int k = 0; k < TENTACLES; k++) {
+        float fk = float(k);
+        hs[k] = tentacleHash(fk);
+        headings[k] = fk * TAU / float(TENTACLES) + Seed + 0.4 * hs[k].x + 0.3 * sin(Time * 0.04 + fk * 1.3);
+        tilts[k] = sin(TILT * hs[k].z);
+    }
+    ivec2 steps = cylinderSteps(dir, t0, dt, jitter);
+    for (int i = steps.x; i < steps.y; i++) {
         vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
         float r = length(p.xz);
         float rn = r / Reach;
@@ -73,8 +105,8 @@ void main() {
         float dens = 0.0;
         for (int k = 0; k < TENTACLES; k++) {
             float fk = float(k);
-            vec4 h = tentacleHash(fk);
-            float heading = fk * TAU / float(TENTACLES) + Seed + 0.4 * h.x + 0.3 * sin(Time * 0.04 + fk * 1.3);
+            vec4 h = hs[k];
+            float heading = headings[k];
             // A wave runs out along the tentacle, larger toward the tip, sideways and up and down.
             float wave = rn * sin(rn * 5.0 - Time * 0.35 + fk * 2.1);
             float waveUp = rn * sin(rn * 4.0 - Time * 0.27 + fk * 3.7);
@@ -82,7 +114,7 @@ void main() {
             float curl = rn * rn * rn;
             float centre = heading + CURL * h.y * curl + WRITHE * wave;
             float side = atan(sin(theta - centre), cos(theta - centre)) * max(r, 0.3);
-            float centreY = sin(TILT * h.z) * r + Reach * (CURL_UP * h.w * curl + WRITHE_UP * waveUp);
+            float centreY = tilts[k] * r + Reach * (CURL_UP * h.w * curl + WRITHE_UP * waveUp);
             float dy = p.y - centreY;
             // Thick at the Heart, tapering to a point.
             float width = mix(BASE_WIDTH, TIP_WIDTH, pow(rn, 0.8));

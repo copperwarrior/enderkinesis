@@ -28,6 +28,7 @@ import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.BeamSegment
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.BeamGeometry
 import org.shipwrights.enderkinesis.spell.BeamManager
 import org.shipwrights.enderkinesis.spell.Signature
@@ -95,8 +96,7 @@ object ReferenceSignatures {
 
         override fun start(cast: SignatureCast): SignatureEntity {
             val stop = cast.aimed(32.0 + 24.0 * cast.power).point
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.BEACON_ACTIVATE, 1.5f, 0.5f)
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.BLAZE_SHOOT, 1.5f, 0.5f)
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_BLACK_HOLE_SUN_CAST.get(), 1.5f)
             // Add the flight time so the flight does not use up the LIFE ticks of hover.
             val flight = Math.ceil(stop.distanceTo(cast.origin) / SPEED).toInt() + 1
             return spawn(cast, cast.origin, flight + LIFE) { point = stop }
@@ -110,6 +110,7 @@ object ReferenceSignatures {
             if (e.deltaMovement == Vec3.ZERO && arrivedAt(e) < 0) {
                 e.data = e.data or ((e.tickCount + 1) shl 16)
                 e.life = e.tickCount + LIFE
+                SignatureKit.sound(level, e.position(), EKSounds.SIGNATURE_BLACK_HOLE_SUN_GROW.get(), 3f)
             }
             val core = e.position()
             val grown = scale(e, e.tickCount.toFloat())
@@ -137,7 +138,7 @@ object ReferenceSignatures {
                     if (toCore.lengthSqr() > 1.0e-6) SignatureKit.push(target, toCore.normalize().scale(BEAM_PULL).add(0.0, 0.15, 0.0))
                     e.targetId = target.id
                     e.data = e.data + 1
-                    SignatureKit.sound(level, SignatureKit.middle(target), SoundEvents.BEACON_POWER_SELECT, 1f, 1.6f)
+                    SignatureKit.sound(level, SignatureKit.middle(target), EKSounds.SIGNATURE_BLACK_HOLE_SUN_BEAM.get())
                 }
             }
             if (e.tickCount % 5 == 0) for (block in SignatureShips.nearestBlocks(level, core, SHIP_REACH)) {
@@ -146,10 +147,6 @@ object ReferenceSignatures {
                 if (d > 1.0e-3) SignatureShips.push(block.ship, block.world, toCore.scale(SHIP_PULL * (0.4 + 0.6 * (1 - d / SHIP_REACH)) / d))
             }
             if (e.tickCount % 30 == 0) scorch(e, BlockPos.containing(core), Math.ceil(CORE * grown).toInt())
-            if (e.tickCount % 30 == 0) {
-                SignatureKit.sound(level, core, SoundEvents.BEACON_AMBIENT, 3f, 0.4f)
-                SignatureKit.sound(level, core, SoundEvents.FIRE_AMBIENT, 3f, 0.5f)
-            }
         }
 
         override fun end(e: SignatureEntity) {
@@ -171,8 +168,7 @@ object ReferenceSignatures {
             SignatureKit.particles(level, ParticleTypes.EXPLOSION_EMITTER, core, 3, 3.0)
             SignatureKit.particles(level, ParticleTypes.LAVA, core, 150, 6.0)
             SignatureKit.particles(level, ParticleTypes.FLAME, core, 300, 5.0, 0.8)
-            SignatureKit.sound(level, core, SoundEvents.GENERIC_EXPLODE, 4f, 0.5f)
-            SignatureKit.sound(level, core, SoundEvents.BEACON_DEACTIVATE, 3f, 0.5f)
+            SignatureKit.sound(level, core, EKSounds.SIGNATURE_BLACK_HOLE_SUN_FLARE.get(), 4f)
         }
     }
 
@@ -217,16 +213,29 @@ object ReferenceSignatures {
         override fun start(cast: SignatureCast): SignatureEntity {
             val feet = cast.caster.position()
             val aimed = cast.aimed(18.0 + 15.0 * cast.power).point
-            SignatureKit.sound(cast.level, feet, SoundEvents.ROOTED_DIRT_BREAK, 1.5f, 0.5f)
-            SignatureKit.sound(cast.level, feet, SoundEvents.WARDEN_DIG, 0.8f, 1.2f)
+            SignatureKit.sound(cast.level, feet, EKSounds.SIGNATURE_ROOTQUAKE_CAST.get(), 1.5f)
             return spawn(cast, feet, LIFE) { point = aimed }
+        }
+
+        private fun reach(flat: Vec3): Double = minOf(LENGTH, flat.length() + 3.0)
+
+        private fun flat(e: SignatureEntity): Vec3 = Vec3(e.point.x - e.x, 0.0, e.point.z - e.z)
+
+        /** Both sides call this. No column is farther out than [reach], so none rises later than this. */
+        fun lastRise(e: SignatureEntity): Int = Math.ceil((reach(flat(e)) + 1.2) / FRONT_SPEED).toInt()
+
+        /** Both sides call this. */
+        fun front(e: SignatureEntity, age: Double): Vec3 {
+            val flat = flat(e)
+            if (flat.lengthSqr() < 1.0e-6) return e.position()
+            return e.position().add(flat.normalize().scale(minOf(FRONT_SPEED * age, reach(flat))))
         }
 
         fun layout(level: Level, from: Vec3, to: Vec3, seed: Int): Layout {
             val flat = Vec3(to.x - from.x, 0.0, to.z - from.z)
             if (flat.lengthSqr() < 1.0e-6) return Layout(emptyList(), emptyList())
             val aim = Math.atan2(flat.z, flat.x)
-            val reach = minOf(LENGTH, flat.length() + 3.0)
+            val reach = reach(flat)
             val random = Random(seed)
             val grounds = HashMap<Long, Double?>()
             fun ground(x: Double, z: Double): Double? {
@@ -283,6 +292,11 @@ object ReferenceSignatures {
             val columns = (e.state as? Layout ?: layout(level, e.position(), e.point, e.seed).also { e.state = it }).columns
             val from = e.position()
             val damage = DAMAGE + DAMAGE_PER_POWER * e.power
+            if (e.tickCount == SINK) {
+                val flat = flat(e)
+                val middle = if (flat.lengthSqr() < 1.0e-6) from else from.add(flat.normalize().scale(reach(flat) / 2))
+                SignatureKit.sound(level, middle, EKSounds.SIGNATURE_ROOTQUAKE_SINK.get(), 2f)
+            }
             for ((i, c) in columns.withIndex()) {
                 if (e.tickCount != c.rise) continue
                 val base = Vec3(c.x, c.ground, c.z)
@@ -296,7 +310,7 @@ object ReferenceSignatures {
                 }
                 for (target in level.getEntitiesOfClass(LivingEntity::class.java, AABB(base, base).inflate(0.9, 1.4, 0.9))) {
                     if (target === e.caster || target.isSpectator || !target.isAlive) continue
-                    SignatureKit.hurt(e, target, EKDamageSources.GROWTH_KEY, damage * full.toFloat())
+                    SignatureKit.hurt(e, target, EKDamageSources.GENESIS_KEY, damage * full.toFloat())
                     SignatureKit.push(target, Vec3(out.x * 0.3, THROW * full, out.z * 0.3))
                 }
                 val groundPos = BlockPos.containing(c.x, c.ground - 0.5, c.z)
@@ -304,7 +318,7 @@ object ReferenceSignatures {
                 val earthy = ground.`is`(Blocks.GRASS_BLOCK) || ground.`is`(Blocks.DIRT) || ground.`is`(Blocks.COARSE_DIRT)
                 if (earthy && level.random.nextDouble() < ROOTED_CHANCE) SignatureKit.setBlock(e, groundPos, Blocks.ROOTED_DIRT.defaultBlockState())
                 level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, if (ground.isAir) Blocks.DIRT.defaultBlockState() else ground), c.x, c.ground + 0.2, c.z, 12, 0.4, 0.1, 0.4, 0.2)
-                if (i % 6 == 0) SignatureKit.sound(level, base, SoundEvents.ROOTED_DIRT_BREAK, 1.3f, 0.6f + level.random.nextFloat() * 0.2f)
+                if (i % 6 == 0) SignatureKit.sound(level, base, EKSounds.SIGNATURE_ROOTQUAKE_COLUMN.get(), 1.3f)
             }
         }
     }
@@ -326,12 +340,16 @@ object ReferenceSignatures {
         private const val SPLIT_DAMAGE = 3f
         private const val SHIP_NUDGE = 0.06
 
+        private const val SPLITTING = 1
+
+        /** The server sets this, so the client need not trace the splits to know. */
+        fun splitting(e: SignatureEntity): Boolean = e.data and SPLITTING != 0
+
         /** [splits] holds the split indices it carries: one, or two while merged. */
         class Ray(val trace: BeamTrace, val splits: List<Int>)
 
         override fun start(cast: SignatureCast): SignatureEntity {
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.AMETHYST_BLOCK_RESONATE, 1.5f, 1.4f)
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.BEACON_POWER_SELECT, 1f, 1.8f)
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_PRISM_LANCE_LANCE_START.get(), 1.5f)
             return spawn(cast, cast.origin, 20 * 60) { point = cast.origin.add(cast.aim.scale(REACH)) }
         }
 
@@ -346,10 +364,17 @@ object ReferenceSignatures {
             val rays = if (lance.finalBlockPos == null) emptyList()
                 else splits(level, cast.caster, origin, e.point, e.seed, e.tickCount, BeamManager.mirrors(level, cast.caster))
             val acting = rays.mapIndexed { k, ray -> SignatureBeams.register(e, ray.trace, SPLIT_REACH, SignatureBeams.subId(e, k)) }
+            val split = rays.isNotEmpty()
+            if (split && !splitting(e)) SignatureKit.sound(level, e.point, EKSounds.SIGNATURE_PRISM_LANCE_SPLIT.get(), 1.5f)
+            e.data = if (split) SPLITTING else 0
             if (held % HIT_EVERY != 0) return
             strike(e, lance, LANCE_DAMAGE)
             for ((k, trace) in acting.withIndex()) strike(e, trace, SPLIT_DAMAGE * rays[k].splits.size)
-            if (held % 16 == 0) SignatureKit.sound(level, e.point, SoundEvents.AMETHYST_BLOCK_CHIME, 1.5f, 1.2f + level.random.nextFloat() * 0.4f)
+        }
+
+        override fun released(e: SignatureEntity, cast: SignatureCast, held: Int) {
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_PRISM_LANCE_LANCE_STOP.get(), 1.5f)
+            super.released(e, cast, held)
         }
 
         private fun strike(e: SignatureEntity, trace: BeamTrace, damage: Float) {
@@ -361,7 +386,7 @@ object ReferenceSignatures {
         }
 
         private fun freeze(e: SignatureEntity, target: LivingEntity, damage: Float) {
-            SignatureKit.hurtThrough(e, target, EKDamageSources.COLD_KEY, damage)
+            SignatureKit.hurtThrough(e, target, EKDamageSources.WINTER_KEY, damage)
             target.ticksFrozen = minOf(target.ticksFrozen + 40, target.ticksRequiredToFreeze + 100)
             target.addEffect(MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 60, 2), e.caster)
         }

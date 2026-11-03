@@ -10,7 +10,7 @@ import net.minecraft.world.effect.MobEffectCategory
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.effect.MobEffects
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.registry.EKEffects
 
 /** A scroll whose elements do nothing this time is not spent. */
@@ -21,41 +21,47 @@ object SelfCasts {
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, SELF_CAST) { buf, ctx ->
             val hand = buf.readEnum(InteractionHand::class.java)
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
-            ctx.queue { cast(player, hand) }
+            ctx.queue { start(player, hand) }
         }
     }
 
-    private fun cast(player: ServerPlayer, hand: InteractionHand) {
-        val stack = player.getItemInHand(hand)
-        val spell = MysticScrollItem.spellOf(stack) ?: return
-        if (player.isUsingItem || MysticScrollItem.coolingDown(player)) return
-        val level = player.serverLevel()
-        val ctx = SpellContext(level, player, player.position())
+    private fun start(player: ServerPlayer, hand: InteractionHand) {
+        UlderScrollItem.spellOf(player.getItemInHand(hand)) ?: return
+        if (player.isUsingItem || UlderScrollItem.coolingDown(player)) return
+        UlderScrollItem.startCharge(player.level(), player, hand, UlderScrollItem.Companion.ChargeMode.SELF)
+    }
+
+    /** Returns false where no element did anything. [scale] is the charge power. */
+    fun cast(player: ServerPlayer, spell: Spell, scale: Float, charge: Float): Boolean {
+        val ctx = SpellContext(player.serverLevel(), player, player.position())
         ctx.elements = spell.magnitudes.keys
         var any = false
         for ((element, magnitude) in spell.magnitudes) {
-            if (effect(ctx, player, element, magnitude + (ctx.environment[element] ?: 0f))) any = true
+            val m = magnitude * scale + (ctx.environment[element] ?: 0f)
+            if (!effect(ctx, player, element, m)) continue
+            any = true
+            SpellSounds.of(element)?.let {
+                SpellSounds.play(ctx.level, player.position(), it.selfRelease, SpellSounds.chargeVolume(charge) * SpellSounds.magnitudeVolume(m))
+            }
         }
-        if (!any) return
-        MysticScrollItem.spend(level, player, stack)
-        MysticScrollItem.startCooldown(player)
+        return any
     }
 
     /** Returns false where [element] does nothing. */
     private fun effect(ctx: SpellContext, caster: ServerPlayer, element: Element, magnitude: Float): Boolean = when (element) {
         // The cloak amplifier holds the cast tier, which sets how hard the cloak bites.
-        Element.HEAT -> cloak(caster, EKEffects.FLAME_CLOAK.get(), SpellVisuals.FLAME_CLOAK, magnitude)
-        Element.COLD -> cloak(caster, EKEffects.FROST_CLOAK.get(), SpellVisuals.FROST_CLOAK, magnitude)
-        Element.GROWTH -> give(caster, MobEffects.REGENERATION, SpellCurves.ticks(5f, 2f, magnitude), SpellCurves.tierAmplifier(magnitude))
+        Element.PYRE -> cloak(caster, EKEffects.MANTLE_OF_FLAME.get(), SpellVisuals.FLAME_CLOAK, magnitude)
+        Element.WINTER -> cloak(caster, EKEffects.MANTLE_OF_FROST.get(), SpellVisuals.FROST_CLOAK, magnitude)
+        Element.GENESIS -> give(caster, MobEffects.REGENERATION, SpellCurves.ticks(5f, 2f, magnitude), SpellCurves.tierAmplifier(magnitude))
             .also { if (it) seen(ctx, caster, element, SPIRAL_SEEN) }
-        Element.PURITY -> selfCleanse(ctx, caster)
+        Element.QUINTESSENCE -> selfCleanse(ctx, caster)
         Element.GRAVITY -> give(caster, EKEffects.ANCHORED.get(), SpellCurves.ticks(5f, 2f, magnitude)).also { if (it) seen(ctx, caster, element, PRESS_SEEN) }
-        Element.CHAOS -> cloak(caster, EKEffects.LIGHTNING_CLOAK.get(), SpellVisuals.LIGHTNING_CLOAK, magnitude)
-        Element.BLOOD -> cloak(caster, EKEffects.ABSORPTION_CLOAK.get(), SpellVisuals.ABSORPTION_CLOAK, magnitude)
+        Element.CHAOS -> cloak(caster, EKEffects.MANTLE_OF_LIGHTNING.get(), SpellVisuals.LIGHTNING_CLOAK, magnitude)
+        Element.BLOOD -> cloak(caster, EKEffects.MANTLE_OF_ABSORPTION.get(), SpellVisuals.ABSORPTION_CLOAK, magnitude)
         // The Halo amplifier holds its magnitude, which sets its radius.
-        Element.SUNFIRE -> drawnAt(caster, EKEffects.HALO.get(), SpellVisuals.HALO, magnitude, (Math.round(magnitude) - 1).coerceIn(0, 9))
-        Element.POISON -> cloak(caster, EKEffects.POISON_CLOAK.get(), SpellVisuals.POISON_CLOAK, magnitude)
-        Element.VOID -> cloak(caster, EKEffects.VOID_CLOAK.get(), SpellVisuals.VOID_CLOAK, magnitude)
+        Element.SUNFIRE -> drawnAt(caster, EKEffects.PALE_CROWN.get(), SpellVisuals.HALO, magnitude, (Math.round(magnitude) - 1).coerceIn(0, 9))
+        Element.CORRUPTION -> cloak(caster, EKEffects.MANTLE_OF_POISON.get(), SpellVisuals.POISON_CLOAK, magnitude)
+        Element.VOID -> cloak(caster, EKEffects.MANTLE_OF_VOID.get(), SpellVisuals.VOID_CLOAK, magnitude)
         Element.SUNDERING -> false
     }
 

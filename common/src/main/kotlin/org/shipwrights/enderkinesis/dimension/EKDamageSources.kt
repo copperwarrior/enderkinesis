@@ -28,6 +28,12 @@ object EKDamageSources {
     private val BRINK_KEY: ResourceKey<DamageType> =
         ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("brink"))
 
+    private val WEHELO_RIFT_KEY: ResourceKey<DamageType> =
+        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("wehelo_rift"))
+
+    fun weheloRift(level: ServerLevel): DamageSource =
+        DamageSource(level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolderOrThrow(WEHELO_RIFT_KEY))
+
     fun brink(player: ServerPlayer): DamageSource {
         val registry = player.level().registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
         return DamageSource(registry.getHolderOrThrow(BRINK_KEY))
@@ -72,9 +78,9 @@ object EKDamageSources {
     /** Contact with the Sselith Remnant's field — no attacker entity, the
      *  mass is a pseudo-entity with nothing to blame. */
     private val SSELITH_REMNANT_KEY: ResourceKey<DamageType> =
-        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("irreverant_remnant"))
+        ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("irreverent_remnant"))
 
-    fun irreverantRemnant(level: ServerLevel): DamageSource {
+    fun irreverentRemnant(level: ServerLevel): DamageSource {
         val registry = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
         return DamageSource(registry.getHolderOrThrow(SSELITH_REMNANT_KEY))
     }
@@ -98,10 +104,10 @@ object EKDamageSources {
         ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("chaos"))
 
     /** Heat's fire: burns like fire (fire immunity stops it), with its own death message. */
-    val HEAT_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("heat"))
+    val PYRE_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("pyre"))
 
     /** Cold's frost: counts as freezing, like powder snow, with its own death message. */
-    val COLD_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("cold"))
+    val WINTER_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("winter"))
 
     /** Sunfire's light. Magic that bypasses armour; undead take it double (see FusionEffects). */
     val SUNFIRE_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("sunfire"))
@@ -110,7 +116,7 @@ object EKDamageSources {
     val ROT_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("rot"))
 
     /** Growth's life, which burns the undead. Magic that bypasses armour. */
-    val GROWTH_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("growth"))
+    val GENESIS_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("genesis"))
 
     /** Gravity's crush: what Weighted adds on top of fall damage. Bypasses armour, as falls do. */
     val GRAVITY_KEY: ResourceKey<DamageType> = ResourceKey.create(Registries.DAMAGE_TYPE, EnderkinesisMod.id("gravity"))

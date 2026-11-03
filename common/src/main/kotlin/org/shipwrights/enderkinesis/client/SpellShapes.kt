@@ -155,23 +155,29 @@ object SpellShapes {
         fun at(i: Int): Double
     }
 
-    /** Each joint shares its edge with both segments, so the bends have no gaps or overlaps. */
+    /**
+     * Each joint shares its edge with both segments, so the bends have no gaps or overlaps.
+     * [closed] also joins the last point back to the first, so a loop has no ends.
+     */
     fun strip(
         c: VertexConsumer, m: Matrix4f, view: SpellView, points: List<Vec3>, width: StripWidth, rgb: Int, alpha: Float,
-        soft: Boolean, alphas: FloatArray? = null,
+        soft: Boolean, alphas: FloatArray? = null, closed: Boolean = false,
     ) {
-        if (points.size < 2 || alpha <= 0.004f) return
-        val sides = Array(points.size) { i ->
-            val along = points[minOf(points.size - 1, i + 1)].subtract(points[maxOf(0, i - 1)])
-            val side = along.cross(points[i].subtract(view.cam))
+        val n = points.size
+        if (n < 2 || alpha <= 0.004f) return
+        val sides = Array(n) { i ->
+            val next = if (closed) points[(i + 1) % n] else points[minOf(n - 1, i + 1)]
+            val prev = if (closed) points[(i - 1 + n) % n] else points[maxOf(0, i - 1)]
+            val side = next.subtract(prev).cross(points[i].subtract(view.cam))
             if (side.lengthSqr() < 1.0e-12) Vec3.ZERO else side.normalize().scale(width.at(i) * 0.5)
         }
-        for (i in 0 until points.size - 1) {
-            val p0 = points[i]; val p1 = points[i + 1]
-            val a0 = alpha * (if (alphas != null) alphas[i] else 1f); val a1 = alpha * (if (alphas != null) alphas[i + 1] else 1f)
+        for (i in 0 until if (closed) n else n - 1) {
+            val j = (i + 1) % n
+            val p0 = points[i]; val p1 = points[j]
+            val a0 = alpha * (if (alphas != null) alphas[i] else 1f); val a1 = alpha * (if (alphas != null) alphas[j] else 1f)
             val e0 = if (soft) 0f else a0; val e1 = if (soft) 0f else a1
-            quad(c, m, p0, p1, p1.add(sides[i + 1]), p0.add(sides[i]), rgb, a0, a1, e1, e0)
-            quad(c, m, p0.subtract(sides[i]), p1.subtract(sides[i + 1]), p1, p0, rgb, e0, e1, a1, a0)
+            quad(c, m, p0, p1, p1.add(sides[j]), p0.add(sides[i]), rgb, a0, a1, e1, e0)
+            quad(c, m, p0.subtract(sides[i]), p1.subtract(sides[j]), p1, p0, rgb, e0, e1, a1, a0)
         }
     }
 

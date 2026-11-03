@@ -10,6 +10,7 @@ import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.IdentityHashMap
 import org.shipwrights.enderkinesis.registry.EKParticles
 
@@ -54,6 +55,7 @@ object Absence {
         SpellHolds.hold(entity, SpellHolds.By.ABSENT)
         entity.deltaMovement = Vec3.ZERO
         SpellNetwork.broadcastAbsent(level, entity, true)
+        SpellSounds.play(level, entity.position(), EKSounds.SPELL_VOID_VANISH)
         dropTargets(level, entity)
         level.sendParticles(
             EKParticles.voidMote(), entity.x, entity.y + entity.bbHeight * 0.5, entity.z, 10,
@@ -84,5 +86,6 @@ object Absence {
         val level = entity.level() as? ServerLevel ?: return
         entity.teleportTo(state.at.x, state.at.y, state.at.z)
         SpellNetwork.broadcastAbsent(level, entity, false)
+        SpellSounds.play(level, state.at, EKSounds.SPELL_VOID_RETURN)
     }
 }

@@ -41,7 +41,7 @@ object SpellVisuals {
     /** One byte each, in tenths, so the maximum is 25.5. An effect not given by a cast uses its amplifier. */
     fun castMagnitudes(entity: LivingEntity, bits: Int): ByteArray {
         val cast = castAt[entity]
-        val effects = arrayOf(EKEffects.POISON_CLOAK, EKEffects.FLAME_CLOAK, EKEffects.FROST_CLOAK, EKEffects.LIGHTNING_CLOAK, EKEffects.ABSORPTION_CLOAK, EKEffects.VOID_CLOAK, EKEffects.HALO)
+        val effects = arrayOf(EKEffects.MANTLE_OF_POISON, EKEffects.MANTLE_OF_FLAME, EKEffects.MANTLE_OF_FROST, EKEffects.MANTLE_OF_LIGHTNING, EKEffects.MANTLE_OF_ABSORPTION, EKEffects.MANTLE_OF_VOID, EKEffects.PALE_CROWN)
         val out = ArrayList<Byte>()
         for ((i, visual) in CAST_ORDER.withIndex()) {
             if (bits and visual == 0) continue
@@ -63,15 +63,15 @@ object SpellVisuals {
         if (EndingEffects.stillHas(entity, EKEffects.ENTANGLED.get())) bits = bits or ENTANGLED
         if (EndingEffects.stillHas(entity, EKEffects.FROZEN.get())) bits = bits or FROZEN
         if (EndingEffects.stillHas(entity, EKEffects.WEIGHTED.get())) bits = bits or WEIGHTED
-        if (EndingEffects.stillHas(entity, EKEffects.HALO.get())) {
-            bits = bits or HALO or ((entity.getEffect(EKEffects.HALO.get())?.amplifier ?: 0) shl HALO_SHIFT)
+        if (EndingEffects.stillHas(entity, EKEffects.PALE_CROWN.get())) {
+            bits = bits or HALO or ((entity.getEffect(EKEffects.PALE_CROWN.get())?.amplifier ?: 0) shl HALO_SHIFT)
         }
-        if (EndingEffects.stillHas(entity, EKEffects.POISON_CLOAK.get())) bits = bits or POISON_CLOAK
-        if (EndingEffects.stillHas(entity, EKEffects.FLAME_CLOAK.get())) bits = bits or FLAME_CLOAK
-        if (EndingEffects.stillHas(entity, EKEffects.FROST_CLOAK.get())) bits = bits or FROST_CLOAK
-        if (EndingEffects.stillHas(entity, EKEffects.LIGHTNING_CLOAK.get())) bits = bits or LIGHTNING_CLOAK
-        if (EndingEffects.stillHas(entity, EKEffects.ABSORPTION_CLOAK.get())) bits = bits or ABSORPTION_CLOAK
-        if (EndingEffects.stillHas(entity, EKEffects.VOID_CLOAK.get())) bits = bits or VOID_CLOAK
+        if (EndingEffects.stillHas(entity, EKEffects.MANTLE_OF_POISON.get())) bits = bits or POISON_CLOAK
+        if (EndingEffects.stillHas(entity, EKEffects.MANTLE_OF_FLAME.get())) bits = bits or FLAME_CLOAK
+        if (EndingEffects.stillHas(entity, EKEffects.MANTLE_OF_FROST.get())) bits = bits or FROST_CLOAK
+        if (EndingEffects.stillHas(entity, EKEffects.MANTLE_OF_LIGHTNING.get())) bits = bits or LIGHTNING_CLOAK
+        if (EndingEffects.stillHas(entity, EKEffects.MANTLE_OF_ABSORPTION.get())) bits = bits or ABSORPTION_CLOAK
+        if (EndingEffects.stillHas(entity, EKEffects.MANTLE_OF_VOID.get())) bits = bits or VOID_CLOAK
         return bits
     }
 
@@ -118,7 +118,7 @@ object SpellVisuals {
         return if (m > 0f) m else 1f
     }
 
-    fun haloRadius(bits: Int): Double = org.shipwrights.enderkinesis.effect.HaloEffect.radius((bits ushr HALO_SHIFT) and 15)
+    fun haloRadius(bits: Int): Double = org.shipwrights.enderkinesis.effect.PaleCrownEffect.radius((bits ushr HALO_SHIFT) and 15)
 
     fun setClientPose(id: Int, rotation: Quaternionf) {
         val pose = clientPoses.get(id)

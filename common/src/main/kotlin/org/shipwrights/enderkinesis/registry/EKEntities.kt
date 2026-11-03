@@ -15,7 +15,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
-import org.shipwrights.enderkinesis.entity.MagicMissileEntity
+import org.shipwrights.enderkinesis.entity.LodestarDartEntity
 import org.shipwrights.enderkinesis.entity.MiasmaEntity
 import org.shipwrights.enderkinesis.entity.SignatureEntity
 import org.shipwrights.enderkinesis.entity.SingularityEntity
@@ -24,10 +24,13 @@ import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
 import org.shipwrights.enderkinesis.entity.PrismaticGoat
 import org.shipwrights.enderkinesis.entity.SselithMothEntity
 import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
+import org.shipwrights.enderkinesis.entity.ShilleagkDeerEntity
 import org.shipwrights.enderkinesis.entity.ShulkonautEntity
+import org.shipwrights.enderkinesis.entity.WeheloTearEntity
 import org.shipwrights.enderkinesis.entity.WohlemEntity
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
 import org.shipwrights.enderkinesis.entity.WikLakHostEntity
+import org.shipwrights.enderkinesis.entity.WillOTheWispEntity
 import org.shipwrights.enderkinesis.entity.WogorBoat
 import org.shipwrights.enderkinesis.entity.WogorChestBoat
 import org.shipwrights.enderkinesis.mixin.SpawnPlacementsInvoker
@@ -87,16 +90,16 @@ object EKEntities {
                 .build("miasma")
         }
 
-    /** Magic Missile — homing projectile spawned by
-     *  [org.shipwrights.enderkinesis.item.MagicMissileItem] or via dispenser. See
-     *  [MagicMissileEntity] for the homing / target-filter / explosion logic. */
-    val MAGIC_MISSILE: RegistrySupplier<EntityType<MagicMissileEntity>> =
-        ENTITIES.register("magic_missile") {
-            EntityType.Builder.of(::MagicMissileEntity, MobCategory.MISC)
+    /** Lodestar Dart — homing projectile spawned by
+     *  [org.shipwrights.enderkinesis.item.LodestarDartItem] or via dispenser. See
+     *  [LodestarDartEntity] for the homing / target-filter / explosion logic. */
+    val LODESTAR_DART: RegistrySupplier<EntityType<LodestarDartEntity>> =
+        ENTITIES.register("lodestar_dart") {
+            EntityType.Builder.of(::LodestarDartEntity, MobCategory.MISC)
                 .sized(0.5f, 0.5f)
                 .clientTrackingRange(32)
                 .updateInterval(1)        // sync every tick so the trail tracks the projectile cleanly
-                .build("magic_missile")
+                .build("lodestar_dart")
         }
 
     /** The Archive — slow-drifting paper-tornado that wanders Sselith and
@@ -125,6 +128,18 @@ object EKEntities {
     /** Player Corpse — visual stand-in spawned by [WikLakDeathRedirect] at
      *  the player's intercepted death position. Player-skinned, no AI,
      *  immediately killed so vanilla [Mob.tickDeath] plays it out. */
+    val WEHELO_TEAR: RegistrySupplier<EntityType<WeheloTearEntity>> =
+        ENTITIES.register(WeheloTearEntity.ID_PATH) {
+            EntityType.Builder.of(::WeheloTearEntity, MobCategory.MISC)
+                .sized(0.9f, WeheloTearEntity.HEIGHT)
+                .noSave()
+                .noSummon()
+                .fireImmune()
+                .clientTrackingRange(8)
+                .updateInterval(20)
+                .build(WeheloTearEntity.ID_PATH)
+        }
+
     val PLAYER_CORPSE: RegistrySupplier<EntityType<PlayerCorpseEntity>> =
         ENTITIES.register(PlayerCorpseEntity.ID_PATH) {
             EntityType.Builder.of(::PlayerCorpseEntity, MobCategory.MISC)
@@ -214,6 +229,24 @@ object EKEntities {
                 .build(WohlemEntity.ID_PATH)
         }
 
+    /** Height covers the head, not the antler tips; the deer grows taller while it stands upright. */
+    val SHILLEAGK_DEER: RegistrySupplier<EntityType<ShilleagkDeerEntity>> =
+        ENTITIES.register(ShilleagkDeerEntity.ID_PATH) {
+            EntityType.Builder.of(::ShilleagkDeerEntity, MobCategory.CREATURE)
+                .sized(ShilleagkDeerEntity.WIDTH, ShilleagkDeerEntity.HEIGHT)
+                .clientTrackingRange(10)
+                .build(ShilleagkDeerEntity.ID_PATH)
+        }
+
+    val WILL_O_THE_WISP: RegistrySupplier<EntityType<WillOTheWispEntity>> =
+        ENTITIES.register(WillOTheWispEntity.ID_PATH) {
+            EntityType.Builder.of(::WillOTheWispEntity, MobCategory.AMBIENT)
+                .sized(WillOTheWispEntity.WIDTH, WillOTheWispEntity.HEIGHT)
+                .fireImmune()
+                .clientTrackingRange(8)
+                .build(WillOTheWispEntity.ID_PATH)
+        }
+
     val WOGOR_BOAT: RegistrySupplier<EntityType<WogorBoat>> =
         ENTITIES.register("wogor_boat") {
             EntityType.Builder.of({ type, level -> WogorBoat(type, level) }, MobCategory.MISC)
@@ -245,6 +278,8 @@ object EKEntities {
         EntityAttributeRegistry.register(RAISED_SKELETON) { RaisedSkeletonEntity.createAttributes() }
         EntityAttributeRegistry.register(WOHLEM) { WohlemEntity.createAttributes() }
         EntityAttributeRegistry.register(SSELITH_MOTH) { SselithMothEntity.createAttributes() }
+        EntityAttributeRegistry.register(SHILLEAGK_DEER) { ShilleagkDeerEntity.createAttributes() }
+        EntityAttributeRegistry.register(WILL_O_THE_WISP) { WillOTheWispEntity.createAttributes() }
         // Vanilla goat attributes verbatim — `PrismaticGoat`
         // extends `Goat` directly, so its base stats match.
         EntityAttributeRegistry.register(PRISMATIC_GOAT) {
@@ -281,27 +316,40 @@ object EKEntities {
         // Biome gating lives in the biome JSON's `spawners.creature`
         // entry — placement just has to agree this is "ground a
         // passive mob can stand on."
-        placeOnGround(PRISMATIC_GOAT) { _, level, _, pos, _ ->
-            val below = level.getBlockState(pos.below())
-            // Replicates `Animal.isBrightEnoughToSpawn` (protected, so we
-            // can't call it directly): vanilla passive mobs need raw
-            // brightness > 8 at the spawn position.
-            below.`is`(PRISMATIC_GOAT_SPAWNABLE_ON) &&
-                level.getRawBrightness(pos, 0) > 8
-        }
+        placeOnGround(PRISMATIC_GOAT, ::isWohlonAnimalGround)
+        placeOnGround(SHILLEAGK_DEER, ::isWohlonAnimalGround)
+        place(WILL_O_THE_WISP, SpawnPlacements.Type.NO_RESTRICTIONS, WillOTheWispEntity::canSpawn)
     }
+
+    @Suppress("UNUSED_PARAMETER") // Shape fixed by SpawnPlacements.SpawnPredicate.
+    private fun isWohlonAnimalGround(
+        type: EntityType<Mob>,
+        level: net.minecraft.world.level.ServerLevelAccessor,
+        spawnType: net.minecraft.world.entity.MobSpawnType,
+        pos: net.minecraft.core.BlockPos,
+        random: net.minecraft.util.RandomSource,
+    ): Boolean =
+        // Replicates `Animal.isBrightEnoughToSpawn` (protected): vanilla passive mobs need raw brightness > 8.
+        level.getBlockState(pos.below()).`is`(PRISMATIC_GOAT_SPAWNABLE_ON) &&
+            level.getRawBrightness(pos, 0) > 8
 
     /** `listen`, not `get`: on Forge the entry does not exist until the registry event, and
      *  `get` during mod init throws. */
     private fun placeOnGround(
         entry: RegistrySupplier<out EntityType<*>>,
         predicate: SpawnPlacements.SpawnPredicate<Mob>,
+    ) = place(entry, SpawnPlacements.Type.ON_GROUND, predicate)
+
+    private fun place(
+        entry: RegistrySupplier<out EntityType<*>>,
+        type: SpawnPlacements.Type,
+        predicate: SpawnPlacements.SpawnPredicate<Mob>,
     ) {
         entry.listen { registered ->
             @Suppress("UNCHECKED_CAST")
             SpawnPlacementsInvoker.`enderkinesis$register`(
                 registered as EntityType<Mob>,
-                SpawnPlacements.Type.ON_GROUND,
+                type,
                 Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 predicate,
             )

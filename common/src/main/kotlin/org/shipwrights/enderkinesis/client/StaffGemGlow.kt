@@ -40,7 +40,8 @@ object StaffGemGlow {
     enum class Spin { NONE, SHAFT_AXIS, TUMBLE }
 
     /** Turns a [Spin.SHAFT_AXIS] gem away from its spin. [pose] maps the gem's model space to view space.
-     *  Writes the gem's rotation about its centre into [out]; `out.rotationY(spinYaw)` keeps the plain spin. */
+     *  Writes the gem's rotation about its centre into [out]; `out.rotationY(spinYaw)` keeps the plain spin.
+     *  A [Spin.NONE] gem also calls it (spinYaw = 0), so the aim can see where the gem draws; its result is ignored. */
     fun interface Aim {
         fun rotation(
             stack: ItemStack, pose: Matrix4f, centerX: Float, centerY: Float, centerZ: Float, spinYaw: Float, out: Quaternionf,
@@ -88,7 +89,10 @@ object StaffGemGlow {
                     turn(clockMs, TUMBLE_X_PERIOD_MS),
                     turn(clockMs, TUMBLE_Z_PERIOD_MS),
                 )
-                Spin.NONE -> return
+                Spin.NONE -> {
+                    if (stack != null) style.aim?.rotation(stack, poseStack.last().pose(), centerX, centerY, centerZ, 0f, scratchRotation)
+                    return
+                }
             }
             poseStack.rotateAround(rotation, centerX, centerY, centerZ)
         }
@@ -224,6 +228,13 @@ object StaffGemGlow {
                     gemElement = "skull_emoji", noCull = true, aim = GrandStaffClient,
                 ),
             )
+            put(
+                EKItems.GRAND_STAFF_OF_DREAD.get(),
+                Style(
+                    0x032620, dark = true, gemElement = "orb", aim = GrandStaffDreadClient,
+                ),
+            )
+            put(EKItems.GRAND_STAFF_OF_DECAY.get(), Style(0x0485C3, gemElement = "gem", aim = GrandStaffDecayClient))
         }
     }
 
@@ -322,7 +333,7 @@ object StaffGemGlow {
     private fun turn(clockMs: Double, periodMs: Long): Float =
         (clockMs % periodMs / periodMs).toFloat() * TAU
 
-    private const val GEM_SPRITE_PREFIX = "item/mystic_"
+    private const val GEM_SPRITE_PREFIX = "item/ulder_"
     private const val VERTICES_PER_QUAD = 4
     // DefaultVertexFormat.BLOCK: 8 ints for each vertex.
     private const val VERTEX_STRIDE = 8

@@ -112,7 +112,7 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
     /** The ink goes later, when the scroll has risen ([riseTicks] from now). */
     fun finish(ink: Int) {
         check(glyphs.isNotEmpty() && ready.isEmpty)
-        val scroll = ItemStack(EKItems.MYSTIC_SCROLL.get())
+        val scroll = ItemStack(EKItems.ULDER_SCROLL.get())
         scroll.orCreateTag.put(Spell.NBT_GLYPHS, Spell(glyphs).save())
         record(Event(Event.Kind.FINISH, level?.gameTime ?: 0L, glyphs = glyphs, inkBefore = ink, paper = blank.copy()))
         ready = scroll

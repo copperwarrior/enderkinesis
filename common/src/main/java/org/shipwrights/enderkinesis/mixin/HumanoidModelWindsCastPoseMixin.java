@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Third-person cast pose for the Incantation of Winds: the casting arm
+ * Third-person cast pose for every incantation: the casting arm
  * raises up-and-forward and tilts on the same oscillation curve the
  * first-person hand uses. Targeting {@code HumanoidModel} (not
  * {@code PlayerModel}) keeps the skin, sleeves, and every armor layer in
@@ -33,7 +33,7 @@ public abstract class HumanoidModelWindsCastPoseMixin {
     ) {
         if (!(entity instanceof Player player)) return;
         InteractionHand hand = player.getUsedItemHand();
-        if (!IncantationOfWindsClient.isCastingWinds(player, hand)) return;
+        if (!IncantationOfWindsClient.isCastingIncantation(player, hand)) return;
 
         HumanoidModel<?> self = (HumanoidModel<?>) (Object) this;
         HumanoidArm arm = hand == InteractionHand.MAIN_HAND

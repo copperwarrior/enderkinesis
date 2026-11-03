@@ -39,6 +39,10 @@ import kotlin.math.sqrt
  * worldgen worker threads concurrently.
  */
 internal object WogorTreeSkeleton {
+    private const val TAPER_EXPONENT = 0.4
+    private const val CURVED_FLARE_SHARE = 0.65
+    private const val CURVED_FLARE_FALLOFF = 0.18
+
 
     /**
      * Sample [count] points uniformly inside an axis-aligned ellipsoid
@@ -154,6 +158,8 @@ internal object WogorTreeSkeleton {
         buttressRange: Double = 0.0,
         trunkLean: Double = 0.0,
         gravity: Double = 0.0,
+        taper: Boolean = false,
+        curvedFlare: Boolean = false,
     ): TreeSkeleton {
         // Per-origin lean seeds — different trees lean different directions.
         val leanSeedBase = (originX.toInt() * 0x9E3779B1.toInt()) xor
@@ -364,21 +370,25 @@ internal object WogorTreeSkeleton {
         // as a **continuous Double** so the SDF rasterizer can lerp
         // along each segment without flooring the gradient.
         countLeavesRecursive(root)
+        // The √ rule hits the cap low on the trunk, so the trunk reads as a straight cylinder.
+        // [taper] scales a softer pipe exponent to the cap at the root instead.
+        val taperScale = maxThickness / Math.pow(root.descendantLeaves.toDouble(), TAPER_EXPONENT)
         for (n in nodes) {
-            val raw = sqrt(n.descendantLeaves.toDouble())
-            n.radius = (raw * thicknessScale).coerceIn(0.5, maxThickness.toDouble())
+            val r = if (taper) Math.pow(n.descendantLeaves.toDouble(), TAPER_EXPONENT) * taperScale
+                else sqrt(n.descendantLeaves.toDouble()) * thicknessScale
+            n.radius = r.coerceIn(0.5, maxThickness.toDouble())
         }
 
-        // Buttress flare: continuous radius bonus on nodes within
-        // `buttressRange` of the origin Y, linear falloff. Flare can push
-        // past `maxThickness` because the buttress is supposed to be
-        // visibly wider than the rest of the trunk.
+        // Buttress flare can push past `maxThickness`: the foot is meant to be wider than the trunk.
         if (buttressFlare > 0 && buttressRange > 0.0) {
             val flareCap = (maxThickness + buttressFlare).toDouble()
             for (n in nodes) {
                 val dy = Math.abs(n.y - originY)
-                if (dy >= buttressRange) continue
-                val bonus = (1.0 - dy / buttressRange) * buttressFlare
+                val bonus = when {
+                    curvedFlare -> buttressFlare * CURVED_FLARE_SHARE * Math.exp(-dy / (buttressRange * CURVED_FLARE_FALLOFF))
+                    dy >= buttressRange -> continue
+                    else -> (1.0 - dy / buttressRange) * buttressFlare
+                }
                 n.radius = (n.radius + bonus).coerceAtMost(flareCap)
             }
         }

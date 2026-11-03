@@ -13,9 +13,12 @@ import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.SpellCurves
 import org.shipwrights.enderkinesis.spell.SpellVisuals
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.spell.SpellSounds
 
 /** The amplifier holds the spell magnitude ([SpellCurves.toAmplifier]), so the shatter can scale with it. */
-class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.PURITY.color) {
+class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.QUINTESSENCE.color) {
+    private val refreshes = RefreshMarks(this)
 
     override fun isDurationEffectTick(duration: Int, amplifier: Int): Boolean = duration % 20 == 0
 
@@ -36,6 +39,10 @@ class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.PURITY.c
     override fun addAttributeModifiers(entity: LivingEntity, attributes: AttributeMap, amplifier: Int) {
         super.addAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
+        val level = entity.level() as? ServerLevel ?: return
+        if (refreshes.isNew(entity)) {
+            SpellSounds.play(level, entity.position(), EKSounds.SPELL_QUINTESSENCE_CRYSTALLIZE, SpellSounds.magnitudeVolume(SpellCurves.fromAmplifier(amplifier)))
+        }
     }
 
     /** Vanilla also calls this when a new dose replaces the effect; [EndingEffects.stillHas] tells a refresh from an end. */
@@ -43,6 +50,7 @@ class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.PURITY.c
         super.removeAttributeModifiers(entity, attributes, amplifier)
         SpellVisuals.update(entity)
         val level = entity.level() as? ServerLevel ?: return
+        refreshes.removed(entity)
         if (!entity.isAlive || EndingEffects.stillHas(entity, this)) return
         shatter(level, entity, SpellCurves.fromAmplifier(amplifier), EKDamageSources.ofEffect(entity, this, EKDamageSources.CRYSTALLIZATION_KEY))
     }
@@ -60,6 +68,7 @@ class CrystallizedEffect : MobEffect(MobEffectCategory.HARMFUL, Element.PURITY.c
             EKParticles.crystalShard(), centre.x, centre.y, centre.z, 24,
             entity.bbWidth * 0.5, entity.bbHeight * 0.5, entity.bbWidth * 0.5, 0.15,
         )
+        SpellSounds.play(level, centre, EKSounds.SPELL_QUINTESSENCE_CRYSTAL_SHATTER, SpellSounds.magnitudeVolume(magnitude))
     }
 
     companion object {

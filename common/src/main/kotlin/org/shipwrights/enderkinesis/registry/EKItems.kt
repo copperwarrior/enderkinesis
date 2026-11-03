@@ -22,12 +22,13 @@ import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.AlmanacOfEverywhereItem
 import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
+import org.shipwrights.enderkinesis.item.CrownOfTheDarkStarItem
 import org.shipwrights.enderkinesis.item.GuideToStratusItem
 import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
-import org.shipwrights.enderkinesis.item.MysticGemItem
-import org.shipwrights.enderkinesis.item.MysticScrollItem
-import org.shipwrights.enderkinesis.item.MysticShardItem
+import org.shipwrights.enderkinesis.item.UlderGemItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
+import org.shipwrights.enderkinesis.item.UlderShardItem
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.item.EideticBookmarkItem
 import org.shipwrights.enderkinesis.item.OldPaperItem
@@ -44,6 +45,8 @@ import org.shipwrights.enderkinesis.item.StaffOfConcealmentItem
 import org.shipwrights.enderkinesis.item.StaffOfDensityItem
 import org.shipwrights.enderkinesis.item.StaffOfFusionItem
 import org.shipwrights.enderkinesis.item.StaffOfScalesItem
+import org.shipwrights.enderkinesis.item.GrandStaffOfDreadItem
+import org.shipwrights.enderkinesis.item.GrandStaffOfDecayItem
 import org.shipwrights.enderkinesis.item.GrandStaffOfTheDeadItem
 import org.shipwrights.enderkinesis.item.StaffOfSunderingItem
 import org.shipwrights.enderkinesis.item.TomeOfBindingItem
@@ -97,12 +100,12 @@ object EKItems {
         org.shipwrights.enderkinesis.item.WandOfGamylanItem(props().stacksTo(1))
     }
 
-    /** Magic Missile — homing projectile. Right-click to fire in look direction; the primary
+    /** Lodestar Dart — homing projectile. Right-click to fire in look direction; the primary
      *  use case is from a dispenser. Stacks normally. See
-     *  [org.shipwrights.enderkinesis.item.MagicMissileItem] and
-     *  [org.shipwrights.enderkinesis.entity.MagicMissileEntity]. */
-    val MAGIC_MISSILE: RegistrySupplier<Item> = ITEMS.register("magic_missile") {
-        org.shipwrights.enderkinesis.item.MagicMissileItem(props().stacksTo(16))
+     *  [org.shipwrights.enderkinesis.item.LodestarDartItem] and
+     *  [org.shipwrights.enderkinesis.entity.LodestarDartEntity]. */
+    val LODESTAR_DART: RegistrySupplier<Item> = ITEMS.register("lodestar_dart") {
+        org.shipwrights.enderkinesis.item.LodestarDartItem(props().stacksTo(16))
     }
 
     /** Crepusculite Charm — passive levitation. While in the holder's inventory and the
@@ -114,6 +117,9 @@ object EKItems {
         ITEMS.register("crepusculite_charm") {
             CrepusculiteCharmItem(props().stacksTo(1).durability(CrepusculiteCharmItem.MAX_DURABILITY))
         }
+
+    val CROWN_OF_THE_DARK_STAR: RegistrySupplier<Item> =
+        ITEMS.register("crown_of_the_dark_star") { CrownOfTheDarkStarItem(props().stacksTo(1)) }
 
     /** Ledger of Watching Eyes — slot-companion for the Eyeroscope. While in the
      *  eyeroscope's slot, logs every ship that enters a 64-block cube around the
@@ -175,13 +181,13 @@ object EKItems {
     val GUIDE_TO_STRATUS: RegistrySupplier<Item> =
         ITEMS.register("guide_to_stratus") { GuideToStratusItem(props().stacksTo(1)) }
 
-    /** Irreverant Remnant "spawn egg" — testing tool that drops a single
+    /** Irreverent Remnant "spawn egg" — testing tool that drops a single
      *  blob of the pseudo-entity. Not a real SpawnEggItem (there's no
      *  EntityType behind the remnant); the egg look comes from the vanilla
      *  template model plus an item-colour handler. */
-    val IRREVERANT_REMNANT_SPAWN_EGG: RegistrySupplier<Item> =
-        ITEMS.register("irreverant_remnant_spawn_egg") {
-            org.shipwrights.enderkinesis.item.IrreverantRemnantSpawnEggItem(props())
+    val IRREVERENT_REMNANT_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("irreverent_remnant_spawn_egg") {
+            org.shipwrights.enderkinesis.item.IrreverentRemnantSpawnEggItem(props())
         }
 
     /** Incantation of Winds — hold right-click to blast ships in a wide box
@@ -190,6 +196,16 @@ object EKItems {
     val INCANTATION_OF_WINDS: RegistrySupplier<Item> =
         ITEMS.register("incantation_of_winds") {
             org.shipwrights.enderkinesis.item.IncantationOfWindsItem(props().stacksTo(1))
+        }
+
+    val INCANTATION_OF_THE_RIVER: RegistrySupplier<Item> =
+        ITEMS.register("incantation_of_the_river") {
+            org.shipwrights.enderkinesis.item.IncantationOfTheRiverItem(props().stacksTo(1))
+        }
+
+    val INCANTATION_OF_THE_ABYSS: RegistrySupplier<Item> =
+        ITEMS.register("incantation_of_the_abyss") {
+            org.shipwrights.enderkinesis.item.IncantationOfTheAbyssItem(props().stacksTo(1))
         }
 
     /** Tome of Signal — right-click orbs of linking to wire one SEND to many RECEIVErs, mirroring
@@ -286,7 +302,7 @@ object EKItems {
     val TOME_OF_COUPLING: RegistrySupplier<Item> =
         ITEMS.register("tome_of_coupling") { TomeOfCouplingItem(props().stacksTo(1)) }
 
-    // Mystic Staves — powerful single-purpose tools. Each placeholder for now; their
+    // Ulder Staves — powerful single-purpose tools. Each placeholder for now; their
     // models reference `minecraft:item/iron_sword` so they look like swords in hand and
     // hotbar until artwork lands. Behaviour added one staff at a time (see tasks).
     val STAFF_OF_COMMAND: RegistrySupplier<Item> =
@@ -305,24 +321,28 @@ object EKItems {
         ITEMS.register("staff_of_sundering") { StaffOfSunderingItem(props().stacksTo(1)) }
     val GRAND_STAFF_OF_THE_DEAD: RegistrySupplier<Item> =
         ITEMS.register("grand_staff_of_the_dead") { GrandStaffOfTheDeadItem(props().stacksTo(1)) }
+    val GRAND_STAFF_OF_DREAD: RegistrySupplier<Item> =
+        ITEMS.register("grand_staff_of_dread") { GrandStaffOfDreadItem(props().stacksTo(1)) }
+    val GRAND_STAFF_OF_DECAY: RegistrySupplier<Item> =
+        ITEMS.register("grand_staff_of_decay") { GrandStaffOfDecayItem(props().stacksTo(1)) }
 
     private fun shard(name: String, element: Element): RegistrySupplier<Item> =
-        ITEMS.register("mystic_${name}_shard") { MysticShardItem(element, props().fireResistant()) }
+        ITEMS.register("ulder_${name}_shard") { UlderShardItem(element, props().fireResistant()) }
 
-    val MYSTIC_CITRINE_SHARD: RegistrySupplier<Item> = shard("citrine", Element.HEAT)
-    val MYSTIC_ONYX_SHARD: RegistrySupplier<Item> = shard("onyx", Element.GRAVITY)
-    val MYSTIC_JADE_SHARD: RegistrySupplier<Item> = shard("jade", Element.GROWTH)
-    val MYSTIC_AQUAMARINE_SHARD: RegistrySupplier<Item> = shard("aquamarine", Element.COLD)
-    val MYSTIC_MOONSTONE_SHARD: RegistrySupplier<Item> = shard("moonstone", Element.PURITY)
-    val MYSTIC_SPINEL_SHARD: RegistrySupplier<Item> = shard("spinel", Element.CHAOS)
-    val MYSTIC_BLOODSTONE_SHARD: RegistrySupplier<Item> = shard("bloodstone", Element.BLOOD)
+    val ULDER_CITRINE_SHARD: RegistrySupplier<Item> = shard("citrine", Element.PYRE)
+    val ULDER_ONYX_SHARD: RegistrySupplier<Item> = shard("onyx", Element.GRAVITY)
+    val ULDER_JADE_SHARD: RegistrySupplier<Item> = shard("jade", Element.GENESIS)
+    val ULDER_AQUAMARINE_SHARD: RegistrySupplier<Item> = shard("aquamarine", Element.WINTER)
+    val ULDER_MOONSTONE_SHARD: RegistrySupplier<Item> = shard("moonstone", Element.QUINTESSENCE)
+    val ULDER_SPINEL_SHARD: RegistrySupplier<Item> = shard("spinel", Element.CHAOS)
+    val ULDER_BLOODSTONE_SHARD: RegistrySupplier<Item> = shard("bloodstone", Element.BLOOD)
 
     private val SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
         mapOf(
-            Element.HEAT to MYSTIC_CITRINE_SHARD, Element.GRAVITY to MYSTIC_ONYX_SHARD,
-            Element.GROWTH to MYSTIC_JADE_SHARD, Element.COLD to MYSTIC_AQUAMARINE_SHARD,
-            Element.PURITY to MYSTIC_MOONSTONE_SHARD, Element.CHAOS to MYSTIC_SPINEL_SHARD,
-            Element.BLOOD to MYSTIC_BLOODSTONE_SHARD,
+            Element.PYRE to ULDER_CITRINE_SHARD, Element.GRAVITY to ULDER_ONYX_SHARD,
+            Element.GENESIS to ULDER_JADE_SHARD, Element.WINTER to ULDER_AQUAMARINE_SHARD,
+            Element.QUINTESSENCE to ULDER_MOONSTONE_SHARD, Element.CHAOS to ULDER_SPINEL_SHARD,
+            Element.BLOOD to ULDER_BLOODSTONE_SHARD,
         )
     }
 
@@ -330,18 +350,18 @@ object EKItems {
     fun shardOf(element: Element): Item? = SHARDS[element]?.get()
 
     /** A fusion is never inscribed as a shard. These only draw its glyph on the altar. */
-    private fun fusionShard(name: String): RegistrySupplier<Item> = ITEMS.register("mystic_${name}_shard") { Item(props()) }
+    private fun fusionShard(name: String): RegistrySupplier<Item> = ITEMS.register("ulder_${name}_shard") { Item(props()) }
 
-    val MYSTIC_SUNFIRE_SHARD: RegistrySupplier<Item> = fusionShard("sunfire")
-    val MYSTIC_POISON_SHARD: RegistrySupplier<Item> = fusionShard("poison")
-    val MYSTIC_VOID_SHARD: RegistrySupplier<Item> = fusionShard("void")
+    val ULDER_SUNFIRE_SHARD: RegistrySupplier<Item> = fusionShard("sunfire")
+    val ULDER_CORRUPTION_SHARD: RegistrySupplier<Item> = fusionShard("corruption")
+    val ULDER_VOID_SHARD: RegistrySupplier<Item> = fusionShard("void")
 
     private val FUSION_SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
-        mapOf(Element.SUNFIRE to MYSTIC_SUNFIRE_SHARD, Element.POISON to MYSTIC_POISON_SHARD, Element.VOID to MYSTIC_VOID_SHARD)
+        mapOf(Element.SUNFIRE to ULDER_SUNFIRE_SHARD, Element.CORRUPTION to ULDER_CORRUPTION_SHARD, Element.VOID to ULDER_VOID_SHARD)
     }
 
     /** Tinted from [NBT_SHARD_ELEMENT]. Only draws a glyph that has no shard (Sundering). */
-    val MYSTIC_SHARD: RegistrySupplier<Item> = ITEMS.register("mystic_shard") { Item(props()) }
+    val ULDER_SHARD: RegistrySupplier<Item> = ITEMS.register("ulder_shard") { Item(props()) }
 
     const val NBT_SHARD_ELEMENT = "Element"
 
@@ -352,22 +372,22 @@ object EKItems {
 
     fun glyphStack(element: Element): ItemStack {
         (shardOf(element) ?: FUSION_SHARDS[element]?.get())?.let { return ItemStack(it) }
-        return ItemStack(MYSTIC_SHARD.get()).apply { orCreateTag.putString(NBT_SHARD_ELEMENT, element.id) }
+        return ItemStack(ULDER_SHARD.get()).apply { orCreateTag.putString(NBT_SHARD_ELEMENT, element.id) }
     }
 
     private fun gem(name: String, element: Element, shard: RegistrySupplier<Item>): RegistrySupplier<Item> =
-        ITEMS.register("mystic_$name") { MysticGemItem(element, shard::get, props().stacksTo(1).fireResistant()) }
+        ITEMS.register("ulder_$name") { UlderGemItem(element, shard::get, props().stacksTo(1).fireResistant()) }
 
-    val MYSTIC_CITRINE: RegistrySupplier<Item> = gem("citrine", Element.HEAT, MYSTIC_CITRINE_SHARD)
-    val MYSTIC_ONYX: RegistrySupplier<Item> = gem("onyx", Element.GRAVITY, MYSTIC_ONYX_SHARD)
-    val MYSTIC_JADE: RegistrySupplier<Item> = gem("jade", Element.GROWTH, MYSTIC_JADE_SHARD)
-    val MYSTIC_AQUAMARINE: RegistrySupplier<Item> = gem("aquamarine", Element.COLD, MYSTIC_AQUAMARINE_SHARD)
-    val MYSTIC_MOONSTONE: RegistrySupplier<Item> = gem("moonstone", Element.PURITY, MYSTIC_MOONSTONE_SHARD)
-    val MYSTIC_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, MYSTIC_SPINEL_SHARD)
-    val MYSTIC_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, MYSTIC_BLOODSTONE_SHARD)
+    val ULDER_CITRINE: RegistrySupplier<Item> = gem("citrine", Element.PYRE, ULDER_CITRINE_SHARD)
+    val ULDER_ONYX: RegistrySupplier<Item> = gem("onyx", Element.GRAVITY, ULDER_ONYX_SHARD)
+    val ULDER_JADE: RegistrySupplier<Item> = gem("jade", Element.GENESIS, ULDER_JADE_SHARD)
+    val ULDER_AQUAMARINE: RegistrySupplier<Item> = gem("aquamarine", Element.WINTER, ULDER_AQUAMARINE_SHARD)
+    val ULDER_MOONSTONE: RegistrySupplier<Item> = gem("moonstone", Element.QUINTESSENCE, ULDER_MOONSTONE_SHARD)
+    val ULDER_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, ULDER_SPINEL_SHARD)
+    val ULDER_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, ULDER_BLOODSTONE_SHARD)
 
-    val MYSTIC_SCROLL: RegistrySupplier<Item> =
-        ITEMS.register("mystic_scroll") { MysticScrollItem(props().stacksTo(1)) }
+    val ULDER_SCROLL: RegistrySupplier<Item> =
+        ITEMS.register("ulder_scroll") { UlderScrollItem(props().stacksTo(1)) }
 
     /** Realm robe sets — three families (End Cult / Scholar / Blue Witch) × four slots
      *  (helmet / chest / legs / boots). All share [ScalingRobeArmorItem] which derives
@@ -423,6 +443,10 @@ object EKItems {
     val BLESSED_RAZOR: RegistrySupplier<Item> =
         ITEMS.register("blessed_razor") { Item(props().stacksTo(1)) }
 
+    val WEHELO_BLADE: RegistrySupplier<Item> = ITEMS.register("wehelo_blade") {
+        org.shipwrights.enderkinesis.item.WeheloBladeItem(props())
+    }
+
     val EIDETIC_BOOKMARK: RegistrySupplier<Item> =
         ITEMS.register("eidetic_bookmark") { EideticBookmarkItem(props().stacksTo(1)) }
 
@@ -464,7 +488,7 @@ object EKItems {
     val CREPUSCULITE_LATTICE_ITEM = blockItem("crepusculite_lattice", EKBlocks.CREPUSCULITE_LATTICE)
     val CREPUSCULITE_LIGHTSTONE_ITEM = blockItem("crepusculite_lightstone", EKBlocks.CREPUSCULITE_LIGHTSTONE)
     val ENDER_ASTROLABE_ITEM = blockItem("ender_astrolabe", EKBlocks.ENDER_ASTROLABE)
-    val MAGIC_MISSILE_LAUNCHER_ITEM = blockItem("magic_missile_launcher", EKBlocks.MAGIC_MISSILE_LAUNCHER)
+    val LODESTAR_LAUNCHER_ITEM = blockItem("lodestar_launcher", EKBlocks.LODESTAR_LAUNCHER)
     val ECHO_CANNON_ITEM = blockItem("echo_cannon", EKBlocks.ECHO_CANNON)
     val EYEROSCOPE_ITEM = blockItem("eyeroscope", EKBlocks.EYEROSCOPE)
     val PURPUR_BALLAST_ITEM = blockItem("purpur_ballast", EKBlocks.PURPUR_BALLAST)
@@ -505,12 +529,16 @@ object EKItems {
     val SSELITH_LECTERN_ITEM = blockItem("sselith_lectern", EKBlocks.SSELITH_LECTERN)
     val ORB_OF_LINKING_ITEM = blockItem("orb_of_linking", EKBlocks.ORB_OF_LINKING)
     val ORB_OF_SCRYING_ITEM = blockItem("orb_of_scrying", EKBlocks.ORB_OF_SCRYING)
-    val MYSTIC_BEAM_ANCHOR_ITEM = ITEMS.register("mystic_beam_anchor") {
-        org.shipwrights.enderkinesis.item.MysticBeamAnchorItem(EKBlocks.MYSTIC_BEAM_ANCHOR.get(), props())
+    val QUASAR_OF_PURITY_ITEM = ITEMS.register("quasar_of_purity") { org.shipwrights.enderkinesis.item.QuasarOfPurityBlockItem(EKBlocks.QUASAR_OF_PURITY.get(), props()) }
+    val ULDER_BEAM_ANCHOR_ITEM = ITEMS.register("ulder_beam_anchor") {
+        org.shipwrights.enderkinesis.item.UlderBeamAnchorItem(EKBlocks.ULDER_BEAM_ANCHOR.get(), props())
     }
     val HEART_OF_THE_WILD_ITEM = ITEMS.register("heart_of_the_wild") { org.shipwrights.enderkinesis.item.HeartOfTheWildBlockItem(EKBlocks.HEART_OF_THE_WILD.get(), props()) }
     val CRYSTAL_EXPLOSIVE_ITEM = blockItem("crystal_explosive", EKBlocks.CRYSTAL_EXPLOSIVE)
     val HEART_CANDLE_ITEM = blockItem("heart_candle", EKBlocks.HEART_CANDLE)
+    val GUARDIAN_SPIKE_ITEM = ITEMS.register("guardian_spike") {
+        org.shipwrights.enderkinesis.item.GuardianSpikeItem(EKBlocks.GUARDIAN_SPIKE.get(), props())
+    }
 
     val WOGOR_LOG_ITEM = blockItem("wogor_log", EKBlocks.WOGOR_LOG)
     val WOGOR_WOOD_ITEM = blockItem("wogor_wood", EKBlocks.WOGOR_WOOD)
@@ -563,6 +591,13 @@ object EKItems {
     val WOHLON_MUSHROOM_STEM_ITEM = blockItem("wohlon_mushroom_stem", EKBlocks.WOHLON_MUSHROOM_STEM)
     val WOHLON_TALL_FERN_ITEM =
         ITEMS.register("wohlon_tall_fern") { DoubleHighBlockItem(EKBlocks.WOHLON_TALL_FERN.get(), props()) }
+    val WILLFAER: RegistrySupplier<Item> = ITEMS.register("willfaer") { Item(props()) }
+    val WILLFAER_LANTERN_ITEM = blockItem("willfaer_lantern", EKBlocks.WILLFAER_LANTERN)
+    val WILLFAER_TORCH_ITEM = ITEMS.register("willfaer_torch") {
+        net.minecraft.world.item.StandingAndWallBlockItem(
+            EKBlocks.WILLFAER_TORCH.get(), EKBlocks.WILLFAER_WALL_TORCH.get(), props(), net.minecraft.core.Direction.DOWN,
+        )
+    }
 
     /** Binding Roots block item — places the pillar block, which on
      *  player-placement registers itself with `BindingRootsMerger`'s scanner.
@@ -669,6 +704,28 @@ object EKItems {
                 EKEntities.SHULKONAUT,
                 0x8D6E9E,
                 0xEDE6C8,
+                props(),
+            )
+        }
+
+    /** Olive coat over teal branch veins, sampled from the deer texture. */
+    val SHILLEAGK_DEER_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("shilleagk_deer_spawn_egg") {
+            dev.architectury.core.item.ArchitecturySpawnEggItem(
+                EKEntities.SHILLEAGK_DEER,
+                0x5A502C,
+                0x35484C,
+                props(),
+            )
+        }
+
+    /** Yellow-green halo and white-yellow core of the flame. */
+    val WILL_O_THE_WISP_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("will_o_the_wisp_spawn_egg") {
+            dev.architectury.core.item.ArchitecturySpawnEggItem(
+                EKEntities.WILL_O_THE_WISP,
+                0x9EE64D,
+                0xFFFCE0,
                 props(),
             )
         }

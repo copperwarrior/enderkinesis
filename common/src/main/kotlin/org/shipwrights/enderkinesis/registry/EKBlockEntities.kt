@@ -6,7 +6,7 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
-import org.shipwrights.enderkinesis.blockentity.MysticBeamAnchorBlockEntity
+import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OarscribeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
@@ -17,9 +17,10 @@ import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AetherPadBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AncriteEyeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
+import org.shipwrights.enderkinesis.blockentity.QuasarOfPurityBlockEntity
 import org.shipwrights.enderkinesis.blockentity.FractalProjectorBlockEntity
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
-import org.shipwrights.enderkinesis.blockentity.MagicMissileLauncherBlockEntity
+import org.shipwrights.enderkinesis.blockentity.LodestarLauncherBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OrbOfScryingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.PlanarAnchorBlockEntity
@@ -33,6 +34,7 @@ import org.shipwrights.enderkinesis.blockentity.ForgottenItemBlockEntity
 import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ScribesDeskBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
+import org.shipwrights.enderkinesis.blockentity.WillfaerFlameBlockEntity
 
 object EKBlockEntities {
     val BLOCK_ENTITIES: DeferredRegister<BlockEntityType<*>> =
@@ -120,6 +122,15 @@ object EKBlockEntities {
         }
 
     @Suppress("UNCHECKED_CAST")
+    val QUASAR_OF_PURITY: RegistrySupplier<BlockEntityType<QuasarOfPurityBlockEntity>> =
+        BLOCK_ENTITIES.register("quasar_of_purity") {
+            BlockEntityType.Builder.of(
+                ::QuasarOfPurityBlockEntity,
+                EKBlocks.QUASAR_OF_PURITY.get()
+            ).build(null) as BlockEntityType<QuasarOfPurityBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
     val ANCRITE_EYE: RegistrySupplier<BlockEntityType<AncriteEyeBlockEntity>> =
         BLOCK_ENTITIES.register("analog_eye") {
             BlockEntityType.Builder.of(
@@ -160,11 +171,11 @@ object EKBlockEntities {
         }
 
     @Suppress("UNCHECKED_CAST")
-    val MYSTIC_BEAM_ANCHOR: RegistrySupplier<BlockEntityType<MysticBeamAnchorBlockEntity>> =
-        BLOCK_ENTITIES.register("mystic_beam_anchor") {
+    val ULDER_BEAM_ANCHOR: RegistrySupplier<BlockEntityType<UlderBeamAnchorBlockEntity>> =
+        BLOCK_ENTITIES.register("ulder_beam_anchor") {
             BlockEntityType.Builder.of(
-                ::MysticBeamAnchorBlockEntity, EKBlocks.MYSTIC_BEAM_ANCHOR.get()
-            ).build(null) as BlockEntityType<MysticBeamAnchorBlockEntity>
+                ::UlderBeamAnchorBlockEntity, EKBlocks.ULDER_BEAM_ANCHOR.get()
+            ).build(null) as BlockEntityType<UlderBeamAnchorBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -208,11 +219,11 @@ object EKBlockEntities {
         }
 
     @Suppress("UNCHECKED_CAST")
-    val MAGIC_MISSILE_LAUNCHER: RegistrySupplier<BlockEntityType<MagicMissileLauncherBlockEntity>> =
-        BLOCK_ENTITIES.register("magic_missile_launcher") {
+    val LODESTAR_LAUNCHER: RegistrySupplier<BlockEntityType<LodestarLauncherBlockEntity>> =
+        BLOCK_ENTITIES.register("lodestar_launcher") {
             BlockEntityType.Builder.of(
-                ::MagicMissileLauncherBlockEntity, EKBlocks.MAGIC_MISSILE_LAUNCHER.get()
-            ).build(null) as BlockEntityType<MagicMissileLauncherBlockEntity>
+                ::LodestarLauncherBlockEntity, EKBlocks.LODESTAR_LAUNCHER.get()
+            ).build(null) as BlockEntityType<LodestarLauncherBlockEntity>
         }
 
     /** One BE type shared across all statue blocks — the BE itself holds no
@@ -263,6 +274,18 @@ object EKBlockEntities {
     val RUNE: RegistrySupplier<BlockEntityType<RuneBlockEntity>> =
         BLOCK_ENTITIES.register("rune") {
             BlockEntityType.Builder.of(::RuneBlockEntity, EKBlocks.RUNE.get()).build(null) as BlockEntityType<RuneBlockEntity>
+        }
+
+    // build(null): no datafixer type, the vanilla idiom; Mojang's annotations mark it non-null.
+    @Suppress("UNCHECKED_CAST", "NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
+    val WILLFAER_FLAME: RegistrySupplier<BlockEntityType<WillfaerFlameBlockEntity>> =
+        BLOCK_ENTITIES.register("willfaer_flame") {
+            BlockEntityType.Builder.of(
+                ::WillfaerFlameBlockEntity,
+                EKBlocks.WILLFAER_LANTERN.get(),
+                EKBlocks.WILLFAER_TORCH.get(),
+                EKBlocks.WILLFAER_WALL_TORCH.get(),
+            ).build(null) as BlockEntityType<WillfaerFlameBlockEntity>
         }
 
     fun register() = BLOCK_ENTITIES.register()

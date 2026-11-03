@@ -9,11 +9,12 @@
     "enderkinesis:blood_drain",
     "enderkinesis:bleeding",
     "enderkinesis:chaos",
-    "enderkinesis:cold",
+    "enderkinesis:winter",
     "enderkinesis:sunfire",
     "enderkinesis:rot",
-    "enderkinesis:growth",
+    "enderkinesis:genesis",
     "enderkinesis:gravity",
-    "enderkinesis:void"
+    "enderkinesis:void",
+    "enderkinesis:wehelo_rift"
   ]
 }

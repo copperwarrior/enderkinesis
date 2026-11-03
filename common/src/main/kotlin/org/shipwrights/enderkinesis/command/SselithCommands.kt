@@ -21,7 +21,7 @@ import net.minecraft.server.level.ServerPlayer
 import org.shipwrights.enderkinesis.dimension.SselithParallel
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKBlocks
-import org.shipwrights.enderkinesis.remnant.IrreverantRemnantManager
+import org.shipwrights.enderkinesis.remnant.IrreverentRemnantManager
 import org.shipwrights.enderkinesis.sselith.BookshelfPage
 import org.shipwrights.enderkinesis.sselith.SselithEclipse
 
@@ -34,7 +34,7 @@ import org.shipwrights.enderkinesis.sselith.SselithEclipse
  *    the player, and the lowest parallel, at which the page starts with the phrase. A full page of
  *    [BookshelfPage.WORDS] words returns its one exact location instead.
  *  - `eclipse next` — start an eclipse on the Sselith level now.
- *  - `remnant clear` — remove the Irreverant Remnant particles near the player on their parallel.
+ *  - `remnant clear` — remove the Irreverent Remnant particles near the player on their parallel.
  */
 object SselithCommands {
 
@@ -107,7 +107,7 @@ object SselithCommands {
 
     private fun clearRemnant(ctx: CommandContext<CommandSourceStack>): Int {
         val player = ctx.source.playerOrException
-        val removed = IrreverantRemnantManager.clearNear(
+        val removed = IrreverentRemnantManager.clearNear(
             player.serverLevel(), player.x, player.y, player.z, REMNANT_CLEAR_RADIUS, SselithParallel.get(player),
         )
         ctx.source.sendSuccess({ Component.literal("Cleared $removed remnant particles") }, true)

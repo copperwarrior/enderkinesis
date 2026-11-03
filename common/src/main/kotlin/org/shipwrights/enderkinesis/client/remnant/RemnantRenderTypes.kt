@@ -11,7 +11,7 @@ import net.minecraft.server.packs.resources.ResourceProvider
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /**
- * Render type and core shader for the Irreverant Remnant's cubes.
+ * Render type and core shader for the Irreverent Remnant's cubes.
  *
  * Vertices use vanilla's entity format: packed light for the lightmap, in-face
  * coordinates for the noise, and the noise seed and opacity in the colour
@@ -30,7 +30,7 @@ object RemnantRenderTypes {
     val isReady: Boolean get() = shaderInstance != null
 
     val SURFACE: RenderType = RenderType.create(
-        "${EnderkinesisMod.MOD_ID}_irreverant_remnant",
+        "${EnderkinesisMod.MOD_ID}_irreverent_remnant",
         DefaultVertexFormat.NEW_ENTITY,
         VertexFormat.Mode.QUADS,
         1 shl 18,
@@ -57,7 +57,7 @@ object RemnantRenderTypes {
             sink.registerShader(
                 ShaderInstance(
                     namespaced(provider, EnderkinesisMod.MOD_ID),
-                    "rendertype_irreverant_remnant",
+                    "rendertype_irreverent_remnant",
                     DefaultVertexFormat.NEW_ENTITY,
                 ),
             ) { instance -> shaderInstance = instance }

@@ -4,12 +4,16 @@
     "config": {
       "features": [
         {
-          "chance": 0.35,
-          "feature": "enderkinesis:wogor_fancy_oak"
+          "chance": 0.231,
+          "feature": "enderkinesis:wogor_bald_cypress"
         },
         {
           "chance": 0.3,
-          "feature": "enderkinesis:wogor_cherry"
+          "feature": "enderkinesis:wogor_leaner"
+        },
+        {
+          "chance": 0.286,
+          "feature": "enderkinesis:wogor_knob_willow"
         }
       ],
       "default": "enderkinesis:wogor_swamp"

@@ -91,7 +91,7 @@ object AegisClient {
     /** Six faces of the OBB, each as four corner indices into
      *  [AegisBox.Frame.corner]. Order around each face's perimeter — winding
      *  doesn't matter because [AegisRenderType.FACE_GLOW] is NO_CULL. */
-    private val FACES: Array<IntArray> = arrayOf(
+    internal val FACES: Array<IntArray> = arrayOf(
         intArrayOf(0, 2, 6, 4),                            // sx = -1
         intArrayOf(1, 5, 7, 3),                            // sx = +1
         intArrayOf(0, 4, 5, 1),                            // sy = -1

@@ -10,7 +10,7 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.ElementalEnvironment
 import org.shipwrights.enderkinesis.spell.SpellCasting
@@ -42,7 +42,7 @@ object EnvironmentFeed {
     fun tick(level: ClientLevel) {
         val player = Minecraft.getInstance().player
         val held = if (player == null || player.level() !== level || player.isSpectator) emptyList() else InteractionHand.entries.mapNotNull { hand ->
-            val spell = MysticScrollItem.spellOf(player.getItemInHand(hand)) ?: return@mapNotNull null
+            val spell = UlderScrollItem.spellOf(player.getItemInHand(hand)) ?: return@mapNotNull null
             val elements = spell.glyphs.filter { it != Element.SUNDERING }.distinct()
             if (elements.isEmpty()) null else hand to elements
         }
@@ -157,5 +157,5 @@ object EnvironmentFeed {
     private const val GLINT_TICKS = 6
     private const val GLINT_SIZE = 0.07
     private const val GLINT_ALPHA = 0.5f
-    private val DARK = setOf(Element.GROWTH, Element.GRAVITY, Element.BLOOD, Element.POISON)
+    private val DARK = setOf(Element.GENESIS, Element.GRAVITY, Element.BLOOD, Element.CORRUPTION)
 }

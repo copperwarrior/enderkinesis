@@ -87,6 +87,11 @@ object BeamManager {
         val synced = HashMap<ServerLevel, MergedSync>()
         val nextClashes = HashMap<Pair<UUID, UUID>, Clash>()
         val reach = HashMap<Beam, Double>()
+        /** Each merged beam with all the beams that fed it. */
+        val lineage = HashMap<Beam, Set<Beam>>()
+        val spawned = ArrayList<Beam>()
+
+        fun related(a: Beam, b: Beam): Boolean = lineage[a]?.contains(b) == true || lineage[b]?.contains(a) == true
 
         fun stopAt(a: Beam, b: Beam, crossing: Crossing): MergedSync {
             reach[a] = crossing.pathA
@@ -94,8 +99,9 @@ object BeamManager {
             nextCuts[a.id] = crossing.pathA
             nextCuts[b.id] = crossing.pathB
             val sync = synced.getOrPut(a.level) { MergedSync() }
-            a.owner?.let { sync.cuts[it.id] = crossing.pathA }
-            b.owner?.let { sync.cuts[it.id] = crossing.pathB }
+            // The client cuts by owner entity id, which a merged beam shares with its stronger parent.
+            if (a !in lineage) a.owner?.let { sync.cuts[it.id] = crossing.pathA }
+            if (b !in lineage) b.owner?.let { sync.cuts[it.id] = crossing.pathB }
             return sync
         }
 
@@ -126,7 +132,16 @@ object BeamManager {
             shockwave(beam.level, loop)
             r.cancelled += beam
         }
-        for ((a, b, crossing) in crossingsNearestFirst(live)) resolveCrossing(r, a, b, crossing)
+        for ((a, b, crossing) in crossingsNearestFirst(r, live, emptyList())) resolveCrossing(r, a, b, crossing)
+        var older: List<Beam> = live
+        var depth = 0
+        while (r.spawned.isNotEmpty() && depth < MAX_MERGE_DEPTH) {
+            val fresh = r.spawned.toList()
+            r.spawned.clear()
+            for ((a, b, crossing) in crossingsNearestFirst(r, fresh, older)) resolveCrossing(r, a, b, crossing)
+            older = older + fresh
+            depth++
+        }
         cuts = r.nextCuts
         clashes = r.nextClashes
         mining = HashMap(nextMining)
@@ -136,15 +151,18 @@ object BeamManager {
     }
 
     // Resolve nearest the casters first and cut each beam then, so that the unseen tail past a cut meets nothing.
-    private fun crossingsNearestFirst(live: List<Beam>): List<Triple<Beam, Beam, Crossing>> {
+    /** Pairs each [fresh] beam with the other fresh beams and with each [older] beam. */
+    private fun crossingsNearestFirst(r: Resolution, fresh: List<Beam>, older: List<Beam>): List<Triple<Beam, Beam, Crossing>> {
         val crossings = ArrayList<Triple<Beam, Beam, Crossing>>()
-        for (i in live.indices) for (j in i + 1 until live.size) {
-            val a = live[i]
-            val b = live[j]
-            if (a.level !== b.level) continue
+        fun check(a: Beam, b: Beam) {
+            if (a.level !== b.level || r.related(a, b)) return
             // A signature splits off its lance, and these beams must not meet.
-            if (a.owner != null && a.owner === b.owner) continue
+            if (a.owner != null && a.owner === b.owner) return
             crossing(a, b)?.let { crossings += Triple(a, b, it) }
+        }
+        for (i in fresh.indices) {
+            for (j in i + 1 until fresh.size) check(fresh[i], fresh[j])
+            for (b in older) check(fresh[i], b)
         }
         crossings.sortBy { (_, _, c) -> c.pathA + c.pathB }
         return crossings
@@ -170,7 +188,7 @@ object BeamManager {
             a !in r.merged && b !in r.merged -> {
                 r.merged += a; r.merged += b
                 val sync = r.stopAt(a, b, crossing)
-                if (!runMerged(a, b, crossing, sync)) {
+                if (!runMerged(r, a, b, crossing, sync)) {
                     r.cancelled += a; r.cancelled += b
                 }
             }
@@ -192,7 +210,7 @@ object BeamManager {
             var pathB = 0.0
             for (sb in b.trace.segments) {
                 val c = BeamGeometry.closest(sa.start, sa.end, sb.start, sb.end)
-                if (c.distance < a.halfWidth + b.halfWidth) {
+                if (c.distance < MERGE_REACH * (a.halfWidth + b.halfWidth)) {
                     return Crossing(pathA + sa.length * c.s, pathB + sb.length * c.t, sa.direction, sb.direction, c.midpoint)
                 }
                 pathB += sb.length
@@ -222,11 +240,11 @@ object BeamManager {
     }
 
     /** False when the merged beam loops on itself. */
-    private fun runMerged(a: Beam, b: Beam, crossing: Crossing, sync: MergedSync): Boolean {
+    private fun runMerged(r: Resolution, a: Beam, b: Beam, crossing: Crossing, sync: MergedSync): Boolean {
         val level = a.level
         val strong = if (a.magnitude >= b.magnitude) a else b
-        val bisector = crossing.dirA.add(crossing.dirB)
-        val direction = if (bisector.lengthSqr() < 1.0e-6) crossing.dirA else bisector.normalize()
+        val pull = crossing.dirA.scale(a.magnitude.toDouble()).add(crossing.dirB.scale(b.magnitude.toDouble()))
+        val direction = if (pull.lengthSqr() < 1.0e-6) (if (strong === a) crossing.dirA else crossing.dirB) else pull.normalize()
         val reach = maxOf(a.reach - crossing.pathA, b.reach - crossing.pathB)
         if (reach <= 0.0) return true
         val halfWidth = maxOf(a.halfWidth, b.halfWidth)
@@ -235,6 +253,8 @@ object BeamManager {
             shockwave(level, it)
             return false
         }
+        val id = mergedId(a, b)
+        val acting = BeamTrace(clip(id, trace), if (isCut(id)) null else trace.finalBlockPos)
         val glyphs = combine(a.glyphs, b.glyphs).first
         val sundering = maxOf(a.sundering, b.sundering)
         val ctx = SpellContext(level, strong.owner, crossing.point, strong.owner?.uuid, pulsed = true)
@@ -243,15 +263,25 @@ object BeamManager {
             val magnitudes = Spell(glyphs).magnitudes.toMutableMap()
             if (sundering > 0f) magnitudes[Element.SUNDERING] = sundering
             ctx.elements = magnitudes.keys
-            for (line in SpellCasting.beamLines(trace)) {
+            for (line in SpellCasting.beamLines(acting)) {
                 for ((element, magnitude) in magnitudes) ElementEffects.of(element).apply(ctx, line, magnitude)
             }
         }
-        if (sundering > 0f) mine(level, strong, ctx, trace.finalBlockPos, sundering)
+        if (sundering > 0f) mine(level, strong, ctx, acting.finalBlockPos, sundering)
         val fused = glyphs.filter { it.isFusion && it !in a.glyphs && it !in b.glyphs }
-        sync.beams += MergedBeam(trace.segments, SpellVfx.elementBits(tint.magnitudes.keys), parentColour(a), parentColour(b), SpellVfx.elementBits(fused))
+        sync.beams += MergedBeam(acting.segments, SpellVfx.elementBits(tint.magnitudes.keys), parentColour(a), parentColour(b), SpellVfx.elementBits(fused))
+        val child = Beam(id, level, strong.owner, glyphs, sundering, trace, reach, halfWidth, a.fromStaff || b.fromStaff) {
+            a.cancel()
+            b.cancel()
+        }
+        r.lineage[child] = setOf(a, b) + r.lineage[a].orEmpty() + r.lineage[b].orEmpty()
+        r.spawned += child
         return true
     }
+
+    /** Stays the same from tick to tick, so that the cut and clash of a merged beam carry over. */
+    private fun mergedId(a: Beam, b: Beam): UUID =
+        UUID(a.id.mostSignificantBits xor b.id.mostSignificantBits, a.id.leastSignificantBits xor b.id.leastSignificantBits)
 
     /** Mining speed goes from a bare hand at stage 1 to Efficiency V at stage 4, as the staff beam does. */
     private fun mine(level: ServerLevel, strong: Beam, ctx: SpellContext, pos: net.minecraft.core.BlockPos?, stage: Float) {
@@ -271,6 +301,9 @@ object BeamManager {
     /** Keys are the UUID of the stronger parent. */
     private var mining: Map<UUID, Pair<net.minecraft.core.BlockPos, Float>> = emptyMap()
     private val nextMining = HashMap<UUID, Pair<net.minecraft.core.BlockPos, Float>>()
+    /** halfWidth is the wide hit width for creatures; beams draw much thinner, so merge closer than that. */
+    private const val MERGE_REACH = 0.4
+    private const val MAX_MERGE_DEPTH = 4
     private const val MINING_TICKS_PER_HARDNESS = 30f
 
     private fun parentColour(beam: Beam): Int =

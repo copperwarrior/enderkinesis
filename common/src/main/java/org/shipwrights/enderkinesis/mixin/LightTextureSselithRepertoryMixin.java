@@ -27,7 +27,8 @@ public abstract class LightTextureSselithRepertoryMixin {
     @Shadow @Final private NativeImage lightPixels;
     @Shadow @Final private DynamicTexture lightTexture;
 
-    @Inject(method = "updateLightTexture", at = @At("HEAD"), cancellable = true)
+    // No cancel: with the flag cleared, vanilla returns at once and Distant Horizons' RETURN hook copies our pixels.
+    @Inject(method = "updateLightTexture", at = @At("HEAD"))
     private void enderkinesis$sselithLightmap(float partialTick, CallbackInfo ci) {
         if (!SselithRepertoryLighting.INSTANCE.isInRepertory()) return;
         // During an eclipse, force per-frame recompute so the ramp fades smoothly
@@ -38,6 +39,5 @@ public abstract class LightTextureSselithRepertoryMixin {
         this.updateLightTexture = false;
         SselithRepertoryLighting.INSTANCE.writeLightmap(this.lightPixels, partialTick);
         this.lightTexture.upload();
-        ci.cancel();
     }
 }

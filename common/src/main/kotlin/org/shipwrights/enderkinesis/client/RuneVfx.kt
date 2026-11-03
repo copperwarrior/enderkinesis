@@ -37,7 +37,7 @@ import kotlin.random.Random
 
 // The local first-person rune waits for the top of the arm scoop. All other runes appear when the packet arrives.
 object RuneVfx {
-    private val RUNE: ResourceLocation = EnderkinesisMod.id("block/mystic_rune")
+    private val RUNE: ResourceLocation = EnderkinesisMod.id("block/ulder_rune")
 
     /** [delay] is in ticks after [start]. */
     private class Writing(val pos: BlockPos, val entityId: Int, val hand: InteractionHand, val rgb: Int, val start: Long, val delay: Float) {
@@ -83,7 +83,7 @@ object RuneVfx {
             val writer = level.getEntity(w.entityId) as? LivingEntity ?: continue
             val arm = if (w.hand == InteractionHand.MAIN_HAND) writer.mainArm else writer.mainArm.opposite
             val at = (if (writer is Player && SpellHand.firstPerson(writer)) SpellHand.fistInWorld(arm) else null) ?: SpellCasting.handOrigin(writer, w.hand)
-            val crumbs = ItemParticleOption(ParticleTypes.ITEM, ItemStack(EKItems.MYSTIC_SCROLL.get()))
+            val crumbs = ItemParticleOption(ParticleTypes.ITEM, ItemStack(EKItems.ULDER_SCROLL.get()))
             val r = Random(w.pos.hashCode())
             repeat(14) {
                 val d = Vec3(SpellGeom.gauss(r), Math.abs(SpellGeom.gauss(r)) + 0.4, SpellGeom.gauss(r)).normalize().scale(0.08 + 0.05 * r.nextDouble())

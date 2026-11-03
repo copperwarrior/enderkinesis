@@ -58,8 +58,7 @@ class SignatureDraw(
 
     /** Use for glowing shapes that can touch the world, so they have no hard edge there.
      *  Null until the mod shaders load; then use [glow]. */
-    fun softGlow(): VertexConsumer? =
-        if (SpellVfxRenderTypes.isSoftGlowReady()) Untextured.GLOW.bind(buffers.getBuffer(SpellVfxRenderTypes.softGlow(PARTICLE_ATLAS)), time) else null
+    fun softGlow(): VertexConsumer? = softGlowBuffer(buffers, time)
 
     fun softShade(): VertexConsumer? =
         if (SpellVfxRenderTypes.isSoftGlowReady()) Untextured.SHADE.bind(buffers.getBuffer(SpellVfxRenderTypes.softShade(PARTICLE_ATLAS)), time) else null
@@ -148,6 +147,10 @@ private class Untextured : VertexConsumer {
 }
 
 const val FLASH_TICKS = 5f
+
+/** Soft glow for untextured shapes outside a [SignatureDraw]. Null until the mod shaders load. Render thread only. */
+fun softGlowBuffer(buffers: MultiBufferSource, time: Float): VertexConsumer? =
+    if (SpellVfxRenderTypes.isSoftGlowReady()) Untextured.GLOW.bind(buffers.getBuffer(SpellVfxRenderTypes.softGlow(PARTICLE_ATLAS)), time) else null
 
 object SignatureVisuals {
     private val ALL: Map<Signature, SignatureVisual> by lazy {

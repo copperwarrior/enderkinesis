@@ -97,8 +97,8 @@ object SignatureKit {
         level.sendParticles(type, at.x, at.y, at.z, count, spread, spread, spread, speed)
     }
 
-    /** Obeys the caster's build permissions. */
-    fun setBlock(e: SignatureEntity, pos: BlockPos, state: BlockState): Boolean = e.ctx?.setBlock(pos, state) ?: false
+    /** Obeys the caster's build permissions. The cast origin is not where a signature acts, so the change has no direction. */
+    fun setBlock(e: SignatureEntity, pos: BlockPos, state: BlockState): Boolean = e.ctx?.setBlock(pos, state, directed = false) ?: false
 }
 
 /** Push the touched blocks at their points, never the ship as a whole, so the effect scales with mass. */

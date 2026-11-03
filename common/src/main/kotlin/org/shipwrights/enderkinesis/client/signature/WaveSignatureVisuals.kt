@@ -139,6 +139,8 @@ object WaveSignatureVisuals {
 
         private fun cubes(descent: Double): Int = (CUBES_MIN + descent / 2).toInt().coerceAtMost(CUBES_MAX)
 
+        fun lead(e: SignatureEntity): Vec3 = slide(e).slabs[Avalanche.SLABS / 2].centre()
+
         override fun tick(e: SignatureEntity) {
             val slide = slide(e)
             val level = e.level()
@@ -381,6 +383,9 @@ object WaveSignatureVisuals {
             e.clientState as? Grasp ?: Grasp(LaneLook(WaveSignatures.lane(e.level(), e, YgannsGrasp.front(YgannsGrasp.END) + 2), e.level())).also { e.clientState = it }
 
         private fun opening(a: Float): Double = SpellGeom.easeOut(minOf(1.0, a / 4.0)) * (1 - SpellGeom.smooth((a - 22) / 8.0))
+
+        /** Where the front is now, on the lane's middle line. */
+        fun front(e: SignatureEntity): Vec3 = grasp(e).look.lane.at(YgannsGrasp.front(e.tickCount), 0.0)
 
         override fun tick(e: SignatureEntity) {
             val g = grasp(e)

@@ -35,6 +35,25 @@ float noise3(vec3 w, float blocksPerTile, vec3 drift) {
     return texture(Noise3D, NOISE_TURN * (w + drift) / blocksPerTile).r;
 }
 
+// Indices of the march samples t0 + (i + jitter) * dt that can lie in [tA, tB], one more on each side for float error.
+ivec2 stepRange(float tA, float tB, float t0, float dt, float jitter) {
+    vec2 r = vec2(floor((tA - t0) / dt - jitter) - 1.0, floor((tB - t0) / dt - jitter) + 2.0);
+    return ivec2(clamp(r, 0.0, float(STEPS)));
+}
+
+// The samples in the unit ellipsoid; the step grid stays the box's, so the image does not change.
+ivec2 ellipsoidSteps(vec3 dir, float t0, float dt, float jitter) {
+    vec3 o = CamLocal / Size;
+    vec3 d = dir / Size;
+    float a = dot(d, d);
+    float b = dot(o, d);
+    // A little past the surface, so float error cannot drop an edge sample.
+    float disc = b * b - a * (dot(o, o) - 1.002);
+    if (disc <= 0.0) return ivec2(0);
+    float s = sqrt(disc);
+    return stepRange((-b - s) / a, (-b + s) / a, t0, dt, jitter);
+}
+
 void main() {
     vec2 texCoord = gl_FragCoord.xy / ScreenSize;
     vec3 toFar = localPos - CamLocal;
@@ -57,21 +76,25 @@ void main() {
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec3 colour = vec3(0.0);
     float through = 1.0;
-    for (int i = 0; i < STEPS; i++) {
+    ivec2 steps = ellipsoidSteps(dir, t0, dt, jitter);
+    for (int i = steps.x; i < steps.y; i++) {
         vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
         vec3 e = p / Size;
         float r = length(e);
         if (r > 1.0) continue;
+        // A soft floor on the ground, thinning over the full height.
+        float vertical = smoothstep(-1.0, -0.3, e.y) * (1.0 - smoothstep(-0.3, 1.0, e.y));
+        // A zero factor gives a = 0 exactly, so these skips leave the result the same.
+        if (vertical <= 0.0) continue;
         // World-space noise, the same in every direction.
         vec3 w = NoiseOrigin + p;
         // Features of about 12 and 4 blocks.
         float n1 = noise3(w, 96.0, vec3(Time * 0.3, 0.0, 0.0));
-        float n2 = noise3(w, 32.0, vec3(0.0, Time * 0.1, -Time * 0.5));
         // Thins from the centre all the way to the edge, so no edge shows.
         float body = 1.0 - smoothstep(0.0, 1.0, r + (n1 - 0.5) * 0.6);
+        if (body <= 0.0) continue;
+        float n2 = noise3(w, 32.0, vec3(0.0, Time * 0.1, -Time * 0.5));
         float strands = smoothstep(0.2, 0.9, n1 * 0.55 + n2 * 0.5);
-        // A soft floor on the ground, thinning over the full height.
-        float vertical = smoothstep(-1.0, -0.3, e.y) * (1.0 - smoothstep(-0.3, 1.0, e.y));
         float a = 1.0 - exp(-Density * body * strands * vertical * dt);
         colour += through * a * FogColor;
         through *= 1.0 - a;

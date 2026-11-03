@@ -16,14 +16,11 @@ import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
 import org.shipwrights.enderkinesis.item.GrandStaffOfTheDeadItem
 import org.shipwrights.enderkinesis.registry.EKParticles
 import java.util.IdentityHashMap
-import java.util.WeakHashMap
 
 /** Grand Staff of the Dead visuals: tendrils and glyphs from the skull to each rising skeleton, and the skull's gaze.
  *  Client thread only. */
 object GrandStaffClient : StaffGemGlow.Aim {
 
-    private const val SKULL_FRESH_NANOS = 250_000_000L
-    private const val SKULL_FALLBACK_LIFT = 0.4
     private const val TARGET_LIFT = 1.0
     private const val GROUND_LIFT = 0.1
     private const val ARC_LIFT_MIN = 0.5
@@ -43,11 +40,6 @@ object GrandStaffClient : StaffGemGlow.Aim {
     private val MAIN_STYLE = TendrilStyle(0.16f, SKULL_YELLOW, GROUND_AMBER)
     private val THIN_STYLE = TendrilStyle(0.09f, SKULL_YELLOW, GROUND_AMBER)
 
-    private class SkullSeen {
-        val world = Vector3d()
-        var atNanos = 0L
-    }
-
     private class Link(val skeleton: RaisedSkeletonEntity) {
         val p0 = Vector3d()
         val p1 = Vector3d()
@@ -60,8 +52,7 @@ object GrandStaffClient : StaffGemGlow.Aim {
         )
     }
 
-    // Weak keys: held stacks are replaced on every inventory sync.
-    private val skulls = WeakHashMap<ItemStack, SkullSeen>()
+    private val skulls = StaffHeadTracker(GrandStaffOfTheDeadItem::class.java)
     private val links = IdentityHashMap<RaisedSkeletonEntity, Link>()
     // The newest rises only: tendril volumes and glyphs cost per body, and a mass raise would stack them.
     private val active = ArrayList<Link>(MAX_ACTIVE_LINKS)
@@ -108,7 +99,7 @@ object GrandStaffClient : StaffGemGlow.Aim {
     /** False when the skeleton has no owner on this client. */
     private fun update(link: Link, partialTick: Float): Boolean {
         val owner = link.skeleton.owner as? LivingEntity ?: return false
-        skullPosition(owner, partialTick, link.p0)
+        skulls.position(owner, partialTick, link.p0)
         val s = link.skeleton
         link.p2.set(s.x, s.y + GROUND_LIFT, s.z)
         // Lift the control point: the tendril leaves the skull outward and upward, then curves down to the ground.
@@ -125,24 +116,6 @@ object GrandStaffClient : StaffGemGlow.Aim {
         val link = links[skeleton] ?: return false
         link.main.writhedPointAt(s, out, scratchBend)
         return true
-    }
-
-    private fun skullPosition(owner: LivingEntity, partialTick: Float, out: Vector3d) {
-        val seen = staffOf(owner)?.let { skulls[it] }
-        if (seen != null && System.nanoTime() - seen.atNanos < SKULL_FRESH_NANOS) {
-            out.set(seen.world)
-            return
-        }
-        // Not drawn lately (off screen): above the eyes, about where a held staff's head is.
-        val eye = owner.getEyePosition(partialTick)
-        out.set(eye.x, eye.y + SKULL_FALLBACK_LIFT, eye.z)
-    }
-
-    private fun staffOf(owner: LivingEntity): ItemStack? = when {
-        owner.isUsingItem && owner.useItem.item is GrandStaffOfTheDeadItem -> owner.useItem
-        owner.mainHandItem.item is GrandStaffOfTheDeadItem -> owner.mainHandItem
-        owner.offhandItem.item is GrandStaffOfTheDeadItem -> owner.offhandItem
-        else -> null
     }
 
     // Called with the other world-space volumes, before the fog passes.
@@ -166,19 +139,12 @@ object GrandStaffClient : StaffGemGlow.Aim {
         stack: ItemStack, pose: Matrix4f, centerX: Float, centerY: Float, centerZ: Float, spinYaw: Float, out: Quaternionf,
     ): Quaternionf {
         out.rotationY(spinYaw)
-        val camera = Minecraft.getInstance().gameRenderer.mainCamera
-        // Same rotation GameRenderer puts on the level pose stack; first-person hand poses share this camera space.
-        viewRotation.rotationX(camera.xRot * Mth.DEG_TO_RAD).rotateY((camera.yRot + 180f) * Mth.DEG_TO_RAD)
-        val cam = camera.position
-        pose.transformPosition(centerX, centerY, centerZ, scratchF)
-        viewRotation.transformInverse(scratchF)
-        skulls.getOrPut(stack) { SkullSeen() }.apply {
-            world.set(cam.x + scratchF.x, cam.y + scratchF.y, cam.z + scratchF.z)
-            atNanos = System.nanoTime()
-        }
-
+        skulls.record(stack, pose, centerX, centerY, centerZ)
         val link = newestRaisingWith(stack) ?: return out
         val target = link.skeleton
+        val camera = Minecraft.getInstance().gameRenderer.mainCamera
+        StaffHeadTracker.viewRotation(camera.xRot, camera.yRot, viewRotation)
+        val cam = camera.position
         scratchF.set((target.x - cam.x).toFloat(), (target.y + TARGET_LIFT - cam.y).toFloat(), (target.z - cam.z).toFloat())
         viewRotation.transform(scratchF)
         pose.invert(inversePose).transformPosition(scratchF)

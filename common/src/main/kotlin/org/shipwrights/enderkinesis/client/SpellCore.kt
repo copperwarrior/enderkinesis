@@ -20,9 +20,9 @@ object SpellCore {
     class Draw(val pose: PoseStack.Pose, val buffers: MultiBufferSource, val view: SpellView, val light: Int, val time: Float, val inHand: Boolean = false)
 
     private val ELEMENT_BLOCK = mapOf(
-        Element.HEAT to "magma", Element.COLD to "blue_ice", Element.GROWTH to "moss_block", Element.PURITY to "calcite",
+        Element.PYRE to "magma", Element.WINTER to "blue_ice", Element.GENESIS to "moss_block", Element.QUINTESSENCE to "calcite",
         Element.GRAVITY to "obsidian", Element.CHAOS to "purpur_block", Element.BLOOD to "nether_wart_block",
-        Element.SUNFIRE to "shroomlight", Element.POISON to "slime_block", Element.VOID to "crying_obsidian",
+        Element.SUNFIRE to "shroomlight", Element.CORRUPTION to "slime_block", Element.VOID to "crying_obsidian",
     )
     private const val CARRY_R = 0.1
 
@@ -95,7 +95,7 @@ object SpellCore {
         for (c in placed) SpellShapes.glowCubeFaces(glow, m, SpellGeom.cubeCorners(c.p, c.h * 1.15, c.yaw, c.pitch, 0.5), c.e.color, glowA, 0.3)
         for (c in placed) {
             SpellCubeFx.record(m, c.p, c.h, c.e, d.inHand)
-            if (c.e == Element.COLD) coldWind(d, c.p, c.h, c.i)
+            if (c.e == Element.WINTER) coldWind(d, c.p, c.h, c.i)
         }
     }
 

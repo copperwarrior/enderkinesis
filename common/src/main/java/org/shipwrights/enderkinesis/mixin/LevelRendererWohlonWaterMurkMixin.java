@@ -11,11 +11,11 @@ import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
-/** Copies main depth before the translucent chunk layer, so the water murk knows the depth behind the water. */
 @Mixin(LevelRenderer.class)
 public abstract class LevelRendererWohlonWaterMurkMixin {
 
     // Both renderLevel branches (Fabulous and not) call this; Sodium replaces the body, not the call.
+    // The murk draws before particles and after-translucent passes; their depth would replace the water surface.
     @WrapOperation(
         method = "renderLevel",
         at = @At(
@@ -27,7 +27,9 @@ public abstract class LevelRendererWohlonWaterMurkMixin {
         LevelRenderer instance, RenderType type, PoseStack poseStack, double camX, double camY, double camZ,
         Matrix4f projection, Operation<Void> original
     ) {
-        if (type == RenderType.translucent()) WohlonWaterMurk.beforeTranslucent(Minecraft.getInstance().getMainRenderTarget());
+        boolean translucent = type == RenderType.translucent();
+        if (translucent) WohlonWaterMurk.beforeTranslucent(Minecraft.getInstance().getMainRenderTarget());
         original.call(instance, type, poseStack, camX, camY, camZ, projection);
+        if (translucent) WohlonWaterMurk.afterTranslucent(poseStack, projection, Minecraft.getInstance().gameRenderer.getMainCamera());
     }
 }

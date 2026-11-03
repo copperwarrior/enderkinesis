@@ -108,7 +108,7 @@ object SpellCasting {
                 }.minByOrNull { it.distanceToSqr(location) } ?: return
                 val chaos = spell.magnitude(spell.shapeElement!!) * scale
                 val targets = chainFrom(ctx, first, chaos, HashSet(), spell.magnitudes.keys)
-                chainArcs(ctx, location, targets.take(1), spell.magnitudes.keys)
+                chainArcs(ctx, location, targets.take(1), spell.magnitudes.keys, targets.size)
                 applyAll(ctx, spell, Delivery.Group(targets, first.position()), scale)
             }
         }
@@ -122,10 +122,14 @@ object SpellCasting {
         when (shapeElement.shape) {
             Shape.BEAM -> {
                 val trace = SunderingBeamTrace.trace(ctx.level, ctx.caster, origin, look, beamReach(magnitude), mirrors, BEAM_HALF_WIDTH)
-                for (line in beamLines(trace)) applyAll(ctx, spell, line, 1f)
+                val lines = beamLines(trace)
+                for (line in lines) applyAll(ctx, spell, line, 1f)
+                touchSound(ctx, spell) { beamTouch(ctx, lines, trace.finalBlockPos != null) }
             }
             Shape.SPRAY -> {
-                applyAll(ctx, spell, spray(origin, look, magnitude, mirrors), 1f)
+                val cone = spray(origin, look, magnitude, mirrors)
+                applyAll(ctx, spell, cone, 1f)
+                touchSound(ctx, spell) { sprayTouch(ctx, cone) }
             }
             Shape.CHAIN -> {
                 val group = chain(ctx, origin, look, magnitude, spell.magnitudes.keys) ?: return
@@ -153,8 +157,32 @@ object SpellCasting {
             if (BeamManager.isCut(caster.uuid)) null else trace.finalBlockPos,
         )
         if (apply) {
-            for (line in beamLines(acting)) applyAll(ctx, spell, line, 1f)
+            val lines = beamLines(acting)
+            for (line in lines) applyAll(ctx, spell, line, 1f)
+            touchSound(ctx, spell) { beamTouch(ctx, lines, acting.finalBlockPos != null) }
         }
+    }
+
+    /** One touch sound for each pulse, at the first thing that the stream touches. */
+    private inline fun touchSound(ctx: SpellContext, spell: Spell, touch: () -> Vec3?) {
+        if (!ctx.beat || !SpellSounds.hasAny(spell)) return
+        val at = touch() ?: return
+        SpellSounds.forEach(spell) { sounds, volume -> SpellSounds.play(ctx.level, at, sounds.touch, volume) }
+    }
+
+    private fun beamTouch(ctx: SpellContext, lines: List<Delivery.Line>, struckBlock: Boolean): Vec3? {
+        for (line in lines) {
+            line.living(ctx).minByOrNull { it.distanceToSqr(line.from) }?.let { return centre(it) }
+        }
+        return if (struckBlock) lines.lastOrNull()?.to else null
+    }
+
+    private fun sprayTouch(ctx: SpellContext, cone: Delivery.Cone): Vec3? {
+        cone.living(ctx).minByOrNull { it.distanceToSqr(cone.origin) }?.let { return centre(it) }
+        val caster = ctx.caster ?: return null
+        val end = cone.origin.add(cone.direction.scale(cone.length))
+        val hit = ctx.level.clip(ClipContext(cone.origin, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster))
+        return if (hit.type == HitResult.Type.BLOCK) hit.location else null
     }
 
     /** The last line ends just inside a struck block, so that block takes the block effects. */
@@ -184,13 +212,13 @@ object SpellCasting {
                 var length = CHAIN_RANGE * (0.3 + 0.4 * ctx.level.random.nextDouble())
                 var struck: AegisBox.IntersectResult? = null
                 for (frame in mirrors) AegisBox.rayIntersect(origin, dir, frame)?.let { if (it.distance < length) { length = it.distance; struck = it } }
-                arc(ctx, origin, origin.add(dir.scale(length)), payload, 4)
+                arc(ctx, origin, origin.add(dir.scale(length)), payload, 4, EMPTY_ARCS)
                 struck?.let { SpellVfx.aegisStrike(ctx.level, origin.add(dir.scale(length)), it.normal) }
             }
             return null
         }
         val targets = chainFrom(ctx, first, magnitude, HashSet(), payload)
-        chainArcs(ctx, origin, targets.take(1), payload)
+        chainArcs(ctx, origin, targets.take(1), payload, targets.size)
         return Delivery.Group(targets, first.position())
     }
 
@@ -214,22 +242,23 @@ object SpellCasting {
             targets += next
             from = next
         }
-        chainArcs(ctx, first.position().add(0.0, first.bbHeight * 0.5, 0.0), targets.drop(1), payload)
+        chainArcs(ctx, first.position().add(0.0, first.bbHeight * 0.5, 0.0), targets.drop(1), payload, targets.size)
         return targets
     }
 
-    private fun chainArcs(ctx: SpellContext, origin: Vec3, targets: List<Entity>, payload: Collection<Element>) {
+    /** [links] is the number of arcs in the whole chain. */
+    private fun chainArcs(ctx: SpellContext, origin: Vec3, targets: List<Entity>, payload: Collection<Element>, links: Int) {
         var from = origin
         for (target in targets) {
             val to = target.position().add(0.0, target.bbHeight * 0.5, 0.0)
-            arc(ctx, from, to, payload, ARC_LIFE)
+            arc(ctx, from, to, payload, ARC_LIFE, links)
             from = to
         }
     }
 
-    private fun arc(ctx: SpellContext, from: Vec3, to: Vec3, payload: Collection<Element>, life: Int) {
+    private fun arc(ctx: SpellContext, from: Vec3, to: Vec3, payload: Collection<Element>, life: Int, links: Int) {
         if (payload.isEmpty()) SpellVfx.arc(ctx.level, from, to, Element.CHAOS.color, life)
-        else SpellVfx.chainArc(ctx.level, from, to, payload, life)
+        else SpellVfx.chainArc(ctx.level, from, to, payload, life, links)
     }
 
     private fun centre(entity: Entity): Vec3 = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)

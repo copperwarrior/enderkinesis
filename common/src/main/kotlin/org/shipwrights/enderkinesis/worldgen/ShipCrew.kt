@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.worldgen
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
@@ -27,7 +28,9 @@ object ShipCrew {
     /** Called by StructureTemplateCrewCaptureMixin at the start of every `placeInWorld`. */
     @JvmStatic
     fun beginCapture(settings: StructurePlaceSettings, origin: BlockPos) {
-        if (settings.processors.any { it is CapturesCrew }) capturingFor.set(origin.immutable()) else capturingFor.remove()
+        // DH LOD passes never assemble, so their crew would sit here and later double the real crew.
+        val captures = settings.processors.any { it is CapturesCrew } && !DistantHorizonsCompat.isLodGeneration()
+        if (captures) capturingFor.set(origin.immutable()) else capturingFor.remove()
     }
 
     @JvmStatic

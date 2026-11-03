@@ -23,7 +23,7 @@ import org.shipwrights.enderkinesis.entity.ConstriliarSurfaceField
  * the integrator itself stays level-agnostic and identical on client and
  * server.
  */
-class RemnantSurfaceProbe : IrreverantRemnantMotion.SurfaceProbe {
+class RemnantSurfaceProbe : IrreverentRemnantMotion.SurfaceProbe {
 
     private var level: Level? = null
 
@@ -80,7 +80,7 @@ class RemnantSurfaceProbe : IrreverantRemnantMotion.SurfaceProbe {
         y: Double,
         z: Double,
         range: Double,
-        out: IrreverantRemnantMotion.Contact,
+        out: IrreverentRemnantMotion.Contact,
     ) {
         val world = level
         if (world == null) {

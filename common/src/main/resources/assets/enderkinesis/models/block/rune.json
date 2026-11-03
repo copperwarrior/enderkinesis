@@ -1,8 +1,8 @@
 {
   "ambientocclusion": false,
   "textures": {
-    "rune": "enderkinesis:block/mystic_rune",
-    "particle": "enderkinesis:block/mystic_rune"
+    "rune": "enderkinesis:block/ulder_rune",
+    "particle": "enderkinesis:block/ulder_rune"
   },
   "elements": [
     {

@@ -38,13 +38,13 @@ import org.shipwrights.enderkinesis.block.AncriteBarsBlock
 import org.shipwrights.enderkinesis.block.AncriteBeamBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteGlassBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
-import org.shipwrights.enderkinesis.block.MysticBeamAnchorBlock
+import org.shipwrights.enderkinesis.block.UlderBeamAnchorBlock
 import org.shipwrights.enderkinesis.block.CrepusculiteLightstoneBlock
 import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.block.CrystalPedestalBlock
 import org.shipwrights.enderkinesis.block.DreamSandLayerBlock
 import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
-import org.shipwrights.enderkinesis.block.MagicMissileLauncherBlock
+import org.shipwrights.enderkinesis.block.LodestarLauncherBlock
 import org.shipwrights.enderkinesis.block.EyeroscopeBlock
 import org.shipwrights.enderkinesis.block.HeartCandleBlock
 import org.shipwrights.enderkinesis.block.HeartOfTheWildBlock
@@ -147,11 +147,11 @@ object EKBlocks {
         )
     }
 
-    /** Magic Missile Launcher — 4×4 slot grid (16 magic missiles) fires one missile per
+    /** Lodestar Launcher — 4×4 slot grid (16 Lodestar Darts) fires one missile per
      *  second along the facing direction while powered. Front-face slot click to insert
      *  / remove manually; top hopper feeds in, bottom hopper pulls out. */
-    val MAGIC_MISSILE_LAUNCHER: RegistrySupplier<Block> = BLOCKS.register("magic_missile_launcher") {
-        MagicMissileLauncherBlock(crepusculiteProps().strength(3.0f, 6.0f).sound(EKSounds.ANCRITE_SOUND_TYPE))
+    val LODESTAR_LAUNCHER: RegistrySupplier<Block> = BLOCKS.register("lodestar_launcher") {
+        LodestarLauncherBlock(crepusculiteProps().strength(3.0f, 6.0f).sound(EKSounds.ANCRITE_SOUND_TYPE))
     }
 
     /** Eyeroscope — right-click sets a world-frame target yaw; the BE slowly turns its host
@@ -266,6 +266,17 @@ object EKBlocks {
                 .sound(EKSounds.YGANN_BARNACLE_SOUND_TYPE)
                 .noOcclusion()
                 .noCollission()
+        )
+    }
+
+    val QUASAR_OF_PURITY: RegistrySupplier<Block> = BLOCKS.register("quasar_of_purity") {
+        org.shipwrights.enderkinesis.block.QuasarOfPurityBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.SNOW)
+                .strength(2.5f, 6.0f)
+                .sound(SoundType.AMETHYST)
+                .noOcclusion()
+                .lightLevel { 10 }
         )
     }
 
@@ -464,8 +475,8 @@ object EKBlocks {
         )
     }
 
-    val MYSTIC_BEAM_ANCHOR: RegistrySupplier<Block> = BLOCKS.register("mystic_beam_anchor") {
-        MysticBeamAnchorBlock(
+    val ULDER_BEAM_ANCHOR: RegistrySupplier<Block> = BLOCKS.register("ulder_beam_anchor") {
+        UlderBeamAnchorBlock(
             BlockBehaviour.Properties.of()
                 .mapColor(MapColor.COLOR_MAGENTA)
                 .strength(1.0f)
@@ -491,10 +502,6 @@ object EKBlocks {
         )
     }
 
-    /** Wogor Bud — the seedling stage the Heart of the Wild plants
-     *  on a face. Advances small → medium → almost-full via random
-     *  ticks, then matures into a Wogor Wood log whose axis
-     *  matches the bud's growth direction. See [WogorBudBlock]. */
     val WOGOR_BUD: RegistrySupplier<Block> = BLOCKS.register("wogor_bud") {
         WogorBudBlock(
             BlockBehaviour.Properties.of()
@@ -507,6 +514,25 @@ object EKBlocks {
                 .noLootTable()
         )
     }
+
+    val GUARDIAN_SPIKE: RegistrySupplier<Block> = BLOCKS.register("guardian_spike") {
+        org.shipwrights.enderkinesis.block.GuardianSpikeBlock(guardianSpikeProps())
+    }
+
+    val GUARDIAN_SPIKE_OUTER: RegistrySupplier<Block> = BLOCKS.register("guardian_spike_outer") {
+        org.shipwrights.enderkinesis.block.GuardianSpikeOuterBlock(guardianSpikeProps())
+    }
+
+    private fun guardianSpikeProps(): BlockBehaviour.Properties =
+        org.shipwrights.enderkinesis.block.GuardianSpikeBase.withOffset(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_CYAN)
+                .strength(0.5f)
+                .sound(SoundType.POINTED_DRIPSTONE)
+                .noOcclusion()
+                .noCollission()
+                .pushReaction(net.minecraft.world.level.material.PushReaction.DESTROY)
+        )
 
     /** Heart Candle — single-only candle. Behaves like a vanilla
      *  candle (lights with flint+steel, extinguishes with empty-hand
@@ -754,6 +780,24 @@ object EKBlocks {
         )
     }
 
+    val WILLFAER_LANTERN: RegistrySupplier<Block> = BLOCKS.register("willfaer_lantern") {
+        org.shipwrights.enderkinesis.block.WillfaerLanternBlock(
+            BlockBehaviour.Properties.copy(Blocks.LANTERN)
+                .lightLevel { 15 }
+                .noOcclusion()
+        )
+    }
+
+    val WILLFAER_TORCH: RegistrySupplier<Block> = BLOCKS.register("willfaer_torch") {
+        org.shipwrights.enderkinesis.block.WillfaerTorchBlock(BlockBehaviour.Properties.copy(Blocks.TORCH))
+    }
+
+    val WILLFAER_WALL_TORCH: RegistrySupplier<Block> = BLOCKS.register("willfaer_wall_torch") {
+        org.shipwrights.enderkinesis.block.WillfaerWallTorchBlock(
+            BlockBehaviour.Properties.copy(Blocks.WALL_TORCH).dropsLike(WILLFAER_TORCH.get())
+        )
+    }
+
     /** Fractal Projector — placeholder for an unobtainable Sselith Globe
      *  structural block. Bedrock-tier unbreakable, invisible (no render),
      *  pistons can't push it. No BlockItem, no creative entry, no loot — the
@@ -816,6 +860,19 @@ object EKBlocks {
         org.shipwrights.enderkinesis.block.WogorWoodBlock(wogorWoodProps().randomTicks())
     }
 
+    /** The shell of a Wehelo pocket. [org.shipwrights.enderkinesis.dimension.WeheloPocket] also refuses every change to it. */
+    val WEHELO_POCKET_WALL: RegistrySupplier<Block> = BLOCKS.register("wehelo_pocket_wall") {
+        Block(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_BROWN)
+                .strength(-1.0f, 3_600_000.0f)
+                .noLootTable()
+                .isValidSpawn { _, _, _, _ -> false }
+                .pushReaction(PushReaction.BLOCK)
+                .sound(SoundType.WOOD)
+        )
+    }
+
     /** Wogor planks — generic plank block. */
     val WOGOR_PLANKS: RegistrySupplier<Block> = BLOCKS.register("wogor_planks") {
         Block(wogorWoodProps())
@@ -826,8 +883,9 @@ object EKBlocks {
      *  so the decay distance, random-tick rate, suffocation/spawn rules,
      *  and lava-ignite behaviour all match exactly. */
     val WOGOR_LEAVES: RegistrySupplier<Block> = BLOCKS.register("wogor_leaves") {
+        // dynamicShape: the collision shape changes with the entity, so the state shape cache must stay off.
         org.shipwrights.enderkinesis.block.WogorLeavesBlock(
-            BlockBehaviour.Properties.copy(Blocks.MANGROVE_LEAVES)
+            BlockBehaviour.Properties.copy(Blocks.MANGROVE_LEAVES).dynamicShape()
         )
     }
 

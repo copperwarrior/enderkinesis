@@ -39,6 +39,8 @@ object WohlonTreeGhost {
     private const val MARGIN_PER_BLOCK = 16f
     // The fields reach this far past the surface, so the filtered edge has a gradient to follow.
     private const val SURFACE_PAD = 2f
+    // Margin bytes below this read as empty: the shader's 128 - 1.9 * 16 test.
+    private const val EMPTY_BELOW = 97.6f
     private const val PAD = 3
     private const val MAX_DIM = 160
     private const val LEAF_RXZ = 7f
@@ -67,7 +69,9 @@ object WohlonTreeGhost {
     private const val MARGIN_UNIT = 4
     private const val WARP_UNIT = 5
 
-    private class Grid(val minX: Int, val minY: Int, val minZ: Int, val dx: Int, val dy: Int, val dz: Int, val margin: ByteBuffer)
+    private class Grid(
+        val minX: Int, val minY: Int, val minZ: Int, val dx: Int, val dy: Int, val dz: Int, val margin: ByteBuffer, val edgeEmpty: Boolean,
+    )
 
     /** A [rootGrowth] ghost has no timed out-dispersal: it clears up to the root's reported front. */
     private class Ghost(val heart: BlockPos, val grid: Grid, val startSec: Double, val rootGrowth: Boolean = false) {
@@ -238,6 +242,7 @@ object WohlonTreeGhost {
             (g.heart.x + 0.5 - grid.minX).toFloat(), (g.heart.y + 0.5 - grid.minY).toFloat(), (g.heart.z + 0.5 - grid.minZ).toFloat(),
         )
         eff.safeGetUniform("Reach").set(g.reach)
+        eff.safeGetUniform("EdgeEmpty").set(if (grid.edgeEmpty) 1f else 0f)
         eff.safeGetUniform("Dispersal").set(dispersedIn, dispersedOut)
         if (g.rootGrowth) {
             eff.safeGetUniform("OutShape").set(ROOT_OUT_FROM_HEART, ROOT_OUT_SOFT)
@@ -371,6 +376,23 @@ object WohlonTreeGhost {
                 margin.put(j * 3 + k, (MARGIN_ZERO + m * MARGIN_PER_BLOCK).toInt().coerceIn(0, 255).toByte())
             }
         }
-        return Grid(candle.x + ox, candle.y + oy, candle.z + oz, f.dx, f.dy, f.dz, margin)
+        return Grid(candle.x + ox, candle.y + oy, candle.z + oz, f.dx, f.dy, f.dz, margin, bordersEmpty(f, margin))
+    }
+
+    // Leaf unions and grids clamped at MAX_DIM can reach the border, and clamped reads repeat it outside the grid.
+    private fun bordersEmpty(f: Fields, margin: ByteBuffer): Boolean {
+        for (z in 0 until f.dz) {
+            for (y in 0 until f.dy) {
+                val face = z == 0 || y == 0 || z == f.dz - 1 || y == f.dy - 1
+                val step = if (face) 1 else maxOf(f.dx - 1, 1)
+                var x = 0
+                while (x < f.dx) {
+                    val j = ((z * f.dy + y) * f.dx + x) * 3
+                    for (k in 0 until 3) if ((margin.get(j + k).toInt() and 0xFF) >= EMPTY_BELOW) return false
+                    x += step
+                }
+            }
+        }
+        return true
     }
 }

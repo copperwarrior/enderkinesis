@@ -7,6 +7,7 @@ import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 object DiscordTeleports {
     @JvmStatic
@@ -17,5 +18,6 @@ object DiscordTeleports {
         val server = level as? ServerLevel ?: return
         server.sendParticles(ParticleTypes.REVERSE_PORTAL, at.x, at.y, at.z, 24, 0.3, 0.5, 0.3, 0.05)
         server.sendParticles(org.shipwrights.enderkinesis.registry.EKParticles.mote(SpellMote.CHAOS_GLYPH), at.x, at.y, at.z, 6, 0.3, 0.4, 0.3, 0.02)
+        SpellSounds.play(server, at, EKSounds.SPELL_CHAOS_FIZZLE)
     }
 }

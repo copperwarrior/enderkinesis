@@ -319,7 +319,7 @@ object SpellOverlays {
         textured(particleAtlas) { b ->
             for (i in 0 until 14) {
                 val k = (t * 0.15 + hash2(i, 3)) % 1
-                quad(b, m, SpellArt.generic((k * 8).toInt().coerceIn(0, 7)), w * hash2(i, 4) + sin(t + i) * 20, h * (1 - k), s, s, Element.POISON.color, sin(Math.PI * k) * 0.9)
+                quad(b, m, SpellArt.generic((k * 8).toInt().coerceIn(0, 7)), w * hash2(i, 4) + sin(t + i) * 20, h * (1 - k), s, s, Element.CORRUPTION.color, sin(Math.PI * k) * 0.9)
             }
         }
     }

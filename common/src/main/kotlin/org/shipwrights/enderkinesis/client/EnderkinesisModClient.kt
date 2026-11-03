@@ -23,7 +23,7 @@ import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKOceanParticleType
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.registry.EKParticles
@@ -62,6 +62,10 @@ object EnderkinesisModClient {
         EntityRendererRegistry.register(EKEntities.WOHLEM) { ctx ->
             WohlemRenderer(ctx)
         }
+        EntityRendererRegistry.register(EKEntities.SHILLEAGK_DEER) { ctx ->
+            ShilleagkDeerRenderer(ctx)
+        }
+        EntityRendererRegistry.register(EKEntities.WILL_O_THE_WISP) { ctx -> WillOTheWispRenderer(ctx) }
 
         // Archive — paper / book whirlwind. Renderer draws orbiting item models
         // sampled from a fixed generic mix (paper + book); the actual loot list
@@ -118,13 +122,17 @@ object EnderkinesisModClient {
             PlayerCorpseRenderer(ctx)
         }
 
-        // Magic Missile — spinning shulker-spark billboard + [BeamPath] trail behind it that
+        // Lodestar Dart — spinning shulker-spark billboard + [BeamPath] trail behind it that
         // shares the orb-network particle plumbing.
-        EntityRendererRegistry.register(EKEntities.MAGIC_MISSILE) { ctx ->
-            MagicMissileRenderer(ctx)
+        EntityRendererRegistry.register(EKEntities.LODESTAR_DART) { ctx ->
+            LodestarDartRenderer(ctx)
         }
 
         EntityRendererRegistry.register(EKEntities.SINGULARITY) { ctx ->
+            net.minecraft.client.renderer.entity.NoopRenderer(ctx)
+        }
+        // WeheloPocketClient draws tears after the translucent pass; an entity-pass draw that writes depth cuts out water.
+        EntityRendererRegistry.register(EKEntities.WEHELO_TEAR) { ctx ->
             net.minecraft.client.renderer.entity.NoopRenderer(ctx)
         }
 
@@ -141,12 +149,13 @@ object EnderkinesisModClient {
     @JvmStatic
     fun initClient() {
         initClientEarly()
+        org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat.initClient()
         // Orb of Potential client-side packet receivers — keep the
         // server-bound classes out of the client environment.
         org.shipwrights.enderkinesis.body.OrbBodyNetworkClient.initClient()
         org.shipwrights.enderkinesis.client.YgannBarnacleDeathRenderer.initClient()
-        // Irreverant Remnant — receives blob syncs and draws them as cubes.
-        org.shipwrights.enderkinesis.client.remnant.IrreverantRemnantClient.init()
+        // Irreverent Remnant — receives blob syncs and draws them as cubes.
+        org.shipwrights.enderkinesis.client.remnant.IrreverentRemnantClient.init()
 
         // Spawn-egg tinting: the vanilla template model has two tinted
         // layers (0 = shell, 1 = spots), which vanilla eggs fill from
@@ -154,17 +163,17 @@ object EnderkinesisModClient {
         // remnant violet with a sselith-yellow fleck.
         ColorHandlerRegistry.registerItemColors(
             ItemColor { _, tintIndex -> if (tintIndex == 0) 0x3D2648 else 0xE8D48A },
-            EKItems.IRREVERANT_REMNANT_SPAWN_EGG.get(),
+            EKItems.IRREVERENT_REMNANT_SPAWN_EGG.get(),
         )
 
         // Wand of Ga'Mylan cage S2C receivers (added / removed / hp).
         org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
         SpellNetworkClient.init()
-        org.shipwrights.enderkinesis.item.MysticScrollItem.clientUsed = { player, use, hand ->
+        org.shipwrights.enderkinesis.item.UlderScrollItem.clientUsed = { player, use, hand ->
             SpellHand.startUse(player, SpellHand.Use.valueOf(use.name), hand)
             SpellArmPoses.started(player, SpellHand.Use.valueOf(use.name), hand)
         }
-        org.shipwrights.enderkinesis.item.MysticScrollItem.clientReleased = { player -> SpellArmPoses.released(player) }
+        org.shipwrights.enderkinesis.item.UlderScrollItem.clientReleased = { player -> SpellArmPoses.released(player) }
         // Shatter cloud spawned on cage break — owns its own per-tick
         // physics, so init separately from the network init.
         org.shipwrights.enderkinesis.client.GamylanCageShatter.init()
@@ -191,7 +200,7 @@ object EnderkinesisModClient {
             org.shipwrights.enderkinesis.client.IncantationOfWindsClient.tick(mc)
             // Remnant prediction — runs the shared integrator locally so the
             // mass keeps moving between server syncs instead of stuttering.
-            org.shipwrights.enderkinesis.client.remnant.IrreverantRemnantClient.tick()
+            org.shipwrights.enderkinesis.client.remnant.IrreverentRemnantClient.tick()
         }
 
         // 1-bit-alpha lattice texture (opaque crystal pixels, fully-transparent gaps). Cutout
@@ -222,6 +231,13 @@ object EnderkinesisModClient {
 
         // Wogor leaves art is pre-coloured, so no foliage tint; the alpha-cut gaps need cutout.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.WOGOR_LEAVES.get())
+        RenderTypeRegistry.register(
+            RenderType.cutout(),
+            EKBlocks.WILLFAER_LANTERN.get(),
+            EKBlocks.WILLFAER_TORCH.get(),
+            EKBlocks.WILLFAER_WALL_TORCH.get(),
+        )
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.GUARDIAN_SPIKE.get(), EKBlocks.GUARDIAN_SPIKE_OUTER.get())
 
 
         // Planar Anchor: the model's "chain" element relies on alpha-cut transparency. Without
@@ -229,7 +245,7 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.PLANAR_ANCHOR.get())
 
         // The anchor cube's texels are part-transparent.
-        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.MYSTIC_BEAM_ANCHOR.get())
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.ULDER_BEAM_ANCHOR.get())
 
         // Void Harness: crepusculite-glass shell — partial alpha, needs translucent blending.
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.VOID_HARNESS.get())
@@ -255,8 +271,8 @@ object EnderkinesisModClient {
 
         // Tint index 1 is the scroll wrap.
         ColorHandlerRegistry.registerItemColors(
-            ItemColor { stack, tintIndex -> if (tintIndex == 1) MysticScrollItem.wrapColor(stack) else -1 },
-            EKItems.MYSTIC_SCROLL.get(),
+            ItemColor { stack, tintIndex -> if (tintIndex == 1) UlderScrollItem.wrapColor(stack) else -1 },
+            EKItems.ULDER_SCROLL.get(),
         )
         dev.architectury.event.events.client.ClientTooltipEvent.ITEM.register { stack, lines, _ ->
             org.shipwrights.enderkinesis.spell.Imbues.tooltip(stack)?.let { lines.add(minOf(1, lines.size), it) }
@@ -266,7 +282,7 @@ object EnderkinesisModClient {
             ItemColor { stack, _ ->
                 stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.let(EKItems::glyphTint) ?: -1
             },
-            EKItems.MYSTIC_SHARD.get(),
+            EKItems.ULDER_SHARD.get(),
         )
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.INEGRIC_RETORT.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
@@ -329,6 +345,7 @@ object EnderkinesisModClient {
         }
 
         BlockEntityRendererRegistry.register(EKBlockEntities.RUNE.get()) { ctx -> RuneVfx.Renderer(ctx) }
+        BlockEntityRendererRegistry.register(EKBlockEntities.WILLFAER_FLAME.get()) { _ -> WillfaerFlameBlockRenderer() }
         // The astrolabe is drawn by a BlockEntityRenderer (translucent + no backface culling).
         BlockEntityRendererRegistry.register(EKBlockEntities.ENDER_ASTROLABE.get()) { _ ->
             EnderAstrolabeRenderer()
@@ -337,14 +354,17 @@ object EnderkinesisModClient {
         // Per-slot missile overlays on the launcher come from a BER (drawing them via
         // blockstate would mean 2^16 × 4 ≈ 260k states and Minecraft hangs at startup
         // enumerating that). The blockstate stays at 8 entries (FACING × POWERED).
-        BlockEntityRendererRegistry.register(EKBlockEntities.MAGIC_MISSILE_LAUNCHER.get()) { ctx ->
-            MagicMissileLauncherRenderer(ctx)
+        BlockEntityRendererRegistry.register(EKBlockEntities.LODESTAR_LAUNCHER.get()) { ctx ->
+            LodestarLauncherRenderer(ctx)
         }
 
         // The eyeroscope's frame comes from the static chunk mesh (end-portal-frame look-alike);
         // the BER only adds the floating, bobbing ender-eye on top.
         BlockEntityRendererRegistry.register(EKBlockEntities.YGANN_BARNACLE.get()) { _ ->
             YgannBarnacleRenderer()
+        }
+        BlockEntityRendererRegistry.register(EKBlockEntities.QUASAR_OF_PURITY.get()) { _ ->
+            QuasarOfPurityRenderer()
         }
         BlockEntityRendererRegistry.register(EKBlockEntities.EYEROSCOPE.get()) { _ ->
             EyeroscopeRenderer()
@@ -392,6 +412,7 @@ object EnderkinesisModClient {
 
         // Hook the scrying-orb client-side view + network listener.
         ScryingClient.init()
+        WeheloPocketClient.init()
 
         // Heart of the Wild: four-chamber Blockbench model with a
         // sinusoidal idle pulse on the chambers. The block's static
@@ -461,6 +482,8 @@ object EnderkinesisModClient {
                 TomeSummonOverlay.closeRefractionEffect()
                 ScryingClient.closeRefractionEffect()
                 SureibjinDreamVignette.close()
+                WeheloPocketClient.close()
+                WeheloTearRenderTypes.close()
                 SpellScreen.close()
                 // Runs after the vanilla listeners rebuild the atlases, so sprites cached during the rebuild are dropped too.
                 SpellArt.invalidate()
@@ -501,6 +524,9 @@ object EnderkinesisModClient {
         SselithAmbience.init()
         SselithInvocationGlyphs.init()
         GrandStaffClient.init()
+        GrandStaffDreadClient.init()
+        GrandStaffDecayClient.init()
+        PossessionClient.init()
         SselithVoidSounds.init()
         IchaericInkSoundsClient.init()
         ArchiveSounds.init()
@@ -546,6 +572,7 @@ object EnderkinesisModClient {
         // the time the overlay first draws.
         YgannAbyssRenderTypes.init()
         PocketPortalRenderType.init()
+        WeheloTearRenderTypes.init()
         SpellVfxRenderTypes.init()
         org.shipwrights.enderkinesis.client.remnant.RemnantRenderTypes.init()
 
@@ -603,6 +630,7 @@ object EnderkinesisModClient {
         // fabric client init).
         EchoCannonClient.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> EchoCannonClient.clientTick() }
+        ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WogorBudClientTracker.tick(level) }
 
         SselithEclipseClient.init()
         NetworkManager.registerReceiver(
@@ -616,18 +644,21 @@ object EnderkinesisModClient {
         SselithMadnessAfflicted.init()
         // Static client state holds game times and entities of the session that ends here.
         ClientPlayerEvent.CLIENT_PLAYER_QUIT.register {
+            WogorBudClientTracker.clear()
             SselithAmbience.onDisconnect()
             SselithEclipseSounds.onDisconnect()
             SselithVoidSounds.onDisconnect()
             IchaericInkSoundsClient.onDisconnect()
             OarscribeSounds.onDisconnect()
-            IncantationOfWindsSounds.onDisconnect()
+            IncantationSounds.onDisconnect()
             ArchiveSounds.onDisconnect()
             SselithInvocationGlyphs.onDisconnect()
             GrandStaffClient.onDisconnect()
+            GrandStaffDreadClient.onDisconnect()
+            GrandStaffDecayClient.onDisconnect()
+            PossessionClient.onDisconnect()
             PlayerTomeSummonSounds.onDisconnect()
             SselithRepertorySky.onDisconnect()
-            SselithMenuWalk.onDisconnect()
             SselithVoidFog.onDisconnect()
             WohlonFogWisps.onDisconnect()
             WohlonWaterMurk.onDisconnect()
@@ -637,7 +668,6 @@ object EnderkinesisModClient {
             HeartOfTheWildTendrils.onDisconnect()
             SselithEclipseGlow.onDisconnect()
             org.shipwrights.enderkinesis.physics.LatticeHullVolume.onClientDisconnect()
-            SselithControlLoss.onDisconnect()
             SselithMadnessAfflicted.onDisconnect()
             YgannBarnacleDeathRenderer.onDisconnect()
             YgannBarnacleLimbClient.onDisconnect()
@@ -723,7 +753,7 @@ object EnderkinesisModClient {
         AegisClient.clearSession()
         FusionClient.clearSession()
         WikLakRedirectFlashTracker.clearSession()
-        MagicMissileTrailRenderer.clearSession()
+        LodestarDartTrailRenderer.clearSession()
         TightRobeArmorRenderer.INSTANCE.clearSession()
         org.shipwrights.enderkinesis.physics.LatticeRegistry.dropLevels(clientSide = true)
         org.shipwrights.enderkinesis.physics.LatticeOcean.dropLevels(clientSide = true)
@@ -818,6 +848,15 @@ object EnderkinesisModClient {
             WindDustParticle.Provider(sprites, WindDustParticle.Mode.GUST)
         }
         registrar.register(EKParticles.windWisp()) { sprites -> WindConeParticle.Provider(sprites) }
+        registrar.register(EKParticles.riverDroplet()) { sprites ->
+            RiverSprayParticle.Provider(sprites, RiverSprayParticle.Mode.DROPLET)
+        }
+        registrar.register(EKParticles.riverMist()) { sprites ->
+            RiverSprayParticle.Provider(sprites, RiverSprayParticle.Mode.MIST)
+        }
+        registrar.register(EKParticles.riverFoam()) { sprites ->
+            RiverSprayParticle.Provider(sprites, RiverSprayParticle.Mode.FOAM)
+        }
         registrar.register(EKParticles.eideticMote()) { sprites ->
             WindDustParticle.Provider(sprites, WindDustParticle.Mode.EIDETIC)
         }
@@ -928,14 +967,14 @@ object EnderkinesisModClient {
             SunderingGlyphParticle.Provider(sprites)
         }
 
-        // Magic-missile detonation spark — same lifecycle as vanilla
+        // Lodestar Dart detonation spark — same lifecycle as vanilla
         // FireworkParticles.SparkParticle (firework sprite, gravity, second-half
         // alpha + colour fade) with the OUTLINE → GLOW pink fade baked in.
         registrar.register(EKParticles.missileBurstSpark()) { sprites ->
             MissileBurstSparkParticle.Provider(sprites)
         }
 
-        // Magic-missile detonation flash — vanilla
+        // Lodestar Dart detonation flash — vanilla
         // FireworkParticles.OverlayParticle's 4-tick sin-grow / linear-alpha-ramp
         // pop, tinted with OUTLINE pink instead of vanilla's per-spawn colour.
         registrar.register(EKParticles.missileBurstFlash()) { sprites ->

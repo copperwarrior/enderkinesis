@@ -1,0 +1,122 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "enderkinesis:guardian_spike",
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": 0,
+              "add": false
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "x": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "y": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "z": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "xy": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "xz": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "yz": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:set_count",
+              "count": 1,
+              "add": true,
+              "conditions": [
+                {
+                  "condition": "minecraft:block_state_property",
+                  "block": "enderkinesis:guardian_spike",
+                  "properties": {
+                    "xyz": "true"
+                  }
+                }
+              ]
+            },
+            {
+              "function": "minecraft:explosion_decay"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import org.shipwrights.enderkinesis.effect.RotEffect
 import org.shipwrights.enderkinesis.entity.SingularityEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.roundToInt
 import org.shipwrights.enderkinesis.util.colliderClip
 
@@ -32,23 +33,27 @@ object FusionEffects {
                 // Fire cannot hurt fire-immune undead (the Wither), so add the burn at once, one point for each second.
                 target.setSecondsOnFire(maxOf(burnSeconds, daylightSeconds))
                 val burn = if (target.fireImmune()) maxOf(burnSeconds, daylightSeconds).toFloat() * (if (ctx.pulsed) SpellContext.PULSE_DAMAGE else 1f) * ctx.share else 0f
-                ctx.hurt(target, ctx.damage(EKDamageSources.SUNFIRE_KEY), ctx.damageAmount(4f, magnitude) * 2f + burn)
+                if (ctx.hurt(target, ctx.damage(EKDamageSources.SUNFIRE_KEY), ctx.damageAmount(4f, magnitude) * 2f + burn)) {
+                    SpellSounds.smite(level, target, SpellSounds.magnitudeVolume(magnitude))
+                }
             } else {
                 target.setSecondsOnFire(burnSeconds)
                 ctx.hurt(target, ctx.damage(EKDamageSources.SUNFIRE_KEY), ctx.damageAmount(4f, magnitude))
             }
         }
-        for (pos in delivery.blocks(level)) searingClear(ctx, pos)
+        val scorched = SpellSounds.FirstChange(ctx, EKSounds.SPELL_SUNFIRE_SCORCH, SpellSounds.magnitudeVolume(magnitude))
+        for (pos in delivery.blocks(level)) if (searingClear(ctx, pos)) scorched.at(pos)
         phantomLights(ctx, delivery, magnitude)
     }
 
-    private fun searingClear(ctx: SpellContext, pos: BlockPos) {
+    private fun searingClear(ctx: SpellContext, pos: BlockPos): Boolean {
         val state = ctx.level.getBlockState(pos)
-        when {
+        return when {
             state.`is`(Blocks.GRASS_BLOCK) || state.`is`(Blocks.PODZOL) || state.`is`(Blocks.MYCELIUM) ->
                 ctx.setBlock(pos, Blocks.DIRT.defaultBlockState())
             state.`is`(BlockTags.LEAVES) || state.block is VineBlock || state.block in GRASSES ->
                 ctx.setBlock(pos, Blocks.AIR.defaultBlockState())
+            else -> false
         }
     }
 
@@ -69,12 +74,14 @@ object FusionEffects {
         // Find the existing lights once, not around each candidate.
         val lights = NamedEffects.find(level, delivery.bounds().inflate(PHANTOM_LIGHT_SPACING.toDouble()), light).toMutableList()
         val spacing2 = PHANTOM_LIGHT_SPACING * PHANTOM_LIGHT_SPACING
+        val sound = SpellSounds.FirstChange(ctx, EKSounds.SPELL_SUNFIRE_PHANTOM_LIGHT, SpellSounds.magnitudeVolume(magnitude))
         for (pos in candidates) {
             if (placed >= cap) break
             if (lights.any { it.distSqr(pos) < spacing2 }) continue
             if (ctx.setBlock(pos, light.defaultBlockState())) {
                 placed++
                 lights += pos
+                sound.at(pos)
             }
         }
     }
@@ -83,7 +90,7 @@ object FusionEffects {
 
     /** An imbued shot that strikes no creature leaves Miasma, so it is never wasted.
      *  Another blow on a carrier adds one Rot level and keeps the longer time. */
-    val POISON = ElementEffect { ctx, delivery, magnitude ->
+    val CORRUPTION = ElementEffect { ctx, delivery, magnitude ->
         val struck = delivery.living(ctx)
         for (target in struck) ctx.hurt(target, ctx.damage(EKDamageSources.ROT_KEY), ctx.damageAmount(VENOM_DAMAGE, magnitude))
         if (ctx.use != SpellUse.IMBUE || struck.isEmpty()) {
@@ -146,17 +153,21 @@ object FusionEffects {
     // A held shape opens the pocket once each pulse, which keeps it open.
     private fun pocket(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
         if (!ctx.beat) return
+        val opened = SpellSounds.FirstChange(ctx, EKSounds.SPELL_VOID_POCKET_OPEN, SpellSounds.magnitudeVolume(magnitude))
+        fun open(at: Vec3) {
+            if (AbyssalPockets.open(ctx, at, magnitude)) opened.at(BlockPos.containing(at))
+        }
         when (delivery) {
-            is Delivery.Sphere -> AbyssalPockets.open(ctx, delivery.center, magnitude)
-            is Delivery.Line -> AbyssalPockets.open(ctx, delivery.to, magnitude)
+            is Delivery.Sphere -> open(delivery.center)
+            is Delivery.Line -> open(delivery.to)
             is Delivery.Cone -> {
                 val end = delivery.origin.add(delivery.direction.scale(delivery.length))
                 val hit = ctx.level.clip(colliderClip(delivery.origin, end))
-                if (hit.type == HitResult.Type.BLOCK) AbyssalPockets.open(ctx, Vec3.atCenterOf(hit.blockPos), magnitude)
+                if (hit.type == HitResult.Type.BLOCK) open(Vec3.atCenterOf(hit.blockPos))
             }
-            is Delivery.Group -> for (target in delivery.targets) AbyssalPockets.open(ctx, target.position().subtract(0.0, 0.5, 0.0), magnitude)
-            is Delivery.SingleEntity -> AbyssalPockets.open(ctx, delivery.entity.position().subtract(0.0, 0.5, 0.0), magnitude)
-            is Delivery.SingleBlock -> AbyssalPockets.open(ctx, Vec3.atCenterOf(delivery.pos), magnitude)
+            is Delivery.Group -> for (target in delivery.targets) open(target.position().subtract(0.0, 0.5, 0.0))
+            is Delivery.SingleEntity -> open(delivery.entity.position().subtract(0.0, 0.5, 0.0))
+            is Delivery.SingleBlock -> open(Vec3.atCenterOf(delivery.pos))
         }
     }
 }

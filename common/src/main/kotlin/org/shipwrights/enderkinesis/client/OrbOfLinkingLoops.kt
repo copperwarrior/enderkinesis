@@ -16,6 +16,7 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getShipManagingPos
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.random.Random
 
 object OrbOfLinkingLoops {
 
@@ -26,6 +27,8 @@ object OrbOfLinkingLoops {
     private const val RANGE: Double = 18.0
     private const val RANGE_SQR: Double = RANGE * RANGE
     private const val FADE_TICKS: Int = 5
+    /** Each orb's hum takes one note of a just major chord (G below, C, E, G), so a group of linked orbs sounds a chord. */
+    private val HUM_PITCHES = floatArrayOf(0.75f, 1f, 1.25f, 1.5f)
 
     private enum class Kind { HUM, BEAM, GRIND }
 
@@ -98,6 +101,8 @@ object OrbOfLinkingLoops {
             looping = true
             delay = 0
             volume = 1f
+            // From the block position, so an orb keeps the same pitch each time its hum starts.
+            if (kind == Kind.HUM) pitch = HUM_PITCHES[Random(be.blockPos.asLong()).nextInt(HUM_PITCHES.size)]
             move()
         }
 

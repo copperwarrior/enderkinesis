@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.mixin;
 import net.minecraft.client.sounds.ChannelAccess;
 import net.minecraft.client.sounds.SoundEngine;
 import org.shipwrights.enderkinesis.client.SselithMadnessMuffle;
+import org.shipwrights.enderkinesis.client.WeheloPocketEcho;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -18,12 +19,18 @@ public abstract class SoundEngineMuffleMixin {
 
     @Inject(method = "tickNonPaused", at = @At("TAIL"))
     private void enderkinesis$tickMuffle(CallbackInfo ci) {
-        if (this.loaded) SselithMadnessMuffle.tick(this.channelAccess);
+        if (this.loaded) {
+            SselithMadnessMuffle.tick(this.channelAccess);
+            WeheloPocketEcho.tick(this.channelAccess);
+        }
     }
 
     // The filter belongs to the OpenAL context that destroy() tears down.
     @Inject(method = "destroy", at = @At("HEAD"))
     private void enderkinesis$releaseMuffle(CallbackInfo ci) {
-        if (this.loaded) SselithMadnessMuffle.release();
+        if (this.loaded) {
+            SselithMadnessMuffle.release();
+            WeheloPocketEcho.release();
+        }
     }
 }

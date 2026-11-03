@@ -79,7 +79,7 @@ object OrbLinkVolume {
             orbLinks.addTo(bin.recvPos.asLong(), 1)
         }
 
-        // One tube for each piece of a beam that Mystic Beam Anchors bend.
+        // One tube for each piece of a beam that Ulder Beam Anchors bend.
         var drawn = 0
         for (bin in bins) {
             for (index in bin.pieces.indices) {

@@ -406,7 +406,7 @@ object GasField {
             if (lo > hi) continue
             val x = ChunkPos.getX(key) * 16.0; val z = ChunkPos.getZ(key) * 16.0
             val box = AABB(x, lo + level.minBuildHeight - 2.0, z, x + 16, hi + level.minBuildHeight + 1.0, z + 16)
-            for (living in level.getEntitiesOfClass(LivingEntity::class.java, box) { it.isAlive && it.isAffectedByPotions && !it.hasEffect(EKEffects.POISON_CLOAK.get()) }) {
+            for (living in level.getEntitiesOfClass(LivingEntity::class.java, box) { it.isAlive && it.isAffectedByPotions && !it.hasEffect(EKEffects.MANTLE_OF_POISON.get()) }) {
                 val feet = BlockPos.containing(living.position().add(0.0, 0.1, 0.0))
                 val eyes = BlockPos.containing(living.eyePosition)
                 val a = maxOf(amount(level, feet), amount(level, eyes))

@@ -1,7 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
 import net.minecraft.client.player.LocalPlayer;
-import org.shipwrights.enderkinesis.client.SselithMenuWalk;
+import org.shipwrights.enderkinesis.client.PossessionClient;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -21,7 +21,7 @@ public abstract class LocalPlayerCatalogerWalkMixin {
         )
     )
     private void enderkinesis$sselithMenuWalk(CallbackInfo ci) {
-        SselithMenuWalk.INSTANCE.onAiStep((LocalPlayer) (Object) this);
+        PossessionClient.INSTANCE.onAiStep((LocalPlayer) (Object) this);
         org.shipwrights.enderkinesis.client.PlayerTomeSummonClient.INSTANCE
             .onAiStep((LocalPlayer) (Object) this);
     }

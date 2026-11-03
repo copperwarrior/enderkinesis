@@ -1,0 +1,38 @@
+{
+	"format_version": "26.3",
+	"credit": "Made with Blockbench",
+	"textures": {
+		"3": "enderkinesis:block/ulder_beam_anchor",
+		"particle": "enderkinesis:block/ulder_beam_anchor"
+	},
+	"elements": [
+		{
+			"name": "wall",
+			"from": [6, 0.05, 6],
+			"to": [10, 0.05, 10],
+			"rotation": {"angle": 0, "axis": "y", "origin": [7, 0.05, 7]},
+			"faces": {
+				"north": {"uv": [0, 0, 4, 0], "texture": "#3"},
+				"east": {"uv": [0, 0, 4, 0], "texture": "#3"},
+				"south": {"uv": [0, 0, 4, 0], "texture": "#3"},
+				"west": {"uv": [0, 0, 4, 0], "texture": "#3"},
+				"up": {"uv": [0, 0, 4, 4], "texture": "#3"},
+				"down": {"uv": [0, 0, 4, 4], "texture": "#3"}
+			}
+		},
+		{
+			"name": "anchor",
+			"from": [7, 0, 7],
+			"to": [9, 2, 9],
+			"rotation": {"angle": 0, "axis": "y", "origin": [8, 1, 8]},
+			"faces": {
+				"north": {"uv": [0, 4, 2, 6], "texture": "#3"},
+				"east": {"uv": [0, 4, 2, 6], "texture": "#3"},
+				"south": {"uv": [0, 4, 2, 6], "texture": "#3"},
+				"west": {"uv": [0, 4, 2, 6], "texture": "#3"},
+				"up": {"uv": [0, 4, 2, 6], "texture": "#3"},
+				"down": {"uv": [0, 4, 2, 6], "texture": "#3"}
+			}
+		}
+	]
+}

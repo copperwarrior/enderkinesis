@@ -8,7 +8,7 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 /** One quadratic Bezier part of a beam. [spanStart]..[spanEnd] is its part of the whole beam, 0 at SEND and 1 at RECV. */
 internal class BeamPiece(val start: Vec3, val control: Vec3, val end: Vec3, val spanStart: Double, val spanEnd: Double)
 
-/** The path of a beam that Mystic Beam Anchors bend. Client thread only. */
+/** The path of a beam that Ulder Beam Anchors bend. Client thread only. */
 internal object OrbBeamRoute {
 
     private val anchors = ArrayList<Vec3>(2 * OrbOfLinkingBlockEntity.MAX_ANCHORS)

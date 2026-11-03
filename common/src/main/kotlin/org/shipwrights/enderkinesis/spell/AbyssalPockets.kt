@@ -17,6 +17,7 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.RuneBlock
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** A phased block stays in the world data, so ship mass does not change and nothing fills the gap.
  *  Only collision, outline and client meshing ignore it. A restart only brings the blocks back early. */
@@ -26,6 +27,8 @@ object AbyssalPockets {
     private val phased = HashMap<ResourceKey<Level>, Long2LongOpenHashMap>()
 
     private const val PUSH_SEARCH = 3
+    private const val MAX_CLOSE_SOUNDS = 8
+    private const val CLOSE_SOUND_SPACING = 6
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(TickEvent.ServerLevelTick(::expire))
@@ -68,16 +71,17 @@ object AbyssalPockets {
         clientPhased = LongSets.EMPTY_SET
     }
 
-    fun open(ctx: SpellContext, centre: Vec3, magnitude: Float) =
+    /** Returns true when a block newly phased. */
+    fun open(ctx: SpellContext, centre: Vec3, magnitude: Float): Boolean =
         open(ctx, centre, 1.5 + 0.5 * magnitude, SpellCurves.ticks(3f, 1f, magnitude))
 
-    fun open(ctx: SpellContext, centre: Vec3, radius: Double, ticks: Int) {
+    fun open(ctx: SpellContext, centre: Vec3, radius: Double, ticks: Int): Boolean {
         val r = Math.ceil(radius).toInt()
         val origin = BlockPos.containing(centre)
         val inside = BlockPos.betweenClosed(origin.offset(-r, -r, -r), origin.offset(r, r, r))
             .filter { Vec3.atCenterOf(it).distanceToSqr(centre) <= radius * radius }
             .map { it.immutable() }
-        phase(ctx, inside, ticks)
+        return phase(ctx, inside, ticks)
     }
 
     fun canPhase(ctx: SpellContext, pos: BlockPos): Boolean {
@@ -87,7 +91,7 @@ object AbyssalPockets {
         return state.getDestroySpeed(level, pos) >= 0f && ctx.mayChange(pos, Blocks.AIR.defaultBlockState())
     }
 
-    fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int) {
+    private fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int): Boolean {
         val level = ctx.level
         val until = level.gameTime + ticks
         val map = phased.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
@@ -106,8 +110,9 @@ object AbyssalPockets {
                 }
             }
         }
-        if (added.isEmpty()) return
+        if (added.isEmpty()) return false
         SpellNetwork.broadcastPhase(level, added, true)
+        return true
     }
 
     private fun expire(level: ServerLevel) {
@@ -126,6 +131,19 @@ object AbyssalPockets {
         if (returning.isEmpty()) return
         SpellNetwork.broadcastPhase(level, returning, false)
         for (key in returning) pushOut(level, BlockPos.of(key))
+        closeSounds(level, returning)
+    }
+
+    /** One sound for each pocket that closes, not one for each block. */
+    private fun closeSounds(level: ServerLevel, returning: List<Long>) {
+        val played = ArrayList<BlockPos>(MAX_CLOSE_SOUNDS)
+        for (key in returning) {
+            if (played.size >= MAX_CLOSE_SOUNDS) return
+            val pos = BlockPos.of(key)
+            if (played.any { it.distSqr(pos) < CLOSE_SOUND_SPACING * CLOSE_SOUND_SPACING }) continue
+            played += pos
+            SpellSounds.play(level, Vec3.atCenterOf(pos), EKSounds.SPELL_VOID_POCKET_CLOSE)
+        }
     }
 
     private fun pushOut(level: ServerLevel, pos: BlockPos) {

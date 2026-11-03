@@ -6,11 +6,13 @@ import dev.architectury.event.events.client.ClientTickEvent
 import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2FloatOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongSet
 import java.nio.ByteBuffer
 import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
 import net.minecraft.world.level.ChunkPos
+import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
 import org.lwjgl.BufferUtils
 import org.lwjgl.opengl.GL11
@@ -35,6 +37,7 @@ object GasFieldClient {
 
     // Render (client) thread only.
     private val chunks = Long2ObjectOpenHashMap<Int2FloatOpenHashMap>()
+    private val summaries = Long2ObjectOpenHashMap<ChunkGas>()
     // Keyed by packed block position. The next build blends from it.
     private var shown = Long2FloatOpenHashMap()
     // Swapped with [shown], so a build allocates no map.
@@ -69,8 +72,42 @@ object GasFieldClient {
 
     fun isEmpty(): Boolean = chunks.isEmpty() && shown.isEmpty()
 
+    fun chunkKeys(): LongSet = summaries.keys
+
+    /** As of the last tick. Null when the chunk held no gas then. */
+    fun summary(chunk: Long): ChunkGas? = summaries.get(chunk)
+
+    /** The decay pass visits every cell each tick, so it also sums each chunk for [MiasmaSounds]. */
+    class ChunkGas {
+        var amount = 0.0
+            private set
+        /** The cell nearest the listener. */
+        var x = 0.0
+            private set
+        var y = 0.0
+            private set
+        var z = 0.0
+            private set
+        var nearestSqr = Double.MAX_VALUE
+            private set
+
+        fun clear() {
+            amount = 0.0
+            nearestSqr = Double.MAX_VALUE
+        }
+
+        fun add(cx: Double, cy: Double, cz: Double, a: Float, listener: Vec3) {
+            amount += a
+            val dx = cx - listener.x; val dy = cy - listener.y; val dz = cz - listener.z
+            val d = dx * dx + dy * dy + dz * dz
+            if (d >= nearestSqr) return
+            nearestSqr = d
+            x = cx; y = cy; z = cz
+        }
+    }
+
     fun received(chunk: Long, cells: Int2FloatOpenHashMap) {
-        if (cells.isEmpty()) chunks.remove(chunk) else chunks.put(chunk, cells)
+        if (cells.isEmpty()) forget(chunk) else chunks.put(chunk, cells)
         version++
     }
 
@@ -83,13 +120,19 @@ object GasFieldClient {
             if (e.floatValue <= 0f) have?.remove(e.intKey)
             else (have ?: Int2FloatOpenHashMap().also { m -> have = m; chunks.put(chunk, m) }).put(e.intKey, e.floatValue)
         }
-        if (have?.isEmpty() == true) chunks.remove(chunk)
+        if (have?.isEmpty() == true) forget(chunk)
         version++
+    }
+
+    private fun forget(chunk: Long) {
+        chunks.remove(chunk)
+        summaries.remove(chunk)
     }
 
     fun reset() {
         if (chunks.isEmpty() && volume == null) return
         chunks.clear()
+        summaries.clear()
         shown.clear()
         spare.clear()
         volume = null
@@ -98,17 +141,35 @@ object GasFieldClient {
 
     private fun tick() {
         ticks++
-        if (chunks.isEmpty()) return
-        val it = chunks.values.iterator()
+        if (chunks.isEmpty()) {
+            summaries.clear()
+            return
+        }
+        val mc = Minecraft.getInstance()
+        val listener = mc.gameRenderer.mainCamera.position
+        val minY = (mc.level?.minBuildHeight ?: 0) + 0.5
+        val it = chunks.long2ObjectEntrySet().fastIterator()
         while (it.hasNext()) {
-            val cells = it.next()
+            val entry = it.next()
+            val key = entry.longKey
+            val cells = entry.value
+            val gas = summaries.get(key) ?: ChunkGas().also { summaries.put(key, it) }
+            gas.clear()
+            val baseX = ChunkPos.getX(key) * 16 + 0.5
+            val baseZ = ChunkPos.getZ(key) * 16 + 0.5
             val c = cells.int2FloatEntrySet().fastIterator()
             while (c.hasNext()) {
                 val cell = c.next()
                 val left = cell.floatValue - GasField.DECAY_PER_TICK
-                if (left <= 0f) c.remove() else cell.setValue(left)
+                if (left <= 0f) { c.remove(); continue }
+                cell.setValue(left)
+                val i = cell.intKey
+                gas.add(baseX + (i and 15), minY + (i shr 8), baseZ + ((i shr 4) and 15), left, listener)
             }
-            if (cells.isEmpty()) it.remove()
+            if (cells.isEmpty()) {
+                it.remove()
+                summaries.remove(key)
+            }
         }
         if (ticks % THIN_REBUILD_TICKS == 0) version++
     }

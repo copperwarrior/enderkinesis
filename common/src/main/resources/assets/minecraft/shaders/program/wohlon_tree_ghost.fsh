@@ -24,6 +24,8 @@ uniform vec2 Dispersal;
 uniform vec2 OutShape;
 // Seconds; the host keeps it bounded for float precision.
 uniform float Time;
+// 1 when every border voxel of Margin is past the field's reach, so clamped reads outside the grid are empty too.
+uniform float EdgeEmpty;
 
 in vec3 localPos;
 in vec3 viewPos;
@@ -53,6 +55,26 @@ const float PULL_SOFT = 2.5;
 const vec3 HEART_COLOUR = vec3(0.0, 1.0, 1.0);
 const vec3 ROOT_COLOUR = vec3(0.557, 0.831, 0.784);
 
+// Indices of the march samples t0 + (i + jitter) * dt that can lie in [tA, tB], one more on each side for float error.
+ivec2 stepRange(float tA, float tB, float t0, float dt, float jitter) {
+    vec2 r = vec2(floor((tA - t0) / dt - jitter) - 1.0, floor((tB - t0) / dt - jitter) + 2.0);
+    return ivec2(clamp(r, 0.0, float(STEPS)));
+}
+
+// Settled fog skips each sample with an empty margin, and with empty edges all samples outside the grid have one.
+// The step grid stays the box's, so the image does not change.
+ivec2 gridSteps(vec3 inv, float t0, float dt, float jitter) {
+    vec3 ga = (vec3(-0.01) - CamLocal) * inv;
+    vec3 gb = (GridSize + 0.01 - CamLocal) * inv;
+    vec3 near = min(ga, gb);
+    vec3 far = max(ga, gb);
+    float g0 = max(max(near.x, near.y), near.z);
+    float g1 = min(min(far.x, far.y), far.z);
+    if (isnan(g0) || isnan(g1)) return ivec2(0, STEPS);
+    if (g1 < g0) return ivec2(0);
+    return stepRange(g0, g1, t0, dt, jitter);
+}
+
 void main() {
     vec2 texCoord = gl_FragCoord.xy / ScreenSize;
     vec3 toFar = localPos - CamLocal;
@@ -75,8 +97,16 @@ void main() {
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec3 emitted = vec3(0.0);
     float through = 1.0;
-    for (int i = 0; i < STEPS; i++) {
+    float pull = 1.0 - Dispersal.x;
+    ivec2 steps = pull <= 0.0 && EdgeEmpty > 0.5 ? gridSteps(inv, t0, dt, jitter) : ivec2(0, STEPS);
+    for (int i = steps.x; i < steps.y; i++) {
         vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
+        // Settled fog with no tree here: skip the warp and noise reads, most of the box is empty. The field
+        // stops at -2 blocks, so this tests for that floor; the leaf warp may lose only a sliver of faint rim.
+        if (pull <= 0.0) {
+            vec3 m0 = texture(Margin, p / GridSize).rgb * 255.0;
+            if (max(max(m0.r, m0.g), m0.b) < 128.0 - 1.9 * 16.0) continue;
+        }
         float r = length(p - Heart);
         // Dispersal: each point comes in when Dispersal.x passes its noise value, and goes out when
         // Dispersal.y passes a key of noise and distance from the Heart, so the Heart clears first.
@@ -86,13 +116,6 @@ void main() {
         float kept = 1.0 - smoothstep(outKey - OutShape.y, outKey, Dispersal.y * (1.0 + OutShape.y));
         float live = shownIn * kept;
         if (live <= 0.0) continue;
-        float pull = 1.0 - Dispersal.x;
-        // Settled fog with no tree here: skip the warp and noise reads, most of the box is empty. The field
-        // stops at -2 blocks, so this tests for that floor; the leaf warp may lose only a sliver of faint rim.
-        if (pull <= 0.0) {
-            vec3 m0 = texture(Margin, p / GridSize).rgb * 255.0;
-            if (max(max(m0.r, m0.g), m0.b) < 128.0 - 1.9 * 16.0) continue;
-        }
         vec3 w = p / WARP_TILE;
         vec3 warp = vec3(texture(Warp, w).r, texture(Warp, w + 0.37).r, texture(Warp, w + 0.71).r) * 2.0 - 1.0;
         // Fog here now is fog that will settle further in: sample the shape back toward the Heart, by

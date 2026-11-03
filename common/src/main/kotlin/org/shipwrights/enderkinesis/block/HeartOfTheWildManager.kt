@@ -401,10 +401,14 @@ object HeartOfTheWildManager : ShipMoveListener {
      *  is available. FACING is set to the direction from this
      *  position toward the picked supporting neighbour (FACING
      *  points AT the support). AXIS is uniformly randomized for
-     *  pillar-style blocks. */
+     *  pillar-style blocks. A wogor bud reads its faces from the
+     *  neighbours, so it needs only one sturdy face. */
     private fun prepareGrowState(
         blockType: Block, pos: BlockPos, level: ServerLevel,
     ): BlockState? {
+        if (blockType is WogorBudBlock) {
+            return if (WogorBudBlock.supportMask(level, pos) != 0) WogorBudBlock.newBud(level, pos, blockType) else null
+        }
         var state = blockType.defaultBlockState()
 
         if (state.hasProperty(BlockStateProperties.FACING)) {

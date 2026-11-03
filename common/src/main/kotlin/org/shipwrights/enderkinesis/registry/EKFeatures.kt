@@ -9,6 +9,8 @@ import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConf
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.worldgen.CrepusculiteGeodeFeature
 import org.shipwrights.enderkinesis.worldgen.HugeWohlonMushroomFeature
+import org.shipwrights.enderkinesis.worldgen.WogorTreeConfiguration
+import org.shipwrights.enderkinesis.worldgen.WogorTreeFeature
 import org.shipwrights.enderkinesis.worldgen.WohlonDeadwoodFeature
 import org.shipwrights.enderkinesis.worldgen.WohlonHugeFungiFeature
 import org.shipwrights.enderkinesis.worldgen.WohlonTrunkBaseFeature
@@ -27,6 +29,9 @@ object EKFeatures {
 
     val WOHLON_TRUNK_BASES: RegistrySupplier<Feature<*>> =
         FEATURES.register("wohlon_trunk_bases") { WohlonTrunkBaseFeature(NoneFeatureConfiguration.CODEC) }
+
+    val WOGOR_TREE: RegistrySupplier<Feature<*>> =
+        FEATURES.register("wogor_tree") { WogorTreeFeature(WogorTreeConfiguration.CODEC) }
 
     val WOHLON_DEADWOOD: RegistrySupplier<Feature<*>> =
         FEATURES.register("wohlon_deadwood") { WohlonDeadwoodFeature(NoneFeatureConfiguration.CODEC) }

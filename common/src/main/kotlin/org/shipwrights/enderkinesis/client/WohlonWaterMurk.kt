@@ -83,12 +83,11 @@ object WohlonWaterMurk {
         for (dx in -1..1) for (dz in -1..1) weights.markDirty(chunkX + dx, chunkZ + dz)
     }
 
+    // fillColumns reads only water and fillWeights only biomes, so Wohlon growth into air must not rebuild either.
     @JvmStatic
     fun onBlockChanged(pos: BlockPos, oldState: BlockState, newState: BlockState) {
-        if (oldState.fluidState.`is`(FluidTags.WATER) != newState.fluidState.`is`(FluidTags.WATER) ||
-            oldState.isAir != newState.isAir
-        ) {
-            markChunkDirty(pos.x shr 4, pos.z shr 4)
+        if (oldState.fluidState.`is`(FluidTags.WATER) != newState.fluidState.`is`(FluidTags.WATER)) {
+            columns.markDirty(pos.x shr 4, pos.z shr 4)
         }
     }
 
@@ -109,9 +108,9 @@ object WohlonWaterMurk {
         return mc.gameRenderer.mainCamera.fluidInCamera == FogType.NONE
     }
 
-    // Called with the other world-space volumes, before the fog passes.
+    /** Call just after the translucent chunk layer. */
     @JvmStatic
-    fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
+    fun afterTranslucent(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         if (!copied) return
         copied = false
         val mc = Minecraft.getInstance()

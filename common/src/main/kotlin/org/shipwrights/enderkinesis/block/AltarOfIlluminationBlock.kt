@@ -1,8 +1,11 @@
 package org.shipwrights.enderkinesis.block
 
+import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.TagKey
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.Containers
@@ -30,8 +33,9 @@ import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.AltarOfIlluminationBlockEntity
-import org.shipwrights.enderkinesis.item.MysticShardItem
+import org.shipwrights.enderkinesis.item.UlderShardItem
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Inscription
 import org.shipwrights.enderkinesis.spell.Spell
 
@@ -62,7 +66,7 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
     ): InteractionResult {
         val altar = level.getBlockEntity(pos) as? AltarOfIlluminationBlockEntity ?: return InteractionResult.PASS
         val held = player.getItemInHand(hand)
-        val shard = held.item as? MysticShardItem
+        val shard = held.item as? UlderShardItem
         val action = when {
             held.`is`(PAPER_TAG) && !altar.hasScroll -> Action.BLANK
             held.`is`(EKItems.ICHAERIC_INK_BOTTLE.get()) && state.getValue(INK) < MAX_INK -> Action.INK
@@ -90,11 +94,12 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
     private fun usable(stack: ItemStack, state: BlockState, altar: AltarOfIlluminationBlockEntity): Boolean =
         (stack.`is`(PAPER_TAG) && !altar.hasScroll) ||
             (stack.`is`(EKItems.ICHAERIC_INK_BOTTLE.get()) && state.getValue(INK) < MAX_INK) ||
-            stack.item is MysticShardItem || stack.`is`(EKItems.PENFEATHER_OF_THE_ACCURSED_OWL.get())
+            stack.item is UlderShardItem || stack.`is`(EKItems.PENFEATHER_OF_THE_ACCURSED_OWL.get())
 
     private fun placeBlank(level: Level, pos: BlockPos, player: Player, held: ItemStack, altar: AltarOfIlluminationBlockEntity) {
         altar.placeBlank(held)
         if (!player.abilities.instabuild) held.shrink(1)
+        play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_PAPER)
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
     }
 
@@ -102,12 +107,13 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         val ink = state.getValue(INK) + 1
         level.setBlock(pos, state.setValue(INK, ink), UPDATE_ALL)
         player.setItemInHand(hand, ItemUtils.createFilledResult(player.getItemInHand(hand), player, ItemStack(Items.GLASS_BOTTLE)))
+        level.playSound(null, pos, EKSounds.ICHAERIC_INK_JAR_POUR.get(), SoundSource.BLOCKS, 1f, 0.9f + 0.04f * ink)
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
         inkReadout(player, ink)
     }
 
     private fun inscribe(
-        level: Level, pos: BlockPos, player: Player, held: ItemStack, shard: MysticShardItem,
+        level: Level, pos: BlockPos, player: Player, held: ItemStack, shard: UlderShardItem,
         altar: AltarOfIlluminationBlockEntity,
     ) {
         val outcome = altar.inscribe(shard.element)
@@ -119,11 +125,13 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
         when (outcome) {
             is Inscription.Outcome.Annihilated -> {
+                play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_ANNIHILATE)
                 player.displayClientMessage(
                     Component.translatable(ANNIHILATED_KEY, shard.element.displayName(), outcome.hit.displayName()), true,
                 )
             }
-            is Inscription.Outcome.Fused, Inscription.Outcome.Inscribed -> {}
+            is Inscription.Outcome.Fused -> play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_FUSE)
+            Inscription.Outcome.Inscribed -> play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_INSCRIBE)
         }
     }
 
@@ -140,6 +148,7 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
                 altar.finish(ink)
                 // The bottle goes when the scroll rises out of the ink.
                 level.scheduleTick(pos, this, AltarOfIlluminationBlockEntity.riseTicks(glyphs))
+                play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_FINISH)
                 level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
                 if (name != null) player.displayClientMessage(Component.translatable(FINISHED_KEY, name), true)
             }
@@ -149,7 +158,12 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
     private fun take(level: Level, pos: BlockPos, player: Player, altar: AltarOfIlluminationBlockEntity) {
         val scroll = altar.takeReady()
         if (!player.inventory.add(scroll)) Containers.dropItemStack(level, pos.x + 0.5, pos.y + 1.4, pos.z + 0.5, scroll)
+        play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_TAKE)
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
+    }
+
+    private fun play(level: Level, pos: BlockPos, sound: RegistrySupplier<SoundEvent>) {
+        level.playSound(null, pos, sound.get(), SoundSource.BLOCKS, 1f, 1f)
     }
 
     @Deprecated("Deprecated in Java")

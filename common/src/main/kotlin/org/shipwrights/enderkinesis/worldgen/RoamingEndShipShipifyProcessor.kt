@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.worldgen
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat
 import dev.architectury.event.events.common.LifecycleEvent
 import com.mojang.serialization.Codec
 import java.util.concurrent.ConcurrentHashMap
@@ -66,6 +67,8 @@ object RoamingEndShipShipifyProcessor : StructureProcessor(), CapturesCrew {
             blocks.add(info.pos.immutable())
         }
         if (blocks.isEmpty()) return processedBlockInfos
+        // Before the dedup, or a DH LOD pass would claim startPos and block the real assembly.
+        if (DistantHorizonsCompat.isLodGeneration()) return processedBlockInfos
 
         // Multi-chunk structures get postProcess'd once per intersecting chunk and once per
         // worldgen worker, so the SAME structure instance fires finalize multiple times in

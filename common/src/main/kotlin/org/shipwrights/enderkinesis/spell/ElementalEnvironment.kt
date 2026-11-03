@@ -14,7 +14,7 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.valkyrienskies.mod.common.BlockStateInfo
 import org.valkyrienskies.mod.common.getShipsIntersecting
 import kotlin.math.sqrt
@@ -128,13 +128,13 @@ object ElementalEnvironment {
         var environment: Map<Element, Float>? = null
         for (i in 0 until inventory.containerSize) {
             val stack = inventory.getItem(i)
-            if (stack.item !is MysticScrollItem || MysticScrollItem.spent(stack) <= 0f) continue
-            val spell = MysticScrollItem.spellOf(stack) ?: continue
+            if (stack.item !is UlderScrollItem || UlderScrollItem.spent(stack) <= 0f) continue
+            val spell = UlderScrollItem.spellOf(stack) ?: continue
             val around = environment ?: of(player.serverLevel(), player).also { environment = it }
             if (around.values.none { it > CHARGE_THRESHOLD }) return
             val rate = rechargeRate(spell, around)
             if (rate > 0f && player.random.nextFloat() < RECHARGE_CHANCE) {
-                MysticScrollItem.recharge(stack, rate * RECHARGE_TICKS / 20f / RECHARGE_CHANCE)
+                UlderScrollItem.recharge(stack, rate * RECHARGE_TICKS / 20f / RECHARGE_CHANCE)
             }
         }
     }

@@ -24,6 +24,7 @@ import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext
 import net.minecraft.world.level.levelgen.feature.configurations.GeodeConfiguration
 import net.minecraft.world.level.levelgen.synth.NormalNoise
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import kotlin.math.abs
@@ -191,24 +192,8 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
             (sz / points.size).roundToInt()
         )
 
-        // A double-terminated hexagonal crystal of magenta glass piercing the geode. The crystal
-        // returns its orthonormal perpendicular basis (u, v); each gets snapped to the nearest
-        // cardinal axis (NSWE / Up / Down) so the spikes are world-aligned. v's snap is forced
-        // onto a different axis than u's, so the two spikes always lie in a plane (not the same
-        // line). Lattice is placed last so the exact centre block is the lattice (spikes skip
-        // the centre).
-        val basis = growCrystal(level, center, rng)
-        val uCardinal = nearestCardinal(basis.u, excludeAxis = null)
-        val vCardinal = nearestCardinal(basis.v, excludeAxis = uCardinal.axis)
-        // The geode generates blocks strictly inside `[origin + minOff, origin + maxOff]`;
-        // clamp the spike beams to that same cube so a crack in the shell can't let a beam
-        // walk into the surrounding world forever.
-        val geodeBoxMinX = origin.x + minOff; val geodeBoxMinY = origin.y + minOff; val geodeBoxMinZ = origin.z + minOff
-        val geodeBoxMaxX = origin.x + maxOff; val geodeBoxMaxY = origin.y + maxOff; val geodeBoxMaxZ = origin.z + maxOff
-        growSpike(level, center, uCardinal,
-            geodeBoxMinX, geodeBoxMinY, geodeBoxMinZ, geodeBoxMaxX, geodeBoxMaxY, geodeBoxMaxZ)
-        growSpike(level, center, vCardinal,
-            geodeBoxMinX, geodeBoxMinY, geodeBoxMinZ, geodeBoxMaxX, geodeBoxMaxY, geodeBoxMaxZ)
+        // The lattice goes last so it overwrites the crystal's centre block.
+        growCrystal(level, center, rng)
         level.setBlock(center, EKBlocks.CREPUSCULITE_LATTICE.get().defaultBlockState(), 2)
         placedBlocks.get()?.add(center.immutable())
         // NB: we can't stamp the sea level here — during worldgen the chunk is a ProtoChunk and
@@ -222,6 +207,8 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
         val placed = placedBlocks.get()
         val server: ServerLevel? = (level as? WorldGenRegion)?.level ?: (level as? ServerLevel)
         if (server == null || placed.isNullOrEmpty()) return true
+        // A DH LOD chunk is never saved; assembling would force-load and shipify a far real chunk.
+        if (DistantHorizonsCompat.isLodGeneration()) return true
         scheduleShipAssembly(server, HashSet(placed), center.immutable(), ASSEMBLY_ATTEMPTS)
         return true
     }
@@ -275,23 +262,12 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
         })
     }
 
-    /** A single unit vector perpendicular to the crystal axis — used by [growSpike]. */
-    private data class PerpAxis(val x: Double, val y: Double, val z: Double)
-
-    /** The two orthogonal unit vectors spanning the plane perpendicular to the crystal axis;
-     *  used to drop one ancrite spike along each. */
-    private data class PerpBasis(val u: PerpAxis, val v: PerpAxis)
-
     /**
      * Voxel approximation of a double-terminated hexagonal crystal centred on [center], along a
      * random non-axis-aligned direction: a hex prism in the middle with pyramidal points on both
-     * ends. ("This is a voxel game" — a regular-hexagon cross-section test per axial slice.)
-     *
-     * Returns the two orthogonal vectors perpendicular to the crystal's axis so the caller can
-     * sink one ancrite spike along each without recomputing the basis (and without consuming
-     * additional RNG).
+     * ends.
      */
-    private fun growCrystal(level: WorldGenLevel, center: BlockPos, rng: RandomSource): PerpBasis {
+    private fun growCrystal(level: WorldGenLevel, center: BlockPos, rng: RandomSource) {
         // Uniformly-random direction on the unit sphere (any direction, cardinals included):
         // rejection-sample inside the unit ball, then normalize.
         var dx = 0.0; var dy = 1.0; var dz = 0.0
@@ -338,84 +314,6 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
                 placedBlocks.get()?.add(gp)
             }
         }
-
-        return PerpBasis(PerpAxis(ux, uy, uz), PerpAxis(vx, vy, vz))
-    }
-
-    /** A cardinal direction (one of ±X / ±Y / ±Z) — the snapped version of one [PerpAxis]. */
-    private data class Cardinal(val axis: Direction.Axis, val dir: Direction) {
-        val dx: Int get() = dir.stepX
-        val dy: Int get() = dir.stepY
-        val dz: Int get() = dir.stepZ
-    }
-
-    /** Snap an arbitrary perpendicular direction to the closest of the six cardinal directions
-     *  (N/S/E/W/U/D). `excludeAxis`, when supplied, prevents the result from sharing that axis —
-     *  used to keep the two ancrite spikes on different axes (a plane), not the same line. */
-    private fun nearestCardinal(p: PerpAxis, excludeAxis: Direction.Axis?): Cardinal {
-        val ax = if (excludeAxis == Direction.Axis.X) -1.0 else abs(p.x)
-        val ay = if (excludeAxis == Direction.Axis.Y) -1.0 else abs(p.y)
-        val az = if (excludeAxis == Direction.Axis.Z) -1.0 else abs(p.z)
-        return when {
-            ax >= ay && ax >= az -> Cardinal(Direction.Axis.X,
-                if (p.x >= 0) Direction.EAST  else Direction.WEST)
-            ay >= az             -> Cardinal(Direction.Axis.Y,
-                if (p.y >= 0) Direction.UP    else Direction.DOWN)
-            else                 -> Cardinal(Direction.Axis.Z,
-                if (p.z >= 0) Direction.SOUTH else Direction.NORTH)
-        }
-    }
-
-    /**
-     * Spike + beam piercing [center] along [cardinal], extending both directions.
-     *
-     * - Within the crystal's perpendicular width (`|i| ≤ CRYSTAL_CIRC`) → place a full
-     *   [EKBlocks.RAW_ANCRITE] block. This overwrites any crystal glass the spike crosses.
-     * - Past the crystal's width → place an [EKBlocks.ANCRITE_BEAM] (8×16×8 pillar) oriented
-     *   along the cardinal's axis.
-     * - Stops in each direction as soon as the next voxel would either land on a geode-shell
-     *   block (end stone / crepusculite ore — so the beam butts up against the wall), or fall
-     *   *outside* the geode's own generation cube. The cube cap is what prevents the beam
-     *   from walking forever through a crack in the shell — no geode block can exist beyond
-     *   that volume, so there's nothing for the beam to terminate on otherwise.
-     *
-     * The centre block itself is skipped — the lattice gets placed there afterward.
-     */
-    private fun growSpike(
-        level: WorldGenLevel, center: BlockPos, cardinal: Cardinal,
-        geodeBoxMinX: Int, geodeBoxMinY: Int, geodeBoxMinZ: Int,
-        geodeBoxMaxX: Int, geodeBoxMaxY: Int, geodeBoxMaxZ: Int,
-    ) {
-        val raw = EKBlocks.RAW_ANCRITE.get().defaultBlockState()
-        val beam = EKBlocks.ANCRITE_BEAM.get().defaultBlockState()
-            .setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS, cardinal.axis)
-        for (sign in intArrayOf(1, -1)) {
-            var i = 1
-            while (i <= MAX_SPIKE_WALK) {
-                val step = i * sign
-                val gp = BlockPos(
-                    center.x + cardinal.dx * step,
-                    center.y + cardinal.dy * step,
-                    center.z + cardinal.dz * step,
-                )
-                if (gp.x < geodeBoxMinX || gp.x > geodeBoxMaxX ||
-                    gp.y < geodeBoxMinY || gp.y > geodeBoxMaxY ||
-                    gp.z < geodeBoxMinZ || gp.z > geodeBoxMaxZ
-                ) break
-                val insideCrystal = i <= CRYSTAL_CIRC
-                if (!insideCrystal) {
-                    // Past the crystal: stop when the next voxel is part of the geode shell.
-                    val current = level.getBlockState(gp)
-                    if (current.`is`(Blocks.END_STONE) ||
-                        current.`is`(EKBlocks.CREPUSCULITE_ORE.get())
-                    ) break
-                }
-                val newState = if (insideCrystal) raw else beam
-                level.setBlock(gp, newState, 2)
-                placedBlocks.get()?.add(gp)
-                i++
-            }
-        }
     }
 
     private companion object {
@@ -425,13 +323,7 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
         const val ASSEMBLY_ATTEMPTS = 20
         /** Ticks between assembly attempts — lets the geode's chunks finish generating. */
         const val ASSEMBLY_DELAY_TICKS = 10
-        /** Crystal hex circumradius (== half-width). Drives both the crystal shape itself and
-         *  the raw-ancrite spike-vs-beam boundary in [growSpike]: distance from centre ≤ this
-         *  gets a solid raw-ancrite block, distance past this gets an ancrite-beam pillar. */
+        /** Crystal hex circumradius (== half-width). */
         const val CRYSTAL_CIRC = 3.0
-        /** Hard cap on per-direction beam walk distance. Failsafe — the beam normally stops on
-         *  its own when it hits the geode shell (end stone / crepusculite ore). The shell sits
-         *  well within this limit for any reasonable geode config. */
-        const val MAX_SPIKE_WALK = 32
     }
 }

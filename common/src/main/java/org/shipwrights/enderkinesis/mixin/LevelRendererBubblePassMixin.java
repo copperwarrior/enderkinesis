@@ -22,7 +22,9 @@ import org.shipwrights.enderkinesis.client.GasFieldClient;
 import org.shipwrights.enderkinesis.client.SpellCloakVolume;
 import org.shipwrights.enderkinesis.client.SpellCubeFx;
 import org.shipwrights.enderkinesis.client.StillpointGlowVolume;
-import org.shipwrights.enderkinesis.client.WindConeVolume;
+import org.shipwrights.enderkinesis.client.WillfaerFlameVolume;
+import org.shipwrights.enderkinesis.client.AbyssDepthVolume;
+import org.shipwrights.enderkinesis.client.IncantationConeVolume;
 import org.shipwrights.enderkinesis.client.OarscribeGlyphLight;
 import org.shipwrights.enderkinesis.client.ScryingClient;
 import org.shipwrights.enderkinesis.client.SselithEclipseGlow;
@@ -30,11 +32,12 @@ import org.shipwrights.enderkinesis.client.SselithVoidFog;
 import org.shipwrights.enderkinesis.client.WohlonFogWisps;
 import org.shipwrights.enderkinesis.client.WohlonPortalVisuals;
 import org.shipwrights.enderkinesis.client.WohlonTreeGhost;
-import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
 import org.shipwrights.enderkinesis.client.HeartOfTheWildTendrils;
 import org.shipwrights.enderkinesis.client.FountainOfBlessingDome;
 import org.shipwrights.enderkinesis.client.FountainOfBlessingVolume;
 import org.shipwrights.enderkinesis.client.GrandStaffClient;
+import org.shipwrights.enderkinesis.client.GrandStaffDecayClient;
+import org.shipwrights.enderkinesis.client.GrandStaffDreadClient;
 import org.shipwrights.enderkinesis.client.WohlonRitualTendrils;
 import org.shipwrights.enderkinesis.client.WohlonRitePedestalVisuals;
 import org.shipwrights.enderkinesis.client.WohlonStaffGhost;
@@ -132,7 +135,8 @@ public abstract class LevelRendererBubblePassMixin {
         // Before the fog, so the fog covers far beams.
         OrbLinkVolume.render(poseStack, projectionMatrix, camera);
         OarscribeGlyphLight.render(poseStack, projectionMatrix, camera, partialTick);
-        WindConeVolume.render(poseStack, projectionMatrix, camera, partialTick);
+        IncantationConeVolume.render(poseStack, projectionMatrix, camera, partialTick);
+        AbyssDepthVolume.render(poseStack, projectionMatrix, camera, partialTick);
         GasFieldClient.render(poseStack, projectionMatrix, camera);
         SpellCloakVolume.render(poseStack, projectionMatrix, camera);
         BlackSunVolume.render(poseStack, projectionMatrix, camera);
@@ -141,14 +145,15 @@ public abstract class LevelRendererBubblePassMixin {
 
         // Before the fog, like the orb links.
         SselithEclipseGlow.render(poseStack, projectionMatrix, camera, partialTick);
-        // Under the fog and portal volumes, which draw over the water.
-        WohlonWaterMurk.render(poseStack, projectionMatrix, camera);
+        WillfaerFlameVolume.render(poseStack, projectionMatrix, camera);
         WohlonPortalVisuals.render(poseStack, projectionMatrix, camera);
         WohlonRitualTendrils.render(poseStack, projectionMatrix, camera);
         WohlonRitePedestalVisuals.render(poseStack, projectionMatrix, camera);
         WohlonStaffGhost.render(poseStack, projectionMatrix, camera);
         HeartOfTheWildTendrils.render(poseStack, projectionMatrix, camera);
         GrandStaffClient.render(poseStack, projectionMatrix, camera);
+        GrandStaffDreadClient.render(poseStack, projectionMatrix, camera);
+        GrandStaffDecayClient.render(poseStack, projectionMatrix, camera);
         // The dome goes after the water murk, and the upwelling's mist over the dome.
         FountainOfBlessingDome.render(poseStack, camera);
         FountainOfBlessingVolume.render(poseStack, projectionMatrix, camera);

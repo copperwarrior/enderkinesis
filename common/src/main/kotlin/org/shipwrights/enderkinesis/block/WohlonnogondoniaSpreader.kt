@@ -233,6 +233,12 @@ object WohlonnogondoniaSpreader {
      *  (4/3)π(16/4)³ ≈ 270 unique biome cells around the portal. */
     private const val SEED_RADIUS_BLOCKS: Int = 16
 
+    /** Ritual tree spread: blocks around the tree's centre line, and past its top and bottom. */
+    private const val TREE_SPREAD_RADIUS: Int = 48
+
+    /** The ritual tree spread fills its ellipsoid in 3 s. */
+    private const val TREE_SPREAD_TICKS: Int = 60
+
     /** 6 cardinal directions used by the spread trigger to pick
      *  one random adjacent block per Wohlon-cell random-tick.
      *  Cached because `Direction.values()` allocates a fresh array
@@ -768,6 +774,39 @@ object WohlonnogondoniaSpreader {
             if (!seenCells.add(BlockPos.asLong(qx, qy, qz))) continue
             setBiomeCellSilent(level, qx, qy, qz, wohlonBiome, touchedChunks)
         }
+    }
+
+    /**
+     * Spreads over [TREE_SPREAD_TICKS], outward from the centre line, every biome cell in the ellipsoid
+     * around a ritual tree: [TREE_SPREAD_RADIUS] around its centre line, and the same distance past its top
+     * and bottom. Cells in chunks unloaded when their turn comes are skipped.
+     */
+    @JvmStatic
+    fun spreadAroundTree(level: ServerLevel, centerX: Int, centerZ: Int, bottomY: Int, topY: Int) {
+        require(topY >= bottomY) { "tree top $topY below bottom $bottomY" }
+        val radius = TREE_SPREAD_RADIUS.toDouble()
+        val halfHeight = (topY - bottomY) / 2.0 + radius
+        val centerY = (topY + bottomY) / 2.0
+        val minY = maxOf(level.minBuildHeight, Math.floor(centerY - halfHeight).toInt())
+        val maxY = minOf(level.maxBuildHeight - 1, Math.ceil(centerY + halfHeight).toInt())
+        val cells = ArrayList<Pair<CellCoord, Double>>()
+        for (qx in ((centerX - TREE_SPREAD_RADIUS) shr 2)..((centerX + TREE_SPREAD_RADIUS) shr 2)) {
+            val dx = (qx * 4 + 2 - centerX) / radius
+            for (qz in ((centerZ - TREE_SPREAD_RADIUS) shr 2)..((centerZ + TREE_SPREAD_RADIUS) shr 2)) {
+                val dz = (qz * 4 + 2 - centerZ) / radius
+                val horizontal = dx * dx + dz * dz
+                if (horizontal > 1.0) continue
+                for (qy in (minY shr 2)..(maxY shr 2)) {
+                    val dy = (qy * 4 + 2 - centerY) / halfHeight
+                    val d2 = horizontal + dy * dy
+                    if (d2 <= 1.0) cells.add(CellCoord(qx, qy, qz) to d2)
+                }
+            }
+        }
+        if (cells.isEmpty()) return
+        cells.sortBy { it.second }
+        val job = SeedJob(ArrayDeque(cells.map { it.first }), TREE_SPREAD_TICKS)
+        seedJobs.computeIfAbsent(level.dimension()) { mutableListOf() }.add(job)
     }
 
     /** Runs the seed path on a tiny sphere, so the first ritual does not load its classes. */

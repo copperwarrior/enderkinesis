@@ -45,12 +45,21 @@ object YgannBarnacleLimbNetwork {
         val path = paths.getOrNull(pathIndex) ?: return
         val point = level.toWorldCoordinates(YgannBarnacleGeometry.limbPoint(pos, path, arcPx))
         if (player.eyePosition.distanceToSqr(point) > MAX_REACH_SQ) return
-        if (!be.cutLimb(level, pathIndex, arcPx)) return
+        cut(level, be, pathIndex, arcPx, point)
+    }
+
+    /** Cuts a limb and plays the cut at [point] (world space). False when the limb cannot be cut there now. */
+    fun cut(
+        level: net.minecraft.server.level.ServerLevel, be: YgannBarnacleBlockEntity, pathIndex: Int, arcPx: Double,
+        point: net.minecraft.world.phys.Vec3,
+    ): Boolean {
+        if (!be.cutLimb(level, pathIndex, arcPx)) return false
         level.playSound(
             null, point.x, point.y, point.z, EKSounds.YGANN_BARNACLE_CUT.get(), SoundSource.BLOCKS,
             1.0f, 0.9f + level.random.nextFloat() * 0.2f,
         )
         level.playSound(null, point.x, point.y, point.z, EKSounds.YGANN_BARNACLE_RIPPLE.get(), SoundSource.BLOCKS, 1f, 1f)
+        return true
     }
 
     /** The server's block-interaction reach limit (6 blocks), squared. */

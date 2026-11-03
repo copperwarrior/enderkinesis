@@ -28,13 +28,23 @@
     }
   },
   "spawners": {
-    "monster": [
-      { "type": "enderkinesis:wohlem", "weight": 4, "minCount": 1, "maxCount": 1 }
-    ],
+    "monster": [],
     "creature": [
-      { "type": "enderkinesis:prismatic_goat", "weight": 6, "minCount": 2, "maxCount": 4 }
+      {
+        "type": "enderkinesis:shilleagk_deer",
+        "weight": 4,
+        "minCount": 1,
+        "maxCount": 2
+      }
     ],
-    "ambient": [],
+    "ambient": [
+      {
+        "type": "enderkinesis:will_o_the_wisp",
+        "weight": 10,
+        "minCount": 1,
+        "maxCount": 3
+      }
+    ],
     "axolotls": [],
     "underground_water_creature": [],
     "water_creature": [],
@@ -55,7 +65,17 @@
     [],
     [],
     [],
-    [ "enderkinesis:wogor_forest", "enderkinesis:wogor_forest_water", "enderkinesis:wogor_forest_deep", "enderkinesis:wogor_poles", "enderkinesis:wohlon_trunk_bases", "enderkinesis:wohlon_deadwood", "enderkinesis:wohlon_huge_fungi", "enderkinesis:wohlon_understory" ],
+    [
+      "enderkinesis:wogor_forest",
+      "enderkinesis:wogor_forest_water",
+      "enderkinesis:wogor_forest_deep",
+      "enderkinesis:wogor_bank_weepers",
+      "enderkinesis:wogor_poles",
+      "enderkinesis:wohlon_trunk_bases",
+      "enderkinesis:wohlon_deadwood",
+      "enderkinesis:wohlon_huge_fungi",
+      "enderkinesis:wohlon_understory"
+    ],
     []
   ]
 }

@@ -37,6 +37,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.ShipCloakingTracker
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
@@ -131,10 +132,11 @@ object NamedEffects {
             }
             target.heal(SpellCurves.damage(GROWTH_HEAL, magnitude) * (if (ctx.pulsed) GROWTH_HEAL_PULSE else 1f) * ctx.share)
         }
+        val overgrow = SpellSounds.FirstChange(ctx, EKSounds.SPELL_GENESIS_OVERGROW, SpellSounds.magnitudeVolume(magnitude))
         for (pos in delivery.blocks(level)) {
             val state = level.getBlockState(pos)
             val grown = OVERGROWN[state.block] ?: continue
-            ctx.setBlock(pos, grown.withPropertiesOf(state))
+            if (ctx.setBlock(pos, grown.withPropertiesOf(state))) overgrow.at(pos)
         }
     }
 
@@ -170,23 +172,24 @@ object NamedEffects {
                 it !in own && !BuiltInRegistries.MOB_EFFECT.wrapAsHolder(it).`is`(CLEANSE_EXCLUSIONS)
             }
             for (effect in removable) target.removeEffect(effect)
+            if (removable.isNotEmpty()) SpellSounds.play(ctx.level, target.position(), EKSounds.SPELL_QUINTESSENCE_CLEANSE)
             for (effect in removable.take(MAX_DRAINS)) SpellVfx.cleanseDrain(ctx.level, target, effect.color)
         }
     }
 
     private fun appliedBy(element: Element): List<MobEffect> = when (element) {
-        Element.COLD -> listOf(EKEffects.FROZEN.get())
-        Element.GROWTH -> listOf(EKEffects.ENTANGLED.get())
-        Element.PURITY -> listOf(EKEffects.CRYSTALLIZED.get())
+        Element.WINTER -> listOf(EKEffects.FROZEN.get())
+        Element.GENESIS -> listOf(EKEffects.ENTANGLED.get())
+        Element.QUINTESSENCE -> listOf(EKEffects.CRYSTALLIZED.get())
         Element.GRAVITY -> listOf(EKEffects.WEIGHTED.get())
         Element.CHAOS -> listOf(EKEffects.DISCORD.get())
         Element.BLOOD -> listOf(
             EKEffects.BLEEDING.get(), EKEffects.ENTHRALLED.get(), EKEffects.BLOODBOUND.get(),
             EKEffects.BLOOD_SURGE.get(), MobEffects.REGENERATION,
         )
-        Element.POISON -> listOf(EKEffects.ROT.get(), MobEffects.HUNGER, MobEffects.WEAKNESS)
+        Element.CORRUPTION -> listOf(EKEffects.ROT.get(), MobEffects.HUNGER, MobEffects.WEAKNESS)
         Element.VOID -> listOf(EKEffects.HOLLOWED.get(), EKEffects.ABSENT.get())
-        Element.HEAT, Element.SUNDERING, Element.SUNFIRE -> emptyList()
+        Element.PYRE, Element.SUNDERING, Element.SUNFIRE -> emptyList()
     }
 
     fun purity(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
@@ -300,11 +303,11 @@ object NamedEffects {
             }
             SpellUse.AREA -> {}
             SpellUse.RUNE -> if (ctx.once()) for (target in targets) scatter(ctx, target, magnitude)
-            SpellUse.IMBUE -> if (ctx.once()) shuffle(ctx, listOfNotNull(ctx.caster) + targets)
+            SpellUse.IMBUE -> if (ctx.once()) shuffle(ctx, listOfNotNull(ctx.caster) + targets, SpellSounds.magnitudeVolume(magnitude))
         }
     }
 
-    private fun shuffle(ctx: SpellContext, targets: List<LivingEntity>) {
+    private fun shuffle(ctx: SpellContext, targets: List<LivingEntity>, volume: Float) {
         if (targets.size < 2) return
         val pool = ArrayList<Pair<LivingEntity, MobEffectInstance>>()
         for (target in targets) {
@@ -314,11 +317,15 @@ object NamedEffects {
                 target.removeEffect(instance.effect)
             }
         }
+        var moved = false
         for ((from, instance) in pool) {
             val to = targets[ctx.level.random.nextInt(targets.size)]
             to.addEffect(instance, ctx.caster)
-            if (to !== from) SpellVfx.shuffleSling(ctx.level, from, to, instance.effect.color)
+            if (to === from) continue
+            SpellVfx.shuffleSling(ctx.level, from, to, instance.effect.color)
+            moved = true
         }
+        if (moved) SpellSounds.play(ctx.level, targets[0].position(), EKSounds.SPELL_CHAOS_SWAP, volume)
     }
 
     private const val SCATTER_TRIES = 16
@@ -332,7 +339,10 @@ object NamedEffects {
             val y = target.y + (random.nextDouble() * 2 - 1) * range * 0.5
             val z = target.z + (random.nextDouble() * 2 - 1) * range
             if (ctx.level.isBlockInShipyard(BlockPos.containing(x, y, z))) return@repeat
-            if (target.randomTeleport(x, y, z, true)) return
+            if (target.randomTeleport(x, y, z, true)) {
+                SpellSounds.play(ctx.level, target.position(), EKSounds.SPELL_CHAOS_SWAP, SpellSounds.magnitudeVolume(magnitude))
+                return
+            }
         }
     }
 

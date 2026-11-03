@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "enderkinesis:item/ulder_scroll",
+    "layer1": "enderkinesis:item/ulder_scroll_wrap"
+  }
+}

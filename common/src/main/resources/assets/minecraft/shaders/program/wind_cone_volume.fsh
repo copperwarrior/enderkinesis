@@ -27,6 +27,8 @@ uniform float SpinRate;
 // bends quadratically, so it reaches (Range, Bend * Range).
 uniform vec2 Bend;
 uniform float FadeIn;
+// Share of Range where the far fade begins.
+uniform float FadeOutStart;
 
 in vec3 localPos;
 in vec3 viewPos;
@@ -38,7 +40,6 @@ const int STEPS = 24;
 const float AXIAL_FREQ = 0.18;
 // Noise cells across the cone radius; in cone-relative units, so the gusts widen with the cone.
 const float RADIAL_FREQ = 2.2;
-const float FADE_OUT_START = 0.4;
 // The same flow spreads over a wider cross-section further out.
 const float SPREAD_DIM = 0.12;
 
@@ -70,7 +71,7 @@ float density(vec3 p, out float core) {
     float wall = 1.0 - r * r;
     float envelope = exp(-2.0 * r * r) * wall * wall
         * smoothstep(0.0, FadeIn, p.x)
-        * (1.0 - smoothstep(FADE_OUT_START * Range, Range, p.x))
+        * (1.0 - smoothstep(FadeOutStart * Range, Range, p.x))
         / (1.0 + p.x * SPREAD_DIM);
     float angle = Twist * p.x - SpinRate * Time;
     float c = cos(angle);

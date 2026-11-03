@@ -405,7 +405,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
     /** Firing-ship recoil. If the cannon block is on a VS2 ship, enqueue
      *  a one-shot impulse at the WORLD-space muzzle in the OPPOSITE
      *  direction of the beam. The queue lives on the ship as a
-     *  [LauncherRecoilAttachment] (shared with the magic-missile launcher —
+     *  [LauncherRecoilAttachment] (shared with the Lodestar Launcher —
      *  same one-shot off-COM-force pattern) and is drained on the physics
      *  thread as a single-tick force. Off-COM at the muzzle produces both
      *  a backwards translation AND a slight rotation, exactly the kick a

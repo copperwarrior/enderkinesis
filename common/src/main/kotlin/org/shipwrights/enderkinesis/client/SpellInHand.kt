@@ -11,7 +11,7 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix3f
 import org.joml.Vector3f
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.spell.Shape
 
 object SpellInHand {
@@ -31,8 +31,8 @@ object SpellInHand {
     /** Returns true when the spell takes the place of the item, also when the entity is invisible to the viewer. */
     @JvmStatic
     fun draw(entity: LivingEntity, stack: ItemStack, arm: HumanoidArm, pose: PoseStack, buffers: MultiBufferSource, light: Int): Boolean {
-        if (stack.item !is MysticScrollItem) return false
-        val spell = MysticScrollItem.spellOf(stack) ?: return false
+        if (stack.item !is UlderScrollItem) return false
+        val spell = UlderScrollItem.spellOf(stack) ?: return false
         val mc = Minecraft.getInstance()
         // As in vanilla, an entity that is invisible to the viewer shows no spell.
         if (mc.player?.let { entity.isInvisibleTo(it) } == true) return true
@@ -43,9 +43,9 @@ object SpellInHand {
         val centre = Vec3(0.0, -ITEM_OUT, -(AHEAD - ITEM_PAST_FIST))
         val draw = SpellCore.Draw(pose.last(), buffers, SpellCore.viewIn(pose.last()), light, time)
         val usedArm = if (entity.usedItemHand == InteractionHand.MAIN_HAND) entity.mainArm else entity.mainArm.opposite
-        val casting = entity.isUsingItem && entity.useItem.item is MysticScrollItem && usedArm == arm && spell.castShape != null
-        if (casting) {
-            val charge = if (spell.castShape == Shape.BOLT) ((entity.ticksUsingItem + mc.frameTime) / FULL_CHARGE_TICKS).coerceIn(0f, 1f) else 1f
+        val heldShape = if (entity.isUsingItem && entity.useItem.item is UlderScrollItem && usedArm == arm) UlderScrollItem.heldShape(entity.useItem) else null
+        if (heldShape != null) {
+            val charge = if (heldShape == Shape.BOLT) ((entity.ticksUsingItem + mc.frameTime) / FULL_CHARGE_TICKS).coerceIn(0f, 1f) else 1f
             SpellCore.held(draw, centre, SpellCore.heldSize(charge, time), spell, charge, axis)
             remember(entity, pose, centre)
         } else {

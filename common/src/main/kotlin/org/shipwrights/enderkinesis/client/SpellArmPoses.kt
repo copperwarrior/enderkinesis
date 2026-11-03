@@ -8,7 +8,7 @@ import net.minecraft.world.entity.HumanoidArm
 import net.minecraft.world.entity.player.Player
 import org.joml.Matrix4f
 import org.joml.Vector3f
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.spell.Shape
 import java.util.WeakHashMap
 import kotlin.math.PI
@@ -149,7 +149,7 @@ object SpellArmPoses {
 
     private class State {
         var using: Using? = null
-        var casting: Pair<InteractionHand, Shape>? = null
+        var casting: Pair<InteractionHand, Boolean>? = null
         var lastCast: Pose? = null
         var release: Release? = null
         var released = Double.NEGATIVE_INFINITY
@@ -185,7 +185,7 @@ object SpellArmPoses {
     fun pose(model: HumanoidModel<*>, player: Player, age: Float) {
         val st = states.getOrPut(player) { State() }
         val time = age.toDouble()
-        val casting = player.isUsingItem && player.useItem.item is MysticScrollItem
+        val casting = player.isUsingItem && player.useItem.item is UlderScrollItem
         endStoppedCast(st, player, time, casting)
         val (arm, poseFor) = pick(st, player, time, casting) ?: return
         apply(model, arm, poseFor)
@@ -193,13 +193,13 @@ object SpellArmPoses {
 
     /** A stopped cast was let go (a Bolt is thrown) or switched away from (nothing was cast). */
     private fun endStoppedCast(st: State, player: Player, time: Double, casting: Boolean) {
-        st.casting?.let { (hand, shape) ->
+        st.casting?.let { (hand, thrown) ->
             if (casting) return@let
             st.casting = null
             val from = st.lastCast ?: return@let
             st.lastCast = null
             val letGo = time - st.released <= RELEASE_SIGNAL_TICKS
-            st.release = Release(time, letGo && shape == Shape.BOLT, armOf(player, hand), from)
+            st.release = Release(time, letGo && thrown, armOf(player, hand), from)
         }
     }
 
@@ -216,9 +216,9 @@ object SpellArmPoses {
             if (since > u.use.ticks) st.using = null
         }
         if (casting) {
-            val shape = MysticScrollItem.spellOf(player.useItem)?.castShape ?: return null
+            val shape = UlderScrollItem.heldShape(player.useItem) ?: return null
             if (st.casting == null) st.released = Double.NEGATIVE_INFINITY
-            st.casting = castHand to shape
+            st.casting = castHand to UlderScrollItem.throwsBolt(player.useItem)
             st.release = null
             val held = player.ticksUsingItem + partial
             return armOf(player, castHand) to { rc: V, ro: V, look: V ->
@@ -235,8 +235,8 @@ object SpellArmPoses {
             st.release = null
         }
         val hand = when {
-            player.mainHandItem.item is MysticScrollItem -> InteractionHand.MAIN_HAND
-            player.offhandItem.item is MysticScrollItem -> InteractionHand.OFF_HAND
+            player.mainHandItem.item is UlderScrollItem -> InteractionHand.MAIN_HAND
+            player.offhandItem.item is UlderScrollItem -> InteractionHand.OFF_HAND
             else -> return null
         }
         return armOf(player, hand) to { rc: V, ro: V, _: V -> carried(rc, ro, time / 20) }

@@ -28,6 +28,7 @@
     { "name": "Dispersal",    "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
     { "name": "OutShape",     "type": "float",     "count": 2,  "values": [ 0.45, 0.25 ] },
     { "name": "Time",         "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "EdgeEmpty",    "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "Strength",     "type": "float",     "count": 1,  "values": [ 0.0 ] }
   ]
 }

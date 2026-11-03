@@ -94,7 +94,7 @@ object ImbueVfx {
             val at = if (holder is Player && SpellHand.firstPerson(holder)) SpellHand.fistInWorld(holder.mainArm.opposite) ?: off
                 else off.lerp(SpellCasting.handOrigin(holder, InteractionHand.MAIN_HAND), 0.5)
             bursts += Burst(at, s.rgb, now, 0.45)
-            val crumbs = ItemParticleOption(ParticleTypes.ITEM, ItemStack(EKItems.MYSTIC_SCROLL.get()))
+            val crumbs = ItemParticleOption(ParticleTypes.ITEM, ItemStack(EKItems.ULDER_SCROLL.get()))
             repeat(14) {
                 val d = Vec3(SpellGeom.gauss(random), Math.abs(SpellGeom.gauss(random)) + 0.4, SpellGeom.gauss(random)).normalize().scale(0.08 + 0.05 * random.nextDouble())
                 level.addParticle(crumbs, at.x, at.y, at.z, d.x, d.y, d.z)
@@ -140,12 +140,12 @@ object ImbueVfx {
             if (moving) shot.lastStep = step
             if (!moving || turned) shot.spent = true
             if (shot.spent) continue
-            if (Element.GROWTH in shot.elements) {
+            if (Element.GENESIS in shot.elements) {
                 shot.path += p to now
                 if (shot.path.size > 80) shot.path.removeAt(0)
             }
             if (now % 2 == 0L) for (element in shot.elements) {
-                if (element != Element.GROWTH) SpellTrails.emit(level, element, p, random)
+                if (element != Element.GENESIS) SpellTrails.emit(level, element, p, random)
             }
         }
         for (id in gone) shots.remove(id)

@@ -1,0 +1,14 @@
+{
+  "gem": "enderkinesis:crepusculite_block",
+  "result": "enderkinesis:grand_staff_of_dread",
+  "colour": "#B5848B",
+  "body_colour": "#5E8568",
+  "slots": [
+    "minecraft:ender_pearl",
+    "minecraft:ender_pearl",
+    "minecraft:ender_pearl"
+  ],
+  "advancements": [
+    "enderkinesis:sureibjin/knowledge_of_death"
+  ]
+}

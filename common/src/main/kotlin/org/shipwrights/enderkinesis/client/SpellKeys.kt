@@ -9,7 +9,8 @@ import net.minecraft.client.KeyMapping
 import net.minecraft.client.Minecraft
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.world.InteractionHand
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import net.minecraft.world.entity.player.Player
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.spell.SelfCasts
 
 object SpellKeys {
@@ -30,10 +31,17 @@ object SpellKeys {
         while (SELF_CAST.consumeClick()) {
             val player = mc.player ?: return
             if (mc.screen != null) continue
-            val hand = InteractionHand.entries.firstOrNull { MysticScrollItem.spellOf(player.getItemInHand(it)) != null } ?: continue
+            if (player.isUsingItem || UlderScrollItem.coolingDown(player)) continue
+            val hand = InteractionHand.entries.firstOrNull { UlderScrollItem.spellOf(player.getItemInHand(it)) != null } ?: continue
+            UlderScrollItem.startCharge(player.level(), player, hand, UlderScrollItem.Companion.ChargeMode.SELF)
             val buf = FriendlyByteBuf(Unpooled.buffer())
             buf.writeEnum(hand)
             NetworkManager.sendToServer(SelfCasts.SELF_CAST, buf)
         }
     }
+
+    /** Vanilla releases an item use when the use key is up; a self cast holds on the self-cast key instead. */
+    @JvmStatic
+    fun holdsSelfCharge(player: Player): Boolean =
+        SELF_CAST.isDown && player.isUsingItem && UlderScrollItem.chargeMode(player.useItem) == UlderScrollItem.Companion.ChargeMode.SELF
 }

@@ -9,7 +9,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.item.ItemStack;
 import org.shipwrights.enderkinesis.client.IncantationOfWindsClient;
-import org.shipwrights.enderkinesis.registry.EKItems;
+import org.shipwrights.enderkinesis.item.IncantationItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * First-person presentation of the Incantation of Winds:
+ * First-person presentation of every incantation:
  *
  * <ul>
  *   <li>Bare arm — the item render is cancelled outright and the vanilla
@@ -53,10 +53,7 @@ public abstract class ItemInHandRendererWindsEmptyHandMixin {
         int combinedLight,
         CallbackInfo ci
     ) {
-        if (stack.isEmpty()
-            || stack.getItem() != EKItems.INSTANCE.getINCANTATION_OF_WINDS().get()) {
-            return;
-        }
+        if (!(stack.getItem() instanceof IncantationItem)) return;
         ci.cancel();
         if (player.isScoping() || player.isInvisible()) return;
 
@@ -64,7 +61,7 @@ public abstract class ItemInHandRendererWindsEmptyHandMixin {
         HumanoidArm arm = hand == InteractionHand.MAIN_HAND
             ? player.getMainArm()
             : player.getMainArm().getOpposite();
-        if (IncantationOfWindsClient.isCastingWinds(player, hand)) {
+        if (IncantationOfWindsClient.isCastingIncantation(player, hand)) {
             // Tilt-then-translate — same composition order as the mote
             // anchor in IncantationOfWindsClient so the dust stays glued.
             poseStack.mulPose(com.mojang.math.Axis.XP.rotationDegrees(
@@ -84,11 +81,9 @@ public abstract class ItemInHandRendererWindsEmptyHandMixin {
      *  full lower-and-raise re-equip dip. The incantation's cast should
      *  hold steady — skip the reset when that hand holds it. */
     @Inject(method = "itemUsed", at = @At("HEAD"), cancellable = true)
-    private void enderkinesis$noUseDipForWinds(InteractionHand hand, CallbackInfo ci) {
+    private void enderkinesis$noUseDipForIncantation(InteractionHand hand, CallbackInfo ci) {
         net.minecraft.client.player.LocalPlayer player = net.minecraft.client.Minecraft.getInstance().player;
-        if (player != null
-            && player.getItemInHand(hand).getItem()
-                == EKItems.INSTANCE.getINCANTATION_OF_WINDS().get()) {
+        if (player != null && player.getItemInHand(hand).getItem() instanceof IncantationItem) {
             ci.cancel();
         }
     }
@@ -102,6 +97,6 @@ public abstract class ItemInHandRendererWindsEmptyHandMixin {
         int combinedLight,
         CallbackInfo ci
     ) {
-        IncantationOfWindsClient.renderFirstPersonMotes(partialTicks, poseStack, buffer, player, combinedLight);
+        IncantationOfWindsClient.renderFirstPersonMotes(partialTicks, poseStack, buffer, player);
     }
 }

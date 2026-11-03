@@ -7,7 +7,7 @@ import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import org.joml.Matrix4f;
-import org.shipwrights.enderkinesis.client.remnant.IrreverantRemnantClient;
+import org.shipwrights.enderkinesis.client.remnant.IrreverentRemnantClient;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -43,6 +43,6 @@ public abstract class LevelRendererRemnantMixin {
         CallbackInfo ci
     ) {
         net.minecraft.world.phys.Vec3 pos = camera.getPosition();
-        IrreverantRemnantClient.render(poseStack, pos.x, pos.y, pos.z, partialTick);
+        IrreverentRemnantClient.render(poseStack, pos.x, pos.y, pos.z, partialTick);
     }
 }

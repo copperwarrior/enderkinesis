@@ -8,6 +8,7 @@ import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.Mob
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.UUID
 
 /** Not saved, because the effects behind the bonds are short. A bind never refreshes while it
@@ -53,6 +54,7 @@ object BloodPacts {
         masters[mob.uuid] = master.uuid
         if (mob.target === master) mob.target = null
         mob.addEffect(MobEffectInstance(EKEffects.ENTHRALLED.get(), ticks), master)
+        SpellSounds.play(level, mob.position(), EKSounds.SPELL_BLOOD_ENTHRALL, SpellSounds.magnitudeVolume(magnitude))
     }
 
     fun isThrallOf(entity: LivingEntity?, master: UUID): Boolean = entity != null && masters[entity.uuid] == master
@@ -79,6 +81,7 @@ object BloodPacts {
         val effect = EKEffects.BLOODBOUND.get()
         if (target.hasEffect(effect)) return
         target.addEffect(MobEffectInstance(effect, ticks), binder)
+        (target.level() as? ServerLevel)?.let { SpellSounds.play(it, target.position(), EKSounds.SPELL_BLOOD_PACT) }
         bound.getOrPut(binder.uuid) { HashSet() } += target.uuid
         binders[target.uuid] = binder.uuid
     }

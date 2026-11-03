@@ -191,6 +191,11 @@ object WohlonFogWisps {
         val viewFade = ((range - dist) / VIEW_FADE).coerceIn(0.0, 1.0)
         val fade = (smooth(life.toFloat()) * viewFade).toFloat()
         if (fade <= 0f) return false
+        if (!view.boxVisible(
+                (sx - wideX).toFloat(), (sy - up).toFloat(), (sz - wideZ).toFloat(),
+                (sx + wideX).toFloat(), (sy + up).toFloat(), (sz + wideZ).toFloat(),
+            )
+        ) return false
 
         u.boxMin.set(-wideX, -up, -wideZ)
         u.boxMax.set(wideX, up, wideZ)

@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "hanging=false": {
+      "model": "enderkinesis:block/willfaer_lantern"
+    },
+    "hanging=true": {
+      "model": "enderkinesis:block/willfaer_lantern_hanging"
+    }
+  }
+}

@@ -90,6 +90,15 @@ object EKParticles {
     val WIND_WISP: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("wind_wisp") { EKOceanParticleType() }
 
+    val RIVER_DROPLET: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("river_droplet") { EKOceanParticleType() }
+
+    val RIVER_MIST: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("river_mist") { EKOceanParticleType() }
+
+    val RIVER_FOAM: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("river_foam") { EKOceanParticleType() }
+
     /** Enchant-glyph particle for the reusable bezier beam (Wylland Tome, Tome of Signal orb
      *  network, future tomes). Identical to vanilla's enchanting-table glyph (same sga_a..sga_z
      *  sprite atlas) except each glyph stays bound to a [org.shipwrights.enderkinesis.client.BeamPath]
@@ -201,16 +210,16 @@ object EKParticles {
     val ARCHIVE_SPIRAL_DUST: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("archive_spiral_dust") { EKOceanParticleType() }
 
-    /** Magic-missile detonation spark. Identical lifecycle to vanilla
+    /** Lodestar Dart detonation spark. Identical lifecycle to vanilla
      *  `FireworkParticles.SparkParticle` (firework sprite atlas, gravity 0.004,
      *  ~48-60-tick life, alpha + colour fade in the second half) but with the
-     *  fade direction hard-coded to MagicMissileTrailRenderer's OUTLINE → GLOW
+     *  fade direction hard-coded to LodestarDartTrailRenderer's OUTLINE → GLOW
      *  pink palette so the burst reads as the same beam that produced the
      *  streak. See [org.shipwrights.enderkinesis.client.MissileBurstSparkParticle]. */
     val MISSILE_BURST_SPARK: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("missile_burst_spark") { EKOceanParticleType() }
 
-    /** Magic-missile detonation flash. Verbatim port of vanilla
+    /** Lodestar Dart detonation flash. Verbatim port of vanilla
      *  `FireworkParticles.OverlayParticle` (4-tick life, size grows then shrinks on a
      *  sin curve, alpha ramps down), tinted with the OUTLINE pink so the bright pop
      *  reads as the same beam. Vanilla `ParticleTypes.FLASH` can't carry a colour
@@ -252,6 +261,12 @@ object EKParticles {
     fun windGust(): EKOceanParticleType = WIND_GUST.get() as EKOceanParticleType
 
     fun windWisp(): EKOceanParticleType = WIND_WISP.get() as EKOceanParticleType
+
+    fun riverDroplet(): EKOceanParticleType = RIVER_DROPLET.get() as EKOceanParticleType
+
+    fun riverMist(): EKOceanParticleType = RIVER_MIST.get() as EKOceanParticleType
+
+    fun riverFoam(): EKOceanParticleType = RIVER_FOAM.get() as EKOceanParticleType
 
     fun enchantedBookBeam(): EKOceanParticleType = ENCHANTED_BOOK_BEAM.get() as EKOceanParticleType
 

@@ -13,7 +13,7 @@ import org.joml.Matrix3f
 import org.joml.Matrix4f
 import org.joml.Quaternionf
 import org.joml.Vector3f
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.mixin.GameRendererFovInvoker
 import org.shipwrights.enderkinesis.spell.Shape
 import org.shipwrights.enderkinesis.spell.Spell
@@ -162,7 +162,7 @@ object SpellHand {
         val now = SpellClock.hand(0f)
         using?.let { if (it.use == use && now - it.at < use.ticks) return }
         val arm = if (hand == InteractionHand.MAIN_HAND) player.mainArm else player.mainArm.opposite
-        using = Using(use, now, arm, MysticScrollItem.spellOf(player.getItemInHand(hand)))
+        using = Using(use, now, arm, UlderScrollItem.spellOf(player.getItemInHand(hand)))
     }
 
     /** This arm times only the local player in first person; [SpellArmPoses] times all third-person uses. */
@@ -181,30 +181,30 @@ object SpellHand {
         return u
     }
 
-    private class Release(val at: Double, val hand: InteractionHand, val shape: Shape, val pose: Pose)
+    private class Release(val at: Double, val hand: InteractionHand, val thrown: Boolean, val pose: Pose)
 
     // Render thread only.
-    private var castingNow: Pair<InteractionHand, Shape>? = null
+    private var castingNow: Pair<InteractionHand, Boolean>? = null
     private var castSlot = -1
     private var lastCastPose: Pose? = null
     private var release: Release? = null
 
     /** A release uses up the scroll, so do not require a scroll in the hand now. A switch away casts nothing. */
     private fun track(player: Player, time: Double) {
-        if (player.isUsingItem && player.useItem.item is MysticScrollItem) {
+        if (player.isUsingItem && player.useItem.item is UlderScrollItem) {
             val hand = player.usedItemHand
-            castingNow = hand to (MysticScrollItem.spellOf(player.useItem)?.castShape ?: Shape.BOLT)
+            castingNow = hand to UlderScrollItem.throwsBolt(player.useItem)
             castSlot = if (hand == InteractionHand.MAIN_HAND) player.inventory.selected else -1
             return
         }
-        val (hand, shape) = castingNow ?: return
+        val (hand, thrown) = castingNow ?: return
         castingNow = null
         val pose = lastCastPose ?: carried(time / 20.0)
         lastCastPose = null
         val held = player.getItemInHand(hand)
         val switched = (hand == InteractionHand.MAIN_HAND && player.inventory.selected != castSlot) ||
-            (!held.isEmpty && held.item !is MysticScrollItem)
-        release = if (switched) null else Release(time, hand, shape, pose)
+            (!held.isEmpty && held.item !is UlderScrollItem)
+        release = if (switched) null else Release(time, hand, thrown, pose)
     }
 
     /** [lower] 0..1 is how far the hand dropped out of view, as vanilla does when it puts an item away. */
@@ -213,8 +213,8 @@ object SpellHand {
 
     private fun now(player: Player, hand: InteractionHand, stack: ItemStack, time: Double, partialTick: Float): Now? {
         val t = time / 20.0
-        val using = player.isUsingItem && player.useItem.item is MysticScrollItem
-        val carriedSpell = if (stack.item is MysticScrollItem) MysticScrollItem.spellOf(stack) else null
+        val using = player.isUsingItem && player.useItem.item is UlderScrollItem
+        val carriedSpell = if (stack.item is UlderScrollItem) UlderScrollItem.spellOf(stack) else null
         val arm = if (hand == InteractionHand.MAIN_HAND) player.mainArm else player.mainArm.opposite
         usingAt(time)?.let { u ->
             if (u.arm != arm) return@let
@@ -230,8 +230,8 @@ object SpellHand {
             }
         }
         if (using && player.usedItemHand == hand) {
-            val spell = MysticScrollItem.spellOf(player.useItem) ?: return null
-            val shape = spell.castShape ?: return null
+            val spell = UlderScrollItem.spellOf(player.useItem) ?: return null
+            val shape = UlderScrollItem.heldShape(player.useItem) ?: return null
             val held = (player.ticksUsingItem + partialTick).toDouble()
             val blendIn = ease(held / 20 / 0.25)
             val pose = if (shape == Shape.BOLT) {
@@ -245,7 +245,7 @@ object SpellHand {
         release?.let { r ->
             if (r.hand != hand) return@let
             val since = (time - r.at).coerceAtLeast(0.0)
-            if (r.shape == Shape.BOLT) {
+            if (r.thrown) {
                 if (since < CAST_TICKS) {
                     val u = since / CAST_TICKS
                     return Now(r.pose.lerp(casting(t, u), ease(u / 0.3)), null, null, 0f, true)
@@ -283,7 +283,7 @@ object SpellHand {
         // Track for every hand: a cast can end by a release or a switch in either hand.
         track(player, time)
         thisFrame = null
-        if (!stack.isEmpty && stack.item !is MysticScrollItem) return false
+        if (!stack.isEmpty && stack.item !is UlderScrollItem) return false
         thisFrame = now(player, hand, stack, time, partialTick)
         return thisFrame != null
     }
@@ -304,7 +304,7 @@ object SpellHand {
     }
 
     @JvmStatic
-    fun keepsHeight(player: Player, hand: InteractionHand): Boolean = player.getItemInHand(hand).item is MysticScrollItem
+    fun keepsHeight(player: Player, hand: InteractionHand): Boolean = player.getItemInHand(hand).item is UlderScrollItem
 
     /** The click that starts a cast swings the hand over the arm motion. */
     @JvmStatic

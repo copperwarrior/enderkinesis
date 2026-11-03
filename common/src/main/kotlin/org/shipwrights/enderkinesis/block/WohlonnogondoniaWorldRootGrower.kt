@@ -42,8 +42,8 @@ import java.util.concurrent.ConcurrentHashMap
  *    the Y self-contour bug — newly placed wood never re-feeds the
  *    target.
  *  - **Bud → wood pipeline**: each emitted voxel routes through
- *    [placeOneWood] which prefers a Wogor Wood neighbour for the
- *    bud's FACING, falls back to any sturdy face, and writes air /
+ *    [placeOneWood] which prefers a Wogor Wood neighbour as the
+ *    bud's support, falls back to any sturdy face, and writes air /
  *    canBeReplaced positions as a bud while writing solid replaceable
  *    positions as direct wood.
  *  - **Cascade brake**: [suppressTrigger] flips on around our own
@@ -536,9 +536,7 @@ object WohlonnogondoniaWorldRootGrower {
                 val supportState = level.getBlockState(pos.relative(supportDir))
                 if (!supportState.`is`(WogorBudBlock.WOGOR_BUD_GROWABLE)) return null
             }
-            EKBlocks.WOGOR_BUD.get().defaultBlockState()
-                .setValue(WogorBudBlock.AGE, 0)
-                .setValue(WogorBudBlock.FACING, supportDir)
+            WogorBudBlock.newBud(level, pos)
         } else {
             EKBlocks.WOGOR_WOOD.get().defaultBlockState()
         }

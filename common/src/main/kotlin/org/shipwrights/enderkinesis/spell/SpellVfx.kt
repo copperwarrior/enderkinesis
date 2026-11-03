@@ -20,7 +20,7 @@ object SpellVfx {
         STREAM,
         FLASH,
         CRUSH,
-        /** Colour is the element ordinal. Life is the delay in ticks. */
+        /** Colour is the element ordinal, with the magnitude in tenths above bit 8. Life is the delay in ticks. */
         SIGNATURE,
         /** Colour is the spell elements, one bit per ordinal. */
         CHAIN,
@@ -59,6 +59,8 @@ object SpellVfx {
         SELF_CAST,
         /** Seed is the wearer entity id. */
         LASH,
+        /** Size is the height of the tear. */
+        WEHELO_RIFT,
 
         // The client makes these kinds itself as parts of signatures; the server never sends them.
         SHARDS,
@@ -71,6 +73,8 @@ object SpellVfx {
         BEAM_PRESS,
         /** Colour is the old state id at [a]. Size is exactly the old state id at [b]. */
         BLOCK_SWAP,
+        /** An ARC that also plays the Chaos chain sound. */
+        SOUNDED_ARC,
     }
 
     /** Each pair is the element of the stronger beam; the other is its opposite. Packs a count, then 3 bits for each. */
@@ -159,8 +163,12 @@ object SpellVfx {
     fun arc(level: ServerLevel, from: Vec3, to: Vec3, rgb: Int, life: Int = 6) =
         send(level, Kind.ARC, from, to, 1f, rgb, life)
 
-    fun chainArc(level: ServerLevel, from: Vec3, to: Vec3, payload: Collection<Element>, life: Int) =
-        send(level, Kind.CHAIN, from, to, 1f, elementBits(payload), life)
+    fun soundedArc(level: ServerLevel, from: Vec3, to: Vec3, rgb: Int) =
+        send(level, Kind.SOUNDED_ARC, from, to, 1f, rgb, 6)
+
+    /** Size carries [links], the arc count of the whole chain, so the client can quiet long chains. */
+    fun chainArc(level: ServerLevel, from: Vec3, to: Vec3, payload: Collection<Element>, life: Int, links: Int) =
+        send(level, Kind.CHAIN, from, to, links.toFloat(), elementBits(payload), life)
 
     fun stream(level: ServerLevel, from: Vec3, to: Vec3, rgb: Int, life: Int = 16) =
         send(level, Kind.STREAM, from, to, 1f, rgb, life)
@@ -171,8 +179,12 @@ object SpellVfx {
     fun flash(level: ServerLevel, at: Vec3, size: Double, rgb: Int, life: Int = 5) =
         send(level, Kind.FLASH, at, at, size.toFloat(), rgb, life)
 
-    fun signature(level: ServerLevel, element: Element, at: Vec3, size: Double, delay: Int = 0) =
-        send(level, Kind.SIGNATURE, at, at, size.toFloat(), element.ordinal, delay)
+    fun signature(level: ServerLevel, element: Element, at: Vec3, size: Double, magnitude: Float, delay: Int = 0) =
+        send(level, Kind.SIGNATURE, at, at, size.toFloat(), element.ordinal or (Math.round(magnitude * 10f).coerceIn(0, 0xFFFF) shl 8), delay)
+
+    fun signatureElement(rgb: Int): Element? = Element.entries.getOrNull(rgb and 0xFF)
+
+    fun signatureMagnitude(rgb: Int): Float = (rgb ushr 8) / 10f
 
     fun runeCircle(level: ServerLevel, at: Vec3, rgb: Int) = send(level, Kind.RUNE_CIRCLE, at, at, 1f, rgb, RUNE_CIRCLE_LIFE)
 
@@ -202,19 +214,22 @@ object SpellVfx {
     fun element(ctx: SpellContext, delivery: Delivery, element: Element, magnitude: Float) {
         val level = ctx.level
         when (delivery) {
-            is Delivery.SingleEntity -> signature(level, element, delivery.anchor, (delivery.entity.bbHeight * 0.75).toDouble())
-            is Delivery.SingleBlock -> signature(level, element, delivery.anchor, 0.9)
+            is Delivery.SingleEntity -> signature(level, element, delivery.anchor, (delivery.entity.bbHeight * 0.75).toDouble(), magnitude)
+            is Delivery.SingleBlock -> signature(level, element, delivery.anchor, 0.9, magnitude)
             is Delivery.Group -> for (target in delivery.targets) {
-                signature(level, element, target.position().add(0.0, target.bbHeight * 0.5, 0.0), (target.bbHeight * 0.75).toDouble())
+                signature(level, element, target.position().add(0.0, target.bbHeight * 0.5, 0.0), (target.bbHeight * 0.75).toDouble(), magnitude)
             }
             is Delivery.Sphere -> if (delivery.waves) {
                 val air = if (delivery.area) delivery.center.add(0.0, 1.0, 0.0) else delivery.center
                 send(level, Kind.AREA, delivery.center, air, delivery.radius.toFloat(), element.ordinal, AREA_LIFE)
+                SpellSounds.of(element)?.let {
+                    SpellSounds.play(level, delivery.center, it.area, SpellSounds.chargeVolume(ctx.charge) * SpellSounds.magnitudeVolume(magnitude))
+                }
                 for (target in delivery.living(ctx)) {
                     val at = target.position().add(0.0, target.bbHeight * 0.5, 0.0)
-                    signature(level, element, at, (target.bbHeight * 0.55).toDouble(), waveDelay(element, at.distanceTo(delivery.center), delivery.radius))
+                    signature(level, element, at, (target.bbHeight * 0.55).toDouble(), magnitude, waveDelay(element, at.distanceTo(delivery.center), delivery.radius))
                 }
-            } else signature(level, element, delivery.anchor, BOLT_SIGNATURE_SIZE)
+            } else signature(level, element, delivery.anchor, BOLT_SIGNATURE_SIZE, magnitude)
             else -> {}
         }
     }

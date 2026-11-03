@@ -7,24 +7,24 @@ import net.minecraft.network.chat.TextColor
 /** Sundering comes only from the Staff of Sundering and can never be inscribed.
  *  [color] must be easy to read on the dark tooltip background. */
 enum class Element(val id: String, val color: Int) {
-    HEAT("heat", 0xF08A3A),
-    COLD("cold", 0x5FB4DC),
-    GROWTH("growth", 0x78BB5C),
-    PURITY("purity", 0xB7AEE2),
+    PYRE("pyre", 0xF08A3A),
+    WINTER("winter", 0x5FB4DC),
+    GENESIS("genesis", 0x78BB5C),
+    QUINTESSENCE("quintessence", 0xB7AEE2),
     GRAVITY("gravity", 0xA69ECD),
     CHAOS("chaos", 0xEA6A9A),
     BLOOD("blood", 0xE3555F),
     SUNFIRE("sunfire", 0xE6B53C),
-    POISON("poison", 0x94C25A),
+    CORRUPTION("corruption", 0x94C25A),
     VOID("void", 0xB77FD4),
     SUNDERING("sundering", 0xC03A2B);
 
     val opposite: Element?
         get() = when (this) {
-            HEAT -> COLD
-            COLD -> HEAT
-            GROWTH -> PURITY
-            PURITY -> GROWTH
+            PYRE -> WINTER
+            WINTER -> PYRE
+            GENESIS -> QUINTESSENCE
+            QUINTESSENCE -> GENESIS
             GRAVITY -> CHAOS
             CHAOS -> GRAVITY
             else -> null
@@ -32,8 +32,8 @@ enum class Element(val id: String, val color: Int) {
 
     val components: List<Element>
         get() = when (this) {
-            SUNFIRE -> listOf(HEAT, PURITY)
-            POISON -> listOf(COLD, GROWTH)
+            SUNFIRE -> listOf(PYRE, QUINTESSENCE)
+            CORRUPTION -> listOf(WINTER, GENESIS)
             VOID -> listOf(GRAVITY, BLOOD)
             else -> listOf(this)
         }
@@ -43,9 +43,9 @@ enum class Element(val id: String, val color: Int) {
     val shape: Shape
         get() = when (this) {
             GRAVITY, VOID -> Shape.BOLT
-            GROWTH, PURITY, SUNFIRE, SUNDERING -> Shape.BEAM
+            GENESIS, QUINTESSENCE, SUNFIRE, SUNDERING -> Shape.BEAM
             CHAOS -> Shape.CHAIN
-            HEAT, COLD, POISON, BLOOD -> Shape.SPRAY
+            PYRE, WINTER, CORRUPTION, BLOOD -> Shape.SPRAY
         }
 
     val translationKey: String get() = "element.enderkinesis.$id"

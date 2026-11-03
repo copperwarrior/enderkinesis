@@ -10,6 +10,8 @@ import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.renderer.entity.ItemRenderer
 import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.core.particles.DustParticleOptions
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.ItemDisplayContext
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.phys.Vec3
@@ -18,6 +20,7 @@ import org.shipwrights.enderkinesis.block.AltarOfIlluminationBlock
 import org.shipwrights.enderkinesis.blockentity.AltarOfIlluminationBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AltarOfIlluminationBlockEntity.Event
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Inscription
 import kotlin.math.PI
@@ -208,7 +211,10 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
         if (be.ready.isEmpty) return
         val v = age - rise
         if (v < 22) {
-            once(be, ev, 1) { splash(be, centre, INK_DARK, 14) }
+            once(be, ev, 1) {
+                splash(be, centre, INK_DARK, 14)
+                playLocal(be, EKSounds.ALTAR_OF_ILLUMINATION_RISE.get())
+            }
             val q = v / 22
             ripple(centre, 0.02 + 0.3 * outCubic(q), INK_RIPPLE, 0.7 * (1 - q), ps, buffers)
             val q2 = v / 16
@@ -232,6 +238,7 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
         val to = Vec3(from.pos.x.coerceIn(INK_LO, INK_HI), surface + 0.002, from.pos.z.coerceIn(INK_LO, INK_HI))
         val p = (age - start) / dive
         if (p < 1) {
+            once(be, ev, 20 + i) { playLocal(be, EKSounds.ALTAR_OF_ILLUMINATION_GLYPH_DIVE.get()) }
             val across = outCubic(p); val down = inCubic(p)
             val pos = Vec3(
                 from.pos.x + (to.x - from.pos.x) * across,
@@ -353,6 +360,11 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
             level.addParticle(dust(color, 0.6f), base.x, base.y, base.z,
                 (random.nextDouble() - 0.5) * 0.15, 0.15 + random.nextDouble() * 0.15, (random.nextDouble() - 0.5) * 0.15)
         }
+    }
+
+    private fun playLocal(be: AltarOfIlluminationBlockEntity, sound: SoundEvent) {
+        val pos = be.blockPos
+        be.level?.playLocalSound(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, sound, SoundSource.BLOCKS, 1f, 1f, false)
     }
 
     private fun dust(rgb: Int, size: Float = 0.8f) = DustParticleOptions(

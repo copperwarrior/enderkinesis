@@ -10,7 +10,7 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.item.BeamSegment
 import org.shipwrights.enderkinesis.item.BeamTrace
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Shape
@@ -83,23 +83,23 @@ object ScrollBeamClient {
             fun add(mote: SpellMote, p: Vec3, vx: Double = 0.0, vy: Double = 0.0, vz: Double = 0.0) =
                 level.addParticle(EKParticles.mote(mote), p.x, p.y, p.z, vx, vy, vz)
             for (element in spell.magnitudes.keys) when (element) {
-                Element.HEAT -> along(0.15) { p, b ->
+                Element.PYRE -> along(0.15) { p, b ->
                     val q = p.add(out(b, 0.22 + 0.25 * random.nextDouble()))
                     add(if (random.nextInt(4) == 0) SpellMote.FLAME else SpellMote.EMBER_FLAME, q, vy = 0.012)
                     if (random.nextInt(6) == 0) add(SpellMote.SPRAY_SMOKE, q.add(0.0, 0.3, 0.0), vy = 0.03)
                 }
-                Element.COLD -> along(0.06) { p, b -> add(SpellMote.FROST, p.add(out(b, 0.2 + 0.2 * random.nextDouble())), vy = -0.04) }
-                Element.GROWTH -> {
+                Element.WINTER -> along(0.06) { p, b -> add(SpellMote.FROST, p.add(out(b, 0.2 + 0.2 * random.nextDouble())), vy = -0.04) }
+                Element.GENESIS -> {
                     along(0.024) { p, b -> val q = p.add(out(b, 0.3)); level.addParticle(EKParticles.leafChip(), q.x, q.y, q.z, 0.0, -0.02, 0.0) }
                     along(0.04) { p, b -> add(SpellMote.GROWTH_GLINT, p.add(out(b, 0.35 * Math.sqrt(random.nextDouble()))), vy = 0.006) }
                 }
-                Element.PURITY -> along(0.1) { p, b -> add(SpellMote.PURITY_GLITTER, p.add(out(b, 0.18 + 0.3 * random.nextDouble()))) }
+                Element.QUINTESSENCE -> along(0.1) { p, b -> add(SpellMote.PURITY_GLITTER, p.add(out(b, 0.18 + 0.3 * random.nextDouble()))) }
                 Element.CHAOS -> along(0.024) { p, b -> add(SpellMote.CHAOS_GLYPH, p.add(out(b, 0.35 + 0.4 * random.nextDouble()))) }
                 Element.BLOOD -> along(0.07) { p, b ->
                     if (random.nextBoolean()) add(SpellMote.BLOOD_DRIP, p.add(0.0, -0.1, 0.0))
                     else add(SpellMote.BLOOD_MIST, p.add(out(b, 0.25)), vy = -0.005)
                 }
-                Element.POISON -> along(0.02) { p, b -> add(SpellMote.POISON_SWIRL, p.add(out(b, 0.25 + 0.3 * random.nextDouble())), vy = 0.012) }
+                Element.CORRUPTION -> along(0.02) { p, b -> add(SpellMote.POISON_SWIRL, p.add(out(b, 0.25 + 0.3 * random.nextDouble())), vy = 0.012) }
                 Element.VOID -> along(0.06) { p, b ->
                     val q = p.add(out(b, 0.25 + 0.2 * random.nextDouble()))
                     when (random.nextInt(5)) {
@@ -207,11 +207,11 @@ object ScrollBeamClient {
         pose.popPose()
     }
 
-    fun prism(spell: Spell): Boolean = Element.PURITY in spell.magnitudes || Element.SUNDERING in spell.magnitudes
+    fun prism(spell: Spell): Boolean = Element.QUINTESSENCE in spell.magnitudes || Element.SUNDERING in spell.magnitudes
 
     private fun beamSpell(player: Player) =
-        if (!player.isUsingItem) null
-        else MysticScrollItem.spellOf(player.useItem)?.takeIf { it.shape == Shape.BEAM && it.signature == null }
+        if (!player.isUsingItem || UlderScrollItem.chargeMode(player.useItem) != null) null
+        else UlderScrollItem.spellOf(player.useItem)?.takeIf { it.shape == Shape.BEAM && it.signature == null }
 
     private fun trace(level: ClientLevel, player: Player, tickDelta: Float, reach: Double): BeamTrace {
         val shields = SunderingBeamTrace.collectWieldedShields(level, player)
@@ -231,17 +231,28 @@ object ScrollBeamClient {
         if (!cuts.containsKey(entityId)) return segments
         val cut = cuts.get(entityId)
         var at = -1.0
+        var joinAt: Vec3? = null
         for (beam in merged) {
             val knot = beam.knot ?: continue
             var travelled = 0.0
             for (seg in segments) {
                 val t = knot.subtract(seg.start).dot(seg.direction).coerceIn(0.0, seg.length)
                 val near = seg.start.add(seg.direction.scale(t)).distanceToSqr(knot) < KNOT_REACH * KNOT_REACH
-                if (near && (at < 0.0 || Math.abs(travelled + t - cut) < Math.abs(at - cut))) at = travelled + t
+                if (near && (at < 0.0 || Math.abs(travelled + t - cut) < Math.abs(at - cut))) { at = travelled + t; joinAt = knot }
                 travelled += seg.length
             }
         }
-        return truncate(segments, if (at >= 0.0) at else cut)
+        val kept = truncate(segments, if (at >= 0.0) at else cut)
+        return joinAt?.let { aimLastAt(kept, it) } ?: kept
+    }
+
+    /** Turns the last segment so that the drawn parent ends on the knot, not beside it. */
+    private fun aimLastAt(segments: List<BeamSegment>, knot: Vec3): List<BeamSegment> {
+        val last = segments.lastOrNull() ?: return segments
+        val span = knot.subtract(last.start)
+        val length = span.length()
+        if (length < 1.0e-3) return segments
+        return segments.dropLast(1) + BeamSegment(last.start, span.scale(1.0 / length), knot, length)
     }
 
     /**
@@ -278,7 +289,7 @@ object ScrollBeamClient {
     private fun fusionFlash(level: ClientLevel, at: Vec3, fusion: Element) {
         val mote = when (fusion) {
             Element.SUNFIRE -> SpellMote.SUNFIRE_DUST
-            Element.POISON -> SpellMote.POISON_SWIRL
+            Element.CORRUPTION -> SpellMote.POISON_SWIRL
             else -> SpellMote.VOID_MOTE
         }
         val random = Random(level.random.nextLong())

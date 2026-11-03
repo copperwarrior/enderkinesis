@@ -24,6 +24,10 @@ import net.minecraft.world.level.levelgen.GenerationStep
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.levelgen.RandomState
 import net.minecraft.world.level.levelgen.blending.Blender
+import org.shipwrights.enderkinesis.block.GuardianSpikeBase
+import org.shipwrights.enderkinesis.block.GuardianSpikeBlock
+import org.shipwrights.enderkinesis.block.GuardianSpikeOuterBlock
+import org.shipwrights.enderkinesis.block.SpikeAttachment
 import org.shipwrights.enderkinesis.registry.EKBlocks
 
 private typealias TunnelPath = WohlonnogondoniaSurfaceRoots.TunnelPath
@@ -134,6 +138,8 @@ class WohlonnogondoniaChunkGenerator(
                 // Root-tunnel cell just below this one: -1 none, else its kind. Decorations look one cell back.
                 var below = WohlonRootField.SOLID
                 var siltPending = false
+                // A spike in the cell below must not be overwritten by this ceiling's decor.
+                var belowSpike = false
 
                 for (i in 0 until span) {
                     val y = minY + i
@@ -200,7 +206,7 @@ class WohlonnogondoniaChunkGenerator(
                         }
                         siltPending = false
                     } else if (below == WohlonRootField.TUNNEL && kind != WohlonRootField.TUNNEL &&
-                        block !== AIR && block !== WATER
+                        block !== AIR && block !== WATER && !belowSpike
                     ) {
                         rootCeilingDecor(worldX, y - 1, worldZ, rootDead, y - 1 < SEA_LEVEL_Y)?.let {
                             chunk.setBlockState(mutable.set(worldX, y - 1, worldZ), it, false)
@@ -216,7 +222,11 @@ class WohlonnogondoniaChunkGenerator(
                     if (placed === block && kind == WohlonRootField.TUNNEL) {
                         placed = rootWallDecor(rootBand, localX, localZ, worldX, y, worldZ, rootDead, wet) ?: placed
                     }
+                    if (placed === block && kind == WohlonRootField.TUNNEL && !siltPending) {
+                        placed = rootSpikeDecor(rootBand, localX, localZ, worldX, y, worldZ, wet) ?: placed
+                    }
                     below = kind
+                    belowSpike = placed.block is GuardianSpikeBase
                     if (placed === AIR) continue
                     chunk.setBlockState(mutable.set(worldX, y, worldZ), placed, false)
                     if (placed.hasBlockEntity()) markBlockEntity(chunk, mutable)
@@ -318,6 +328,61 @@ class WohlonnogondoniaChunkGenerator(
             return heartfireOn(dir, wet)
         }
         return null
+    }
+
+    /**
+     * Guardian spikes in rare dense clusters, on a solid face, crease, or outer edge or corner beside this
+     * tunnel cell. A face or crease spike can bring others around the same cell corner.
+     */
+    private fun rootSpikeDecor(band: ByteArray, lx: Int, lz: Int, wx: Int, wy: Int, wz: Int, wet: Boolean): BlockState? {
+        val cluster = WohlonRootField.noise3(wx * SPIKE_CLUSTER_FREQ, wy * SPIKE_CLUSTER_FREQ, wz * SPIKE_CLUSTER_FREQ, SPIKE_CLUSTER_SALT)
+        if (cluster < SPIKE_CLUSTER_LOW) return null
+        val roll = (hash32(wx, wy * 31 + wz, ROOT_DECOR_SALT + 3) and 0xFFFF) / 65536.0
+        if (roll >= SPIKE_DENSITY * ((cluster - SPIKE_CLUSTER_LOW) / SPIKE_CLUSTER_SPAN).coerceAtMost(1.0)) return null
+        // Reservoir pick, so each fitting attachment is equally likely without a candidate list.
+        // An attachment fits as face or crease (its walls solid) or as outer (support solid, flanks open), never both.
+        var chosen: SpikeAttachment? = null
+        var fits = 0
+        for (attach in SPIKE_ATTACHMENTS) {
+            if (!wallsSolid(band, lx, wy, lz, attach) && !outerFits(band, lx, wy, lz, attach)) continue
+            fits++
+            if ((hash32(wx + attach.ordinal * 7919, wy * 31 + wz, ROOT_DECOR_SALT + 4) and 0xFFFF) % fits == 0) chosen = attach
+        }
+        if (chosen == null) return null
+        if (!wallsSolid(band, lx, wy, lz, chosen)) {
+            return EKBlocks.GUARDIAN_SPIKE_OUTER.get().defaultBlockState()
+                .setValue(GuardianSpikeOuterBlock.ATTACH, chosen)
+                .setValue(GuardianSpikeBase.WATERLOGGED, wet)
+        }
+        val corners = SpikeAttachment.CORNERS.filter { chosen.fitsCorner(it) }
+        val corner = corners[(hash32(wz, wy * 31 + wx, ROOT_DECOR_SALT + 5) and 0xFFFF) % corners.size]
+        val spikes = GuardianSpikeBlock.SLOTS.map { it.attachment(corner) }.filter { attach ->
+            attach == chosen || (
+                wallsSolid(band, lx, wy, lz, attach) &&
+                    (hash32(wx + attach.ordinal * 104729, wy * 31 + wz, ROOT_DECOR_SALT + 6) and 0xFFFF) / 65536.0 < SPIKE_EXTRA_CHANCE
+                )
+        }
+        return (EKBlocks.GUARDIAN_SPIKE.get() as GuardianSpikeBlock).stateWith(corner, spikes, wet)
+    }
+
+    /** Solid wall on every axis the spike leans on: a face spike's support, or both or all three crease walls. */
+    private fun wallsSolid(band: ByteArray, lx: Int, y: Int, lz: Int, a: SpikeAttachment): Boolean =
+        (a.dx == 0 || bandCell(band, lx + a.dx, y, lz) == BAND_SOLID) &&
+            (a.dy == 0 || bandCell(band, lx, y + a.dy, lz) == BAND_SOLID) &&
+            (a.dz == 0 || bandCell(band, lx, y, lz + a.dz) == BAND_SOLID)
+
+    /** Solid diagonal support with every other cell around the edge or corner open, so the folded plate shows. */
+    private fun outerFits(band: ByteArray, lx: Int, y: Int, lz: Int, a: SpikeAttachment): Boolean {
+        if (a.order == 1 || bandCell(band, lx + a.dx, y + a.dy, lz + a.dz) != BAND_SOLID) return false
+        return a.flanks.all { bandCell(band, lx + it.x, y + it.y, lz + it.z) == BAND_OPEN }
+    }
+
+    /** Solid, open, or unknown outside this chunk's band. Under the band is the bedrock floor. */
+    private fun bandCell(band: ByteArray, lx: Int, y: Int, lz: Int): Int {
+        if (lx !in 0..15 || lz !in 0..15 || y > WohlonRootField.BAND_TOP_Y) return BAND_UNKNOWN
+        if (y < WohlonRootField.CAVE_BOTTOM_Y) return BAND_SOLID
+        val idx = (lx * 16 + lz) * WohlonRootField.BAND_HEIGHT + (y - WohlonRootField.CAVE_BOTTOM_Y)
+        return if (band[idx].toInt() == WohlonRootField.TUNNEL) BAND_OPEN else BAND_SOLID
     }
 
     /** Foxfire needs wood that is rotting but not gone: it peaks between living and dead. */
@@ -891,8 +956,13 @@ class WohlonnogondoniaChunkGenerator(
                 paintHangingVines(target, chunkX0, chunkZ0, minY, span,
                     treeX, treeZ, skel.maxXZReach + 2,
                     maxLen = 7, seed = regionSeed xor 0x73A1F4C7.toInt())
+                val canopy = childCanopy(site)
+                paintVineEdge(target, chunkX0, chunkZ0, minY, span,
+                    canopy.crownX, canopy.crownZ, canopy.rx * CHILD_VINE_EDGE_RIM_SHARE, skel.maxXZReach + 2,
+                    CHILD_VINE_EDGE_MIN, CHILD_VINE_EDGE_MAX, regionSeed xor 0x5A17E5)
             }
             paintChildTreeRoots(target, chunkX0, chunkZ0, minY, span, site)
+            if (site.age == AGE_YOUNG) paintChildFins(target, chunkX0, chunkZ0, minY, span, site)
             if (site.age >= AGE_OLD) hollowChildTrunk(target, chunkX0, chunkZ0, minY, span, site)
             paintChildKnees(target, chunkX0, chunkZ0, minY, span, site)
             if (site.age == AGE_MATURE || site.age == AGE_OLD) paintWeyyePods(target, chunkX0, chunkZ0, minY, span, site)
@@ -1077,6 +1147,10 @@ class WohlonnogondoniaChunkGenerator(
         val shaftLeanX: Double = 0.0, val shaftLeanZ: Double = 0.0,
         /** Horizontal reach of chamber, anchors and entrance from the trunk centre. */
         val reach: Double = 0.0,
+        /** Root arm headings, each already turned toward water inside its slot. */
+        val rootAngles: DoubleArray = EMPTY_NODES,
+        /** Heading to the nearest open water, or NaN on dry ground. Knees gather on this side. */
+        val wetAngle: Double = Double.NaN,
     )
 
     /** Region → its child tree, or [NO_CHILD_TREE]. Pure of caller state, so a race only
@@ -1127,8 +1201,11 @@ class WohlonnogondoniaChunkGenerator(
         }
         // Good sites grow bigger trees; young trees are small whatever the site.
         val scale = (if (age == AGE_YOUNG) YOUNG_SCALE else 1.0) * (0.85 + 0.3 * quality)
-        val maxThickness = ((4.0 + hash01(regionSeed, 0, 1000) * 4.0) * scale).toInt().coerceAtLeast(2)
-        val buttressFlare = (maxThickness * (1.6 + hash01(regionSeed, 0, 1005) * 0.6)).toInt()
+        val fullThickness = ((4.0 + hash01(regionSeed, 0, 1000) * 4.0) * scale).toInt().coerceAtLeast(2)
+        // Young trees are slim; their flare is curved and carried by fins (see [paintChildFins]).
+        val maxThickness = if (age == AGE_YOUNG) Math.round(fullThickness * YOUNG_THICKNESS_SHARE).toInt().coerceAtLeast(2) else fullThickness
+        val buttressFlare = if (age == AGE_YOUNG) Math.round(maxThickness * YOUNG_FLARE_SHARE).toInt()
+            else (maxThickness * (1.6 + hash01(regionSeed, 0, 1005) * 0.6)).toInt()
         val coreRadius = maxThickness + buttressFlare
 
         val chamberY = surface + 1 - CHILD_CHAMBER_DEPTH
@@ -1162,7 +1239,45 @@ class WohlonnogondoniaChunkGenerator(
             chamberY, chamberR, shaftX, shaftZ, shaftBottomY,
             age, scale, maxThickness, buttressFlare, leanX, leanZ, anchors, entrance,
             shaftLeanX, shaftLeanZ, reach,
+            rootAngles = DoubleArray(childRootCount(regionSeed)) { childRootAngleToWater(treeX, treeZ, regionSeed, it) },
+            wetAngle = wetHeading(treeX, treeZ),
         )
+    }
+
+    /** Hydrotropism, as the ritual tree's roots do it: the slot heading that reaches water soonest. */
+    private fun childRootAngleToWater(treeX: Int, treeZ: Int, seed: Int, i: Int): Double {
+        val base = childRootAngle(seed, i)
+        val half = Math.PI * 2.0 / childRootCount(seed) * ROOT_TURN_SHARE
+        var best = base
+        var bestDist = Int.MAX_VALUE
+        for (k in -ROOT_TURN_STEPS..ROOT_TURN_STEPS) {
+            val a = base + half * k / ROOT_TURN_STEPS
+            var d = ROOT_TURN_PROBE_START
+            while (d <= ROOT_MAX_REACH && d < bestDist) {
+                if (surfaceYAt(treeX + (Math.cos(a) * d).toInt(), treeZ + (Math.sin(a) * d).toInt()) < SEA_LEVEL_Y - 1) {
+                    best = a
+                    bestDist = d
+                    break
+                }
+                d += ROOT_TURN_PROBE_STEP
+            }
+        }
+        return best
+    }
+
+    private fun wetHeading(x: Int, z: Int): Double {
+        var vx = 0.0
+        var vz = 0.0
+        for (i in 0 until 8) {
+            val a = i * Math.PI / 4.0
+            for (dist in WATER_PROBE_DISTANCES) {
+                if (surfaceYAt(x + (Math.cos(a) * dist).toInt(), z + (Math.sin(a) * dist).toInt()) < SEA_LEVEL_Y - 1) {
+                    vx += Math.cos(a)
+                    vz += Math.sin(a)
+                }
+            }
+        }
+        return if (Math.hypot(vx, vz) < 1e-6) Double.NaN else Math.atan2(vz, vx)
     }
 
     /** Raw candidate test only (no terrain), so neighbours can be checked without recursion. */
@@ -1350,33 +1465,25 @@ class WohlonnogondoniaChunkGenerator(
         val baseZ = site.z.toDouble()
         val baseYD = site.baseY.toDouble()
 
-        val sizeHash = hash01(seed, 0, 1000)
-        val aspectHash = hash01(seed, 0, 1001)
         val leanHash = hash01(seed, 0, 1002)
         val gravityHash = hash01(seed, 0, 1003)
         val biasHash = hash01(seed, 0, 1004)
-        val flareHash = hash01(seed, 0, 1005)
-
-        // Overall scale: 0.55–0.90 of the Mother Tree's canopy radii, times age and site quality.
-        val scaleFactor = (0.55 + sizeHash * 0.35) * site.scale
-        // Aspect: how flat or tall the canopy is. Tall trees have small
-        // ryRatio (narrow tall crown); broad trees have larger ratio.
-        val ryRatio = 0.18 + aspectHash * 0.22
-
-        val canopyRx = 55.0 * scaleFactor
-        val canopyRy = canopyRx * ryRatio
-        val canopyCy = baseYD + 60.0 * scaleFactor + canopyRy * 0.7
+        val young = site.age == AGE_YOUNG
+        val canopy = childCanopy(site)
+        val scaleFactor = canopy.scaleFactor
+        val canopyRx = canopy.rx
+        val canopyRy = canopy.ry
+        val canopyCy = canopy.cy
+        val crownX = canopy.crownX
+        val crownZ = canopy.crownZ
 
         // Ellipsoid volume → attractor density target ~one per 22 blocks.
         val canopyVolume = 4.19 * canopyRx * canopyRx * canopyRy
-        val attractorCount = (canopyVolume / 22.0).toInt().coerceIn(400, 2500)
+        val attractorCount = (canopyVolume / 22.0).toInt().coerceIn(if (young) YOUNG_MIN_ATTRACTORS else 400, 2500)
 
         val maxThickness = site.maxThickness
         val buttressFlare = site.buttressFlare
-        val buttressRange = canopyRy * 1.2 + 8.0
-        // Phototropism: the crown sits off-centre toward open sky, and the trunk bends to reach it.
-        val crownX = baseX + site.leanX * canopyRx * CROWN_LEAN_SHARE
-        val crownZ = baseZ + site.leanZ * canopyRx * CROWN_LEAN_SHARE
+        val buttressRange = canopy.buttressRange
 
         val full = WogorTreeSkeleton.build(
             originX = baseX, originY = baseYD, originZ = baseZ,
@@ -1397,16 +1504,67 @@ class WohlonnogondoniaChunkGenerator(
             buttressRange = buttressRange,
             trunkLean = 0.20 + leanHash * 0.25,
             gravity = 0.08 + gravityHash * 0.12,
+            taper = young,
+            curvedFlare = young,
         )
-        if (site.age < AGE_OLD) return full
-        // Old and dead trees have lost the top of the crown (dead ones lose more).
-        val breakShare = if (site.age == AGE_DEAD) DEAD_CROWN_KEEP else OLD_CROWN_KEEP
-        val breakY = baseYD + (canopyCy - baseYD) * breakShare
-        return TreeSkeleton(
-            keepConnected(full.segments, breakY),
-            if (site.age == AGE_DEAD) emptyList() else full.tips.filter { it.y <= breakY },
-            full.maxXZReach,
+        return when (site.age) {
+            AGE_OLD -> baldCrown(full, seed, baseYD, canopyCy)
+            AGE_DEAD -> TreeSkeleton(keepConnected(full.segments, baseYD + (canopyCy - baseYD) * DEAD_CROWN_KEEP), emptyList(), full.maxXZReach)
+            else -> full
+        }
+    }
+
+    private class ChildCanopy(
+        val scaleFactor: Double, val rx: Double, val ry: Double, val cy: Double,
+        val crownX: Double, val crownZ: Double, val buttressRange: Double,
+    )
+
+    /** Crown ellipsoid of a child tree. Young crowns are narrow and upright. */
+    private fun childCanopy(site: ChildTreeSite): ChildCanopy {
+        val young = site.age == AGE_YOUNG
+        // 0.55–0.90 of the Mother Tree's canopy radii, times age and site quality.
+        val scaleFactor = (0.55 + hash01(site.seed, 0, 1000) * 0.35) * site.scale
+        // Small ratio: narrow tall crown; large ratio: broad crown.
+        val ryRatio = if (young) YOUNG_RY_RATIO else 0.18 + hash01(site.seed, 0, 1001) * 0.22
+        val rx = 55.0 * scaleFactor * (if (young) YOUNG_CROWN_SHARE else 1.0)
+        val ry = rx * ryRatio
+        // Phototropism: the crown sits off-centre toward open sky, and the trunk bends to reach it.
+        return ChildCanopy(
+            scaleFactor, rx, ry, site.baseY + 60.0 * scaleFactor + ry * 0.7,
+            site.x + site.leanX * rx * CROWN_LEAN_SHARE, site.z + site.leanZ * rx * CROWN_LEAN_SHARE,
+            ry * 1.2 + 8.0,
         )
+    }
+
+    /**
+     * An old tree keeps its crown but has lost about a quarter of its big limbs, and its leaves in
+     * patches, so bare twigs show. The old clean snap at 0.75 of crown height fell below the first
+     * fork and left a bare pole.
+     */
+    private fun baldCrown(full: TreeSkeleton, seed: Int, baseY: Double, canopyCy: Double): TreeSkeleton {
+        val segments = full.segments
+        if (segments.isEmpty()) return full
+        val forks = HashMap<Triple<Double, Double, Double>, Int>()
+        for (s in segments) forks.merge(Triple(s.startX, s.startY, s.startZ), 1, Int::plus)
+        val dropAbove = baseY + (canopyCy - baseY) * BALD_MIN_HEIGHT_SHARE
+        val joined = HashSet<Triple<Double, Double, Double>>()
+        joined += Triple(segments[0].startX, segments[0].startY, segments[0].startZ)
+        val kept = ArrayList<TreeSegment>(segments.size)
+        val keptEnds = HashSet<Long>()
+        for ((i, s) in segments.withIndex()) {
+            val start = Triple(s.startX, s.startY, s.startZ)
+            if (start !in joined) continue
+            val isFork = (forks[start] ?: 0) >= 2
+            if (isFork && s.endRadius >= BALD_LIMB_MIN_RADIUS && s.startY > dropAbove && hash01(seed, i, 1090) < BALD_LIMB_DROP) continue
+            kept += s
+            joined += Triple(s.endX, s.endY, s.endZ)
+            keptEnds += BlockPos.asLong(s.endX.toInt(), s.endY.toInt(), s.endZ.toInt())
+        }
+        val tips = full.tips.filter {
+            BlockPos.asLong(it.x, it.y, it.z) in keptEnds &&
+                valueNoise3D(it.x * BALD_PATCH_FREQ, it.y * BALD_PATCH_FREQ, it.z * BALD_PATCH_FREQ + BALD_PATCH_SALT) > BALD_PATCH_CUT
+        }
+        return TreeSkeleton(kept, tips, full.maxXZReach)
     }
 
     /**
@@ -1445,7 +1603,7 @@ class WohlonnogondoniaChunkGenerator(
         val baseYD = site.baseY.toDouble()
         val rootScale = Math.sqrt(site.scale)
         for (i in 0 until rootCount) {
-            val angle = childRootAngle(seed, i)
+            val angle = site.rootAngles.getOrElse(i) { childRootAngle(seed, i) }
             val cosA = Math.cos(angle); val sinA = Math.sin(angle)
             val perpX = -sinA; val perpZ = cosA
 
@@ -1563,33 +1721,72 @@ class WohlonnogondoniaChunkGenerator(
         }
     }
 
-    /** A wide ring of cypress knees around the trunk, only where the ground is wet. */
+    /**
+     * Tapered cypress knees, only where the ground is wet. Each tip stands 1–2.6 blocks over the local
+     * water (or ground), and the knees gather on the side of the tree that faces water.
+     */
     private fun paintChildKnees(
         target: Array<Array<Array<BlockState?>>>,
         chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
         site: ChildTreeSite,
     ) {
+        if (site.age == AGE_YOUNG) return
         val count = ((CHILD_KNEES_MIN + Math.floorMod(hash32(site.seed, 5, 1060), CHILD_KNEES_EXTRA + 1)) * site.scale).toInt()
+        val reach = site.coreRadius + CHILD_KNEE_GAP + CHILD_KNEE_REACH + CHILD_KNEE_WIDE_RADIUS
+        if (!columnsNear(chunkX0, chunkZ0, site.x, site.z, reach)) return
         for (k in 0 until count) {
-            val angle = hash01(site.seed, k, 1061) * 2.0 * Math.PI
-            val dist = site.coreRadius + CHILD_KNEE_GAP + hash01(site.seed, k, 1062) * CHILD_KNEE_SPREAD
+            val angle = if (site.wetAngle.isNaN()) hash01(site.seed, k, 1061) * 2.0 * Math.PI
+                else site.wetAngle + (hash01(site.seed, k, 1061) + hash01(site.seed, k, 1065) + hash01(site.seed, k, 1066) - 1.5) * CHILD_KNEE_WET_SPREAD
+            val dist = site.coreRadius + CHILD_KNEE_GAP + hash01(site.seed, k, 1062) * CHILD_KNEE_REACH
             val kx = site.x + Math.round(Math.cos(angle) * dist).toInt()
             val kz = site.z + Math.round(Math.sin(angle) * dist).toInt()
-            val tip = SEA_LEVEL_Y + Math.floorMod(hash32(site.seed, k, 1063), 3)
-            val wide = hash01(site.seed, k, 1064) < CHILD_KNEE_WIDE_SHARE
-            for (ox in 0..(if (wide) 1 else 0)) for (oz in 0..(if (wide) 1 else 0)) {
-                val lx = kx + ox - chunkX0
-                val lz = kz + oz - chunkZ0
-                if (lx !in 0..15 || lz !in 0..15) continue
-                val ground = effectiveSurfaceYAt(kx + ox, kz + oz)
-                if (ground > SEA_LEVEL_Y) continue
-                val col = target[lx][lz]
-                for (wy in ground + 1..tip) {
-                    val ly = wy - minY
-                    if (ly !in 0 until span) continue
-                    if (col[ly] != null && col[ly] !== WATER) break
-                    col[ly] = WOGOR_WOOD_Y
-                }
+            val ground = effectiveSurfaceYAt(kx, kz)
+            if (ground > SEA_LEVEL_Y) continue
+            val top = maxOf(ground, SEA_LEVEL_Y - 1) + 1.0 + hash01(site.seed, k, 1063) * CHILD_KNEE_RISE
+            val r0 = if (hash01(site.seed, k, 1064) < CHILD_KNEE_WIDE_SHARE) CHILD_KNEE_WIDE_RADIUS else CHILD_KNEE_RADIUS
+            val cx = kx + 0.5
+            val cz = kz + 0.5
+            val leanX = (hash01(site.seed, k, 1067) - 0.5) * CHILD_KNEE_LEAN
+            val leanZ = (hash01(site.seed, k, 1068) - 0.5) * CHILD_KNEE_LEAN
+            paintTreeSegment(target, chunkX0, chunkZ0, minY, span,
+                TreeSegment(cx, ground + 0.5, cz, cx + leanX, top + 0.5, cz + leanZ, r0, CHILD_KNEE_TIP_RADIUS), WOGOR_WOOD_Y)
+        }
+    }
+
+    /** True when any column of the chunk is within [reach] of ([x], [z]). */
+    private fun columnsNear(chunkX0: Int, chunkZ0: Int, x: Int, z: Int, reach: Double): Boolean {
+        val dx = (x.coerceIn(chunkX0, chunkX0 + 15) - x).toDouble()
+        val dz = (z.coerceIn(chunkZ0, chunkZ0 + 15) - z).toDouble()
+        return dx * dx + dz * dz <= reach * reach
+    }
+
+    /**
+     * A young tree's buttress fins, one along each root arm: tall at the trunk, falling away in a curve,
+     * so the roots grow out of the fins and not out of a cone.
+     */
+    private fun paintChildFins(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+        site: ChildTreeSite,
+    ) {
+        val d0 = site.maxThickness + 1.0
+        val d1 = site.coreRadius + FIN_BEYOND_CORE
+        if (!columnsNear(chunkX0, chunkZ0, site.x, site.z, d1 + FIN_BASE_RADIUS + 1.0)) return
+        val finH = childCanopy(site).buttressRange * FIN_HEIGHT_SHARE
+        val cx = site.x + 0.5
+        val cz = site.z + 0.5
+        val baseY = site.baseY - 1.0
+        for (angle in site.rootAngles) {
+            val c = Math.cos(angle)
+            val s = Math.sin(angle)
+            var d = d0
+            while (d <= d1) {
+                val f = (d - d0) / (d1 - d0)
+                val h = finH * (1.0 - f) * (1.0 - f) + 0.6
+                paintTreeSegment(target, chunkX0, chunkZ0, minY, span,
+                    TreeSegment(cx + c * d, baseY, cz + s * d, cx + c * d, baseY + h, cz + s * d, FIN_BASE_RADIUS, FIN_TOP_RADIUS),
+                    WOGOR_WOOD_Y)
+                d += FIN_STEP
             }
         }
     }
@@ -1647,7 +1844,31 @@ class WohlonnogondoniaChunkGenerator(
         skeleton: TreeSkeleton, wood: BlockState,
     ) {
         for (seg in skeleton.segments) {
-            paintTreeSegment(target, chunkX0, chunkZ0, minY, span, seg, wood)
+            if (Math.max(seg.startRadius, seg.endRadius) < TWIG_RADIUS) paintTwig(target, chunkX0, chunkZ0, minY, span, seg, wood)
+            else paintTreeSegment(target, chunkX0, chunkZ0, minY, span, seg, wood)
+        }
+    }
+
+    /** A twig as a face-connected line of blocks. A sub-block capsule leaves diagonal chains with gaps. */
+    private fun paintTwig(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+        seg: TreeSegment, wood: BlockState,
+    ) {
+        val len = Math.max(Math.abs(seg.endX - seg.startX), Math.max(Math.abs(seg.endY - seg.startY), Math.abs(seg.endZ - seg.startZ)))
+        val steps = Math.ceil(len * 2.0).toInt() + 1
+        var px = Math.floor(seg.startX).toInt()
+        var py = Math.floor(seg.startY).toInt()
+        var pz = Math.floor(seg.startZ).toInt()
+        placeWoody(target, chunkX0, chunkZ0, minY, span, px, py, pz, wood)
+        for (s in 1..steps) {
+            val t = s.toDouble() / steps
+            val x = Math.floor(seg.startX + (seg.endX - seg.startX) * t).toInt()
+            val y = Math.floor(seg.startY + (seg.endY - seg.startY) * t).toInt()
+            val z = Math.floor(seg.startZ + (seg.endZ - seg.startZ) * t).toInt()
+            if (x != px) { px = x; placeWoody(target, chunkX0, chunkZ0, minY, span, px, py, pz, wood) }
+            if (y != py) { py = y; placeWoody(target, chunkX0, chunkZ0, minY, span, px, py, pz, wood) }
+            if (z != pz) { pz = z; placeWoody(target, chunkX0, chunkZ0, minY, span, px, py, pz, wood) }
         }
     }
 
@@ -2047,7 +2268,8 @@ class WohlonnogondoniaChunkGenerator(
                 // column when it would hang into water/terrain.
                 val effSurface = effectiveSurfaceYAt(wx, wz)
                 val waterTop = if (effSurface >= SEA_LEVEL_Y) effSurface else SEA_LEVEL_Y
-                val len = (1 + ((h ushr 3) and 0x7)).coerceAtMost(maxLen)
+                // Bits 0–2 gate the column and 8–9 pick the face; the length takes its own bits.
+                val len = 1 + ((h ushr 12) and 0xFFFF) % maxLen
                 val vineState = VINE_BLOCKS[supportedVineFace(target, lx, lz, lowestLeafLY - 1, (h ushr 8) and 0x3)]
                 for (v in 1..len) {
                     val vy = lowestLeafLY - v
@@ -2058,6 +2280,61 @@ class WohlonnogondoniaChunkGenerator(
                     col[vy] = vineState
                 }
             }
+        }
+    }
+
+    /**
+     * Long vines on the outer side of the crown's rim leaves, so the edge weeps; now and then a short
+     * leaf strand drops instead. Only leaves in this chunk with an outward neighbour in this chunk count,
+     * so the result does not depend on which chunk generates first.
+     */
+    @Suppress("LongParameterList") // chunk slice + crown centre and rim + length range + seed
+    private fun paintVineEdge(
+        target: Array<Array<Array<BlockState?>>>,
+        chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
+        cx: Double, cz: Double, minR: Double, maxR: Int, minLen: Int, maxLen: Int, seed: Int,
+    ) {
+        val nearX = cx.coerceIn(chunkX0.toDouble(), chunkX0 + 15.0) - cx
+        val nearZ = cz.coerceIn(chunkZ0.toDouble(), chunkZ0 + 15.0) - cz
+        if (nearX * nearX + nearZ * nearZ > maxR.toDouble() * maxR) return
+        for (lx in 0..15) for (lz in 0..15) {
+            val wx = chunkX0 + lx
+            val wz = chunkZ0 + lz
+            val dx = wx + 0.5 - cx
+            val dz = wz + 0.5 - cz
+            val d = Math.hypot(dx, dz)
+            if (d < minR || d > maxR) continue
+            // Outward along the larger axis; [VINE_BLOCKS] faces are NORTH, SOUTH, EAST, WEST.
+            val alongX = Math.abs(dx) >= Math.abs(dz)
+            val ox = if (alongX) Math.signum(dx).toInt() else 0
+            val oz = if (alongX) 0 else Math.signum(dz).toInt()
+            val nx = lx + ox
+            val nz = lz + oz
+            if (nx !in 0..15 || nz !in 0..15) continue
+            val face = when { ox > 0 -> 3; ox < 0 -> 2; oz > 0 -> 0; else -> 1 }
+            val col = target[lx][lz]
+            val out = target[nx][nz]
+            val waterTop = Math.max(effectiveSurfaceYAt(wx + ox, wz + oz), SEA_LEVEL_Y)
+            for (ly in span - 1 downTo 1) {
+                if (col[ly] !== WOGOR_LEAVES) continue
+                val h = hash32(wx, ly * 7919 + wz, seed)
+                val roll = (h and 0xFFFF) / 65536.0
+                val len = minLen + ((h ushr 16) and 0x7FFF) % (maxLen - minLen + 1)
+                if (out[ly] == null && roll < VINE_EDGE_CHANCE) {
+                    hangColumn(out, ly, len, VINE_BLOCKS[face], minY, waterTop)
+                } else if (col[ly - 1] == null && roll > 1.0 - VINE_EDGE_LEAF_CHANCE) {
+                    hangColumn(col, ly - 1, (len + 1) / 2, WOGOR_LEAVES, minY, waterTop)
+                }
+            }
+        }
+    }
+
+    /** Fills empty cells of [col] down from [fromLy], stopping at anything solid or at the water. */
+    private fun hangColumn(col: Array<BlockState?>, fromLy: Int, len: Int, state: BlockState, minY: Int, waterTop: Int) {
+        for (v in 0 until len) {
+            val ly = fromLy - v
+            if (ly < 0 || col[ly] != null || ly + minY <= waterTop) return
+            col[ly] = state
         }
     }
 
@@ -2558,7 +2835,13 @@ class WohlonnogondoniaChunkGenerator(
             val profile = if (edge <= LEVEE_CREST_EDGE) 1.0 else 1.0 - (edge - LEVEE_CREST_EDGE) / (LEVEE_WIDTH - LEVEE_CREST_EDGE)
             shaped = Math.max(shaped, waterTop + Math.round(crest * profile).toInt())
         }
-        val bankCap = waterTop + Math.ceil((edge * RIVER_BANK_SLOPE).toDouble()).toInt()
+        // A constant slope from a smooth channel line makes even steps parallel to the river.
+        val jitter = valueNoise2(wx * BANK_JITTER_FREQ, wz * BANK_JITTER_FREQ, RIVER_SALT + 7) * BANK_JITTER_AMP
+        val slopeNoise = 0.5 + 0.5 * valueNoise2(wx * BANK_SLOPE_FREQ, wz * BANK_SLOPE_FREQ, RIVER_SALT + 8)
+        // High ground steepens the bank so it meets the surface inside the window; else the window edge is a wall.
+        val needed = (natural - waterTop) / (RIVER_BANK_WINDOW - BANK_JITTER_AMP - 1.0)
+        val slope = Math.max(BANK_SLOPE_MIN + slopeNoise * BANK_SLOPE_SPAN, needed)
+        val bankCap = waterTop + Math.ceil(Math.max(0.0, edge + jitter) * slope).toInt()
         return Math.min(shaped, bankCap)
     }
 
@@ -3216,34 +3499,8 @@ class WohlonnogondoniaChunkGenerator(
         val baseY = HILL_PEAK_Y.toDouble()
         val baseZ = MOTHER_TREE_CZ.toDouble()
 
-        // CANOPY: wide flat ellipsoid centred at y=130 — attractors span
-        // y≈115..145. Origin y=42 → ~30 iterations of bias-only growth
-        // before attractors latch on, then branching into the canopy
-        // volume. Tree top reaches ~y=150 (108 blocks above the hill
-        // peak).
-        //
-        // rx=rz=70, ry=15 — a wide flat crown. Volume ≈ 308k blocks,
-        // count 1300 → ~one attractor per 240 blocks.
-        //
-        // **trunkLean=0.35** drives bias-only growth through smooth 1D
-        // noise on iter, with different X/Z frequencies — the trunk leans
-        // in a slowly-rotating direction as it rises (natural lean +
-        // twist, not zigzag).
-        //
-        // thicknessScale=0.4 keeps internal branches off the cap so we
-        // see a real thickness gradient from trunk to twigs.
-        //
-        // buttressFlare=5 over buttressRange=14 — the trunk's bottom 14
-        // blocks are visibly chunkier (radius up to 10 ≈ 21-block
-        // diameter at the very base), so the trunk reads as a flared
-        // buttress meeting the ground, not a pole.
-        // Main canopy cloud + two mid-trunk attractor clusters that pull
-        // out major branches off the trunk *below* the main canopy. Each
-        // mid-cluster carries ~70 attractors at radius 14, positioned ~22
-        // blocks off-axis at trunk-height — the trunk's bias-only growth
-        // is pulled toward them when its tip enters their attractionDist
-        // window, producing two distinct large limbs at different heights
-        // and on opposite sides before reaching the main canopy.
+        // The trunk grows bias-only until an attractor is within attractionDist; the side clouds pull
+        // limbs off it below the crown at y≈222, so it does not rise as one bare pole.
         val mainCanopy = WogorTreeSkeleton.ellipsoidAttractors(
             cx = baseX, cy = 252.0, cz = baseZ,
             rx = 140.0, ry = 30.0, rz = 140.0,
@@ -3259,10 +3516,10 @@ class WohlonnogondoniaChunkGenerator(
             rx = 28.0, ry = 18.0, rz = 28.0,
             count = 280, seed = MOTHER_TREE_SEED + 11,
         )
-        val attractors = DoubleArray(mainCanopy.size + branch1.size + branch2.size)
-        System.arraycopy(mainCanopy, 0, attractors, 0, mainCanopy.size)
-        System.arraycopy(branch1, 0, attractors, mainCanopy.size, branch1.size)
-        System.arraycopy(branch2, 0, attractors, mainCanopy.size + branch1.size, branch2.size)
+        val parts = listOf(mainCanopy, branch1, branch2) + motherScaffoldAttractors(baseX, baseY, baseZ)
+        val attractors = DoubleArray(parts.sumOf { it.size })
+        var at = 0
+        for (p in parts) { System.arraycopy(p, 0, attractors, at, p.size); at += p.size }
 
         WogorTreeSkeleton.build(
             originX = baseX, originY = baseY, originZ = baseZ,
@@ -3279,7 +3536,23 @@ class WohlonnogondoniaChunkGenerator(
             buttressRange = 45.0,
             trunkLean = 0.35,
             gravity = 0.15,
+            taper = true,
         )
+    }
+
+    /** One small attractor cloud per scaffold limb, so big limbs leave the trunk below the crown. */
+    private fun motherScaffoldAttractors(baseX: Double, baseY: Double, baseZ: Double): List<DoubleArray> {
+        var angle = hash01(MOTHER_TREE_SEED, 0, 3000) * 2.0 * Math.PI
+        return (0 until MOTHER_LIMB_COUNT).map { i ->
+            angle += 2.0 * Math.PI / MOTHER_LIMB_COUNT * (0.6 + hash01(MOTHER_TREE_SEED, i, 3001) * 0.8)
+            val y = baseY + MOTHER_LIMB_LOW + i * MOTHER_LIMB_STEP + hash01(MOTHER_TREE_SEED, i, 3002) * MOTHER_LIMB_JITTER
+            val dist = MOTHER_LIMB_DIST_MIN + hash01(MOTHER_TREE_SEED, i, 3003) * MOTHER_LIMB_DIST_SPREAD
+            WogorTreeSkeleton.ellipsoidAttractors(
+                cx = baseX + Math.cos(angle) * dist, cy = y, cz = baseZ + Math.sin(angle) * dist,
+                rx = MOTHER_LIMB_RXZ, ry = MOTHER_LIMB_RY, rz = MOTHER_LIMB_RXZ,
+                count = MOTHER_LIMB_ATTRACTORS, seed = MOTHER_TREE_SEED + 200 + i,
+            )
+        }
     }
 
     /**
@@ -3334,6 +3607,9 @@ class WohlonnogondoniaChunkGenerator(
             footprintR = canopy.maxXZReach + 2,
             maxLen = 12,
             seed = MOTHER_TREE_SEED xor 0x73A1F4C7.toInt())
+        paintVineEdge(target, chunkX0, chunkZ0, minY, span,
+            MOTHER_TREE_CX.toDouble(), MOTHER_TREE_CZ.toDouble(), MOTHER_VINE_EDGE_RIM.toDouble(), canopy.maxXZReach + 2,
+            MOTHER_VINE_EDGE_MIN, MOTHER_VINE_EDGE_MAX, MOTHER_TREE_SEED xor 0x5A17E5)
     }
 
     /**
@@ -3652,7 +3928,11 @@ class WohlonnogondoniaChunkGenerator(
         private const val RIVER_MAX_DEPTH = 4.0f
         /** Horizontal reach past the channel edge that banks and levees can reshape. */
         private const val RIVER_BANK_WINDOW = 14f
-        private const val RIVER_BANK_SLOPE = 1.0f
+        private const val BANK_SLOPE_MIN = 0.5
+        private const val BANK_SLOPE_SPAN = 1.3
+        private const val BANK_SLOPE_FREQ = 0.03
+        private const val BANK_JITTER_FREQ = 0.18
+        private const val BANK_JITTER_AMP = 1.5
         private const val LEVEE_WIDTH = 6f
         private const val LEVEE_CREST_EDGE = 2f
         private const val LEVEE_NOISE_FREQ = 0.05
@@ -4198,7 +4478,6 @@ class WohlonnogondoniaChunkGenerator(
         private const val AGE_MATURE_SHARE = 0.54
         private const val AGE_DEAD_SHARE = 0.06
         private const val YOUNG_SCALE = 0.55
-        private const val OLD_CROWN_KEEP = 0.75
         private const val DEAD_CROWN_KEEP = 0.6
         private const val CROWD_RANGE = 160.0
         private const val LIGHT_PROBE_DISTANCE = 30
@@ -4224,8 +4503,52 @@ class WohlonnogondoniaChunkGenerator(
         private const val CHILD_KNEES_MIN = 14
         private const val CHILD_KNEES_EXTRA = 16
         private const val CHILD_KNEE_GAP = 2.0
-        private const val CHILD_KNEE_SPREAD = 8.0
         private const val CHILD_KNEE_WIDE_SHARE = 0.3
+        private const val CHILD_KNEE_REACH = 12.0
+        private const val CHILD_KNEE_WET_SPREAD = 1.3
+        private const val CHILD_KNEE_RISE = 1.6
+        private const val CHILD_KNEE_RADIUS = 1.3
+        private const val CHILD_KNEE_WIDE_RADIUS = 1.8
+        private const val CHILD_KNEE_TIP_RADIUS = 0.35
+        private const val CHILD_KNEE_LEAN = 0.6
+        private const val YOUNG_THICKNESS_SHARE = 0.6
+        private const val YOUNG_FLARE_SHARE = 0.8
+        private const val YOUNG_CROWN_SHARE = 0.55
+        private const val YOUNG_RY_RATIO = 0.9
+        private const val YOUNG_MIN_ATTRACTORS = 150
+        private const val FIN_BEYOND_CORE = 5.0
+        private const val FIN_STEP = 0.5
+        private const val FIN_HEIGHT_SHARE = 0.55
+        private const val FIN_BASE_RADIUS = 1.0
+        private const val FIN_TOP_RADIUS = 0.8
+        private const val BALD_LIMB_DROP = 0.25
+        private const val BALD_LIMB_MIN_RADIUS = 1.2
+        private const val BALD_MIN_HEIGHT_SHARE = 0.5
+        private const val BALD_PATCH_FREQ = 0.09
+        private const val BALD_PATCH_CUT = 0.5
+        private const val BALD_PATCH_SALT = 311.7
+        private const val ROOT_TURN_SHARE = 0.45
+        private const val ROOT_TURN_STEPS = 4
+        private const val ROOT_TURN_PROBE_START = 6
+        private const val ROOT_TURN_PROBE_STEP = 2
+        private const val TWIG_RADIUS = 1.0
+        private const val VINE_EDGE_CHANCE = 0.22
+        private const val VINE_EDGE_LEAF_CHANCE = 0.03
+        private const val CHILD_VINE_EDGE_RIM_SHARE = 0.55
+        private const val CHILD_VINE_EDGE_MIN = 3
+        private const val CHILD_VINE_EDGE_MAX = 12
+        private const val MOTHER_VINE_EDGE_RIM = 90
+        private const val MOTHER_VINE_EDGE_MIN = 6
+        private const val MOTHER_VINE_EDGE_MAX = 22
+        private const val MOTHER_LIMB_COUNT = 6
+        private const val MOTHER_LIMB_LOW = 35.0
+        private const val MOTHER_LIMB_STEP = 19.0
+        private const val MOTHER_LIMB_JITTER = 10.0
+        private const val MOTHER_LIMB_DIST_MIN = 35.0
+        private const val MOTHER_LIMB_DIST_SPREAD = 30.0
+        private const val MOTHER_LIMB_RXZ = 20.0
+        private const val MOTHER_LIMB_RY = 13.0
+        private const val MOTHER_LIMB_ATTRACTORS = 220
         private const val WEYYE_SALT = 0x3E77E
         private const val WEYYE_MIN_HEIGHT = 2
         private const val WEYYE_MAX_HEIGHT = 12
@@ -4256,6 +4579,20 @@ class WohlonnogondoniaChunkGenerator(
 
         /** Heartfire attached to the wall on side [dir] of its cell. */
         private fun heartfireOn(dir: Direction, wet: Boolean): BlockState = HEARTFIRE_BY_FACE[if (wet) 1 else 0][dir.ordinal]
+        // ---- guardian spike clusters ----
+        /** ~4 % of the field lies past the threshold, in blobs about 8 blocks across. */
+        private const val SPIKE_CLUSTER_FREQ = 0.05
+        private const val SPIKE_CLUSTER_LOW = 0.65
+        private const val SPIKE_CLUSTER_SPAN = 0.15
+        private const val SPIKE_CLUSTER_SALT = 211
+        /** Share of fitting cells at a cluster's core; it thins to 0 at the edge. */
+        private const val SPIKE_DENSITY = 0.55
+        private const val BAND_SOLID = 1
+        private const val BAND_OPEN = 0
+        private const val BAND_UNKNOWN = -1
+        private val SPIKE_ATTACHMENTS = SpikeAttachment.values()
+        /** Chance each other fitting spike around the chosen corner joins a face or crease spike's cell. */
+        private const val SPIKE_EXTRA_CHANCE = 0.5
         /** Past this deadness a channel is a silted dead root rather than rotting wood. */
         private const val SILT_DEADNESS = 0.8
         // ---- heart-cave -> root-cave descent ----

@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.mixin;
 
 import com.mojang.blaze3d.audio.Channel;
 import org.shipwrights.enderkinesis.client.SselithMadnessMuffle;
+import org.shipwrights.enderkinesis.client.WeheloPocketEcho;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -13,5 +14,6 @@ public abstract class ChannelMuffleMixin {
     @Inject(method = "play", at = @At("HEAD"))
     private void enderkinesis$muffleNewSound(CallbackInfo ci) {
         SselithMadnessMuffle.applyToNew((Channel) (Object) this);
+        WeheloPocketEcho.applyToNew((Channel) (Object) this);
     }
 }

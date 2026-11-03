@@ -57,6 +57,9 @@ object SselithMadnessTomeSummon {
      *  thread. */
     private val activeSummons = ConcurrentHashMap<UUID, SummonState>()
 
+    /** The summon drives the body while it runs, so the madness walk yields to it. */
+    fun isActive(player: Player): Boolean = activeSummons.containsKey(player.uuid)
+
     /** S2C packet IDs — match
      *  [org.shipwrights.enderkinesis.client.PlayerTomeSummonClient]. */
     val BEGIN_PACKET: ResourceLocation =

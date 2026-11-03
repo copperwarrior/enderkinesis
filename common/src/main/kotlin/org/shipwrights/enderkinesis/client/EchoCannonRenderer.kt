@@ -146,7 +146,7 @@ class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererP
      *
      *  Mojang blockstate `"y": N` is CW-from-above; the right-hand-convention
      *  Y rotation used by `Axis.YP` is CCW-from-above, so horizontal facings
-     *  are negated. Same pattern MagicMissileLauncherRenderer uses. */
+     *  are negated. Same pattern LodestarLauncherRenderer uses. */
     private fun applyFacingRotation(ps: PoseStack, facing: Direction) {
         when (facing) {
             Direction.NORTH -> {}

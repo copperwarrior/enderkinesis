@@ -84,6 +84,10 @@ class EnderkinesisModForgeClient {
             event.registerLayerDefinition(ConstriliarModel.LAYER_LOCATION, ConstriliarModel::createBodyLayer)
             event.registerLayerDefinition(HeartOfTheWildModel.LAYER_LOCATION, HeartOfTheWildModel::createBodyLayer)
             event.registerLayerDefinition(PrismaticGoatModel.LAYER_LOCATION, PrismaticGoatModel::createBodyLayer)
+            event.registerLayerDefinition(
+                org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel.LAYER_LOCATION,
+                org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel::createBodyLayer,
+            )
             // Robe layers, baked by the common TightRobeArmorRenderer.
             event.registerLayerDefinition(TightRobeArmorModel.INNER_LAYER, TightRobeArmorModel::createInnerLayer)
             event.registerLayerDefinition(TightRobeArmorModel.OUTER_LAYER, TightRobeArmorModel::createOuterLayer)
@@ -226,6 +230,12 @@ class EnderkinesisModForgeClient {
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,
                     )
+                    // Entity pass, so that water drawn later composites over a waterlogged bud.
+                    org.shipwrights.enderkinesis.client.WogorBudRenderer.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
                 }
                 RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS -> {
                     // Orb-network beam line — after translucent blocks so it composites over
@@ -235,9 +245,9 @@ class EnderkinesisModForgeClient {
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,
                     )
-                    // Magic Missile pulse-beam trails — same stage + render type as the orb
+                    // Lodestar Dart pulse-beam trails — same stage + render type as the orb
                     // network so the visual stays consistent.
-                    org.shipwrights.enderkinesis.client.MagicMissileTrailRenderer.renderAll(
+                    org.shipwrights.enderkinesis.client.LodestarDartTrailRenderer.renderAll(
                         event.poseStack, bufferSource,
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,

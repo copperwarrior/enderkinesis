@@ -6,7 +6,7 @@ import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
 import java.util.concurrent.ConcurrentLinkedQueue
 
-/** One-shot per-ship impulse queue. Originally the magic missile launcher's
+/** One-shot per-ship impulse queue. Originally the Lodestar Launcher's
  *  recoil path; also reused by the Echo Cannon's beam-hits-ship knockback.
  *  Queued on the game thread at fire time (world-space anchor + impulse),
  *  drained on the physics thread as a single-tick force at that point — an

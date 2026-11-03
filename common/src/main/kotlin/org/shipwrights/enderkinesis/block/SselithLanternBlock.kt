@@ -1,17 +1,12 @@
 package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
-import net.minecraft.core.Direction
 import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.util.RandomSource
-import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
-import net.minecraft.world.level.LevelAccessor
-import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
-import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.registry.EKParticles
@@ -24,36 +19,9 @@ import org.shipwrights.enderkinesis.registry.EKParticles
  * vanilla lantern.
  *
  * Light emission and durability come from the [Properties] the caller hands
- * in; this class only adds:
- *  - a placement / survival check that requires a sturdy face on the block
- *    directly below, and
- *  - a fixed AABB that hugs the visible body of the model.
+ * in; support and shape come from [StandingLanternBlock].
  */
-class SselithLanternBlock(properties: Properties) : Block(properties) {
-
-    override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
-        // Mirror vanilla [Blocks.LANTERN]'s sitting-variant support check:
-        // canSupportCenter probes a 2×2-pixel central column rather than the
-        // full top face, so partial-shape blocks like walls, fences and
-        // chains (whose top is a narrow post but not a sturdy face) still
-        // count as valid supports — same as the vanilla lantern.
-        return Block.canSupportCenter(level, pos.below(), Direction.UP)
-    }
-
-    override fun updateShape(
-        state: BlockState,
-        direction: Direction,
-        neighborState: BlockState,
-        level: LevelAccessor,
-        pos: BlockPos,
-        neighborPos: BlockPos,
-    ): BlockState =
-        if (direction == Direction.DOWN && !canSurvive(state, level, pos)) Blocks.AIR.defaultBlockState()
-        else super.updateShape(state, direction, neighborState, level, pos, neighborPos)
-
-    override fun getShape(
-        state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
-    ): VoxelShape = SHAPE
+class SselithLanternBlock(properties: Properties) : StandingLanternBlock(properties, SHAPE) {
 
     /** Sselith Bookmoths — a small cluster of warm-yellow pixel particles that
      *  flicker and flutter around the lantern. Driven directly off

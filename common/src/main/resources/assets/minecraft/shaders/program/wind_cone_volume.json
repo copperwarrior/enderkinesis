@@ -32,6 +32,7 @@
     { "name": "Twist",        "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "SpinRate",     "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "Bend",         "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
-    { "name": "FadeIn",       "type": "float",     "count": 1,  "values": [ 2.5 ] }
+    { "name": "FadeIn",       "type": "float",     "count": 1,  "values": [ 2.5 ] },
+    { "name": "FadeOutStart", "type": "float",     "count": 1,  "values": [ 0.4 ] }
   ]
 }

@@ -63,7 +63,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     /** All links where this orb receives from a peer. */
     private val incoming: MutableMap<LinkKey, LinkData> = LinkedHashMap()
 
-    /** Mystic Beam Anchors that bend this orb's beams. Each one lists this orb in its bound orbs. */
+    /** Ulder Beam Anchors that bend this orb's beams. Each one lists this orb in its bound orbs. */
     private val anchors: MutableList<BlockPos> = ArrayList()
 
     /** Signal-tome scratch — strongest neighbour redstone signal last sampled. Lives on the
@@ -167,13 +167,13 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
 
     fun beamAnchors(): List<BlockPos> = anchors
 
-    /** False when the orb already has [MAX_ANCHORS] anchors. Call through [MysticBeamAnchorBlockEntity.claim]. */
+    /** False when the orb already has [MAX_ANCHORS] anchors. Call through [UlderBeamAnchorBlockEntity.claim]. */
     fun addAnchor(level: ServerLevel, pos: BlockPos): Boolean {
         if (pos in anchors) return true
         if (anchors.size >= MAX_ANCHORS) {
             // An anchor that went while unloaded, or with a stale owner, stays in the list.
             anchors.removeIf {
-                level.isLoaded(it) && MysticBeamAnchorBlockEntity.loadedAt(level, it)?.boundOrbs()?.contains(blockPos) != true
+                level.isLoaded(it) && UlderBeamAnchorBlockEntity.loadedAt(level, it)?.boundOrbs()?.contains(blockPos) != true
             }
             if (anchors.size >= MAX_ANCHORS) return false
         }
@@ -315,7 +315,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         }
         // The anchors stay as blocks. A ship move copies the list, and the anchors follow.
         if (!org.shipwrights.enderkinesis.util.ShipMoves.isMovingBlocks(level)) {
-            for (pos in anchors) (level.getBlockEntity(pos) as? MysticBeamAnchorBlockEntity)?.removeOrb(blockPos)
+            for (pos in anchors) (level.getBlockEntity(pos) as? UlderBeamAnchorBlockEntity)?.removeOrb(blockPos)
             anchors.clear()
         }
         val touchedPeers = HashSet<BlockPos>()
@@ -398,10 +398,10 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         for (i in anchors.indices.reversed()) {
             val pos = anchors[i]
             if (!orbOnShip && !level.isBlockInShipyard(pos)) continue
-            val anchor = MysticBeamAnchorBlockEntity.loadedAt(level, pos) ?: continue
+            val anchor = UlderBeamAnchorBlockEntity.loadedAt(level, pos) ?: continue
             val c = centre ?: worldCenter() ?: return
             centre = c
-            if (MysticBeamAnchorBlockEntity.inRange(level, c, anchor)) continue
+            if (UlderBeamAnchorBlockEntity.inRange(level, c, anchor)) continue
             anchors.removeAt(i)
             anchor.removeOrb(blockPos)
             OrbOfLinkingSounds.play(level, pos, EKSounds.ORB_OF_LINKING_SNAP)

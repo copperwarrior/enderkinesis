@@ -418,6 +418,9 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
      *  never die — they're permanent ambient inhabitants of Sselith. */
     override fun isInvulnerableTo(source: DamageSource): Boolean = true
 
+    // Player.attack plays PLAYER_ATTACK_NODAMAGE when hurt() fails; skipping the attack keeps the punch silent.
+    override fun skipAttackInteraction(attacker: Entity): Boolean = true
+
     /** Catalogers can't be pushed — by other mobs, players, or by their own
      *  reaction to pushing neighbours. With this `false`, other entities'
      *  `pushEntities` excludes us (the `EntitySelector.pushableBy` filter
@@ -559,11 +562,11 @@ class Cataloger(type: EntityType<out Cataloger>, level: Level) : PathfinderMob(t
          *  practical reach — POIs much further than this are almost never
          *  navigable through Sselith's stairwell/ladder/pathway maze, so a
          *  wider search just wastes pickTarget retries. */
-        private const val SEARCH_RADIUS = 48
+        internal const val SEARCH_RADIUS = 48
 
         /** Navigation speed modifier for the fallback [CatalogerWanderGoal] —
          *  1.0 (full), matching [WanderToTaggedBlockGoal]'s `MOVE_SPEED`. */
-        private const val MOVE_SPEED = 1.0
+        internal const val MOVE_SPEED = 1.0
 
         /** Multiplier on `PathFinder.maxVisitedNodes` (default 5000). Sselith
          *  paths visit many junction nodes, and two-floor routes through

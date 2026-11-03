@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.worldgen
 
+import org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat
 import dev.architectury.event.events.common.LifecycleEvent
 import org.shipwrights.enderkinesis.util.ServerTicks
 import com.mojang.serialization.Codec
@@ -63,6 +64,8 @@ object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
             blocks.add(info.pos.immutable())
         }
         if (blocks.isEmpty()) return processedBlockInfos
+        // Before the dedup, or a DH LOD pass would claim startPos and block the real assembly.
+        if (DistantHorizonsCompat.isLodGeneration()) return processedBlockInfos
 
         // Multi-chunk dedup — finalize fires once per intersecting chunk × worker. First call
         // for a given startPos wins, the rest skip without scheduling.

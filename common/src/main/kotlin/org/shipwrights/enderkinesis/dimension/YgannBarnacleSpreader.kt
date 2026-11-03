@@ -10,6 +10,7 @@ import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.levelgen.structure.BoundingBox
 import org.joml.primitives.AABBic
 import org.shipwrights.enderkinesis.block.YgannBarnacleBlock
+import org.shipwrights.enderkinesis.blockentity.QuasarOfPurityBlockEntity
 import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -21,7 +22,8 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * Ships travelling the Ygann Abyss pick up barnacles: every [ATTACH_INTERVAL] each
  * loaded ship rolls [ATTACH_CHANCE] to sprout one on a random exterior hull face
  * (solid block with a sturdy face against air), capped at [MAX_PER_SHIP]. A mature
- * barnacle also seeds new ones near itself ([tickMature]).
+ * barnacle also seeds new ones near itself ([tickMature]). A Quasar of Purity on the
+ * ship stops all new attachment.
  */
 object YgannBarnacleSpreader {
 
@@ -62,7 +64,8 @@ object YgannBarnacleSpreader {
         val lenY = aabb.maxY() - aabb.minY() + 1
         val lenZ = aabb.maxZ() - aabb.minZ() + 1
         if (Math.max(lenX, Math.max(lenY, lenZ)) < MIN_SHIP_AXIS) return
-        if (countBarnacles(level, ship) >= MAX_PER_SHIP) return
+        val census = hullCensus(level, ship) ?: return
+        if (census.warded || census.barnacles >= MAX_PER_SHIP) return
         val rng = level.random
         val cursor = BlockPos.MutableBlockPos()
         repeat(ATTEMPTS) {
@@ -110,18 +113,21 @@ object YgannBarnacleSpreader {
     private fun isChunkReady(level: ServerLevel, pos: BlockPos): Boolean =
         level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4) != null
 
-    private fun countBarnacles(level: ServerLevel, ship: org.valkyrienskies.core.api.ships.Ship): Int {
-        val aabb = ship.shipAABB ?: return 0
+    private data class HullCensus(val barnacles: Int, val warded: Boolean)
+
+    private fun hullCensus(level: ServerLevel, ship: org.valkyrienskies.core.api.ships.Ship): HullCensus? {
+        val aabb = ship.shipAABB ?: return null
         var count = 0
         for (cx in (aabb.minX() shr 4)..(aabb.maxX() shr 4)) {
             for (cz in (aabb.minZ() shr 4)..(aabb.maxZ() shr 4)) {
                 val chunk = level.getChunk(cx, cz, ChunkStatus.FULL, false) as? LevelChunk ?: continue
                 for (be in chunk.blockEntities.values) {
+                    if (be is QuasarOfPurityBlockEntity) return HullCensus(count, warded = true)
                     if (be is YgannBarnacleBlockEntity) count++
                 }
             }
         }
-        return count
+        return HullCensus(count, warded = false)
     }
 
     /** Roll cadence (30 s) and per-roll odds — an hour in Ygann averages a few. */

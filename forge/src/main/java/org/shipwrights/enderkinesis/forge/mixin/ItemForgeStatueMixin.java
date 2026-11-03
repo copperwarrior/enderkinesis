@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Forge-only mixin that wires {@link StatueForgeExtensions} onto every
  * {@link StatueBlockItem} — one mixin covers all statues. Same HEAD inject + {@code remap=false}
- * pattern as {@code ItemForgeMagicMissileMixin}.
+ * pattern as {@code ItemForgeLodestarDartMixin}.
  */
 @Mixin(Item.class)
 public abstract class ItemForgeStatueMixin {

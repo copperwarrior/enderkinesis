@@ -37,6 +37,7 @@ import net.minecraft.world.phys.Vec3
  *                 { "type": "enchant", "enchantments": { "minecraft:mending": 1 } },
  *                 { "type": "attribute", "attribute": "...", "amount": 2.0, "operation": "addition", "slot": "chest" },
  *                 { "type": "repair", "amount": 1.0 },
+ *                 { "type": "recharge", "amount": 1.0 },
  *                 { "type": "effect", "effect": "...", "duration": 200, "amplifier": 0, "radius": 8.0 },
  *                 { "type": "give", "result": { ... } },
  *                 { "type": "experience", "amount": 10 } ] }
@@ -67,6 +68,7 @@ object FountainBlessings : SimpleJsonResourceReloadListener(Gson(), "fountain_bl
             val attribute: Attribute, val modifier: AttributeModifier, val slot: EquipmentSlot,
         ) : Outcome()
         class Repair(val share: Double) : Outcome()
+        class Recharge(val share: Double) : Outcome()
         class Effect(val effect: MobEffect, val duration: Int, val amplifier: Int, val radius: Double) : Outcome()
         class Give(val result: ItemStack) : Outcome()
         class Experience(val amount: Int) : Outcome()
@@ -123,11 +125,8 @@ object FountainBlessings : SimpleJsonResourceReloadListener(Gson(), "fountain_bl
                     EquipmentSlot.byName(GsonHelper.getAsString(json, "slot", "mainhand")),
                 )
             }
-            "repair" -> {
-                val share = GsonHelper.getAsDouble(json, "amount", 1.0)
-                require(share > 0.0 && share <= 1.0) { "repair \"amount\" must be above 0 and at most 1" }
-                Outcome.Repair(share)
-            }
+            "repair" -> Outcome.Repair(share(json, type))
+            "recharge" -> Outcome.Recharge(share(json, type))
             "effect" -> Outcome.Effect(
                 lookup(BuiltInRegistries.MOB_EFFECT, GsonHelper.getAsString(json, "effect")),
                 GsonHelper.getAsInt(json, "duration", 200),
@@ -177,6 +176,7 @@ object FountainBlessings : SimpleJsonResourceReloadListener(Gson(), "fountain_bl
             is Outcome.Repair -> if (stack.isDamageableItem) {
                 stack.damageValue = maxOf(0, stack.damageValue - Math.ceil(outcome.share * stack.maxDamage).toInt())
             }
+            is Outcome.Recharge -> (stack.item as? org.shipwrights.enderkinesis.item.Rechargeable)?.recharge(stack, outcome.share)
             is Outcome.Effect -> {
                 val area = AABB(at, at).inflate(outcome.radius)
                 for (player in level.getEntitiesOfClass(Player::class.java, area)) {
@@ -187,6 +187,12 @@ object FountainBlessings : SimpleJsonResourceReloadListener(Gson(), "fountain_bl
             is Outcome.Experience -> ExperienceOrb.award(level, player.position(), outcome.amount)
         }
         return stack
+    }
+
+    private fun share(json: JsonObject, type: String): Double {
+        val share = GsonHelper.getAsDouble(json, "amount", 1.0)
+        require(share > 0.0 && share <= 1.0) { "$type \"amount\" must be above 0 and at most 1" }
+        return share
     }
 
     /** The first explicit modifier drops the item's default modifiers (vanilla), so copy those in first. */

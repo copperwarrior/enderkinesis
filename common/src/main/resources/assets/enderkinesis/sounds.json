@@ -3,59 +3,59 @@
     "category": "ambient",
     "sounds": [
       {
-        "name": "enderkinesis:entity/magic_missile/blast1",
+        "name": "enderkinesis:entity/lodestar_dart/blast1",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/magic_missile/blast2",
+        "name": "enderkinesis:entity/lodestar_dart/blast2",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/magic_missile/blast3",
+        "name": "enderkinesis:entity/lodestar_dart/blast3",
         "stream": false
       }
     ]
   },
-  "entity.magic_missile.launch": {
+  "entity.lodestar_dart.launch": {
     "category": "neutral",
     "sounds": [
       {
-        "name": "enderkinesis:entity/magic_missile/launch1",
+        "name": "enderkinesis:entity/lodestar_dart/launch1",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/magic_missile/launch2",
+        "name": "enderkinesis:entity/lodestar_dart/launch2",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/magic_missile/launch3",
+        "name": "enderkinesis:entity/lodestar_dart/launch3",
         "stream": false
       }
     ]
   },
-  "entity.magic_missile.fizzle": {
+  "entity.lodestar_dart.fizzle": {
     "category": "neutral",
     "sounds": [
       {
-        "name": "enderkinesis:entity/magic_missile/fizzle",
+        "name": "enderkinesis:entity/lodestar_dart/fizzle",
         "stream": false
       }
     ]
   },
-  "block.magic_missile_launcher.load": {
+  "block.lodestar_launcher.load": {
     "category": "block",
     "sounds": [
       {
-        "name": "enderkinesis:block/magic_missile_launcher/load",
+        "name": "enderkinesis:block/lodestar_launcher/load",
         "stream": false
       }
     ]
   },
-  "block.magic_missile_launcher.unload": {
+  "block.lodestar_launcher.unload": {
     "category": "block",
     "sounds": [
       {
-        "name": "enderkinesis:block/magic_missile_launcher/unload",
+        "name": "enderkinesis:block/lodestar_launcher/unload",
         "stream": false
       }
     ]
@@ -352,6 +352,62 @@
         "name": "enderkinesis:item/incantation_of_winds/stop",
         "stream": false
       }
+    ]
+  },
+  "item.incantation_of_the_river.start": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_river.start",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_river/start"
+    ]
+  },
+  "item.incantation_of_the_river.loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_river.loop",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_river/loop"
+    ]
+  },
+  "item.incantation_of_the_river.stop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_river.stop",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_river/stop"
+    ]
+  },
+  "item.incantation_of_the_river.impact_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_river.impact_loop",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_river/impact_loop"
+    ]
+  },
+  "item.incantation_of_the_abyss.start": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_abyss.start",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_abyss/start"
+    ]
+  },
+  "item.incantation_of_the_abyss.loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_abyss.loop",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_abyss/loop"
+    ]
+  },
+  "item.incantation_of_the_abyss.stop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_abyss.stop",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_abyss/stop"
+    ]
+  },
+  "item.incantation_of_the_abyss.sphere_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.incantation_of_the_abyss.sphere_loop",
+    "sounds": [
+      "enderkinesis:item/incantation_of_the_abyss/sphere_loop"
     ]
   },
   "item.wylland_tome.grab": {
@@ -3181,85 +3237,85 @@
       }
     ]
   },
-  "entity.irreverant_remnant.form": {
+  "entity.irreverent_remnant.form": {
     "category": "hostile",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_form",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_form",
         "stream": false
       }
     ]
   },
-  "entity.irreverant_remnant.splat": {
+  "entity.irreverent_remnant.splat": {
     "category": "hostile",
-    "subtitle": "subtitles.entity.irreverant_remnant.splat",
+    "subtitle": "subtitles.entity.irreverent_remnant.splat",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_splat_1",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_splat_1",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_splat_2",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_splat_2",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_splat_3",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_splat_3",
         "stream": false
       }
     ]
   },
-  "entity.irreverant_remnant.crawl": {
+  "entity.irreverent_remnant.crawl": {
     "category": "hostile",
-    "subtitle": "subtitles.entity.irreverant_remnant.crawl",
+    "subtitle": "subtitles.entity.irreverent_remnant.crawl",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_crawl_loop",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_crawl_loop",
         "stream": true
       }
     ]
   },
-  "entity.irreverant_remnant.snap": {
+  "entity.irreverent_remnant.snap": {
     "category": "hostile",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_snap_1",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_snap_1",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_snap_2",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_snap_2",
         "stream": false
       }
     ]
   },
-  "entity.irreverant_remnant.seep": {
+  "entity.irreverent_remnant.seep": {
     "category": "hostile",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_seep",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_seep",
         "stream": false
       }
     ]
   },
-  "entity.irreverant_remnant.consume": {
+  "entity.irreverent_remnant.consume": {
     "category": "hostile",
-    "subtitle": "subtitles.entity.irreverant_remnant.consume",
+    "subtitle": "subtitles.entity.irreverent_remnant.consume",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_consume_1",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_consume_1",
         "stream": false
       },
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_consume_2",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_consume_2",
         "stream": false
       }
     ]
   },
-  "entity.irreverant_remnant.stir": {
+  "entity.irreverent_remnant.stir": {
     "category": "hostile",
-    "subtitle": "subtitles.entity.irreverant_remnant.stir",
+    "subtitle": "subtitles.entity.irreverent_remnant.stir",
     "sounds": [
       {
-        "name": "enderkinesis:entity/irreverant_remnant/remnant_stir",
+        "name": "enderkinesis:entity/irreverent_remnant/remnant_stir",
         "stream": false
       }
     ]
@@ -4692,6 +4748,140 @@
       }
     ]
   },
+  "item.wehelo_blade.tear_open": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.tear_open",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/tear_open",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.tear_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.tear_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/tear_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.tear_close": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.tear_close",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/tear_close",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.pass": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.pass",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/pass1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/wehelo_blade/pass2",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.banish_depart": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.banish_depart",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/banish_depart",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.banish_arrive": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.banish_arrive",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/banish_arrive",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.hit": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.hit",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/hit1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/wehelo_blade/hit2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/wehelo_blade/hit3",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.pocket_loop": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.pocket_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/pocket_loop",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.eye": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.eye",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/eye1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/wehelo_blade/eye2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/wehelo_blade/eye3",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.unmake": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.unmake",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/unmake1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:item/wehelo_blade/unmake2",
+        "stream": false
+      }
+    ]
+  },
+  "item.wehelo_blade.inert": {
+    "category": "player",
+    "subtitle": "subtitles.item.wehelo_blade.inert",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/wehelo_blade/inert",
+        "stream": false
+      }
+    ]
+  },
   "block.shulker_strut.open": {
     "category": "block",
     "sounds": [
@@ -5222,6 +5412,5524 @@
     "sounds": [
       {
         "name": "enderkinesis:block/oarscribe/pen_break",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.paper": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.paper",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/paper1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/paper2",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.inscribe": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.inscribe",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/inscribe1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/inscribe2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/inscribe3",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.fuse": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.fuse",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/fuse1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/fuse2",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.annihilate": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.annihilate",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/annihilate1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/annihilate2",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.finish": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.finish",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/finish",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.glyph_dive": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.glyph_dive",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/glyph_dive1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/glyph_dive2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/altar_of_illumination/glyph_dive3",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.rise": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.rise",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/rise",
+        "stream": false
+      }
+    ]
+  },
+  "block.altar_of_illumination.take": {
+    "category": "block",
+    "subtitle": "subtitles.block.altar_of_illumination.take",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/altar_of_illumination/take",
+        "stream": false
+      }
+    ]
+  },
+  "spell.rune.inscribe": {
+    "category": "player",
+    "subtitle": "subtitles.spell.rune.inscribe",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/rune/rune_inscribe1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/rune/rune_inscribe2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.rune.trigger": {
+    "category": "player",
+    "subtitle": "subtitles.spell.rune.trigger",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/rune/rune_trigger1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/rune/rune_trigger2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/rune/rune_trigger3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.imbue.imbue": {
+    "category": "player",
+    "subtitle": "subtitles.spell.imbue.imbue",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/imbue/imbue1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/imbue/imbue2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.imbue.fizzle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.imbue.fizzle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/imbue/imbue_fizzle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/imbue/imbue_fizzle2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.mantle_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.mantle_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/mantle_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.mantle_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.mantle_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/mantle_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.mantle_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.mantle_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/mantle_on",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.mantle_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.mantle_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/mantle_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.mantle_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.mantle_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/mantle_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.scorch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.scorch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/scorch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/scorch2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/scorch3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.pyre.melt": {
+    "category": "player",
+    "subtitle": "subtitles.spell.pyre.melt",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/pyre/melt1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/pyre/melt2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.mantle_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.mantle_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/mantle_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.mantle_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.mantle_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/mantle_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.mantle_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.mantle_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/mantle_on",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.mantle_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.mantle_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/mantle_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.mantle_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.mantle_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/mantle_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.frostbite": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.frostbite",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/frostbite1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/frostbite2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/frostbite3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.freeze": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.freeze",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/freeze1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/freeze2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.thaw": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.thaw",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/thaw1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/thaw2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.water_freeze": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.water_freeze",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/water_freeze1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/water_freeze2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.winter.lava_freeze": {
+    "category": "player",
+    "subtitle": "subtitles.spell.winter.lava_freeze",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/winter/lava_freeze1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/winter/lava_freeze2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.tangle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.tangle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/tangle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/tangle2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/tangle3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.bloom": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.bloom",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/bloom1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/bloom2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.entangle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.entangle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/entangle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/entangle2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.release": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.release",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/release1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/release2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.genesis.overgrow": {
+    "category": "player",
+    "subtitle": "subtitles.spell.genesis.overgrow",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/genesis/overgrow1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/genesis/overgrow2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.press": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.press",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/press1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/press2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/press3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.anchor": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.anchor",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/anchor1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/anchor2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.weighted_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.weighted_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/weighted_on1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/weighted_on2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.weighted_slam": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.weighted_slam",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/weighted_slam1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/weighted_slam2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.block_press": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.block_press",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/block_press1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/block_press2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.gravity.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.gravity.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/gravity/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/gravity/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.purify": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.purify",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/purify1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/purify2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/purify3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.cleanse": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.cleanse",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/cleanse1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/cleanse2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.crystallize": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.crystallize",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/crystallize1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/crystallize2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.crystal_shatter": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.crystal_shatter",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/crystal_shatter1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/crystal_shatter2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.purify_block": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.purify_block",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/purify_block1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/purify_block2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.purge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.purge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/purge1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/purge2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.quintessence.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.quintessence.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/quintessence/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/quintessence/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.jolt": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.jolt",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/jolt1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/jolt2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/jolt3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.chain_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.chain_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/chain_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.chain_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.chain_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/chain_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.chain_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.chain_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/chain_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.mantle_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.mantle_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/mantle_on",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.mantle_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.mantle_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/mantle_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.mantle_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.mantle_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/mantle_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.swap": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.swap",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/swap1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/swap2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/swap3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.discord": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.discord",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/discord1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/discord2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.fizzle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.fizzle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/fizzle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/fizzle2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.chaos.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.chaos.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/chaos/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/chaos/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.drain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.drain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/drain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/drain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/drain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.surge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.surge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/surge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.surge_fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.surge_fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/surge_fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.mantle_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.mantle_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/mantle_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.mantle_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.mantle_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/mantle_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.stream": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.stream",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/stream",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.enthrall": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.enthrall",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/enthrall1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/enthrall2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.pact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.pact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/pact",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.fizzle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.fizzle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/fizzle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/fizzle2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.blood.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.blood.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/blood/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/blood/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.sear": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.sear",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/sear1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/sear2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/sear3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.pale_crown_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.pale_crown_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/pale_crown_on",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.pale_crown_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.pale_crown_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/pale_crown_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.pale_crown_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.pale_crown_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/pale_crown_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.smite": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.smite",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/smite1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/smite2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.scorch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.scorch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/scorch",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.phantom_light": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.phantom_light",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/phantom_light",
+        "stream": false
+      }
+    ]
+  },
+  "spell.sunfire.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.sunfire.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/sunfire/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/sunfire/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.taint": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.taint",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/taint1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/taint2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/taint3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.mantle_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.mantle_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/mantle_on",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.mantle_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.mantle_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/mantle_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.mantle_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.mantle_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/mantle_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.miasma_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.miasma_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/miasma_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.rot": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.rot",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/rot1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/rot2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/rot3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.rot_spread": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.rot_spread",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/rot_spread",
+        "stream": false
+      }
+    ]
+  },
+  "spell.corruption.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.corruption.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/corruption/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/corruption/death2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.area": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.area",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/area1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/area2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/area3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.area_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.area_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/area_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.area_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.area_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/area_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.hollow": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.hollow",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/hollow1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/hollow2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/hollow3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.bolt_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.bolt_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/bolt_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.bolt_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.bolt_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/bolt_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.bolt_launch": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.bolt_launch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/bolt_launch1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/bolt_launch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.bolt_flight": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.bolt_flight",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/bolt_flight",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/impact1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/impact2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/impact3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.self_charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.self_charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/self_charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.self_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.self_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/self_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.mantle_on": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.mantle_on",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/mantle_on",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.mantle_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.mantle_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/mantle_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.mantle_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.mantle_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/mantle_end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.singularity_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.singularity_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/singularity_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.singularity_collapse": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.singularity_collapse",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/singularity_collapse",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.swallow": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.swallow",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/swallow1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/swallow2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.pocket_open": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.pocket_open",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/pocket_open1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/pocket_open2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.pocket_close": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.pocket_close",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/pocket_close",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.vanish": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.vanish",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/vanish1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/vanish2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.return": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.return",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/return",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.lash": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.lash",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/lash1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/lash2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/lash3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.void.death": {
+    "category": "player",
+    "subtitle": "subtitles.spell.void.death",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/void/death1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/void/death2",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.cast": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/cast",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.core_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.core_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/core_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.grow": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.grow",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/grow",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.beam": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.beam",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/beam1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/beam2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/beam3",
+        "stream": false
+      }
+    ]
+  },
+  "signature.black_hole_sun.flare": {
+    "category": "player",
+    "subtitle": "subtitles.signature.black_hole_sun.flare",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/black_hole_sun/flare",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.cast": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/cast",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.sky_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.sky_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/sky_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.fall": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.fall",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/fall1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/starfall/fall2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/starfall/fall3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/starfall/fall4",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.land": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.land",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/land1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/starfall/land2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/starfall/land3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/starfall/land4",
+        "stream": false
+      }
+    ]
+  },
+  "signature.starfall.settle": {
+    "category": "player",
+    "subtitle": "subtitles.signature.starfall.settle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/starfall/settle",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.cast": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/cast",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.flight_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.flight_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/flight_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.stick": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.stick",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/stick",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.star_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.star_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/star_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.grind": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.grind",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/grind1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/north_star/grind2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/north_star/grind3",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.freeze": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.freeze",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/freeze1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/north_star/freeze2",
+        "stream": false
+      }
+    ]
+  },
+  "signature.north_star.fade": {
+    "category": "player",
+    "subtitle": "subtitles.signature.north_star.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/north_star/fade",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.open": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.open",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/open",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.maw_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.maw_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/maw_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.chew": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.chew",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/chew1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/chew2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/chew3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/chew4",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.swallow": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.swallow",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/swallow1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/swallow2",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.close": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.close",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/close",
+        "stream": false
+      }
+    ]
+  },
+  "signature.hungering_maw.spit": {
+    "category": "player",
+    "subtitle": "subtitles.signature.hungering_maw.spit",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/hungering_maw/spit",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.open": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.open",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/open",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.rift_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.rift_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/rift_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.volley": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.volley",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/volley1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/volley2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/volley3",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.pass_out": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.pass_out",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/pass_out",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.pass_in": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.pass_in",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/pass_in",
+        "stream": false
+      }
+    ]
+  },
+  "signature.nether_rift.close": {
+    "category": "player",
+    "subtitle": "subtitles.signature.nether_rift.close",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/nether_rift/close",
+        "stream": false
+      }
+    ]
+  },
+  "signature.yganns_grasp.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.yganns_grasp.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.yganns_grasp.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.yganns_grasp.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.yganns_grasp.cast": {
+    "category": "player",
+    "subtitle": "subtitles.signature.yganns_grasp.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/cast",
+        "stream": false
+      }
+    ]
+  },
+  "signature.yganns_grasp.front_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.yganns_grasp.front_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/front_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.yganns_grasp.seize": {
+    "category": "player",
+    "subtitle": "subtitles.signature.yganns_grasp.seize",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/seize1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/seize2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/seize3",
+        "stream": false
+      }
+    ]
+  },
+  "signature.yganns_grasp.ebb": {
+    "category": "player",
+    "subtitle": "subtitles.signature.yganns_grasp.ebb",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/yganns_grasp/ebb",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.cast": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/cast",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.slide_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.slide_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/slide_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.slam": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.slam",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/slam1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/avalanche/slam2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/avalanche/slam3",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.settle": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.settle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/settle",
+        "stream": false
+      }
+    ]
+  },
+  "signature.avalanche.bury": {
+    "category": "player",
+    "subtitle": "subtitles.signature.avalanche.bury",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/avalanche/bury",
+        "stream": false
+      }
+    ]
+  },
+  "signature.stillpoint.charge": {
+    "category": "player",
+    "subtitle": "subtitles.signature.stillpoint.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/charge",
+        "stream": false
+      }
+    ]
+  },
+  "signature.stillpoint.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.signature.stillpoint.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "signature.stillpoint.cast": {
+    "category": "player",
+    "subtitle": "subtitles.signature.stillpoint.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/cast",
+        "stream": false
+      }
+    ]
+  },
+  "signature.stillpoint.still_loop": {
+    "category": "player",
+    "subtitle": "subtitles.signature.stillpoint.still_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/still_loop",
+        "stream": false
+      }
+    ]
+  },
+  "signature.stillpoint.hang": {
+    "category": "player",
+    "subtitle": "subtitles.signature.stillpoint.hang",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/hang1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/hang2",
+        "stream": false
+      }
+    ]
+  },
+  "signature.stillpoint.release": {
+    "category": "player",
+    "subtitle": "subtitles.signature.stillpoint.release",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/stillpoint/release",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.rise": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.rise",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/rise",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.veil_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.veil_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/veil_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.cleanse": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.cleanse",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/cleanse1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/cleanse2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.bite": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.bite",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/bite1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/bite2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.aurora_veil.fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.aurora_veil.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/aurora_veil/fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.fireweed.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.fireweed.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/fireweed/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.fireweed.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.fireweed.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/fireweed/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.fireweed.grow": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.fireweed.grow",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/fireweed/grow",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.fireweed.erupt": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.fireweed.erupt",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/fireweed/erupt",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.fireweed.tangle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.fireweed.tangle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/fireweed/tangle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/fireweed/tangle2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/fireweed/tangle3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.fireweed.ignite": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.fireweed.ignite",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/fireweed/ignite1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/fireweed/ignite2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/fireweed/ignite3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.surge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.surge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/surge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.wave_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.wave_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/wave_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.crash": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.crash",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/crash1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/crash2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/crash3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.sip": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.sip",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/sip1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/sip2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.bloodwave.ebb": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.bloodwave.ebb",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/bloodwave/ebb",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.spray_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.spray_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/spray_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.spray_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.spray_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/spray_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.spray_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.spray_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/spray_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.bloom": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.bloom",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/bloom1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/bloom2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/bloom3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/bloom4",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.garden_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.garden_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/garden_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.drain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.drain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/drain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/drain2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.garden_sanguine.wilt": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.garden_sanguine.wilt",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/garden_sanguine/wilt",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.swarm_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.swarm_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/swarm_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.settle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.settle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/settle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rotdance/settle2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rotdance/settle3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.feed": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.feed",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/feed1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rotdance/feed2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rotdance/feed3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.hop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.hop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/hop1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rotdance/hop2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rotdance.burst": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rotdance.burst",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rotdance/burst",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.downpour": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.downpour",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/downpour",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.rain_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.rain_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/rain_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.corrode": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.corrode",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/corrode1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/corrode2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/corrode3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.acid_rain.burn": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.acid_rain.burn",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/burn1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/burn2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/acid_rain/burn3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.break": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/break",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.storm_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.storm_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/storm_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.strike": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.strike",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/strike1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/strike2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/strike3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/strike4",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.thunder": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.thunder",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/thunder1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/thunder2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/thunder3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.chain": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.chain",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/chain1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/chain2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/chain3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.storm_cloud.douse": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.storm_cloud.douse",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/storm_cloud/douse",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.hand_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.hand_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/hand_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.hand_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.hand_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/hand_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.hand_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.hand_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/hand_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.loose": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.loose",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/loose1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/loose2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/loose3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.spark_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.spark_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/spark_loop1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/spark_loop2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.zap": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.zap",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/zap1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/zap2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/zap3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/zap4",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.arc": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.arc",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/arc1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/arc2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.faespark.fizzle": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.faespark.fizzle",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/faespark/fizzle1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/faespark/fizzle2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.miss": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.miss",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/miss",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.web_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.web_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/web_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch1": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch1",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch2": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch3": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch4": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch4",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch5": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch5",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch6": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch6",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch7": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch7",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.catch8": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.catch",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/catch8",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.snap": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.snap",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/snap1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/snap2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.pass": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.pass",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/pass1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/pass2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.land": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.land",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/land1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/land2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.vampires_ballroom.end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.vampires_ballroom.end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/vampires_ballroom/end",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.gust_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.gust_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/gust_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.clatter": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.clatter",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/clatter1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/clatter2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/clatter3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/clatter4",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.deflect": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.deflect",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/deflect1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/deflect2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/deflect3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.gust_of_glass.shatter": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.gust_of_glass.shatter",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/gust_of_glass/shatter",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rootquake.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rootquake.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rootquake/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rootquake.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rootquake.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rootquake/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rootquake.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rootquake.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rootquake/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rootquake.quake_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rootquake.quake_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rootquake/quake_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rootquake.column": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rootquake.column",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rootquake/column1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rootquake/column2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rootquake/column3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/rootquake/column4",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.rootquake.sink": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.rootquake.sink",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/rootquake/sink",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.flight_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.flight_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/flight_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.land": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.land",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/land",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.spread": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.spread",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/spread",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.colony_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.colony_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/colony_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.sprout": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.sprout",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/sprout1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/sprout2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/sprout3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.shroom": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.shroom",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/shroom1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/shroom2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.burst": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.burst",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/burst1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/burst2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/burst3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.shroomspread.fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.shroomspread.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/shroomspread/fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.prism_lance.lance_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.prism_lance.lance_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/prism_lance/lance_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.prism_lance.lance_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.prism_lance.lance_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/prism_lance/lance_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.prism_lance.lance_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.prism_lance.lance_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/prism_lance/lance_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.prism_lance.split": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.prism_lance.split",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/prism_lance/split",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.prism_lance.prism_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.prism_lance.prism_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/prism_lance/prism_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.transfusion.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.transfusion.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/transfusion/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.transfusion.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.transfusion.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/transfusion/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.transfusion.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.transfusion.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/transfusion/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.transfusion.give": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.transfusion.give",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/transfusion/give1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/transfusion/give2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/transfusion/give3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.transfusion.sear": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.transfusion.sear",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/transfusion/sear1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/transfusion/sear2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/transfusion/sear3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.cast": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.cast",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/cast",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.impact": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.impact",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/impact",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.pillar_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.pillar_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/pillar_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.sear": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.sear",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/sear1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/sear2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/sear3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.judgement_pillar.fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.judgement_pillar.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/judgement_pillar/fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.charge": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.charge",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/charge",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.charge_hold": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.charge_hold",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/charge_hold",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.loose": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.loose",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/loose",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.star_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.star_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/star_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.nova": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.nova",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/nova",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.remnant_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.remnant_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/remnant_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.shock": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.shock",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/shock1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supernova/shock2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supernova/shock3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.ray": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.ray",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/ray1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supernova/ray2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supernova/ray3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supernova.fade": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supernova.fade",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supernova/fade",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.beam_start": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.beam_start",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/beam_start",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.beam_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.beam_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/beam_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.beam_stop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.beam_stop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/beam_stop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.strike_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.strike_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/strike_loop",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.burn": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.burn",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/burn1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/burn2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/burn3",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.pool_form": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.pool_form",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/pool_form1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/pool_form2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.pool_loop": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.pool_loop",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/pool_loop1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/pool_loop2",
+        "stream": false
+      }
+    ]
+  },
+  "spell.signature.supplication_of_sselith.pool_end": {
+    "category": "player",
+    "subtitle": "subtitles.spell.signature.supplication_of_sselith.pool_end",
+    "sounds": [
+      {
+        "name": "enderkinesis:spell/signature/supplication_of_sselith/pool_end",
         "stream": false
       }
     ]

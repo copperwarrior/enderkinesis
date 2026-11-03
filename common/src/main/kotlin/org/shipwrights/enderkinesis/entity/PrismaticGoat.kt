@@ -6,6 +6,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.RandomSource
 import net.minecraft.world.entity.AgeableMob
 import net.minecraft.world.entity.EntityType
+import net.minecraft.world.entity.ai.navigation.PathNavigation
 import net.minecraft.world.entity.animal.goat.Goat
 import net.minecraft.world.item.InstrumentItem
 import net.minecraft.world.item.ItemStack
@@ -20,6 +21,15 @@ import org.shipwrights.enderkinesis.registry.EKItems
  * (cave-ambience instruments) and wraps in [EKItems.PRISMATIC_GOAT_HORN].
  */
 class PrismaticGoat(type: EntityType<out PrismaticGoat>, level: Level) : Goat(type, level) {
+
+    init {
+        installWogorLeavesControls(this) { move, jump ->
+            moveControl = move
+            jumpControl = jump
+        }
+    }
+
+    override fun createNavigation(level: Level): PathNavigation = wogorLeavesNavigation(this, level)
 
     override fun getBreedOffspring(level: ServerLevel, otherParent: AgeableMob): Goat? {
         val child: PrismaticGoat = EKEntities.PRISMATIC_GOAT.get().create(level) ?: return null

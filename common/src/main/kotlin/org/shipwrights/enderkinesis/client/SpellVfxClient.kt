@@ -23,7 +23,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.client.model.TentacleAnimation
 import org.shipwrights.enderkinesis.client.model.TentacleModel
 import org.shipwrights.enderkinesis.entity.SpellBoltEntity
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.spell.AbyssalPockets
 import org.shipwrights.enderkinesis.spell.Element
@@ -41,6 +41,7 @@ import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 /** An immediate buffer source reuses one builder for each render type, so draw one render type at a time. */
@@ -74,7 +75,7 @@ object SpellVfxClient {
         when (k) {
             SpellVfx.Kind.SIGNATURE -> {
                 // Here, life is a delay: the burst of an Area wave waits for the wave.
-                Element.entries.getOrNull(rgb)?.let { SpellImpacts.spawn(level, it, a, size.toDouble(), seed, life) }
+                SpellVfx.signatureElement(rgb)?.let { SpellImpacts.spawn(level, it, a, size.toDouble(), seed, life, SpellVfx.signatureMagnitude(rgb)) }
                 return
             }
             SpellVfx.Kind.AREA, SpellVfx.Kind.RUNE_CIRCLE -> return AreaWaves.add(level, k, a, b, size, rgb, seed)
@@ -86,6 +87,15 @@ object SpellVfxClient {
             SpellVfx.Kind.SELF_CAST -> return SelfCastVisuals.add(level, k, a, b, size, life, seed)
             SpellVfx.Kind.BLOCK_SHIFT -> return BlockShifts.add(level, a, b, Element.entries.getOrNull(size.toInt()), rgb)
             SpellVfx.Kind.BLOCK_SWAP -> return BlockShifts.swap(level, a, b, rgb, size.toInt())
+            SpellVfx.Kind.CHAIN -> {
+                // Arcs of one chain strike together, so a long chain shares out the loudness of one arc.
+                val volume = 1f / sqrt(size.coerceAtLeast(1f))
+                for (element in SpellVfx.elementsOf(rgb)) SpellSoundsClient.arc(level, b, element, volume)
+            }
+            SpellVfx.Kind.SOUNDED_ARC -> {
+                SpellSoundsClient.arc(level, b, Element.CHAOS)
+                return push(Vfx(SpellVfx.Kind.ARC, a, b, size, rgb, life.coerceIn(1, MAX_LIFE), seed, SpellClock.now(level)))
+            }
             SpellVfx.Kind.PRESS -> BlockShifts.trackFall(seed, SpellClock.now(level))
             SpellVfx.Kind.BEAM_CHARGE, SpellVfx.Kind.BEAM_PRESS -> return BeamClashes.add(k, a, b, size, rgb, life, seed, SpellClock.now(level))
             SpellVfx.Kind.BEAM_EXPLOSION, SpellVfx.Kind.SHOCKWAVE -> {
@@ -126,6 +136,7 @@ object SpellVfxClient {
         EffectFlows.reset()
         SelfCastVisuals.reset()
         EnvironmentFeed.reset()
+        SpellSoundsClient.reset()
     }
 
     private fun tick(level: ClientLevel) {
@@ -143,11 +154,12 @@ object SpellVfxClient {
         EffectFlows.tick(level)
         SelfCastVisuals.tick(level)
         EnvironmentFeed.tick(level)
+        SpellSoundsClient.tick(level)
         val random = Random(level.random.nextLong())
         for (player in level.players()) {
             if (!player.isUsingItem) continue
-            val spell = MysticScrollItem.spellOf(player.useItem) ?: continue
-            when (spell.castShape) {
+            val spell = UlderScrollItem.spellOf(player.useItem) ?: continue
+            when (UlderScrollItem.heldShape(player.useItem)) {
                 Shape.SPRAY -> spray(level, player, spell, random)
                 Shape.BOLT -> boltCharge(level, player, spell, random)
                 else -> {}
@@ -170,7 +182,7 @@ object SpellVfxClient {
             level.addParticle(EKParticles.mote(mote), origin.x, origin.y, origin.z, v.x, v.y, v.z)
         }
         for (element in spell.magnitudes.keys) when (element) {
-            Element.HEAT -> {
+            Element.PYRE -> {
                 val spin = SpellClock.now(level) * FIRE_SPIN
                 for (i in 0 until 8) {
                     val angle = spin + i * (2 * Math.PI / 8)
@@ -181,7 +193,7 @@ object SpellVfxClient {
                 repeat(3) { throwOut(SpellMote.HEAT_DUST, jit()) }
                 repeat(2) { throwOut(SpellMote.SPRAY_SMOKE, jit(), 0.7) }
             }
-            Element.COLD -> {
+            Element.WINTER -> {
                 repeat(5) { throwOut(SpellMote.FROST, jit()) }
                 repeat(3) { throwOut(SpellMote.FROST_ASH, jit()) }
             }
@@ -189,18 +201,18 @@ object SpellVfxClient {
                 repeat(8) { throwOut(SpellMote.BLOOD_MIST, jit()) }
                 repeat(2) { throwOut(SpellMote.BLOOD_DRIP, jit()) }
             }
-            Element.POISON -> {
+            Element.CORRUPTION -> {
                 repeat(7) { throwOut(SpellMote.POISON_MIST, jit()) }
                 repeat(2) { throwOut(SpellMote.ROT_SPORE, jit(), 0.5) }
             }
-            Element.GROWTH -> {
+            Element.GENESIS -> {
                 repeat(4) {
                     val v = jit().scale(reach / carry(LEAF_FRICTION, LEAF_LIFE) * (0.75 + 0.35 * random.nextDouble()))
                     level.addParticle(EKParticles.leafChip(), origin.x, origin.y, origin.z, v.x, v.y, v.z)
                 }
                 if (random.nextFloat() < 0.5f) throwOut(SpellMote.GROWTH_GLINT, jit(), 0.6)
             }
-            Element.PURITY -> repeat(4) { throwOut(SpellMote.PURITY_GLITTER, jit()) }
+            Element.QUINTESSENCE -> repeat(4) { throwOut(SpellMote.PURITY_GLITTER, jit()) }
             Element.CHAOS -> {
                 repeat(3) { throwOut(SpellMote.CHAOS_GLYPH, jit()) }
                 if (random.nextFloat() < 0.6f) throwOut(SpellMote.CHAOS_CRIT, jit(), 1.2)
@@ -262,6 +274,8 @@ object SpellVfxClient {
     fun renderAll(pose: PoseStack, buffers: MultiBufferSource, camX: Double, camY: Double, camZ: Double, partialTick: Float) {
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
+        // Each frame, so a chain arc's delay is not rounded to a tick.
+        SpellSoundsClient.playDue(level)
         val camera = mc.gameRenderer.mainCamera
         val view = SpellView(Vec3(camX, camY, camZ), Vec3(camera.leftVector), Vec3(camera.upVector))
         val time = SpellClock.time(level, partialTick)
@@ -277,6 +291,7 @@ object SpellVfxClient {
 
         // Dark volumes first, so light drawn after glows over them.
         renderShade(buffers, matrix, view, level, time)
+        renderTears(buffers, matrix, view, time)
         if (SpellVfxRenderTypes.isReady()) renderTextured(buffers, matrix, level, view, time)
 
         if (active.any { it.kind == SpellVfx.Kind.RIFT || it.kind == SpellVfx.Kind.LASH } || SpellVisuals.anyClient(SpellVisuals.VOID_CLOAK)) {
@@ -479,6 +494,17 @@ object SpellVfxClient {
 
     private fun riftGlow(c: VertexConsumer, m: Matrix4f, view: SpellView, vfx: Vfx, t: Float) =
         SpellShapes.sphere(c, m, view, vfx.a, riftRadius(vfx, t) * 1.05, 0x6A2FA0, 0.45f * riftFade(vfx, t))
+
+    private fun renderTears(buffers: MultiBufferSource, matrix: Matrix4f, view: SpellView, time: Float) {
+        for (vfx in active) {
+            if (vfx.kind != SpellVfx.Kind.WEHELO_RIFT) continue
+            val t = t(vfx, time)
+            WeheloRiftDraw.draw(
+                buffers, matrix, view, vfx.a, vfx.size.toDouble(), vfx.rgb, vfx.seed,
+                WeheloRiftDraw.burstOpen(t), WeheloRiftDraw.burstAmount(t), time,
+            )
+        }
+    }
 
     private fun tentacles(pose: PoseStack, buffers: MultiBufferSource, level: ClientLevel, time: Float) {
         val model = tentacleModel ?: TentacleModel(TentacleModel.createMesh().bakeRoot()).also { tentacleModel = it }

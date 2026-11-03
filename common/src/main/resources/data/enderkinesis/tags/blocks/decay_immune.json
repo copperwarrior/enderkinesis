@@ -1,0 +1,26 @@
+{
+  "replace": false,
+  "values": [
+    "enderkinesis:wogor_bud",
+    "enderkinesis:wogor_log",
+    "enderkinesis:wogor_wood",
+    "enderkinesis:stripped_wogor_log",
+    "enderkinesis:stripped_wogor_wood",
+    "enderkinesis:wogor_planks",
+    "enderkinesis:wogor_leaves",
+    "enderkinesis:wogor_stairs",
+    "enderkinesis:wogor_slab",
+    "enderkinesis:wogor_fence",
+    "enderkinesis:wogor_fence_gate",
+    "enderkinesis:wogor_pressure_plate",
+    "enderkinesis:wogor_button",
+    "enderkinesis:wogor_wood_stairs",
+    "enderkinesis:wogor_wood_slab",
+    "enderkinesis:wogor_wood_fence",
+    "enderkinesis:wogor_wood_wall",
+    "enderkinesis:wogor_wood_pane",
+    "enderkinesis:wogor_wood_button",
+    "enderkinesis:wogor_door",
+    "enderkinesis:wogor_trapdoor"
+  ]
+}

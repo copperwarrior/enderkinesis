@@ -15,7 +15,7 @@ import net.minecraft.core.particles.SimpleParticleType
  * 20%-per-tick exponential colour approach toward the fade target. The pink
  * palette is wired via the inherited `setColor` / `setFadeColor` — OUTLINE
  * (pink-tinted white) → GLOW (saturated magenta), matching
- * MagicMissileTrailRenderer's beam.
+ * LodestarDartTrailRenderer's beam.
  *
  * The sprite atlas is the vanilla **generic** swirl (`particle/generic_0..7`,
  * the same set Portal / ReversePortal / DragonBreath use) rather than vanilla
@@ -61,7 +61,7 @@ class MissileBurstSparkParticle(
         private const val LIFETIME_BASE: Int = 24
         private const val LIFETIME_JITTER: Int = 6
 
-        /** Beam palette from MagicMissileTrailRenderer, packed for `setColor(int)`. */
+        /** Beam palette from LodestarDartTrailRenderer, packed for `setColor(int)`. */
         private const val OUTLINE_COLOR: Int = 0xFAD7F0
         private const val GLOW_COLOR: Int = 0xDC82C3
     }

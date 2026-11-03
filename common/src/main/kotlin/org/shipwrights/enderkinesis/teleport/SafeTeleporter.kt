@@ -8,6 +8,9 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import org.joml.Vector3d
+import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.shipObjectWorld
 
 /**
  * Finds a "suitably open" landing spot in a target dimension and moves entities there, giving up
@@ -54,6 +57,31 @@ object SafeTeleporter {
             val surface = target.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)
             val feet = BlockPos(x, surface, z)
             if (isOpen(target, feet)) return feet
+        }
+        return null
+    }
+
+    /**
+     * World position of an open deck spot on a random loaded ship in [level], or null.
+     * VS2 keeps a ship loaded only while a player is near it.
+     */
+    fun findShipDeck(level: ServerLevel): Vec3? {
+        val rand = level.random
+        val dimId = level.dimensionId
+        val ships = level.shipObjectWorld.loadedShips.filter { it.chunkClaimDimension == dimId }.shuffled()
+        for (ship in ships.take(MAX_TRIES)) {
+            val box = ship.shipAABB ?: continue
+            repeat(MAX_TRIES) {
+                val x = box.minX() + rand.nextInt(box.maxX() - box.minX() + 1)
+                val z = box.minZ() + rand.nextInt(box.maxZ() - box.minZ() + 1)
+                // The heightmap is read in shipyard coords: the shipyard chunks are ordinary chunks.
+                val top = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)
+                val feet = BlockPos(x, top, z)
+                if (top > box.minY() && isOpen(level, feet)) {
+                    val world = ship.shipToWorld.transformPosition(Vector3d(x + 0.5, top.toDouble(), z + 0.5))
+                    return Vec3(world.x, world.y, world.z)
+                }
+            }
         }
         return null
     }

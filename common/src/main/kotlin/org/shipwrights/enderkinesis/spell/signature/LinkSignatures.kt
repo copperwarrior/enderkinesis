@@ -28,6 +28,7 @@ import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.entity.SignatureEntity
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.BloodPacts
 import org.shipwrights.enderkinesis.spell.DarkZones
 import org.shipwrights.enderkinesis.spell.Element
@@ -119,10 +120,13 @@ object LinkSignatures {
         private const val UNDRAINED = 0.6f
         /** Share of the drained health that heals the caster. */
         private const val HEAL_SHARE = 0.2f
-        private const val BASE_LIFE = 240
-        private const val MORE_LIFE = 160
-        private const val STRIKE = 12f
-        private const val MORE_STRIKE = 16f
+        private const val BASE_LIFE = 480
+        private const val MORE_LIFE = 320
+        private const val STRIKE = 2f
+        private const val MORE_STRIKE = 2f
+        private const val DRAIN_EVERY = 20
+        private const val DRAIN = 1f
+        private const val MORE_DRAIN = 1.5f
         private const val BLEED_TICKS = 100
 
         enum class Kind { WEB, THREAD, SPARK }
@@ -174,13 +178,12 @@ object LinkSignatures {
             val aimed = cast.aimed(REACH)
             val first = aimed.entity ?: SignatureKit.creatures(cast.level, aimed.point, FIRST_NEAR, cast.caster).minByOrNull { it.distanceToSqr(aimed.point) }
             if (first == null) {
-                SignatureKit.sound(cast.level, cast.origin, SoundEvents.FIRE_EXTINGUISH, 0.5f, 1.4f)
+                SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_VAMPIRES_BALLROOM_MISS.get(), 0.5f)
                 return null
             }
             val cap = CAP_SCALE * (BASE_LINKS + 1 + Math.round(MORE_LINKS * cast.power))
             val life = BASE_LIFE + (MORE_LIFE * cast.power).toInt()
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.EVOKER_CAST_SPELL, 1.4f, 1.3f)
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.WARDEN_HEARTBEAT, 1.6f, 1.2f)
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_VAMPIRES_BALLROOM_CAST.get(), 1.6f)
             return spawn(cast, cast.origin, life) {
                 data = WEB_DATA
                 targetId = first.id
@@ -211,12 +214,13 @@ object LinkSignatures {
                     link.snapped = true
                     link.thread.discard()
                     if (link.a.isAlive && link.b.isAlive) {
-                        SignatureKit.sound(level, link.thread.position(), SoundEvents.LEASH_KNOT_BREAK, 1.2f, 0.7f)
+                        SignatureKit.sound(level, link.thread.position(), EKSounds.SIGNATURE_VAMPIRES_BALLROOM_SNAP.get(), 1.2f)
                         SignatureKit.particles(level, BLOOD, link.thread.position(), 12, 0.4, 0.05)
                     }
                 }
             }
             web.links.removeAll { it.snapped }
+            if (e.tickCount > LEAP_FIRST && e.tickCount % DRAIN_EVERY == 0) drain(e, web)
             if (e.tickCount > LEAP_FIRST && web.tied().isEmpty()) e.life = minOf(e.life, e.tickCount + 1)
         }
 
@@ -245,6 +249,17 @@ object LinkSignatures {
             catch(e, web, b)
         }
 
+        private fun drain(e: SignatureEntity, web: Web) {
+            val amount = DRAIN + MORE_DRAIN * e.power
+            // The drain is the web's own damage, so onHurt must not send it along the web.
+            redirecting = true
+            try {
+                for (m in web.tied()) strike(e, m, amount)
+            } finally {
+                redirecting = false
+            }
+        }
+
         private fun catch(e: SignatureEntity, web: Web, who: LivingEntity) {
             val level = e.level() as ServerLevel
             val at = SignatureKit.middle(who)
@@ -254,9 +269,9 @@ object LinkSignatures {
                 who.addEffect(MobEffectInstance(EKEffects.BLEEDING.get(), BLEED_TICKS, 0), e.caster)
                 SignatureKit.particles(level, BLOOD, at, 24, 0.35, 0.08)
                 SignatureKit.particles(level, ParticleTypes.DAMAGE_INDICATOR, at, 4, 0.3, 0.1)
-                SignatureKit.sound(level, at, SoundEvents.PLAYER_ATTACK_CRIT, 1.0f, 0.7f)
             }
-            SignatureKit.sound(level, at, SoundEvents.HONEY_BLOCK_BREAK, 1.3f, 0.6f + 0.08f * minOf(web.members.size, 10))
+            val notes = EKSounds.SIGNATURE_VAMPIRES_BALLROOM_CATCH
+            SignatureKit.sound(level, at, notes[(web.members.size - 1).mod(notes.size)].get(), 1.3f)
         }
 
         private fun strike(e: SignatureEntity, who: LivingEntity, amount: Float) {
@@ -280,6 +295,7 @@ object LinkSignatures {
                 is Web -> {
                     webs.remove(s)
                     for (link in s.links) link.thread.discard()
+                    SignatureKit.sound(e.level() as ServerLevel, e.position(), EKSounds.SIGNATURE_VAMPIRES_BALLROOM_END.get(), 1.4f)
                 }
                 is Blow -> land(e, s)
             }
@@ -295,7 +311,7 @@ object LinkSignatures {
             }
             val level = e.level() as ServerLevel
             SignatureKit.particles(level, BLOOD, SignatureKit.middle(blow.to), 18, 0.35, 0.08)
-            SignatureKit.sound(level, SignatureKit.middle(blow.to), SoundEvents.HONEY_BLOCK_BREAK, 1.1f, 0.5f)
+            SignatureKit.sound(level, SignatureKit.middle(blow.to), EKSounds.SIGNATURE_VAMPIRES_BALLROOM_LAND.get(), 1.1f)
         }
 
         /** Sends a blow on a tied creature to a random tied creature, along the web. */
@@ -316,7 +332,7 @@ object LinkSignatures {
                 targetId = to.id
                 state = Blow(to, source, amount)
             }
-            SignatureKit.sound(level, SignatureKit.middle(victim), SoundEvents.AMETHYST_BLOCK_HIT, 1.2f, 0.6f)
+            SignatureKit.sound(level, SignatureKit.middle(victim), EKSounds.SIGNATURE_VAMPIRES_BALLROOM_PASS.get(), 1.2f)
             return EventResult.interruptFalse()
         }
 
@@ -334,7 +350,7 @@ object LinkSignatures {
         private const val DRIVE_BACK = 0.2
 
         override fun start(cast: SignatureCast): SignatureEntity {
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.BEACON_POWER_SELECT, 1.3f, 1.6f)
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_TRANSFUSION_BEAM_START.get(), 1.3f)
             return spawn(cast, cast.origin, HELD_LIFE) { point = cast.origin.add(cast.aim.scale(REACH)) }
         }
 
@@ -346,13 +362,12 @@ object LinkSignatures {
             e.targetId = inBeam.firstOrNull()?.id ?: -1
             e.data = if (inBeam.any { SpellContext.isUndead(it) }) 1 else 0
             val level = cast.level
-            if (held % 20 == 0) SignatureKit.sound(level, e.point, SoundEvents.BEACON_AMBIENT, 1.2f, 1.7f)
             if (held % BURN_EVERY == 0) for (target in inBeam) {
                 if (!SpellContext.isUndead(target)) continue
                 SignatureKit.hurtThrough(e, target, EKDamageSources.SUNFIRE_KEY, BURN)
                 target.setSecondsOnFire(5)
                 SignatureKit.push(target, SignatureKit.middle(target).subtract(origin).normalize().scale(DRIVE_BACK))
-                if (held % (BURN_EVERY * 2) == 0) SignatureKit.sound(level, SignatureKit.middle(target), SoundEvents.FIRECHARGE_USE, 0.9f, 1.4f)
+                if (held % (BURN_EVERY * 2) == 0) SignatureKit.sound(level, SignatureKit.middle(target), EKSounds.SIGNATURE_TRANSFUSION_SEAR.get(), 0.9f)
             }
             if (held % EVERY != 0) return
             val caster = cast.caster
@@ -363,8 +378,13 @@ object LinkSignatures {
                 caster.health -= given
                 target.heal(given)
                 SignatureKit.particles(level, ParticleTypes.HEART, SignatureKit.middle(target).add(0.0, 0.6, 0.0), 2, 0.3, 0.0)
-                SignatureKit.sound(level, SignatureKit.middle(target), SoundEvents.AMETHYST_BLOCK_CHIME, 1.3f, 1.5f)
+                SignatureKit.sound(level, SignatureKit.middle(target), EKSounds.SIGNATURE_TRANSFUSION_GIVE.get(), 1.3f)
             }
+        }
+
+        override fun released(e: SignatureEntity, cast: SignatureCast, held: Int) {
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_TRANSFUSION_BEAM_STOP.get(), 1.3f)
+            super.released(e, cast, held)
         }
     }
 
@@ -396,8 +416,7 @@ object LinkSignatures {
             val foot = Vec3(at.x, SignatureKit.groundNear(cast.level, at, 2, 16) ?: at.y, at.z)
             val level = cast.level
             val daylight = level.isDay && !level.isRaining && level.canSeeSky(BlockPos.containing(foot).above())
-            SignatureKit.sound(level, cast.origin, SoundEvents.BEACON_ACTIVATE, 1.6f, 1.5f)
-            SignatureKit.sound(level, foot, SoundEvents.BEACON_ACTIVATE, 2f, 1.2f)
+            SignatureKit.sound(level, cast.origin, EKSounds.SIGNATURE_JUDGEMENT_PILLAR_CAST.get(), 1.6f)
             return spawn(cast, foot, LIFE) {
                 point = foot
                 data = if (daylight) 1 else 0
@@ -407,14 +426,14 @@ object LinkSignatures {
         override fun tick(e: SignatureEntity) {
             val level = e.level() as ServerLevel
             val foot = e.position()
+            if (e.tickCount == ACTIVE) SignatureKit.sound(level, foot, EKSounds.SIGNATURE_JUDGEMENT_PILLAR_FADE.get(), 2f)
             if (e.tickCount >= ACTIVE) return
             val impact = e.tickCount == IMPACT
             if (impact) {
-                SignatureKit.sound(level, foot, SoundEvents.LIGHTNING_BOLT_IMPACT, 2.5f, 1.3f)
-                SignatureKit.sound(level, foot, SoundEvents.LIGHTNING_BOLT_THUNDER, 1.8f, 1.6f)
+                SignatureKit.sound(level, foot, EKSounds.SIGNATURE_JUDGEMENT_PILLAR_IMPACT.get(), 2.5f)
                 SignatureKit.particles(level, ParticleTypes.END_ROD, foot.add(0.0, 0.5, 0.0), 60, radius(e.power) * 0.5, 0.25)
             } else if (e.tickCount < IMPACT || e.tickCount % EVERY != IMPACT % EVERY) return
-            if (e.tickCount % 20 == IMPACT) SignatureKit.sound(level, foot, SoundEvents.BEACON_AMBIENT, 2f, 1.8f)
+            val searSound = !impact && e.tickCount % (EVERY * 4) == IMPACT
             val daylight = if (e.data == 1) DAYLIGHT else 1f
             val r = radius(e.power)
             searAround(e, foot, r, BURN_DOWN, BURN_UP, FIRE_CHANCE)
@@ -428,7 +447,10 @@ object LinkSignatures {
                     SignatureKit.hurt(e, target, EKDamageSources.SUNFIRE_KEY, (SMITE + MORE_SMITE * e.power) * against)
                     val out = Vec3(target.x - foot.x, 0.0, target.z - foot.z).let { if (it.lengthSqr() < 1.0e-4) Vec3(1.0, 0.0, 0.0) else it.normalize() }
                     SignatureKit.push(target, out.scale(THROW).add(0.0, LIFT, 0.0))
-                } else SignatureKit.hurtThrough(e, target, EKDamageSources.SUNFIRE_KEY, SEAR * against)
+                } else {
+                    SignatureKit.hurtThrough(e, target, EKDamageSources.SUNFIRE_KEY, SEAR * against)
+                    if (searSound) SignatureKit.sound(level, SignatureKit.middle(target), EKSounds.SIGNATURE_JUDGEMENT_PILLAR_SEAR.get())
+                }
                 if (undead) {
                     target.setSecondsOnFire(8)
                     target.addEffect(MobEffectInstance(MobEffects.GLOWING, 60, 0), e.caster)
@@ -451,6 +473,10 @@ object LinkSignatures {
         private const val MAX_POOLS = 14
         /** Fade time in ticks for the oldest pool when there are more than [MAX_POOLS]. */
         private const val POOL_RETIRE = 40
+        /** Beam [SignatureEntity.data] while it strikes a block. Pools use positive data. */
+        private const val STRIKING = -1
+
+        fun striking(e: SignatureEntity): Boolean = e.data == STRIKING
 
         private class Held {
             var struck: Vec3? = null
@@ -469,8 +495,7 @@ object LinkSignatures {
         }
 
         override fun start(cast: SignatureCast): SignatureEntity {
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.BEACON_DEACTIVATE, 1.6f, 0.5f)
-            SignatureKit.sound(cast.level, cast.origin, SoundEvents.BLAZE_SHOOT, 1.2f, 0.5f)
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_SUPPLICATION_OF_SSELITH_BEAM_START.get(), 1.6f)
             return spawn(cast, cast.origin, HELD_LIFE) {
                 point = cast.origin.add(cast.aim.scale(REACH))
                 state = Held()
@@ -491,6 +516,7 @@ object LinkSignatures {
                 target.addEffect(MobEffectInstance(MobEffects.BLINDNESS, 80, 0), cast.caster)
                 target.setSecondsOnFire(5)
                 lightHurt(e, target, DAMAGE)
+                if (held % (EVERY * 4) == 0) SignatureKit.sound(level, SignatureKit.middle(target), EKSounds.SIGNATURE_SUPPLICATION_OF_SSELITH_BURN.get())
             }
             if (held % 10 == 0) for (player in level.getEntitiesOfClass(ServerPlayer::class.java, AABB(e.point, e.point).inflate(DARK_RADIUS))) {
                 if (player !== cast.caster && player.distanceToSqr(e.point) <= DARK_RADIUS * DARK_RADIUS) {
@@ -499,19 +525,19 @@ object LinkSignatures {
             }
             val block = trace.finalBlockPos
             state.struck = if (block != null) e.point else null
+            e.data = if (block != null) STRIKING else 0
             if (block != null) {
                 if (held % IGNITE_EVERY == IGNITE_EVERY - 1) ignite(e, level, origin)
                 if (held % SEAR_EVERY == 0) searAround(e, e.point, SEAR_RADIUS, 2, 2)
                 if (held % POOL_EVERY == 0) leavePool(e, cast, e.point, state)
             }
-            if (held % 15 == 0) SignatureKit.sound(level, e.point, SoundEvents.FIRE_AMBIENT, 1.6f, 0.4f)
-            if (held % 30 == 0) SignatureKit.sound(level, origin, SoundEvents.BEACON_AMBIENT, 1.2f, 0.5f)
             if (held % 3 == 0) SignatureKit.particles(level, ParticleTypes.LARGE_SMOKE, e.point, 3, 0.5, 0.02)
         }
 
         override fun released(e: SignatureEntity, cast: SignatureCast, held: Int) {
             val state = e.state as? Held
             state?.struck?.let { leavePool(e, cast, it, state) }
+            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_SUPPLICATION_OF_SSELITH_BEAM_STOP.get(), 1.6f)
             super.released(e, cast, held)
         }
 
@@ -527,6 +553,8 @@ object LinkSignatures {
             if (beam.pools.any { it.position().distanceTo(at) < POOL_STEP }) return
             if (beam.pools.size >= MAX_POOLS) {
                 val oldest = beam.pools.removeAt(0)
+                // The new life - END_BEFORE is this tick, which the pool's own tick cannot see.
+                if (oldest.tickCount < oldest.life - Pool.END_BEFORE) Pool.end(oldest)
                 oldest.life = minOf(oldest.life, oldest.tickCount + POOL_RETIRE)
             }
             val r = Pool.radius(cast.power)
@@ -535,13 +563,14 @@ object LinkSignatures {
                 data = Math.round(r * 10).toInt()
                 state = beam
             }
-            SignatureKit.sound(cast.level, at, SoundEvents.FIRECHARGE_USE, 1.2f, 0.5f)
+            SignatureKit.sound(cast.level, at, EKSounds.SIGNATURE_SUPPLICATION_OF_SSELITH_POOL_FORM.get(), 1.2f)
             SignatureKit.particles(cast.level, ParticleTypes.LARGE_SMOKE, at, 12, r * 0.3, 0.04)
         }
 
         object Pool {
             const val LIFE = 20 * 20
             const val MORE_LIFE = 20 * 10
+            const val END_BEFORE = 40
             private const val BASE_RADIUS = 4.0
             private const val MORE_RADIUS = 2.0
             private const val EVERY = 5
@@ -573,6 +602,9 @@ object LinkSignatures {
 
             fun radius(power: Float): Double = BASE_RADIUS + MORE_RADIUS * power
 
+            fun end(e: SignatureEntity) =
+                SignatureKit.sound(e.level() as ServerLevel, e.position(), EKSounds.SIGNATURE_SUPPLICATION_OF_SSELITH_POOL_END.get())
+
             fun radiusOf(data: Int): Double = data / 10.0
 
             fun tick(e: SignatureEntity) {
@@ -581,7 +613,7 @@ object LinkSignatures {
                 val radius = radiusOf(e.data)
                 holdDark(e)
                 if (e.tickCount % SEAR_EVERY == 1) searAround(e, centre, radius, SEAR_DOWN, SEAR_UP)
-                if (e.tickCount % 60 == 0) SignatureKit.sound(level, centre, SoundEvents.FIRE_AMBIENT, 1.0f, 0.4f)
+                if (e.tickCount == e.life - END_BEFORE) end(e)
                 if (e.tickCount % EVERY != 0) return
                 val shared = e.state as? Held
                 val now = level.server.tickCount

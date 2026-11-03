@@ -8,7 +8,10 @@ import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.ai.attributes.AttributeMap
 import net.minecraft.world.entity.ai.attributes.AttributeModifier
 import net.minecraft.world.entity.ai.attributes.Attributes
+import net.minecraft.server.level.ServerLevel
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Element
+import org.shipwrights.enderkinesis.spell.SpellSounds
 import java.util.UUID
 import java.util.WeakHashMap
 
@@ -55,6 +58,7 @@ object BloodSurgeFades {
     fun start(entity: LivingEntity, amount: Double) {
         fading[entity] = Fade(amount)
         hold(entity, amount)
+        (entity.level() as? ServerLevel)?.let { SpellSounds.play(it, entity.position(), EKSounds.SPELL_BLOOD_SURGE_FADE) }
     }
 
     fun stop(entity: LivingEntity) {

@@ -1,0 +1,14 @@
+{
+  "variants": {
+    "": [
+      {
+        "model": "enderkinesis:block/wogor_wood",
+        "weight": 66
+      },
+      {
+        "model": "enderkinesis:block/wogor_wood_animated",
+        "weight": 34
+      }
+    ]
+  }
+}

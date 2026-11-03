@@ -77,6 +77,8 @@ dependencies {
 
     modRuntimeOnly("maven.modrinth:natures-compass:1.20.1-2.6.0-fabric")
     modRuntimeOnly("maven.modrinth:explorers-compass:1.20.1-2.6.0-fabric")
+    // Dev-only: test Enderkinesis' DH compat (compat/distanthorizons) in the dev client.
+    modRuntimeOnly("maven.modrinth:distanthorizons:3.3.3-1.20.1")
 
     // Trinkets API — accessory-slot mod (Fabric). Compile-time only; the robe armor's
     // combined-score calc plugs in via `AccessoryGatherer` at runtime if loaded.

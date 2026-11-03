@@ -65,7 +65,7 @@ object WindPalmCapture {
         if (!inLevel) return
         val player = entity as? AbstractClientPlayer ?: return
         val hand = player.usedItemHand
-        if (!IncantationOfWindsClient.isCastingWinds(player, hand)) return
+        if (!IncantationOfWindsClient.isCastingIncantation(player, hand)) return
         val humanoid = model as? HumanoidModel<*> ?: return
         val arm = if (hand == InteractionHand.MAIN_HAND) player.mainArm else player.mainArm.opposite
         val right = arm == HumanoidArm.RIGHT

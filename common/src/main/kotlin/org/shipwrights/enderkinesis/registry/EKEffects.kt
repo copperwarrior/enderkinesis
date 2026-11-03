@@ -5,13 +5,13 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.effect.MobEffect
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.effect.FlameCloakEffect
-import org.shipwrights.enderkinesis.effect.FrostCloakEffect
-import org.shipwrights.enderkinesis.effect.LightningCloakEffect
-import org.shipwrights.enderkinesis.effect.AbsorptionCloakEffect
-import org.shipwrights.enderkinesis.effect.PoisonCloakEffect
-import org.shipwrights.enderkinesis.effect.VoidCloakEffect
-import org.shipwrights.enderkinesis.effect.HaloEffect
+import org.shipwrights.enderkinesis.effect.MantleOfFlameEffect
+import org.shipwrights.enderkinesis.effect.MantleOfFrostEffect
+import org.shipwrights.enderkinesis.effect.MantleOfLightningEffect
+import org.shipwrights.enderkinesis.effect.MantleOfAbsorptionEffect
+import org.shipwrights.enderkinesis.effect.MantleOfPoisonEffect
+import org.shipwrights.enderkinesis.effect.MantleOfVoidEffect
+import org.shipwrights.enderkinesis.effect.PaleCrownEffect
 import org.shipwrights.enderkinesis.effect.AnchoredEffect
 import org.shipwrights.enderkinesis.effect.AmbrosialCravingEffect
 import org.shipwrights.enderkinesis.effect.CrepuscularFloatationEffect
@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.effect.EntangledEffect
 import org.shipwrights.enderkinesis.effect.WeightedEffect
 import org.shipwrights.enderkinesis.effect.DiscordEffect
 import org.shipwrights.enderkinesis.effect.EnthralledEffect
+import org.shipwrights.enderkinesis.effect.UlderParanoiaEffect
 import org.shipwrights.enderkinesis.effect.BleedingEffect
 import org.shipwrights.enderkinesis.effect.BloodboundEffect
 import org.shipwrights.enderkinesis.effect.BloodSurgeEffect
@@ -78,6 +79,8 @@ object EKEffects {
 
     val ENTHRALLED: RegistrySupplier<MobEffect> = EFFECTS.register("enthralled") { EnthralledEffect() }
 
+    val ULDER_PARANOIA: RegistrySupplier<MobEffect> = EFFECTS.register("ulder_paranoia") { UlderParanoiaEffect() }
+
     val BLEEDING: RegistrySupplier<MobEffect> = EFFECTS.register("bleeding") { BleedingEffect() }
 
     val BLOODBOUND: RegistrySupplier<MobEffect> = EFFECTS.register("bloodbound") { BloodboundEffect() }
@@ -97,19 +100,19 @@ object EKEffects {
 
     val ANCHORED: RegistrySupplier<MobEffect> = EFFECTS.register("anchored") { AnchoredEffect() }
 
-    val HALO: RegistrySupplier<MobEffect> = EFFECTS.register("halo") { HaloEffect() }
+    val PALE_CROWN: RegistrySupplier<MobEffect> = EFFECTS.register("pale_crown") { PaleCrownEffect() }
 
-    val FLAME_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("flame_cloak") { FlameCloakEffect() }
+    val MANTLE_OF_FLAME: RegistrySupplier<MobEffect> = EFFECTS.register("mantle_of_flame") { MantleOfFlameEffect() }
 
-    val FROST_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("frost_cloak") { FrostCloakEffect() }
+    val MANTLE_OF_FROST: RegistrySupplier<MobEffect> = EFFECTS.register("mantle_of_frost") { MantleOfFrostEffect() }
 
-    val LIGHTNING_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("lightning_cloak") { LightningCloakEffect() }
+    val MANTLE_OF_LIGHTNING: RegistrySupplier<MobEffect> = EFFECTS.register("mantle_of_lightning") { MantleOfLightningEffect() }
 
-    val ABSORPTION_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("absorption_cloak") { AbsorptionCloakEffect() }
+    val MANTLE_OF_ABSORPTION: RegistrySupplier<MobEffect> = EFFECTS.register("mantle_of_absorption") { MantleOfAbsorptionEffect() }
 
-    val POISON_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("poison_cloak") { PoisonCloakEffect() }
+    val MANTLE_OF_POISON: RegistrySupplier<MobEffect> = EFFECTS.register("mantle_of_poison") { MantleOfPoisonEffect() }
 
-    val VOID_CLOAK: RegistrySupplier<MobEffect> = EFFECTS.register("void_cloak") { VoidCloakEffect() }
+    val MANTLE_OF_VOID: RegistrySupplier<MobEffect> = EFFECTS.register("mantle_of_void") { MantleOfVoidEffect() }
 
     fun register() = EFFECTS.register()
 }

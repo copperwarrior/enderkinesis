@@ -1,7 +1,0 @@
-{
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "enderkinesis:item/mystic_scroll",
-    "layer1": "enderkinesis:item/mystic_scroll_wrap"
-  }
-}

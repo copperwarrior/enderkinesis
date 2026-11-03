@@ -36,6 +36,8 @@ object WohlonEcologyAmbience {
     /** Enclosed share of the rays at which hollow starts, and at which it is full. */
     private const val HOLLOW_MIN = 0.5f
     private const val HOLLOW_FULL = 0.85f
+    /** Share of the enclosing ray hits that must be wohlon root to count as a root tunnel. */
+    private const val ROOT_TUNNEL_SHARE = 0.5f
 
     private const val BED_FADE_TICKS = 60f
     private const val SPOT_MIN_TICKS = 40
@@ -84,6 +86,7 @@ object WohlonEcologyAmbience {
     private var sampleCounter = 0
     private var nextSpotTick = 0L
     private var lastWaterTick = Long.MIN_VALUE / 2
+    private var inRootTunnel = false
 
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(::tick)
@@ -98,6 +101,7 @@ object WohlonEcologyAmbience {
         scores.fill(0f)
         spotCounts.fill(0)
         lastWaterTick = Long.MIN_VALUE / 2
+        inRootTunnel = false
     }
 
     private fun tick(level: ClientLevel) {
@@ -106,6 +110,7 @@ object WohlonEcologyAmbience {
         if (!active) {
             scores.fill(0f)
             spotCounts.fill(0)
+            inRootTunnel = false
         } else if (++sampleCounter >= SAMPLE_TICKS) {
             sampleCounter = 0
             sample(level, player.blockPosition())
@@ -224,17 +229,23 @@ object WohlonEcologyAmbience {
     }
 
     private fun hollowScore(level: ClientLevel, centre: BlockPos): Float {
+        inRootTunnel = false
         if (level.canSeeSky(centre.above())) return 0f
+        val root = EKBlocks.WOHLON_ROOT.get()
         var enclosed = 0
+        var rootHits = 0
         for (ray in RAYS) {
             for (step in 1..HOLLOW_RAY_STEPS) {
                 pos.set(centre.x + ray[0] * step, centre.y + 1 + ray[1] * step, centre.z + ray[2] * step)
-                if (level.getBlockState(pos).canOcclude()) {
+                val state = level.getBlockState(pos)
+                if (state.canOcclude()) {
                     enclosed++
+                    if (state.block === root) rootHits++
                     break
                 }
             }
         }
+        inRootTunnel = rootHits > 0 && rootHits >= enclosed * ROOT_TUNNEL_SHARE
         val share = enclosed.toFloat() / RAYS.size
         return ((share - HOLLOW_MIN) / (HOLLOW_FULL - HOLLOW_MIN)).coerceIn(0f, 1f)
     }
@@ -261,7 +272,7 @@ object WohlonEcologyAmbience {
         for (spot in SPOTS) {
             val count = spotCounts[spot.ordinal]
             val allowed = count > 0 &&
-                (spot != Spot.FROG || dark) &&
+                (spot != Spot.FROG || dark && !inRootTunnel) &&
                 (spot != Spot.WATER || now - lastWaterTick >= WATER_COOLDOWN_TICKS)
             weights[spot.ordinal] = if (allowed) spot.weight * count / MAX_SPOTS else 0f
             total += weights[spot.ordinal]

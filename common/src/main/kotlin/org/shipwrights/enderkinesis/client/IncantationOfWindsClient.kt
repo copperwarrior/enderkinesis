@@ -13,13 +13,16 @@ import net.minecraft.world.entity.HumanoidArm
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
+import org.shipwrights.enderkinesis.item.IncantationItem
+import org.shipwrights.enderkinesis.item.IncantationOfTheAbyssItem
+import org.shipwrights.enderkinesis.item.IncantationOfTheRiverItem
 import org.shipwrights.enderkinesis.item.IncantationOfWindsItem
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** Client visuals for the held Incantation of Winds.
+/** Client hand visuals for every held [IncantationItem], and the Incantation of Winds stream.
  *
  *  Two particle paths:
  *  - **First person (local player)**: motes live in HAND SPACE, not world
@@ -39,21 +42,26 @@ object IncantationOfWindsClient {
     fun tick(mc: Minecraft) {
         val level = mc.level ?: return
         if (mc.isPaused) return
-        WindConeVolume.tick(level)
-        val item = EKItems.INCANTATION_OF_WINDS.get()
+        IncantationConeVolume.tick(level)
+        AbyssDepthVolume.tick(level)
+        RiverWasher.tick(level)
         val localFirstPerson = mc.options.cameraType.isFirstPerson
 
         for (player in level.players()) {
             val isLocalFp = player === mc.player && localFirstPerson
             for (hand in InteractionHand.values()) {
-                if (!player.getItemInHand(hand).`is`(item)) continue
-                if (isCastingWinds(player, hand)) {
-                    spawnStream(player)
-                    IncantationOfWindsSounds.loop(player)
+                val item = player.getItemInHand(hand).item as? IncantationItem ?: continue
+                if (isCastingIncantation(player, hand)) {
+                    when (item) {
+                        is IncantationOfWindsItem -> spawnStream(player)
+                        is IncantationOfTheRiverItem -> RiverJetClient.spawn(player)
+                        is IncantationOfTheAbyssItem -> AbyssDepthClient.spawn(player)
+                    }
+                    IncantationSounds.loop(player, item)
                     continue
                 }
                 if (isLocalFp) continue // handled by the hand-space motes below
-                spawnWorldHandDust(player, hand)
+                spawnWorldHandDust(player, hand, item.handColour)
             }
         }
 
@@ -62,7 +70,7 @@ object IncantationOfWindsClient {
 
     /** Third-person / remote hand dust — a world particle at the humanoid
      *  model's hanging hand, randomised in a wide radius around it. */
-    private fun spawnWorldHandDust(player: Player, hand: InteractionHand) {
+    private fun spawnWorldHandDust(player: Player, hand: InteractionHand, colour: Int) {
         val level = player.level()
         val rnd = level.random
         if (rnd.nextFloat() >= HAND_DUST_CHANCE) return
@@ -70,7 +78,7 @@ object IncantationOfWindsClient {
         val sideSign = if (arm == HumanoidArm.RIGHT) 1.0 else -1.0
         val yawRad = Math.toRadians(player.yBodyRot.toDouble())
         val right = Vec3(-cos(yawRad), 0.0, -sin(yawRad))
-        level.addParticle(
+        Minecraft.getInstance().particleEngine.createParticle(
             EKParticles.windHandDust(),
             player.x + right.x * 0.38 * sideSign +
                 (rnd.nextDouble() - 0.5) * 2.0 * SPAWN_RADIUS_XZ,
@@ -80,8 +88,12 @@ object IncantationOfWindsClient {
             (rnd.nextDouble() - 0.5) * 0.01,
             HAND_DUST_RISE,
             (rnd.nextDouble() - 0.5) * 0.01,
-        )
+        )?.setColor(red(colour), green(colour), blue(colour))
     }
+
+    private fun red(rgb: Int) = (rgb shr 16 and 0xFF) / 255f
+    private fun green(rgb: Int) = (rgb shr 8 and 0xFF) / 255f
+    private fun blue(rgb: Int) = (rgb and 0xFF) / 255f
 
     /** Flames-style stream: wisps and glitter motes, each sent to a random end point in the cone. */
     private fun spawnStream(player: Player) {
@@ -230,6 +242,7 @@ object IncantationOfWindsClient {
         val vy: Double,
         val size: Float,
         val smokeMode: Boolean,
+        val colour: Int,
         val lifetime: Int,
         var age: Int = 0,
     )
@@ -239,7 +252,6 @@ object IncantationOfWindsClient {
 
     private fun tickFirstPersonMotes(mc: Minecraft, localFirstPerson: Boolean) {
         val player = mc.player
-        val item = EKItems.INCANTATION_OF_WINDS.get()
         for (hand in InteractionHand.values()) {
             val list = fpMotes[hand.ordinal]
             // Update existing motes even after the item is put away — they
@@ -252,10 +264,10 @@ object IncantationOfWindsClient {
                 if (++m.age >= m.lifetime) it.remove()
             }
             if (player == null || !localFirstPerson) continue
-            if (!player.getItemInHand(hand).`is`(item)) continue
+            val item = player.getItemInHand(hand).item as? IncantationItem ?: continue
             // The idle shimmer yields to the blast while casting; existing
             // motes age out in place.
-            if (isCastingWinds(player, hand)) continue
+            if (isCastingIncantation(player, hand)) continue
             val rnd = player.random
             if (rnd.nextFloat() >= HAND_DUST_CHANCE) continue
             val smoke = rnd.nextFloat() < 0.5f
@@ -272,6 +284,7 @@ object IncantationOfWindsClient {
                         0.012f + rnd.nextFloat() * 0.016f
                     },
                     smokeMode = smoke,
+                    colour = item.handColour,
                     lifetime = HAND_DUST_LIFETIME_MIN + rnd.nextInt(HAND_DUST_LIFETIME_VAR),
                 ),
             )
@@ -288,7 +301,6 @@ object IncantationOfWindsClient {
         poseStack: PoseStack,
         buffer: MultiBufferSource.BufferSource,
         player: LocalPlayer,
-        combinedLight: Int,
     ) {
         var drewAny = false
         for (hand in InteractionHand.values()) {
@@ -298,7 +310,7 @@ object IncantationOfWindsClient {
             val sideSign = if (arm == HumanoidArm.RIGHT) 1.0 else -1.0
 
             poseStack.pushPose()
-            if (isCastingWinds(player, hand)) {
+            if (isCastingIncantation(player, hand)) {
                 // Same composition order as the arm mixin: tilt first,
                 // then translate — keeps the dust glued to the tilting hand.
                 poseStack.mulPose(
@@ -306,7 +318,7 @@ object IncantationOfWindsClient {
                 )
             }
             poseStack.translate(FP_SIDE * sideSign, FP_DOWN, FP_FORWARD)
-            if (isCastingWinds(player, hand)) {
+            if (isCastingIncantation(player, hand)) {
                 // The tilt rotates about the camera origin, so the RENDERED
                 // hand (whose geometry reaches z≈−0.9) swings further than
                 // this anchor point does — the FP_CAST_* extras close that
@@ -337,10 +349,11 @@ object IncantationOfWindsClient {
                 )
                 val s = m.size
                 // Camera space: an XY-plane quad faces the viewer.
-                moteVertex(consumer, pose, normal, px - s, py - s, pz, 0f, 1f, alpha, combinedLight)
-                moteVertex(consumer, pose, normal, px + s, py - s, pz, 1f, 1f, alpha, combinedLight)
-                moteVertex(consumer, pose, normal, px + s, py + s, pz, 1f, 0f, alpha, combinedLight)
-                moteVertex(consumer, pose, normal, px - s, py + s, pz, 0f, 0f, alpha, combinedLight)
+                val c = m.colour
+                moteVertex(consumer, pose, normal, px - s, py - s, pz, 0f, 1f, c, alpha)
+                moteVertex(consumer, pose, normal, px + s, py - s, pz, 1f, 1f, c, alpha)
+                moteVertex(consumer, pose, normal, px + s, py + s, pz, 1f, 0f, c, alpha)
+                moteVertex(consumer, pose, normal, px - s, py + s, pz, 0f, 0f, c, alpha)
             }
             poseStack.popPose()
         }
@@ -360,11 +373,11 @@ object IncantationOfWindsClient {
         normal: org.joml.Matrix3f,
         x: Float, y: Float, z: Float,
         u: Float, v: Float,
+        colour: Int,
         alpha: Float,
-        @Suppress("UNUSED_PARAMETER") light: Int,
     ) {
         consumer.vertex(pose, x, y, z)
-            .color(1.0f, 0.92f, 0.55f, alpha)
+            .color(red(colour), green(colour), blue(colour), alpha)
             .uv(u, v)
             .overlayCoords(OverlayTexture.NO_OVERLAY)
             // Emissive: full-bright lightmap regardless of world light —
@@ -375,6 +388,13 @@ object IncantationOfWindsClient {
     }
 
     // --------------------------------------------------- cast-pose curve
+
+    /** True while [hand] casts any incantation; drives the shared cast pose, bare arm and palm capture. */
+    @JvmStatic
+    fun isCastingIncantation(player: Player, hand: InteractionHand): Boolean =
+        player.isUsingItem &&
+            player.usedItemHand == hand &&
+            player.getItemInHand(hand).item is IncantationItem
 
     @JvmStatic
     fun isCastingWinds(player: Player, hand: InteractionHand): Boolean =

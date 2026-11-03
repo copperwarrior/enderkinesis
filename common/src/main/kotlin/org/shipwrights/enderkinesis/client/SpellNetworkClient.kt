@@ -8,9 +8,10 @@ import net.minecraft.core.BlockPos
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
-import org.shipwrights.enderkinesis.item.MysticScrollItem
+import org.shipwrights.enderkinesis.item.UlderScrollItem
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.spell.AbyssalPockets
+import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.SpellNetwork
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import org.joml.Quaternionf
@@ -79,8 +80,8 @@ object SpellNetworkClient {
             ctx.queue { SpellVfxClient.add(kind, a, b, size, rgb, life, seed) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.BLOCK_SHIFTS) { buf, ctx ->
-            val from = Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
-            val element = (buf.readVarInt() - 1).toFloat()
+            val from = if (buf.readBoolean()) Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()) else null
+            val element = Element.entries.getOrNull(buf.readVarInt() - 1)
             val n = buf.readCount(Long.SIZE_BYTES + 1, SpellNetwork.MAX_SHIFTS_PER_PACKET)
             val positions = LongArray(n)
             val states = IntArray(n)
@@ -88,13 +89,14 @@ object SpellNetworkClient {
                 positions[i] = buf.readLong()
                 states[i] = buf.readVarInt()
             }
-            val kind = SpellVfx.Kind.BLOCK_SHIFT.ordinal
-            // Block shifts do not use life or seed.
-            ctx.queue { for (i in 0 until n) SpellVfxClient.add(kind, from, Vec3.atCenterOf(BlockPos.of(positions[i])), element, states[i], 1, 0) }
+            ctx.queue {
+                val level = Minecraft.getInstance().level ?: return@queue
+                for (i in 0 until n) BlockShifts.add(level, from, Vec3.atCenterOf(BlockPos.of(positions[i])), element, states[i])
+            }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.USED) { buf, ctx ->
             val id = buf.readVarInt()
-            val use = MysticScrollItem.Companion.OtherUse.values().getOrNull(buf.readByte().toInt())
+            val use = UlderScrollItem.Companion.OtherUse.values().getOrNull(buf.readByte().toInt())
             val hand = if (buf.readBoolean()) InteractionHand.MAIN_HAND else InteractionHand.OFF_HAND
             ctx.queue {
                 val player = Minecraft.getInstance().level?.getEntity(id) as? Player ?: return@queue

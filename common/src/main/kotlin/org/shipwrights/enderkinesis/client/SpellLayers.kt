@@ -31,7 +31,7 @@ object SpellLayers {
 
     @JvmStatic
     fun render(entity: LivingEntity, partialTick: Float, pose: PoseStack, buffers: MultiBufferSource, light: Int) {
-        if (entity.deathTime > 0 && SpellDeaths.of(entity) == Element.GROWTH) return buried(entity, partialTick, pose, buffers, light)
+        if (entity.deathTime > 0 && SpellDeaths.of(entity) == Element.GENESIS) return buried(entity, partialTick, pose, buffers, light)
         val bits = SpellNetworkClient.visuals(entity.id)
         if (bits and SpellVisuals.CRYSTALLIZED == 0) CrystalLayer.forget(entity.id)
         if (bits == 0 || !SpellVfxRenderTypes.isReady()) return

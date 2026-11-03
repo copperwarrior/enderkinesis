@@ -487,7 +487,7 @@ object FieldSignatureVisuals {
         }
     }
 
-    private fun splash(e: SignatureEntity, sky: Sky, extra: ((Vec3) -> Unit)? = null) {
+    private fun splash(e: SignatureEntity, sky: Sky, rainSound: Boolean = true, extra: ((Vec3) -> Unit)? = null) {
         if (sky.offsets.isEmpty()) return
         val level = e.level()
         val r = level.random
@@ -500,7 +500,7 @@ object FieldSignatureVisuals {
             level.addParticle(ParticleTypes.RAIN, p.x, p.y, p.z, 0.0, 0.0, 0.0)
             extra?.invoke(p)
         }
-        if (e.tickCount % 3 == 0) {
+        if (rainSound && e.tickCount % 3 == 0) {
             val n = r.nextInt(sky.offsets.size)
             val y = sky.tops[n]
             if (!y.isNaN()) level.playLocalSound(sky.x(n) + 0.5, y, sky.z(n) + 0.5, SoundEvents.WEATHER_RAIN, SoundSource.WEATHER, 0.5f, 1f, false)
@@ -680,11 +680,10 @@ object FieldSignatureVisuals {
             follow(e, AcidRain, sky)
             if (!AcidRain.raining(e, e.tickCount)) return
             val level = e.level()
-            splash(e, sky) { p ->
+            splash(e, sky, rainSound = false) { p ->
                 level.addParticle(DustParticleOptions(AcidRain.ACID, 1.0f), p.x, p.y + 0.05, p.z, 0.0, 0.03, 0.0)
                 if (level.random.nextInt(10) == 0) level.addParticle(ParticleTypes.SMOKE, p.x, p.y + 0.1, p.z, 0.0, 0.03, 0.0)
             }
-            if (e.tickCount % 10 == 0) level.playLocalSound(e.x, e.y - AcidRain.height, e.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.PLAYERS, 0.4f, 1.8f, false)
         }
 
         override fun render(d: SignatureDraw) {
@@ -739,7 +738,6 @@ object FieldSignatureVisuals {
                     sky.hail += Hailstone(p, v, 0.05 + r.nextDouble() * 0.04, r.nextDouble() * 6)
                 }
             }
-            var clatter = 0
             val stones = sky.hail.iterator()
             while (stones.hasNext()) {
                 val h = stones.next()
@@ -755,11 +753,6 @@ object FieldSignatureVisuals {
                 if (h.bounces < HAIL_BOUNCES && h.vel.y < -0.1) {
                     h.bounces++
                     h.vel = Vec3(h.vel.x * 0.5 + (r.nextDouble() - 0.5) * 0.12, -h.vel.y * HAIL_BOUNCE, h.vel.z * 0.5 + (r.nextDouble() - 0.5) * 0.12)
-                    if (clatter < 3 && r.nextInt(4) == 0) {
-                        clatter++
-                        val sound = if (r.nextBoolean()) SoundEvents.GLASS_HIT else SoundEvents.STONE_HIT
-                        level.playLocalSound(h.pos.x, h.pos.y, h.pos.z, sound, SoundSource.WEATHER, 0.35f, 1.7f + r.nextFloat() * 0.3f, false)
-                    }
                     if (r.nextInt(6) == 0) level.addParticle(BlockParticleOption(ParticleTypes.BLOCK, Blocks.PACKED_ICE.defaultBlockState()), h.pos.x, h.pos.y, h.pos.z, 0.0, 0.0, 0.0)
                 } else {
                     h.vel = Vec3.ZERO
@@ -895,7 +888,7 @@ object FieldSignatureVisuals {
                 if (p.vel.lengthSqr() > 1.0e-4) p.facing = p.facing.lerp(p.vel.normalize(), 0.5).let { if (it.lengthSqr() < 1.0e-4) p.facing else it.normalize() }
             }
             if (bounces > 0 && e.tickCount % 3 == 0) {
-                e.level().playLocalSound(centre.x, centre.y, centre.z, EKSounds.AEGIS_SHARD_BOUNCE.get(), SoundSource.PLAYERS, minOf(1f, 0.15f * bounces), 1.2f + t.random.nextFloat() * 0.4f, false)
+                e.level().playLocalSound(centre.x, centre.y, centre.z, EKSounds.SIGNATURE_GUST_OF_GLASS_CLATTER.get(), SoundSource.PLAYERS, minOf(1f, 0.15f * bounces), 1f, false)
             }
             t.sparkles.removeAll { ++it.age >= it.life }
             if (!breaking) repeat(SPARKLES_PER_TICK) {

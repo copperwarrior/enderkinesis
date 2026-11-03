@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=down":  { "model": "enderkinesis:block/ulder_beam_anchor" },
+    "facing=up":    { "model": "enderkinesis:block/ulder_beam_anchor", "x": 180 },
+    "facing=north": { "model": "enderkinesis:block/ulder_beam_anchor", "x": 270 },
+    "facing=south": { "model": "enderkinesis:block/ulder_beam_anchor", "x": 90 },
+    "facing=east":  { "model": "enderkinesis:block/ulder_beam_anchor", "x": 90, "y": 270 },
+    "facing=west":  { "model": "enderkinesis:block/ulder_beam_anchor", "x": 90, "y": 90 }
+  }
+}

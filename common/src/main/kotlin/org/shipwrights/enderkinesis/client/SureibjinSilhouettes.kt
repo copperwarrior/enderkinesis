@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
-import com.mojang.blaze3d.vertex.VertexConsumer
 import java.util.Random
 import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
@@ -10,11 +9,9 @@ import net.minecraft.client.gui.Font
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
-import net.minecraft.client.renderer.RenderType
 import net.minecraft.core.BlockPos
 import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
-import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.Pose
 import net.minecraft.world.entity.player.Player
@@ -575,81 +572,6 @@ object SureibjinSilhouettes {
             swingScratch[0] = prev
             swingScratch[1] = curr
             return swingScratch
-        }
-    }
-
-    /** Wraps another buffer source and returns black-tinted vertex
-     *  consumers. Cached per RenderType because PlayerRenderer pulls the
-     *  same RenderType (entity_translucent / entity_cutout_no_cull / armor
-     *  cutouts / etc.) repeatedly across layers. */
-    private class BlackTintBufferSource(
-        private val delegate: MultiBufferSource,
-    ) : MultiBufferSource {
-        private val cache = HashMap<RenderType, BlackTintVertexConsumer>(8)
-        override fun getBuffer(renderType: RenderType): VertexConsumer {
-            val existing = cache[renderType]
-            val fresh = delegate.getBuffer(renderType)
-            if (existing != null && existing.delegate === fresh) return existing
-            val wrapper = BlackTintVertexConsumer(fresh)
-            cache[renderType] = wrapper
-            return wrapper
-        }
-    }
-
-    /** Forwards every call to [delegate] except [color] and [defaultColor],
-     *  which are pinned to opaque black. Vanilla entity fragment shaders do
-     *  `tex * vertexColor * ColorModulator * lightMap`, so an all-zero
-     *  vertex color produces solid black RGB while alpha cutout still
-     *  honours the skin texture's transparency.
-     *
-     *  Chained calls must return `this` (not the delegate) so subsequent
-     *  links in the chain stay routed through this wrapper. */
-    private class BlackTintVertexConsumer(
-        val delegate: VertexConsumer,
-    ) : VertexConsumer {
-
-        override fun vertex(x: Double, y: Double, z: Double): VertexConsumer {
-            delegate.vertex(x, y, z)
-            return this
-        }
-
-        override fun color(r: Int, g: Int, b: Int, a: Int): VertexConsumer {
-            delegate.color(0, 0, 0, 255)
-            return this
-        }
-
-        override fun uv(u: Float, v: Float): VertexConsumer {
-            delegate.uv(u, v)
-            return this
-        }
-
-        // The entity shader mixes the hurt overlay in after the vertex colour, so a hurt player
-        // would make the black silhouettes flash red.
-        override fun overlayCoords(u: Int, v: Int): VertexConsumer {
-            delegate.overlayCoords(OverlayTexture.NO_OVERLAY)
-            return this
-        }
-
-        override fun uv2(u: Int, v: Int): VertexConsumer {
-            delegate.uv2(u, v)
-            return this
-        }
-
-        override fun normal(x: Float, y: Float, z: Float): VertexConsumer {
-            delegate.normal(x, y, z)
-            return this
-        }
-
-        override fun endVertex() {
-            delegate.endVertex()
-        }
-
-        override fun defaultColor(r: Int, g: Int, b: Int, a: Int) {
-            delegate.defaultColor(0, 0, 0, 255)
-        }
-
-        override fun unsetDefaultColor() {
-            delegate.unsetDefaultColor()
         }
     }
 }
