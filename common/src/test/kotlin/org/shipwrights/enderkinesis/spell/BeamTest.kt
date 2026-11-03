@@ -11,12 +11,12 @@ import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
 import org.shipwrights.enderkinesis.spell.Element.BLOOD
 import org.shipwrights.enderkinesis.spell.Element.CHAOS
-import org.shipwrights.enderkinesis.spell.Element.COLD
+import org.shipwrights.enderkinesis.spell.Element.WINTER
 import org.shipwrights.enderkinesis.spell.Element.GRAVITY
-import org.shipwrights.enderkinesis.spell.Element.GROWTH
-import org.shipwrights.enderkinesis.spell.Element.HEAT
-import org.shipwrights.enderkinesis.spell.Element.POISON
-import org.shipwrights.enderkinesis.spell.Element.PURITY
+import org.shipwrights.enderkinesis.spell.Element.GENESIS
+import org.shipwrights.enderkinesis.spell.Element.PYRE
+import org.shipwrights.enderkinesis.spell.Element.CORRUPTION
+import org.shipwrights.enderkinesis.spell.Element.QUINTESSENCE
 import org.shipwrights.enderkinesis.spell.Element.SUNFIRE
 import org.shipwrights.enderkinesis.spell.Element.VOID
 
@@ -84,23 +84,23 @@ class BeamTest {
 
     @Test
     fun `opposites inside fusions count`() {
-        BeamManager.opposed(listOf(SUNFIRE), listOf(GROWTH)) shouldBe true
+        BeamManager.opposed(listOf(SUNFIRE), listOf(GENESIS)) shouldBe true
         BeamManager.opposed(listOf(VOID), listOf(CHAOS)) shouldBe true
-        BeamManager.opposed(listOf(POISON), listOf(BLOOD)) shouldBe false
+        BeamManager.opposed(listOf(CORRUPTION), listOf(BLOOD)) shouldBe false
     }
 
     @Test
     fun `the spec's crossing example leaves a fiery blast`() {
-        val (left, annihilated) = BeamManager.combine(listOf(SUNFIRE), listOf(GROWTH))
-        left shouldBe listOf(HEAT)
+        val (left, annihilated) = BeamManager.combine(listOf(SUNFIRE), listOf(GENESIS))
+        left shouldBe listOf(PYRE)
         annihilated shouldBe 2
     }
 
     @Test
     fun `merging beams fuses as at the altar`() {
-        BeamManager.combine(listOf(HEAT, HEAT), listOf(PURITY)).first shouldBe listOf(HEAT, SUNFIRE)
-        // Poison's Cold fuses with the Growth already there; its own Growth is added after.
-        BeamManager.combine(listOf(GROWTH), listOf(POISON)).first shouldBe listOf(POISON, GROWTH)
-        BeamManager.combine(listOf(COLD, GRAVITY), listOf(HEAT)).second shouldBe 2
+        BeamManager.combine(listOf(PYRE, PYRE), listOf(QUINTESSENCE)).first shouldBe listOf(PYRE, SUNFIRE)
+        // Corruption's Winter fuses with the Genesis already there; its own Genesis is added after.
+        BeamManager.combine(listOf(GENESIS), listOf(CORRUPTION)).first shouldBe listOf(CORRUPTION, GENESIS)
+        BeamManager.combine(listOf(WINTER, GRAVITY), listOf(PYRE)).second shouldBe 2
     }
 }
