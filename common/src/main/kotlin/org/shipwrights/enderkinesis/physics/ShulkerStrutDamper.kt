@@ -1,8 +1,10 @@
 package org.shipwrights.enderkinesis.physics
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.databind.JsonNode
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.VsBeta
-import org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -74,10 +76,13 @@ class ShulkerStrutDamper : ShipPhysicsListener {
     }
 
     /** Saved, so the lid is damped from its first physics frame after a load. */
-    object Serializer : BinaryAttachmentSerializer<ShulkerStrutDamper> {
+    @JsonValue
+    fun saveBytes(): ByteArray = AttachmentIo.encode { Serializer.serialize(this, it) }
+
+    object Serializer {
         private const val FORMAT = 1
 
-        override fun serialize(attachment: ShulkerStrutDamper, output: DataOutput) {
+        fun serialize(attachment: ShulkerStrutDamper, output: DataOutput) {
             output.writeInt(FORMAT)
             output.writeBoolean(attachment.active)
             output.writeLong(attachment.baseShipId)
@@ -88,9 +93,8 @@ class ShulkerStrutDamper : ShipPhysicsListener {
             )) output.writeDouble(v)
         }
 
-        // Never null: VS2 keeps a failed attachment and then throws on setAttachment.
         // Inactive = no damping until the strut ticks.
-        override fun deserialize(input: DataInput): ShulkerStrutDamper {
+        fun deserialize(input: DataInput): ShulkerStrutDamper {
             val damper = ShulkerStrutDamper()
             try {
                 require(input.readInt() == FORMAT) { "unknown format" }
@@ -110,6 +114,11 @@ class ShulkerStrutDamper : ShipPhysicsListener {
     }
 
     companion object {
+        @JvmStatic
+        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        fun fromSave(node: JsonNode): ShulkerStrutDamper =
+            AttachmentIo.decode(node, ShulkerStrutDamper::class.java, { ShulkerStrutDamper() }, Serializer::deserialize)
+
         private const val NO_BASE = Long.MIN_VALUE
         private const val PHYS_TPS = 60.0
         private const val DAMP_FRACTION_PER_TICK = 0.8

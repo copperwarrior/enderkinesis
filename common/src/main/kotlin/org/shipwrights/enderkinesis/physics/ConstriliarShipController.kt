@@ -1,5 +1,8 @@
 package org.shipwrights.enderkinesis.physics
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.databind.JsonNode
 import org.joml.Matrix3d
 import org.joml.Matrix3dc
 import org.joml.Quaterniond
@@ -587,17 +590,26 @@ class ConstriliarShipController(
      * Saves no data: a loaded body gets a controller with no command, so [holdBrainless]
      * holds it until the entity publishes. A transient controller left the body limp.
      */
-    object Serializer : org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer<ConstriliarShipController> {
+    @JsonValue
+    fun saveBytes(): ByteArray = AttachmentIo.encode { Serializer.serialize(this, it) }
+
+    object Serializer {
         private const val FORMAT = 1
 
-        override fun serialize(attachment: ConstriliarShipController, output: java.io.DataOutput) {
+        fun serialize(attachment: ConstriliarShipController, output: java.io.DataOutput) {
             output.writeInt(FORMAT)
         }
 
-        override fun deserialize(input: java.io.DataInput): ConstriliarShipController = ConstriliarShipController()
+        @Suppress("UNUSED_PARAMETER") // Marker only: there is nothing to read.
+        fun deserialize(input: java.io.DataInput): ConstriliarShipController = ConstriliarShipController()
     }
 
     companion object {
+        @JvmStatic
+        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        fun fromSave(node: JsonNode): ConstriliarShipController =
+            AttachmentIo.decode(node, ConstriliarShipController::class.java, { ConstriliarShipController() }, Serializer::deserialize)
+
 
         /** Ride-height spring: stiff enough to crest 1-block steps briskly, damped a
          *  touch under critical so landings read as a cushioned settle. */

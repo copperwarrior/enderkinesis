@@ -1,9 +1,11 @@
 package org.shipwrights.enderkinesis.physics
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.databind.JsonNode
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.valkyrienskies.core.api.VsBeta
-import org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -171,10 +173,13 @@ class CrepusculiteLatticeForceInducer(
      * Saves only the state the lattice pushes, so the ship floats from its first physics frame
      * after a load. The tuning fields keep their defaults, so a tuning change reaches old ships.
      */
-    object Serializer : BinaryAttachmentSerializer<CrepusculiteLatticeForceInducer> {
+    @JsonValue
+    fun saveBytes(): ByteArray = AttachmentIo.encode { Serializer.serialize(this, it) }
+
+    object Serializer {
         private const val FORMAT = 1
 
-        override fun serialize(attachment: CrepusculiteLatticeForceInducer, output: DataOutput) {
+        fun serialize(attachment: CrepusculiteLatticeForceInducer, output: DataOutput) {
             output.writeInt(FORMAT)
             output.writeDouble(attachment.waterLineY)
             output.writeDouble(attachment.fluidDensity)
@@ -183,9 +188,8 @@ class CrepusculiteLatticeForceInducer(
             AttachmentIo.writeIntArray(output, attachment.blocks)
         }
 
-        // Never null: VS2 keeps a failed attachment and then throws on setAttachment, which
-        // would stop the lattice from adding a new inducer. No blocks = inert until it ticks.
-        override fun deserialize(input: DataInput): CrepusculiteLatticeForceInducer =
+        // No blocks = inert until the lattice ticks.
+        fun deserialize(input: DataInput): CrepusculiteLatticeForceInducer =
             try {
                 require(input.readInt() == FORMAT) { "unknown format" }
                 val inducer = CrepusculiteLatticeForceInducer(
@@ -208,6 +212,11 @@ class CrepusculiteLatticeForceInducer(
     }
 
     companion object {
+        @JvmStatic
+        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        fun fromSave(node: JsonNode): CrepusculiteLatticeForceInducer =
+            AttachmentIo.decode(node, CrepusculiteLatticeForceInducer::class.java, { CrepusculiteLatticeForceInducer() }, Serializer::deserialize)
+
         /** kg/m³ of virtual fluid (water = 1000). The maximum density the lattice produces — the
          *  redstone signal scales [fluidDensity] from 0 up to this. */
         const val DEFAULT_FLUID_DENSITY = 1100.0

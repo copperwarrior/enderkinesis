@@ -1,9 +1,11 @@
 package org.shipwrights.enderkinesis.physics
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.databind.JsonNode
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.dimension.MothClothShipRegistry
 import org.valkyrienskies.core.api.VsBeta
-import org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -92,17 +94,19 @@ class MothClothForceInducer : ShipPhysicsListener {
 
 
     /** Saves the cloth positions, so the ship lifts from its first physics frame after a load. */
-    object Serializer : BinaryAttachmentSerializer<MothClothForceInducer> {
+    @JsonValue
+    fun saveBytes(): ByteArray = AttachmentIo.encode { Serializer.serialize(this, it) }
+
+    object Serializer {
         private const val FORMAT = 1
 
-        override fun serialize(attachment: MothClothForceInducer, output: DataOutput) {
+        fun serialize(attachment: MothClothForceInducer, output: DataOutput) {
             output.writeInt(FORMAT)
             AttachmentIo.writeLongArray(output, attachment.positions)
         }
 
-        // Never null: VS2 keeps a failed attachment and then throws on setAttachment.
         // No positions = inert until the registry rescan.
-        override fun deserialize(input: DataInput): MothClothForceInducer {
+        fun deserialize(input: DataInput): MothClothForceInducer {
             val inducer = MothClothForceInducer()
             try {
                 require(input.readInt() == FORMAT) { "unknown format" }
@@ -117,6 +121,11 @@ class MothClothForceInducer : ShipPhysicsListener {
     }
 
     companion object {
+        @JvmStatic
+        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        fun fromSave(node: JsonNode): MothClothForceInducer =
+            AttachmentIo.decode(node, MothClothForceInducer::class.java, { MothClothForceInducer() }, Serializer::deserialize)
+
         private const val GRAVITY: Double = 10.0
 
         /** Proportional gain (1/s²): commanded acceleration per block of

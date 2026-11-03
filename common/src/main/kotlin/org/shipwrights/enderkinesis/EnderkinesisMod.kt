@@ -108,7 +108,7 @@ object EnderkinesisMod {
         // Saved: VS2 can simulate a loaded ship before the lattice chunk ticks; a transient inducer let it fall.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(CrepusculiteLatticeForceInducer::class.java)
-                .serializer(CrepusculiteLatticeForceInducer.Serializer)
+                .useJacksonSerializer()
                 .build()
         )
         // Transient: only live while the player is actively holding the tome.
@@ -156,19 +156,19 @@ object EnderkinesisMod {
         // Saved: the strut block entity can tick after VS2 simulates the lid.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.ShulkerStrutDamper::class.java)
-                .serializer(org.shipwrights.enderkinesis.physics.ShulkerStrutDamper.Serializer)
+                .useJacksonSerializer()
                 .build()
         )
         // Saved as a marker, so the body holds still until the entity ticks after a load.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.ConstriliarShipController::class.java)
-                .serializer(org.shipwrights.enderkinesis.physics.ConstriliarShipController.Serializer)
+                .useJacksonSerializer()
                 .build()
         )
         // Saved: the registry rescan runs only every 40 ticks, so a transient inducer let a loaded ship fall.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.MothClothForceInducer::class.java)
-                .serializer(org.shipwrights.enderkinesis.physics.MothClothForceInducer.Serializer)
+                .useJacksonSerializer()
                 .build()
         )
         // NOTE: no custom BlockStateInfoProvider for the platform — one existed briefly
