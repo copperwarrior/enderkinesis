@@ -1,14 +1,20 @@
 package org.shipwrights.enderkinesis.physics
 
 import org.joml.Vector3d
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import java.io.DataInput
+import java.io.DataOutput
+import java.io.IOException
 
 /**
  * Viscous damper between a Shulker Strut lid ship and its base, along the slide axis.
  * Konstant does not damp the prismatic limit spring as the joint's damping value asks, so the lid bounces.
  */
+@OptIn(VsBeta::class)
 class ShulkerStrutDamper : ShipPhysicsListener {
 
     @Volatile private var active = false
@@ -65,6 +71,42 @@ class ShulkerStrutDamper : ShipPhysicsListener {
     private fun pointVelocity(ship: PhysShip, worldPoint: Vector3d): Vector3d {
         val arm = scratchArm.set(worldPoint).sub(ship.transform.positionInWorld)
         return scratchVel.set(ship.angularVelocity).cross(arm).add(ship.velocity)
+    }
+
+    /** Saved, so the lid is damped from its first physics frame after a load. */
+    object Serializer : BinaryAttachmentSerializer<ShulkerStrutDamper> {
+        private const val FORMAT = 1
+
+        override fun serialize(attachment: ShulkerStrutDamper, output: DataOutput) {
+            output.writeInt(FORMAT)
+            output.writeBoolean(attachment.active)
+            output.writeLong(attachment.baseShipId)
+            for (v in doubleArrayOf(
+                attachment.axisX, attachment.axisY, attachment.axisZ,
+                attachment.lidX, attachment.lidY, attachment.lidZ,
+                attachment.baseX, attachment.baseY, attachment.baseZ,
+            )) output.writeDouble(v)
+        }
+
+        // Never null: VS2 keeps a failed attachment and then throws on setAttachment.
+        // Inactive = no damping until the strut ticks.
+        override fun deserialize(input: DataInput): ShulkerStrutDamper {
+            val damper = ShulkerStrutDamper()
+            try {
+                require(input.readInt() == FORMAT) { "unknown format" }
+                val active = input.readBoolean()
+                damper.baseShipId = input.readLong()
+                damper.axisX = input.readDouble(); damper.axisY = input.readDouble(); damper.axisZ = input.readDouble()
+                damper.lidX = input.readDouble(); damper.lidY = input.readDouble(); damper.lidZ = input.readDouble()
+                damper.baseX = input.readDouble(); damper.baseY = input.readDouble(); damper.baseZ = input.readDouble()
+                damper.active = active
+            } catch (e: IOException) {
+                AttachmentIo.warnDropped(ShulkerStrutDamper::class.java, e)
+            } catch (e: IllegalArgumentException) {
+                AttachmentIo.warnDropped(ShulkerStrutDamper::class.java, e)
+            }
+            return damper
+        }
     }
 
     companion object {

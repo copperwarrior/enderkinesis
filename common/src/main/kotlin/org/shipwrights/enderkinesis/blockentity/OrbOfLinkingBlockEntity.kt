@@ -28,7 +28,11 @@ import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
+import org.shipwrights.enderkinesis.util.SavedJoints
+import org.valkyrienskies.core.internal.joints.VSJoint
+import org.valkyrienskies.core.internal.joints.VSJointPose
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
+import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.isBlockInShipyard
@@ -377,6 +381,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     fun serverTick(level: ServerLevel) {
         if (pendingChunkLoadTick) {
             pendingChunkLoadTick = false
+            dropLostJoints(level)
             val tomes = LinkedHashSet<net.minecraft.resources.ResourceLocation>()
             for (k in outgoing.keys) tomes.add(k.tomeKind)
             for (k in incoming.keys) tomes.add(k.tomeKind)
@@ -457,6 +462,47 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
 
     fun clearJointPending(tomeKind: ResourceLocation, peerPos: BlockPos) {
         outgoing[LinkKey(tomeKind, peerPos)]?.jointPending = false
+    }
+
+    /** VS2 can drop a saved joint (a body was deleted); a kept id would then block the rebind. */
+    private fun dropLostJoints(level: ServerLevel) {
+        val shipId0 = level.getShipManagingPos(blockPos)?.id
+        for ((key, data) in outgoing) {
+            if (data.jointId < 0) continue
+            val shipId1 = level.getShipManagingPos(key.peerPos)?.id
+            data.jointId = SavedJoints.reclaim(level, data.jointId, shipId0, shipId1)
+        }
+    }
+
+    /** Adds [joint] for the link. The pending flag covers the addJoint → callback round trip. */
+    fun addLinkJoint(level: ServerLevel, tomeKind: ResourceLocation, peerPos: BlockPos, joint: VSJoint) {
+        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
+        markJointPending(tomeKind, peerPos)
+        gtpa.addJoint(joint.serialized(), 0) { id: Int ->
+            level.executeOrSchedule {
+                if (!isJointPending(tomeKind, peerPos) || !hasOutgoingLink(tomeKind, peerPos)) {
+                    gtpa.removeJoint(id)
+                    clearJointPending(tomeKind, peerPos)
+                } else {
+                    setJointId(tomeKind, peerPos, id)
+                    setChanged()
+                }
+            }
+        }
+    }
+
+    /** Link-time poses for a joint that keeps the relative pose of the bodies. A rebind after
+     *  a load reuses them, so a drift before the rebind is not welded in. */
+    fun linkJointPoses(
+        tomeKind: ResourceLocation, peerPos: BlockPos, shipId0: Long?, shipId1: Long?,
+        compute: () -> Pair<VSJointPose, VSJointPose>?,
+    ): Pair<VSJointPose, VSJointPose>? {
+        val data = outgoing[LinkKey(tomeKind, peerPos)] ?: return compute()
+        SavedJoints.readPoses(data.metadata, shipId0, shipId1)?.let { return it }
+        val poses = compute() ?: return null
+        SavedJoints.writePoses(data.metadata, shipId0, shipId1, poses)
+        setChanged()
+        return poses
     }
 
     fun getLinkMetadata(tomeKind: ResourceLocation, peerPos: BlockPos): CompoundTag? =
@@ -599,6 +645,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             entry.putString("Tome", key.tomeKind.toString())
             entry.putInt("X", key.peerPos.x); entry.putInt("Y", key.peerPos.y); entry.putInt("Z", key.peerPos.z)
             if (!data.metadata.isEmpty) entry.put("Meta", data.metadata)
+            if (data.jointId >= 0) entry.putInt(NBT_JOINT_ID, data.jointId)
             list.add(entry)
         }
         return list
@@ -617,6 +664,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             val pos = BlockPos(entry.getInt("X"), entry.getInt("Y"), entry.getInt("Z"))
             val data = LinkData()
             if (entry.contains("Meta")) data.metadata = entry.getCompound("Meta")
+            if (entry.contains(NBT_JOINT_ID)) data.jointId = entry.getInt(NBT_JOINT_ID)
             into[LinkKey(kind, pos)] = data
         }
     }
@@ -699,12 +747,10 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     override fun setRemoved() {
         super.setRemoved()
         val l = level ?: return
-        if (l is ServerLevel) {
-            // The joint ids are not saved. Without the release, the orb that loads again makes a
-            // second joint, and the first one can no longer be unlinked. The pending flag goes
-            // too, so a joint callback that comes later drops its joint.
-            for (data in outgoing.values) releaseJoint(l, data)
-        }
+        // Also runs at chunk unload: VS2 keeps the saved joints and the orb that loads again
+        // takes them back by id. A break releases them in onBlockDestroyed. A late callback
+        // for this object drops its joint, because the pending flag is clear.
+        for (data in outgoing.values) data.jointPending = false
         // No client scrub of the peers: a predicted break that the server refuses puts the
         // orb back without its links, and nothing sent them again. The peer syncs clear them.
         if (l.isClientSide) OrbOfLinkingClientRegistry.unregister(l, this)
@@ -749,6 +795,8 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
             data.jointId = -1
             data.jointPending = false
         }
+
+        private const val NBT_JOINT_ID = "Joint"
 
         const val TRANSFER_SEND = 0
         const val TRANSFER_ARRIVE = 1

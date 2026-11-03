@@ -3,9 +3,13 @@ package org.shipwrights.enderkinesis.physics
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import java.io.DataInput
+import java.io.DataOutput
+import java.io.IOException
 
 /**
  * Per-block Archimedes — fractional submersion makes the water surface a soft ramp instead of
@@ -42,17 +46,17 @@ class CrepusculiteLatticeForceInducer(
 ) : ShipPhysicsListener {
 
     /** Ship-local block coords as x,y,z triples; set on the server thread. */
-    @Transient @Volatile private var blocks: IntArray = IntArray(0)
+    @Volatile private var blocks: IntArray = IntArray(0)
 
     /**
      * World game time (ticks), pushed from the server thread by the lattice block entity. The
      * client visual uses `level.getGameTime()` directly; both feed [GerstnerOcean] so the wave the
      * player sees and the wave that lifts the ship are the same field at the same instant.
      */
-    @Transient var waveTime: Double = 0.0
+    var waveTime: Double = 0.0
 
     /** Depth-driven wave intensity (0..1), pushed from the server thread (it can read the heightmap). */
-    @Transient var waveIntensity: Double = 1.0
+    var waveIntensity: Double = 1.0
 
     /** Which lattice block entity "owns" this inducer — i.e. is responsible for driving its
      *  state + emitting particles + floating entities. A ship can have many lattices, but only
@@ -161,6 +165,46 @@ class CrepusculiteLatticeForceInducer(
             val rel = Vector3d(cx - com.x(), cy - com.y(), cz - com.z())
             physShip.applyInvariantForceToPos(force, rel)
         }
+    }
+
+    /**
+     * Saves only the state the lattice pushes, so the ship floats from its first physics frame
+     * after a load. The tuning fields keep their defaults, so a tuning change reaches old ships.
+     */
+    object Serializer : BinaryAttachmentSerializer<CrepusculiteLatticeForceInducer> {
+        private const val FORMAT = 1
+
+        override fun serialize(attachment: CrepusculiteLatticeForceInducer, output: DataOutput) {
+            output.writeInt(FORMAT)
+            output.writeDouble(attachment.waterLineY)
+            output.writeDouble(attachment.fluidDensity)
+            output.writeDouble(attachment.waveTime)
+            output.writeDouble(attachment.waveIntensity)
+            AttachmentIo.writeIntArray(output, attachment.blocks)
+        }
+
+        // Never null: VS2 keeps a failed attachment and then throws on setAttachment, which
+        // would stop the lattice from adding a new inducer. No blocks = inert until it ticks.
+        override fun deserialize(input: DataInput): CrepusculiteLatticeForceInducer =
+            try {
+                require(input.readInt() == FORMAT) { "unknown format" }
+                val inducer = CrepusculiteLatticeForceInducer(
+                    waterLineY = input.readDouble(),
+                    fluidDensity = input.readDouble(),
+                )
+                inducer.waveTime = input.readDouble()
+                inducer.waveIntensity = input.readDouble()
+                val blocks = AttachmentIo.readIntArray(input)
+                require(blocks.size % 3 == 0) { "block array is not x,y,z triples" }
+                inducer.blocks = blocks
+                inducer
+            } catch (e: IOException) {
+                AttachmentIo.warnDropped(CrepusculiteLatticeForceInducer::class.java, e)
+                CrepusculiteLatticeForceInducer()
+            } catch (e: IllegalArgumentException) {
+                AttachmentIo.warnDropped(CrepusculiteLatticeForceInducer::class.java, e)
+                CrepusculiteLatticeForceInducer()
+            }
     }
 
     companion object {

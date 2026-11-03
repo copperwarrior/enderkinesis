@@ -13,77 +13,50 @@ import net.minecraft.core.BlockPos
 
 /**
  * Server-thread registry mapping ship id → block positions where a Moth
- * Cloth is placed on that ship. Block class's placement / removal hooks
- * keep the set current; the per-ship [MothClothForceInducer] reads the
- * count each physics tick and applies constant upward force per block
- * until the ship reaches Y = [TARGET_Y].
+ * Cloth is placed on that ship. Block placement / removal hooks and a
+ * periodic rescan keep the set current and copy it into the ship's saved
+ * [MothClothForceInducer], which lifts the ship to Y = [TARGET_Y].
  *
  * World-placed moth cloth (not on any ship) is ignored — the lift only
  * makes sense on VS2 rigid bodies.
  */
 object MothClothShipRegistry {
 
-    /** shipId → set of block positions (packed longs). ConcurrentSkipListSet
-     *  keeps values ordered so serialization is deterministic; the physics
-     *  thread only reads the SIZE, not the members, so we avoid any locking
-     *  concerns beyond what ConcurrentHashMap gives. */
     private val byShip: ConcurrentHashMap<Long, MutableSet<Long>> = ConcurrentHashMap()
 
     fun add(level: ServerLevel, pos: BlockPos) {
-        val ship = level.getLoadedShipManagingPos(pos)
-        if (ship == null) {
-            return
-        }
-        val shipId = ship.id
-        val posLong = pos.asLong()
-        byShip.computeIfAbsent(shipId) { ConcurrentSkipListSet() }.add(posLong)
-        refreshSnapshot(shipId)
-        val loaded = ship as? LoadedServerShip
-        ensureInducer(loaded)
+        val ship = level.getLoadedShipManagingPos(pos) as? LoadedServerShip ?: return
+        val set = setFor(ship)
+        set.add(pos.asLong())
+        publish(ship, set)
     }
 
     fun remove(level: ServerLevel, pos: BlockPos) {
-        val ship = level.getLoadedShipManagingPos(pos) ?: return
-        val shipId = ship.id
-        val posLong = pos.asLong()
-        val set = byShip[shipId] ?: return
-        set.remove(posLong)
+        val ship = level.getLoadedShipManagingPos(pos) as? LoadedServerShip ?: return
+        val set = setFor(ship)
+        set.remove(pos.asLong())
         if (set.isEmpty()) {
-            byShip.remove(shipId)
-            snapshots.remove(shipId)
-            (ship as? LoadedServerShip)?.removeAttachment(MothClothForceInducer::class.java)
+            byShip.remove(ship.id)
+            ship.removeAttachment(MothClothForceInducer::class.java)
         } else {
-            refreshSnapshot(shipId)
+            publish(ship, set)
         }
     }
 
-    /** Called by [MothClothForceInducer] on the physics thread to size the
-     *  per-tick force. Safe from any thread. */
-    @JvmStatic
-    fun countFor(shipId: Long): Int = byShip[shipId]?.size ?: 0
-
-    /** Packed block positions for a ship, as an immutable snapshot the
-     *  physics thread can iterate allocation-free. Rebuilt only on block
-     *  add/remove (game thread), so reads never see a half-updated set. */
-    @JvmStatic
-    fun positionsFor(shipId: Long): LongArray = snapshots[shipId] ?: EMPTY
-
-    private fun refreshSnapshot(shipId: Long) {
-        val set = byShip[shipId] ?: return
-        snapshots[shipId] = set.toLongArray()
-    }
-
-    private val snapshots = ConcurrentHashMap<Long, LongArray>()
-    private val EMPTY = LongArray(0)
-
-    private fun ensureInducer(ship: LoadedServerShip?) {
-        if (ship == null) return
-        if (ship.getAttachment(MothClothForceInducer::class.java) != null) return
-        ship.getOrPutAttachment(MothClothForceInducer::class.java) {
-            MothClothForceInducer(ship.id)
+    /** After a load the registry is empty until the next rescan; seed it from the saved
+     *  inducer, or an edit in that window would publish a partial set and drop the ship. */
+    private fun setFor(ship: LoadedServerShip): MutableSet<Long> =
+        byShip.computeIfAbsent(ship.id) {
+            val set = ConcurrentSkipListSet<Long>()
+            ship.getAttachment(MothClothForceInducer::class.java)?.positions?.forEach { set.add(it) }
+            set
         }
-    }
 
+    /** The inducer is saved with the ship, so it keeps its positions across a reload. */
+    private fun publish(ship: LoadedServerShip, set: Set<Long>) {
+        ship.getOrPutAttachment(MothClothForceInducer::class.java) { MothClothForceInducer() }
+            .positions = set.toLongArray()
+    }
 
     /** Absolute Y the ship is pulled to. Matches the moths' own altitude. */
     const val TARGET_Y: Double = 134.5
@@ -111,21 +84,26 @@ object MothClothShipRegistry {
             val maxCX = aabb.maxX() shr 4
             val minCZ = aabb.minZ() shr 4
             val maxCZ = aabb.maxZ() shr 4
+            var allLoaded = true
             for (cx in minCX..maxCX) for (cz in minCZ..maxCZ) {
                 val chunk = level.getChunk(cx, cz, net.minecraft.world.level.chunk.ChunkStatus.FULL, false)
-                    ?: continue
+                if (chunk == null) {
+                    allLoaded = false
+                    continue
+                }
                 scanChunkInto(level, chunk, fresh)
             }
+            // A partial scan after a load would replace the saved positions with fewer and drop the ship.
+            if (!allLoaded) continue
             val shipId = ship.id
             if (fresh.isEmpty()) {
-                if (byShip.remove(shipId) != null) {
-                    snapshots.remove(shipId)
+                byShip.remove(shipId)
+                if (ship.getAttachment(MothClothForceInducer::class.java) != null) {
                     ship.removeAttachment(MothClothForceInducer::class.java)
                 }
             } else {
                 byShip[shipId] = fresh
-                snapshots[shipId] = fresh.toLongArray()
-                ensureInducer(ship)
+                publish(ship, fresh)
             }
         }
     }
@@ -158,6 +136,5 @@ object MothClothShipRegistry {
     /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
     fun clearSession() {
         byShip.clear()
-        snapshots.clear()
     }
 }

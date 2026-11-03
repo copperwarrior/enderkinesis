@@ -3,17 +3,13 @@ package org.shipwrights.enderkinesis.item
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
-import org.joml.Quaterniond
-import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.internal.joints.VSFixedJoint
 import org.valkyrienskies.core.internal.joints.VSJoint
-import org.valkyrienskies.core.internal.joints.VSJointPose
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
@@ -95,49 +91,20 @@ object ElasticityTomeOrbBehavior : TomeOrbBehavior {
         if (sendShip == null && recvShip == null) return                 // world↔world — defensive
         if (sendShip != null && recvShip != null && sendShip.id == recvShip.id) return  // same ship
 
-        // Same preserve-current-relative-pose convention as Binding — pose0 anchors the send
-        // orb in body 0's frame, pose1 anchors the *same world point* in body 1's frame with
-        // a matching rotation. Spring is at rest at link time; bodies don't snap.
-        val pose0Pos = Vector3d(sendPos.x + 0.5, sendPos.y + 0.5, sendPos.z + 0.5)
-        val pose0Rot = Quaterniond()
-        val sendWorld = Vector3d(pose0Pos)
-        sendShip?.shipToWorld?.transformPosition(sendWorld)
-
-        val pose1Pos = Vector3d(sendWorld)
-        recvShip?.worldToShip?.transformPosition(pose1Pos)
-
-        val pose1Rot = Quaterniond()
-        if (sendShip != null) pose1Rot.mul(sendShip.transform.shipToWorldRotation)
-        if (recvShip != null) {
-            val w2s = Quaterniond()
-            recvShip.transform.shipToWorldRotation.invert(w2s)
-            val combined = Quaterniond(w2s).mul(pose1Rot)
-            pose1Rot.set(combined)
-        }
+        val (pose0, pose1) = sendBe.linkJointPoses(tomeKind, receiverPos, sendShip?.id, recvShip?.id) {
+            TomeJointPoses.weldAtRest(sendPos, sendShip, recvShip)
+        } ?: return
 
         val joint: VSJoint = VSFixedJoint(
             shipId0 = sendShip?.id,
-            pose0 = VSJointPose(pose0Pos, pose0Rot),
+            pose0 = pose0,
             shipId1 = recvShip?.id,
-            pose1 = VSJointPose(pose1Pos, pose1Rot),
+            pose1 = pose1,
             maxForceTorque = null,                          // unbreakable under load
             compliance = COMPLIANCE,
         )
 
-        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
-        sendBe.markJointPending(tomeKind, receiverPos)
-        gtpa.addJoint(joint, 0) { id: Int ->
-            level.executeOrSchedule {
-                val stillPending = sendBe.isJointPending(tomeKind, receiverPos)
-                val stillLinked = sendBe.hasOutgoingLink(tomeKind, receiverPos)
-                if (!stillPending || !stillLinked) {
-                    gtpa.removeJoint(id)
-                    sendBe.clearJointPending(tomeKind, receiverPos)
-                } else {
-                    sendBe.setJointId(tomeKind, receiverPos, id)
-                }
-            }
-        }
+        sendBe.addLinkJoint(level, tomeKind, receiverPos, joint)
     }
 
     private fun releaseJoint(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {

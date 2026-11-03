@@ -2,9 +2,14 @@ package org.shipwrights.enderkinesis.physics
 
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.dimension.MothClothShipRegistry
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import java.io.DataInput
+import java.io.DataOutput
+import java.io.IOException
 
 /**
  * PD altitude controller pulling any ship carrying Moth Cloth up to
@@ -25,11 +30,16 @@ import org.valkyrienskies.core.api.world.PhysLevel
  * shipyard position via `applyWorldForceToModelPos` (world-frame up at a
  * model-space point), so cloth placement determines the ship's balance.
  */
-class MothClothForceInducer(private val shipId: Long) : ShipPhysicsListener {
+@OptIn(VsBeta::class)
+class MothClothForceInducer : ShipPhysicsListener {
+
+    /** Packed shipyard positions of the cloth. [MothClothShipRegistry] replaces the whole array
+     *  on the server thread, so the physics thread never sees a half-updated set. */
+    @Volatile var positions: LongArray = LongArray(0)
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
         if (physShip.isStatic || physShip.mass <= 0.0) return
-        val positions = MothClothShipRegistry.positionsFor(shipId)
+        val positions = this.positions
         val count = positions.size
         if (count == 0) return
 
@@ -80,6 +90,31 @@ class MothClothForceInducer(private val shipId: Long) : ShipPhysicsListener {
     private val rotScratch = org.joml.Matrix3d()
     private val inertiaWorldScratch = org.joml.Matrix3d()
 
+
+    /** Saves the cloth positions, so the ship lifts from its first physics frame after a load. */
+    object Serializer : BinaryAttachmentSerializer<MothClothForceInducer> {
+        private const val FORMAT = 1
+
+        override fun serialize(attachment: MothClothForceInducer, output: DataOutput) {
+            output.writeInt(FORMAT)
+            AttachmentIo.writeLongArray(output, attachment.positions)
+        }
+
+        // Never null: VS2 keeps a failed attachment and then throws on setAttachment.
+        // No positions = inert until the registry rescan.
+        override fun deserialize(input: DataInput): MothClothForceInducer {
+            val inducer = MothClothForceInducer()
+            try {
+                require(input.readInt() == FORMAT) { "unknown format" }
+                inducer.positions = AttachmentIo.readLongArray(input)
+            } catch (e: IOException) {
+                AttachmentIo.warnDropped(MothClothForceInducer::class.java, e)
+            } catch (e: IllegalArgumentException) {
+                AttachmentIo.warnDropped(MothClothForceInducer::class.java, e)
+            }
+            return inducer
+        }
+    }
 
     companion object {
         private const val GRAVITY: Double = 10.0

@@ -23,6 +23,8 @@ import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
+import org.shipwrights.enderkinesis.util.ShipMoves
+import org.shipwrights.enderkinesis.util.SavedJoints
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.api.ships.Ship
@@ -90,6 +92,8 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
     private var boundBaseShipId: Long? = null
     private var boundScale: Double = 1.0
     private var lastTargetExtension: Float = -1f
+    /** The saved [jointId] is checked against VS2 once, on the first tick with a loaded lid. */
+    private var jointReclaimed = false
 
     var comparatorSignal: Int = 0
         private set
@@ -104,6 +108,10 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         dyeColor = if (tag.contains(NBT_DYE_COLOR)) DyeColor.byId(tag.getInt(NBT_DYE_COLOR)) else null
         lastTargetExtension =
             if (tag.contains(NBT_LAST_EXTENSION)) tag.getFloat(NBT_LAST_EXTENSION) else -1f
+        jointId = if (tag.contains(NBT_JOINT_ID)) tag.getInt(NBT_JOINT_ID) else NO_JOINT
+        boundBaseShipId = if (tag.contains(NBT_BOUND_BASE)) tag.getLong(NBT_BOUND_BASE) else null
+        boundScale = if (tag.contains(NBT_BOUND_SCALE)) tag.getDouble(NBT_BOUND_SCALE) else 1.0
+        jointReclaimed = false
     }
 
     override fun saveAdditional(tag: CompoundTag) {
@@ -114,6 +122,11 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         }
         dyeColor?.let { tag.putInt(NBT_DYE_COLOR, it.id) }
         if (lastTargetExtension >= 0f) tag.putFloat(NBT_LAST_EXTENSION, lastTargetExtension)
+        if (jointId != NO_JOINT) {
+            tag.putInt(NBT_JOINT_ID, jointId)
+            boundBaseShipId?.let { tag.putLong(NBT_BOUND_BASE, it) }
+            tag.putDouble(NBT_BOUND_SCALE, boundScale)
+        }
     }
 
     /** Set the strut's dye colour and propagate to the lid BE so both halves' BERs render
@@ -175,6 +188,10 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         // ships, and the ship's inertia / COM isn't valid until then.
         val topShip = level.shipObjectWorld.loadedShips.getById(topShipId) ?: return
         val baseShip: Ship? = level.getShipManagingPos(pos)
+        if (!jointReclaimed) {
+            jointReclaimed = true
+            jointId = SavedJoints.reclaim(level, jointId, baseShip?.id, topShipId)
+        }
         val facing = state.getValue(BlockStateProperties.FACING)
         val scale = baseShip?.transform?.shipToWorldScaling?.x() ?: 1.0
         matchLidScale(level, topShip, scale)
@@ -201,7 +218,7 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         val joint = buildJoint(pos, baseShip, topShip, facing, target, scale)
         boundScale = scale
         if (jointId != NO_JOINT && baseShipId == boundBaseShipId) {
-            ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).updateJoint(VSJointAndId(jointId, joint))
+            ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).updateJoint(VSJointAndId(jointId, joint.serialized()))
             return
         }
         releaseJoint(level)
@@ -436,7 +453,7 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
         jointPending = true
         val lidShipId = topShipId
-        gtpa.addJoint(joint, 0) { id: Int ->
+        gtpa.addJoint(joint.serialized(), 0) { id: Int ->
             level.executeOrSchedule {
                 // A lid ship change while the add is in flight leaves a joint that names the old ship.
                 if (this.isRemoved || level.getBlockEntity(blockPos) !== this || topShipId != lidShipId) {
@@ -446,15 +463,17 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
                 }
                 jointId = id
                 jointPending = false
+                setChanged()
             }
         }
     }
 
-    // VS2 does not save the joint, but it keeps it for the session. Without this, each
-    // chunk reload adds one more joint.
+    // At chunk unload VS2 keeps the saved joint, and the next load reclaims it by id. A break
+    // releases it in releaseAndDestroyTop; a ship move copies this block entity, so release here.
     override fun setRemoved() {
         super.setRemoved()
-        (level as? ServerLevel)?.let { releaseJoint(it) }
+        val level = level as? ServerLevel ?: return
+        if (ShipMoves.isMovingBlocks(level)) releaseJoint(level)
     }
 
     private fun releaseJoint(level: ServerLevel) {
@@ -475,6 +494,9 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
 
         private const val NBT_TOP_SHIP = "TopShipId"
         private const val NBT_LAST_EXTENSION = "LastExtension"
+        private const val NBT_JOINT_ID = "Joint"
+        private const val NBT_BOUND_BASE = "BoundBase"
+        private const val NBT_BOUND_SCALE = "BoundScale"
         private const val NBT_LID_POS_X = "LidPosX"
         private const val NBT_LID_POS_Y = "LidPosY"
         private const val NBT_LID_POS_Z = "LidPosZ"

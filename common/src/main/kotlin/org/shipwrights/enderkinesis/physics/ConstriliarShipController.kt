@@ -583,6 +583,20 @@ class ConstriliarShipController(
         }
     }
 
+    /**
+     * Saves no data: a loaded body gets a controller with no command, so [holdBrainless]
+     * holds it until the entity publishes. A transient controller left the body limp.
+     */
+    object Serializer : org.valkyrienskies.core.api.attachment.BinaryAttachmentSerializer<ConstriliarShipController> {
+        private const val FORMAT = 1
+
+        override fun serialize(attachment: ConstriliarShipController, output: java.io.DataOutput) {
+            output.writeInt(FORMAT)
+        }
+
+        override fun deserialize(input: java.io.DataInput): ConstriliarShipController = ConstriliarShipController()
+    }
+
     companion object {
 
         /** Ride-height spring: stiff enough to crest 1-block steps briskly, damped a

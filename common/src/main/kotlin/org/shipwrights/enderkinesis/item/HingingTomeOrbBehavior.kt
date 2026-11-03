@@ -17,7 +17,6 @@ import org.valkyrienskies.core.internal.joints.VSRevoluteJoint
 import org.valkyrienskies.core.internal.joints.VSRevoluteJoint.VSRevoluteDriveVelocity
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
@@ -129,6 +128,47 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         if (sendShip == null && recvShip == null) return                  // world↔world — defensive
         if (sendShip != null && recvShip != null && sendShip.id == recvShip.id) return  // same ship
 
+        val (pose0, pose1) = sendBe.linkJointPoses(tomeKind, receiverPos, sendShip?.id, recvShip?.id) {
+            hingePoses(sendPos, receiverPos, sendShip, recvShip)
+        } ?: return
+
+        // Drive: power 0 → free spin; power N → drive holds angular velocity at 0 with
+        // force limit proportional to power.
+        val clampedPower = power.coerceIn(0, 15)
+        val driveVelocity: VSRevoluteDriveVelocity?
+        val driveForceLimit: Float?
+        val driveFreeSpin: Boolean
+        if (clampedPower == 0) {
+            driveVelocity = null
+            driveForceLimit = null
+            driveFreeSpin = true
+        } else {
+            driveVelocity = VSRevoluteDriveVelocity(velocity = 0.0f, autoWake = true)
+            driveForceLimit = MAX_RESISTANCE_TORQUE * (clampedPower / 15.0f)
+            driveFreeSpin = false
+        }
+
+        val joint: VSJoint = VSRevoluteJoint(
+            shipId0 = (sendShip as? ServerShip)?.id,
+            pose0 = pose0,
+            shipId1 = (recvShip as? ServerShip)?.id,
+            pose1 = pose1,
+            maxForceTorque = null,                            // unbreakable under load
+            compliance = HINGE_COMPLIANCE,
+            angularLimitPair = null,                          // no hard angular limits
+            driveVelocity = driveVelocity,
+            driveForceLimit = driveForceLimit,
+            driveGearRatio = null,
+            driveFreeSpin = driveFreeSpin,
+        )
+
+        sendBe.addLinkJoint(level, tomeKind, receiverPos, joint)
+    }
+
+    /** One world hinge frame expressed in each body, so the joint is at rest when it is made. */
+    private fun hingePoses(
+        sendPos: BlockPos, receiverPos: BlockPos, sendShip: Ship?, recvShip: Ship?,
+    ): Pair<VSJointPose, VSJointPose>? {
         // World-space anchor + axis at bind time. The axis is the orb-to-orb world line;
         // refuse degenerate cases (orbs overlapping somehow) to avoid NaN poses.
         val sendLocalPos = Vector3d(sendPos.x + 0.5, sendPos.y + 0.5, sendPos.z + 0.5)
@@ -138,7 +178,7 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         val recvWorld = Vector3d(recvLocalPos)
         recvShip?.shipToWorld?.transformPosition(recvWorld)
         val worldAxis = Vector3d(recvWorld).sub(sendWorld)
-        if (worldAxis.lengthSquared() < 1e-12) return                     // orbs coincide
+        if (worldAxis.lengthSquared() < 1e-12) return null                // orbs coincide
         worldAxis.normalize()
 
         // Build ONE world-space hinge orientation that rotates LOCAL_X to worldAxis, then
@@ -173,51 +213,7 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         } else {
             pose1Rot.set(worldOrientation)
         }
-
-        // Drive: power 0 → free spin; power N → drive holds angular velocity at 0 with
-        // force limit proportional to power.
-        val clampedPower = power.coerceIn(0, 15)
-        val driveVelocity: VSRevoluteDriveVelocity?
-        val driveForceLimit: Float?
-        val driveFreeSpin: Boolean
-        if (clampedPower == 0) {
-            driveVelocity = null
-            driveForceLimit = null
-            driveFreeSpin = true
-        } else {
-            driveVelocity = VSRevoluteDriveVelocity(velocity = 0.0f, autoWake = true)
-            driveForceLimit = MAX_RESISTANCE_TORQUE * (clampedPower / 15.0f)
-            driveFreeSpin = false
-        }
-
-        val joint: VSJoint = VSRevoluteJoint(
-            shipId0 = (sendShip as? ServerShip)?.id,
-            pose0 = VSJointPose(sendLocalPos, pose0Rot),
-            shipId1 = (recvShip as? ServerShip)?.id,
-            pose1 = VSJointPose(pose1Pos, pose1Rot),
-            maxForceTorque = null,                            // unbreakable under load
-            compliance = HINGE_COMPLIANCE,
-            angularLimitPair = null,                          // no hard angular limits
-            driveVelocity = driveVelocity,
-            driveForceLimit = driveForceLimit,
-            driveGearRatio = null,
-            driveFreeSpin = driveFreeSpin,
-        )
-
-        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
-        sendBe.markJointPending(tomeKind, receiverPos)
-        gtpa.addJoint(joint, 0) { id: Int ->
-            level.executeOrSchedule {
-                val stillPending = sendBe.isJointPending(tomeKind, receiverPos)
-                val stillLinked = sendBe.hasOutgoingLink(tomeKind, receiverPos)
-                if (!stillPending || !stillLinked) {
-                    gtpa.removeJoint(id)
-                    sendBe.clearJointPending(tomeKind, receiverPos)
-                } else {
-                    sendBe.setJointId(tomeKind, receiverPos, id)
-                }
-            }
-        }
+        return VSJointPose(sendLocalPos, pose0Rot) to VSJointPose(pose1Pos, pose1Rot)
     }
 
     private fun releaseJoint(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {

@@ -105,10 +105,10 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.block.WohlonnogondoniaCatastrophe.registerLifecycleHooks()
         org.shipwrights.enderkinesis.block.WogorBudTargetData.init()
 
-        // Transient: the lattice re-asserts the attachment while active, so it never needs persisting.
+        // Saved: VS2 can simulate a loaded ship before the lattice chunk ticks; a transient inducer let it fall.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(CrepusculiteLatticeForceInducer::class.java)
-                .useTransientSerializer()
+                .serializer(CrepusculiteLatticeForceInducer.Serializer)
                 .build()
         )
         // Transient: only live while the player is actively holding the tome.
@@ -153,23 +153,22 @@ object EnderkinesisMod {
                 .useTransientSerializer()
                 .build()
         )
-        // Transient: the strut block entity sets the damper again each game tick.
+        // Saved: the strut block entity can tick after VS2 simulates the lid.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.ShulkerStrutDamper::class.java)
-                .useTransientSerializer()
+                .serializer(org.shipwrights.enderkinesis.physics.ShulkerStrutDamper.Serializer)
                 .build()
         )
-        // Transient: the constriliar re-targets its back-ship controller every game tick.
+        // Saved as a marker, so the body holds still until the entity ticks after a load.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.ConstriliarShipController::class.java)
-                .useTransientSerializer()
+                .serializer(org.shipwrights.enderkinesis.physics.ConstriliarShipController.Serializer)
                 .build()
         )
-        // Transient: rebuilt from the Moth Cloth block registry on world load;
-        // no state to persist beyond the shipId which is stored in the ctor arg.
+        // Saved: the registry rescan runs only every 40 ticks, so a transient inducer let a loaded ship fall.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.MothClothForceInducer::class.java)
-                .useTransientSerializer()
+                .serializer(org.shipwrights.enderkinesis.physics.MothClothForceInducer.Serializer)
                 .build()
         )
         // NOTE: no custom BlockStateInfoProvider for the platform — one existed briefly

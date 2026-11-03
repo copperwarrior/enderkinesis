@@ -14,7 +14,6 @@ import org.valkyrienskies.core.internal.joints.VSJoint
 import org.valkyrienskies.core.internal.joints.VSJointPose
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
@@ -113,20 +112,7 @@ object CouplingTomeOrbBehavior : TomeOrbBehavior {
             damping = null,
         )
 
-        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
-        sendBe.markJointPending(tomeKind, receiverPos)
-        gtpa.addJoint(joint, 0) { id: Int ->
-            level.executeOrSchedule {
-                val stillPending = sendBe.isJointPending(tomeKind, receiverPos)
-                val stillLinked = sendBe.hasOutgoingLink(tomeKind, receiverPos)
-                if (!stillPending || !stillLinked) {
-                    gtpa.removeJoint(id)
-                    sendBe.clearJointPending(tomeKind, receiverPos)
-                } else {
-                    sendBe.setJointId(tomeKind, receiverPos, id)
-                }
-            }
-        }
+        sendBe.addLinkJoint(level, tomeKind, receiverPos, joint)
     }
 
     private fun releaseJoint(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
