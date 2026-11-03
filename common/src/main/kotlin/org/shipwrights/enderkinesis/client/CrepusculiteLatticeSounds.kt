@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
+import org.shipwrights.enderkinesis.physics.LatticeHullVolume
 import org.shipwrights.enderkinesis.physics.LatticeRegistry
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.Ship
@@ -32,6 +33,8 @@ object CrepusculiteLatticeSounds {
     /** Scale on the catch-zone ellipsoid. The ocean bed plays inside the scaled ellipsoid. */
     private const val BED_REACH: Double = 1.25
     private const val BED_REACH_SQR: Double = BED_REACH * BED_REACH
+    /** Scale on the ocean bed volume when the player is in a dry part of the lattice ship hull. */
+    private const val BED_INSIDE_SHIP_GAIN: Float = 0.35f
 
     /** Client thread only. */
     private val hums = HashMap<CrepusculiteLatticeBlockEntity, LatticeLoop>()
@@ -115,10 +118,19 @@ object CrepusculiteLatticeSounds {
             val ny = (player.y - zone.cy) / zone.ay
             val nz = zone.localNz(player.x, player.z)
             if (nx * nx + ny * ny + nz * nz > BED_REACH_SQR) continue
-            val volume = BED_MAX_VOLUME * strength(be) * zone.waveIntensity.toFloat()
+            val open = BED_MAX_VOLUME * strength(be) * zone.waveIntensity.toFloat()
+            if (open <= best) continue
+            val volume = if (insideHull(level, be, player)) open * BED_INSIDE_SHIP_GAIN else open
             if (volume > best) best = volume
         }
         return best.coerceAtMost(BED_MAX_VOLUME)
+    }
+
+    /** The same inside test as [org.shipwrights.enderkinesis.physics.CrepusculiteLatticeFluidProbe]: the feet are in a dry hull cell. */
+    private fun insideHull(level: ClientLevel, be: CrepusculiteLatticeBlockEntity, player: Player): Boolean {
+        val ship = level.getShipManagingPos(be.blockPos) ?: return false
+        val feetY = player.boundingBox.minY
+        return !LatticeHullVolume.isWet(level, ship, ship.transform.worldToShip, player.x, feetY, player.z)
     }
 
     private fun power(be: CrepusculiteLatticeBlockEntity): Int = be.blockState.getValue(BlockStateProperties.POWER)
