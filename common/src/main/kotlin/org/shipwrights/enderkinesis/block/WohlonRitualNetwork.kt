@@ -7,6 +7,7 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /** Ritual ignite visuals: the candle position at ignite, then the root tips when the tree job is ready. */
@@ -23,11 +24,14 @@ object WohlonRitualNetwork {
     const val SEND_RANGE: Double = 96.0
     private const val MAX_TIPS = 16
 
-    fun sendIgnite(level: ServerLevel, candlePos: BlockPos) {
+    fun sendIgnite(level: ServerLevel, candlePos: BlockPos, sacrifice: Vec3) {
         for (player in level.players()) {
             if (!inRange(player.x, player.y, player.z, candlePos)) continue
             val buf = FriendlyByteBuf(Unpooled.buffer())
             buf.writeLong(candlePos.asLong())
+            buf.writeDouble(sacrifice.x)
+            buf.writeDouble(sacrifice.y)
+            buf.writeDouble(sacrifice.z)
             NetworkManager.sendToPlayer(player, S2C_IGNITE, buf)
         }
     }

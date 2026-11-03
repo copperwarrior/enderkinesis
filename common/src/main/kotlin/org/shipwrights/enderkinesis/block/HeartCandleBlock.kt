@@ -2,11 +2,8 @@ package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.server.level.ServerLevel
-import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.BlockGetter
-import net.minecraft.world.level.Level
 import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.AbstractCandleBlock
@@ -21,7 +18,6 @@ import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
-import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Single-only candle. Bypasses [net.minecraft.world.level.block.CandleBlock] (which
  *  declares the `candles` 1..4 property) and extends [AbstractCandleBlock] directly,
@@ -78,28 +74,6 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext,
     ): VoxelShape = SHAPE
-
-    override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, isMoving: Boolean) {
-        super.onPlace(state, level, pos, oldState, isMoving)
-        if (level.isClientSide) return
-        if (!oldState.`is`(this)) return
-        val wasLit = oldState.getValue(LIT)
-        val isLit = state.getValue(LIT)
-        if (wasLit || !isLit) return
-        val serverLevel = level as? ServerLevel ?: return
-        if (!WohlonnogondoniaPortalRitual.checkPattern(serverLevel, pos)) return
-        if (!WohlonnogondoniaPortalRitual.isBiomeValid(serverLevel, pos)) return
-        val portalPos = pos.above(2)
-        if (!WohlonnogondoniaPortalManager.addPortal(serverLevel, portalPos)) return
-        WohlonnogondoniaSpreader.startPortalSeed(serverLevel, portalPos)
-        WohlonnogondoniaTreeGrower.startTree(serverLevel, portalPos)
-        WohlonRitualNetwork.sendIgnite(serverLevel, pos)
-        WohlonRitualNetwork.sendCall(serverLevel, pos)
-        serverLevel.playSound(
-            null, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5,
-            EKSounds.WOHLON_RITUAL_IGNITE.get(), SoundSource.BLOCKS, 3f, 1f,
-        )
-    }
 
     companion object {
         val LIT = BlockStateProperties.LIT

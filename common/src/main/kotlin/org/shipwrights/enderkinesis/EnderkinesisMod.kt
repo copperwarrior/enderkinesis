@@ -276,6 +276,7 @@ object EnderkinesisMod {
         YgannMadnessOnExit.init()
         YgannMadnessBehavior.init()
         org.shipwrights.enderkinesis.dimension.WohlonDeathWisp.init()
+        org.shipwrights.enderkinesis.block.WohlonGoatSacrifice.init()
 
         SselithVoidWrap.init()
         org.shipwrights.enderkinesis.dimension.SselithParallel.init()

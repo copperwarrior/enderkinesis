@@ -47,13 +47,15 @@ object WohlonRitualTendrils {
 
     private class Tendril(val curve: TendrilCurve, val delay: Double)
 
-    private class Ritual(val candle: BlockPos, val igniteNanos: Long) {
+    private class Ritual(val candle: BlockPos, sacrifice: Vector3d, val igniteNanos: Long) {
         val heart = Vector3d(candle.x + 0.5, candle.y + HEART_Y, candle.z + 0.5)
         val frame = TendrilFrame(heart)
         val rise: List<Tendril> = WohlonnogondoniaPortalRitual.PATTERN.mapIndexed { i, slot ->
-            val start = Vector3d(candle.x + slot.dx + 0.5, candle.y + CANDLE_FLAME_Y, candle.z + slot.dz + 0.5)
-            Tendril(TendrilCurve(start, riseControl(start, heart), Vector3d(heart)), i * RISE_STAGGER)
-        }
+            riseTendril(Vector3d(candle.x + slot.dx + 0.5, candle.y + CANDLE_FLAME_Y, candle.z + slot.dz + 0.5), i)
+        } + riseTendril(sacrifice, WohlonnogondoniaPortalRitual.PATTERN.size)
+
+        private fun riseTendril(start: Vector3d, index: Int) =
+            Tendril(TendrilCurve(start, riseControl(start, heart), Vector3d(heart)), index * RISE_STAGGER)
         var spread: List<Tendril> = emptyList()
         var spreadStart = Double.NaN
         var spreadHeard = false
@@ -69,7 +71,8 @@ object WohlonRitualTendrils {
         ClassWarmup.load(Tendril::class.java, TendrilCurve::class.java, Ritual::class.java, WohlonMoteParticle::class.java, WohlonRitualTimeline::class.java)
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_IGNITE) { buf, _ ->
             val candle = BlockPos.of(buf.readLong())
-            Minecraft.getInstance().execute { onIgnite(candle) }
+            val sacrifice = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
+            Minecraft.getInstance().execute { onIgnite(candle, sacrifice) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_ROOTS) { buf, _ ->
             val portal = BlockPos.of(buf.readLong())
@@ -82,9 +85,9 @@ object WohlonRitualTendrils {
 
     fun onDisconnect() = rituals.clear()
 
-    private fun onIgnite(candle: BlockPos) {
+    private fun onIgnite(candle: BlockPos, sacrifice: Vector3d) {
         if (rituals.size >= MAX_RITUALS) rituals.removeAt(0)
-        rituals.add(Ritual(candle.immutable(), System.nanoTime()))
+        rituals.add(Ritual(candle.immutable(), sacrifice, System.nanoTime()))
     }
 
     private fun onRoots(portal: BlockPos, tips: LongArray) {
