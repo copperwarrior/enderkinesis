@@ -1,0 +1,87 @@
+version: 2.1
+
+executors:
+  jdk17:
+    docker:
+      - image: cimg/openjdk:17.0
+    # Gradle takes 4G (gradle.properties) to remap the VS2 classpath; medium (4 GB) runs out of memory.
+    resource_class: large
+    environment:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+jobs:
+  build:
+    executor: jdk17
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "gradle.properties" }}-{{ checksum "build.gradle" }}-{{ checksum "common/build.gradle" }}-{{ checksum "fabric/build.gradle" }}-{{ checksum "forge/build.gradle" }}
+            - gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-
+      # downloadSselithModels fetches these from SourceForge, which is slow and unreliable.
+      - restore_cache:
+          keys:
+            - sselith-models-v1
+      - run:
+          name: Build and test
+          # In-process Kotlin: a separate Kotlin daemon would need its own heap on top of Gradle's.
+          command: ./gradlew build --stacktrace -Pkotlin.compiler.execution.strategy=in-process
+      - save_cache:
+          key: gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "gradle.properties" }}-{{ checksum "build.gradle" }}-{{ checksum "common/build.gradle" }}-{{ checksum "fabric/build.gradle" }}-{{ checksum "forge/build.gradle" }}
+          paths:
+            - ~/.gradle/caches
+            - ~/.gradle/wrapper
+      - save_cache:
+          key: sselith-models-v1
+          paths:
+            - buildSrc/src/main/resources/models
+      - run:
+          name: Collect jars
+          when: always
+          command: |
+            mkdir -p /tmp/jars
+            cp fabric/build/libs/enderkinesis-fabric-*.jar forge/build/libs/enderkinesis-forge-*.jar /tmp/jars/ 2>/dev/null || true
+            rm -f /tmp/jars/*-dev-shadow.jar /tmp/jars/*-sources.jar
+      - store_artifacts:
+          path: /tmp/jars
+          destination: jars
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - jars
+      - store_test_results:
+          path: common/build/test-results/test
+      - store_test_results:
+          path: buildSrc/build/test-results/test
+
+  # A green build does not prove the jar loads; this catches client-only code on dedicated servers.
+  server_test:
+    executor: jdk17
+    parameters:
+      loader:
+        type: enum
+        enum: [fabric, forge]
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Start << parameters.loader >> dedicated server
+          command: |
+            .circleci/server-smoke-test.sh << parameters.loader >> \
+              "$(ls /tmp/jars/enderkinesis-<< parameters.loader >>-*.jar | head -n1)" /tmp/server
+      - store_artifacts:
+          path: /tmp/server/logs
+          destination: server-logs
+
+workflows:
+  build:
+    jobs:
+      - build
+      - server_test:
+          name: server_test_<< matrix.loader >>
+          matrix:
+            parameters:
+              loader: [fabric, forge]
+          requires:
+            - build
