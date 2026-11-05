@@ -1,5 +1,10 @@
 version: 2.1
 
+parameters:
+  release_version:
+    type: string
+    default: "1.0.0"
+
 executors:
   jdk17:
     docker:
@@ -8,6 +13,7 @@ executors:
     resource_class: large
     environment:
       GRADLE_OPTS: -Dorg.gradle.daemon=false
+      RELEASE_VERSION: << pipeline.parameters.release_version >>
 
 jobs:
   build:
@@ -25,7 +31,12 @@ jobs:
       - run:
           name: Build and test
           # In-process Kotlin: a separate Kotlin daemon would need its own heap on top of Gradle's.
-          command: ./gradlew build --stacktrace -Pkotlin.compiler.execution.strategy=in-process
+          command: |
+            RELEASE_ARGS=()
+            if [ "$CIRCLE_BRANCH" = "master" ]; then
+              RELEASE_ARGS=(-PCustomReleaseVersion="$RELEASE_VERSION")
+            fi
+            ./gradlew build --stacktrace -Pkotlin.compiler.execution.strategy=in-process "${RELEASE_ARGS[@]}"
       - save_cache:
           key: gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "gradle.properties" }}-{{ checksum "build.gradle" }}-{{ checksum "common/build.gradle" }}-{{ checksum "fabric/build.gradle" }}-{{ checksum "forge/build.gradle" }}
           paths:
@@ -74,6 +85,34 @@ jobs:
           path: /tmp/server/logs
           destination: server-logs
 
+  # Replaces the release each time, so the tag always points at the latest master build.
+  github_release:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    environment:
+      RELEASE_VERSION: << pipeline.parameters.release_version >>
+      GH_VERSION: "2.102.1"
+    steps:
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Install GitHub CLI
+          command: |
+            curl -sSfL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+              | tar -xz -C /tmp
+            sudo mv "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh
+      - run:
+          name: Publish GitHub release
+          command: |
+            REPO="$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME"
+            gh release delete "$RELEASE_VERSION" --repo "$REPO" --cleanup-tag --yes || true
+            gh release create "$RELEASE_VERSION" /tmp/jars/*.jar \
+              --repo "$REPO" \
+              --target "$CIRCLE_SHA1" \
+              --title "$RELEASE_VERSION" \
+              --notes "Built from ${CIRCLE_SHA1:0:10}."
+
 workflows:
   build:
     jobs:
@@ -85,3 +124,10 @@ workflows:
               loader: [fabric, forge]
           requires:
             - build
+      - github_release:
+          requires:
+            - server_test_fabric
+            - server_test_forge
+          filters:
+            branches:
+              only: master
