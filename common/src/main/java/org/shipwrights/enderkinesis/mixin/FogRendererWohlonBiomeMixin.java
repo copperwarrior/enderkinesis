@@ -75,7 +75,7 @@ public abstract class FogRendererWohlonBiomeMixin {
             return;
         }
         if (WohlonBiomeFog.getCurrentBlend() <= 0f) return;
-        if (IchaericInkVisuals.cameraInInk() || enderkinesis$vanillaFogApplies(camera)) return;
+        if (IchaericInkVisuals.cameraInInk() || enderkinesis$wohlonVanillaFogApplies(camera)) return;
         fogRed *= WohlonAtmosphere.INSTANCE.getTintR();
         fogGreen *= WohlonAtmosphere.INSTANCE.getTintG();
         fogBlue *= WohlonAtmosphere.INSTANCE.getTintB();
@@ -96,7 +96,7 @@ public abstract class FogRendererWohlonBiomeMixin {
         enderkinesis$recordTerrainFog();
         float blend = WohlonBiomeFog.getCurrentBlend();
         if (blend <= 0f) return;
-        if (IchaericInkVisuals.cameraInInk() || enderkinesis$vanillaFogApplies(camera)) return;
+        if (IchaericInkVisuals.cameraInInk() || enderkinesis$wohlonVanillaFogApplies(camera)) return;
         // Vanilla ramps over the last tenth of the render distance, which reads as a wall. Thinner air
         // starts the ramp further out; the fog always reaches full at the end, so terrain never shows an edge.
         float end = farPlaneDistance * WohlonAtmosphere.INSTANCE.getFogEndScale();
@@ -162,7 +162,7 @@ public abstract class FogRendererWohlonBiomeMixin {
     }
 
     // Fluid, Blindness and Darkness fog are opaque and near; a thin Wohlon alpha shows terrain through them.
-    private static boolean enderkinesis$vanillaFogApplies(Camera camera) {
+    private static boolean enderkinesis$wohlonVanillaFogApplies(Camera camera) {
         if (camera.getFluidInCamera() != FogType.NONE) return true;
         return camera.getEntity() instanceof LivingEntity living
             && (living.hasEffect(MobEffects.BLINDNESS) || living.hasEffect(MobEffects.DARKNESS));

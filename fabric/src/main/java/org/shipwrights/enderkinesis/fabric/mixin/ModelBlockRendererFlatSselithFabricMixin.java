@@ -1,16 +1,14 @@
-package org.shipwrights.enderkinesis.mixin;
+package org.shipwrights.enderkinesis.fabric.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.block.ModelBlockRenderer;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.BlockAndTintGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
 import org.shipwrights.enderkinesis.client.SselithRepertoryLighting;
-import org.shipwrights.enderkinesis.dimension.SselithRepertory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
@@ -29,14 +27,12 @@ import org.spongepowered.asm.mixin.injection.At;
  * nibble alone.
  *
  * <p>Smooth (AO) lighting goes through a different code path — see
- * {@link ModelBlockRendererAOSselithMixin}.
+ * {@link org.shipwrights.enderkinesis.mixin.ModelBlockRendererAOSselithMixin}.
  */
 @Mixin(ModelBlockRenderer.class)
-public abstract class ModelBlockRendererFlatSselithMixin {
+public abstract class ModelBlockRendererFlatSselithFabricMixin {
 
-    // Method name only (no descriptor): Forge's tesselateWithoutAO has 12 args
-    // (adds ModelData + RenderType), Fabric's has 10. Mixin's fuzzy match picks the
-    // right method per platform.
+    // The AP pins this to the 10-arg overload; Forge needs its own mixin for the 12-arg one.
     @WrapOperation(
         method = "tesselateWithoutAO",
         at = @At(
@@ -49,11 +45,6 @@ public abstract class ModelBlockRendererFlatSselithMixin {
         Operation<Integer> original,
         @Local Direction direction
     ) {
-        int packedLight = original.call(level, state, pos);
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.level.dimension() != SselithRepertory.INSTANCE.getLEVEL_KEY()) {
-            return packedLight;
-        }
-        return SselithRepertoryLighting.attenuateSkyLight(packedLight, direction);
+        return SselithRepertoryLighting.attenuateFlatSkyLight(original.call(level, state, pos), direction);
     }
 }

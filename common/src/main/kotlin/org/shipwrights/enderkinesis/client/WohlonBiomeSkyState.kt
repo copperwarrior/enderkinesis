@@ -18,7 +18,7 @@ import net.minecraft.util.Mth
  *  - [org.shipwrights.enderkinesis.mixin.LevelRendererWohlonBiomeSkyMixin] for
  *    the sunset-gradient fade and the v-shape sun / moon / star alpha
  *    cross-fades.
- *  - [org.shipwrights.enderkinesis.mixin.LevelTimeAccessGetTimeOfDayWohlonBiomeMixin]
+ *  - [org.shipwrights.enderkinesis.mixin.DimensionTypeTimeOfDayWohlonBiomeMixin]
  *    to hard-snap the rendered time-of-day at the cross-fade midpoint
  *    (celestial bodies are invisible at the snap moment, hiding the rotation
  *    step).
@@ -96,7 +96,7 @@ object WohlonBiomeSkyState {
     fun getWohlonTimeOfDay(): Float = WOHLON_TIME_OF_DAY
 
     /** Recomputes the *actual* dimension-time-of-day from raw game
-     *  time, bypassing the [LevelTimeAccessGetTimeOfDayWohlonBiomeMixin]
+     *  time, bypassing the [org.shipwrights.enderkinesis.mixin.DimensionTypeTimeOfDayWohlonBiomeMixin]
      *  snap. Needed inside the sky-darken redirect because we need
      *  the un-snapped value as the lerp's starting point — calling
      *  `level.getTimeOfDay(partial)` directly would just give us

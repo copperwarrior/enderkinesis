@@ -5,8 +5,7 @@
 Enderkinesis
 </h1>
 <p align="center">
-There are forces older than time itself. Push your ship with them!
-</p>
+The abyss stirs. Waking nightmares roam parallel worlds that man was never meant to visit, and the creeping tendrils of Ulder knowledge seep into the mortal realm. Meanwhile, you have an airship that needs to fly. Take to the skies and enter the mystery in Enderkinesis.</p>
 
 ## Requirements
 

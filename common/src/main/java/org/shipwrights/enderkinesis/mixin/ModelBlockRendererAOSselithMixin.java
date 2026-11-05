@@ -30,7 +30,7 @@ import java.util.BitSet;
  * {@link SselithRepertoryLighting#attenuateSkyLight(int, Direction)}, which scales only
  * the sky-light nibble.
  *
- * <p>Companion: {@link ModelBlockRendererFlatSselithMixin} handles the flat-lighting
+ * <p>Companion: {@code ModelBlockRendererFlatSselith*Mixin} (per loader) handles the flat-lighting
  * code path.
  */
 @Mixin(targets = "net.minecraft.client.renderer.block.ModelBlockRenderer$AmbientOcclusionFace")

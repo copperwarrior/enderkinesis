@@ -2,8 +2,10 @@ package org.shipwrights.enderkinesis.client
 
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.client.Minecraft
+import net.minecraft.client.particle.Particle
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.Entity
+import org.shipwrights.enderkinesis.mixin.ParticlePositionAccessor
 import org.valkyrienskies.mod.common.shipObjectWorld
 
 /** Shared lookup surface for every cloaking-concealment mixin.
@@ -52,6 +54,19 @@ object CloakingMixinSupport {
 
     @JvmStatic
     fun isAnyShipConcealed(): Boolean = concealed.isNotEmpty()
+
+    /** True when [particle] is inside a concealed ship and was captured for the side-FB pass. */
+    @JvmStatic
+    fun captureIfConcealed(particle: Particle): Boolean {
+        // Empty-set fast path: spark showed the per-particle accessor work dominating without it.
+        if (concealed.isEmpty()) return false
+        val pos = particle as ParticlePositionAccessor
+        if (!isWorldPointConcealed(pos.`enderkinesis$getX`(), pos.`enderkinesis$getY`(), pos.`enderkinesis$getZ`())) {
+            return false
+        }
+        CloakedParticleBuffer.capture(particle)
+        return true
+    }
 
     fun concealedShipIds(): Set<Long> = concealed.keys
 

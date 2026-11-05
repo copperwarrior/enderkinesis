@@ -47,6 +47,7 @@ object EnderkinesisModClient {
         earlyDone = true
         WyllandTomeKeys.init()
         SpellKeys.init()
+        SatchelOfShelvingClient.initKeys()
 
         // The Cataloger uses a custom HumanoidModel-based geometry (robed humanoid;
         // see CatalogerModel). The model layer is registered platform-side (Forge
@@ -79,7 +80,6 @@ object EnderkinesisModClient {
         EntityRendererRegistry.register(EKEntities.WOHLON_RITE_PEDESTAL) { ctx -> WohlonRitePedestalRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.WOGOR_BOAT) { ctx -> WogorBoatRenderer(ctx, chest = false) }
         EntityRendererRegistry.register(EKEntities.WOGOR_CHEST_BOAT) { ctx -> WogorBoatRenderer(ctx, chest = true) }
-        registerWogorSignMaterials()
 
         // Sselith Moth — boid-flocking mob for the ceiling / floor voids of
         // the Repertory. Simple MobRenderer + time-driven wing animation.
@@ -151,6 +151,8 @@ object EnderkinesisModClient {
     @JvmStatic
     fun initClient() {
         initClientEarly()
+        // Forge throws if Sheets loads during mod construction, so this stays out of initClientEarly.
+        registerWogorSignMaterials()
         org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat.initClient()
         // Orb of Potential client-side packet receivers — keep the
         // server-bound classes out of the client environment.
@@ -171,6 +173,7 @@ object EnderkinesisModClient {
         // Wand of Ga'Mylan cage S2C receivers (added / removed / hp).
         org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
         SpellNetworkClient.init()
+        ConcealmentNetworkClient.init()
         FramedSketches.init()
         SilverpointView.init()
         org.shipwrights.enderkinesis.item.UlderScrollItem.clientUsed = { player, use, hand ->

@@ -5,10 +5,13 @@
   "plugin": "org.shipwrights.enderkinesis.forge.mixin.EnderkinesisForgeMixinPlugin",
   "mixins": [
     "FluidTypeIchaericInkMixin",
-    "LivingEntitySureibjinSwimForgeMixin"
+    "LivingEntitySureibjinSwimForgeMixin",
+    "LootTableForgeAccessor"
   ],
   "client": [
     "HumanoidArmorLayerRobeForgeMixin",
+    "ModelBlockRendererFlatSselithForgeMixin",
+    "ParticleEngineCloakingForgeMixin",
     "ItemForgeLodestarDartMixin",
     "ItemForgeStatueMixin",
     "ItemForgeWyllandTomeMixin",

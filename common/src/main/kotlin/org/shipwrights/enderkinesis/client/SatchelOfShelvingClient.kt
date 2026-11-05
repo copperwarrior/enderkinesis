@@ -19,12 +19,16 @@ object SatchelOfShelvingClient {
         "key.categories.enderkinesis",
     )
 
+    /** Forge only accepts key mappings before client setup, so this runs from initClientEarly. */
+    fun initKeys() {
+        KeyMappingRegistry.register(OPEN_KEY)
+    }
+
     fun init() {
         MenuRegistry.registerScreenFactory(EKMenus.SATCHEL_OF_SHELVING.get(), ::SatchelOfShelvingScreen)
         ItemPropertiesRegistry.register(EKItems.SATCHEL_OF_SHELVING.get(), SatchelOpenProperty.ID) { stack, _, _, _ ->
             SatchelOpenProperty.value(stack)
         }
-        KeyMappingRegistry.register(OPEN_KEY)
         // The server picks which satchel to open; the client may not see accessory slots.
         ClientTickEvent.CLIENT_POST.register { _ ->
             while (OPEN_KEY.consumeClick()) SatchelOfShelvingNetwork.sendOpen()

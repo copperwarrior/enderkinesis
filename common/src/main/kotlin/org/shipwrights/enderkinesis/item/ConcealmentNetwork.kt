@@ -6,7 +6,6 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.client.ClientShipCloakingState
 
 /** Staff of Concealment networking — one S2C packet.
  *
@@ -17,19 +16,6 @@ object ConcealmentNetwork {
 
     val S2C_CLOAK_UPDATE: ResourceLocation = EnderkinesisMod.id("staff_of_concealment/cloak_update")
     val S2C_CLOAK_TRANSFER: ResourceLocation = EnderkinesisMod.id("staff_of_concealment/cloak_transfer")
-
-    fun init() {
-        NetworkManager.registerReceiver(NetworkManager.Side.S2C, S2C_CLOAK_UPDATE) { buf, ctx ->
-            val shipId = buf.readLong()
-            val cloaking = buf.readBoolean()
-            ctx.queue { ClientShipCloakingState.onServerUpdate(shipId, cloaking) }
-        }
-        NetworkManager.registerReceiver(NetworkManager.Side.S2C, S2C_CLOAK_TRANSFER) { buf, ctx ->
-            val fromShipId = buf.readLong()
-            val toShipId = buf.readLong()
-            ctx.queue { ClientShipCloakingState.onTransfer(fromShipId, toShipId) }
-        }
-    }
 
     /** The cloaked block moved from [fromShipId] to [toShipId] (VS2 split or weld). */
     fun broadcastCloakTransfer(level: ServerLevel, fromShipId: Long, toShipId: Long) {

@@ -7,7 +7,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 /**
  * Read-only access to {@link LootPool#entries} — paired with {@link
- * LootTableAccessor} for offline loot-table walking.
+ * org.shipwrights.enderkinesis.item.LootTablePools} for offline loot-table walking.
  */
 @Mixin(LootPool.class)
 public interface LootPoolAccessor {

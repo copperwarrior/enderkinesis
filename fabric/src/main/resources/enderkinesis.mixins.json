@@ -6,9 +6,13 @@
   "mixins": [
     "BoatIchaericInkMixin",
     "MilkBucketItemMadnessMixin",
-    "EnchantmentHelperBlessedRazorMixin"
+    "EnchantmentHelperBlessedRazorMixin",
+    "LootTableFabricAccessor"
   ],
-  "client": [],
+  "client": [
+    "ModelBlockRendererFlatSselithFabricMixin",
+    "ParticleEngineCloakingFabricMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   },

@@ -1,35 +1,32 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
+import net.minecraft.client.gui.screens.inventory.LecternScreen;
 import net.minecraft.world.item.ItemStack;
 import org.shipwrights.enderkinesis.item.TomeItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Makes any {@link TomeItem} readable as a book when it rests on a lectern.
- *
- * The lectern keeps the genuine tome stack (preserving any per-stack state), but vanilla's book
- * screen only renders {@code WRITTEN_BOOK}/{@code WRITABLE_BOOK}. {@code BookAccess.fromItem} is
- * the single chokepoint every book view (the lectern's included) funnels through, so when it's
- * handed a tome we substitute the transient written-book stack the tome itself supplies via
- * {@link TomeItem#writtenBook(ItemStack)} and let vanilla render and paginate it. The recursive
- * {@code fromItem} call is given a real written book, so it doesn't re-enter this branch.
- *
- * {@code BookAccess} is an interface, so this mixin must itself be an interface and the injector a
- * {@code private static} method (Java 17 interface members).
+ * Lets a {@link TomeItem} on a lectern read as a book: the lectern keeps the real tome stack, and
+ * the screen gets the written book from {@link TomeItem#writtenBook(ItemStack)}. Forge's Mixin
+ * 0.8.5 cannot inject into the {@code BookAccess} interface, so this wraps the screen's call.
  */
-@Mixin(BookViewScreen.BookAccess.class)
-public interface TomeLecternBookMixin {
+@Mixin(LecternScreen.class)
+public abstract class TomeLecternBookMixin {
 
-    @Inject(method = "fromItem", at = @At("HEAD"), cancellable = true)
-    private static void enderkinesis$tomeAsBook(
-        ItemStack stack, CallbackInfoReturnable<BookViewScreen.BookAccess> cir
+    @WrapOperation(
+        method = "bookChanged",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/screens/inventory/BookViewScreen$BookAccess;fromItem(Lnet/minecraft/world/item/ItemStack;)Lnet/minecraft/client/gui/screens/inventory/BookViewScreen$BookAccess;"
+        )
+    )
+    private BookViewScreen.BookAccess enderkinesis$tomeAsBook(
+        ItemStack stack, Operation<BookViewScreen.BookAccess> original
     ) {
-        if (stack.getItem() instanceof TomeItem tome) {
-            cir.setReturnValue(BookViewScreen.BookAccess.fromItem(tome.writtenBook(stack)));
-        }
+        return original.call(stack.getItem() instanceof TomeItem tome ? tome.writtenBook(stack) : stack);
     }
 }

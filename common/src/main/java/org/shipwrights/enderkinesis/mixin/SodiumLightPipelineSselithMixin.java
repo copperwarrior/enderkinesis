@@ -16,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Sodium and Embeddium mirror of {@link ModelBlockRendererAOSselithMixin} and
- * {@link ModelBlockRendererFlatSselithMixin}: their chunk meshing does not call
+ * {@code ModelBlockRendererFlatSselith*Mixin}: their chunk meshing does not call
  * {@code ModelBlockRenderer}. Gated by {@link EnderkinesisMixinPlugin}.
  */
 @Mixin(value = {FlatLightPipeline.class, SmoothLightPipeline.class}, remap = false)

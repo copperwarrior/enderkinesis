@@ -101,7 +101,7 @@ public abstract class LevelRendererBubblePassMixin {
         // entities in the shared main depth.
         CloakBufferSource.flushToShipFB();
 
-        // Cloaked particles captured by ParticleEngineCloakingMixin earlier in the frame,
+        // Cloaked particles captured by ParticleEngineCloaking*Mixin earlier in the frame,
         // replayed here against the side FB. Flush point must match entities — flushing
         // from ParticleEngine.render's RETURN produces no visible side-FB pixels (cause
         // unidentified).

@@ -321,7 +321,6 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.item.ShipCloakingTracker.init()
         org.shipwrights.enderkinesis.item.SunderingManager.init()
         registerSessionCleanup()
-        org.shipwrights.enderkinesis.item.ConcealmentNetwork.init()
         org.shipwrights.enderkinesis.item.RodOfLevitationManager.init()
         org.shipwrights.enderkinesis.item.ScryingClientNetwork.init()
         org.shipwrights.enderkinesis.scrying.ScryingSessionManager.init()

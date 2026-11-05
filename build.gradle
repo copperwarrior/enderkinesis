@@ -52,7 +52,7 @@ allprojects {
     apply plugin: "architectury-plugin"
     apply plugin: "maven-publish"
 
-    archivesBaseName = rootProject.archives_base_name
+    archivesBaseName = project.name == "common" ? rootProject.archives_base_name : "${rootProject.archives_base_name}-${project.name}"
     version = rootProject.version
     group = rootProject.maven_group
 

@@ -28,7 +28,7 @@ import kotlin.math.sin
  *     nibble of the per-face packed lightmap UV is reduced based on `dot(face_normal,
  *     sunDirection)`. Block-light is *untouched*, so torches stay full brightness on
  *     shadow faces. This is the actual directional shading, applied by
- *     `ModelBlockRendererFlatSselithMixin` (flat lighting) and `ModelBlockRendererAOSselithMixin`
+ *     `ModelBlockRendererFlatSselith*Mixin` (flat lighting, per loader) and `ModelBlockRendererAOSselithMixin`
  *     (smooth/AO lighting).
  *
  *  3. **Sun-aimed entity diffuse** ([fillShaderLights]) — view-space light vectors for
@@ -245,6 +245,13 @@ object SselithRepertoryLighting {
         // Clear bits 20–23, then OR in the new sky-light nibble at that position.
         val cleared = packedLight and (0xF shl 20).inv()
         return cleared or (newSkyLevel shl 20)
+    }
+
+    @JvmStatic
+    fun attenuateFlatSkyLight(packedLight: Int, direction: Direction): Int {
+        val level = Minecraft.getInstance().level
+        if (level == null || level.dimension() != SselithRepertory.LEVEL_KEY) return packedLight
+        return attenuateSkyLight(packedLight, direction)
     }
 
 
