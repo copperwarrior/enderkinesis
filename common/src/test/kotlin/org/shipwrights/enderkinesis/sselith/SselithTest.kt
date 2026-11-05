@@ -14,6 +14,15 @@ class SselithTest {
     }
 
     @Test
+    fun `sketch tags pass through untranslated`() {
+        val tag = "[sketch=minecraft:oak_stairs[facing=north] size=60 seed=3]"
+        val entity = "[sketch:entity=minecraft:sheep{CustomName:'\"%s book\"'}]"
+        val out = Sselith.translate("The book shows $tag\n$entity here.")
+        out shouldContain tag
+        out shouldContain entity
+    }
+
+    @Test
     fun `proper noun passes through unchanged`() {
         Sselith.translate("Sselith") shouldBe "Sselith"
     }

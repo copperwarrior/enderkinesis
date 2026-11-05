@@ -12,7 +12,6 @@ import org.shipwrights.enderkinesis.dimension.SselithMadness
 import org.shipwrights.enderkinesis.dimension.SselithRepertoryChunkGenerator
 import org.shipwrights.enderkinesis.dimension.SselithMadnessChat
 import org.shipwrights.enderkinesis.dimension.SselithMadnessTomeSummon
-import org.shipwrights.enderkinesis.item.GuideToStratus
 import org.shipwrights.enderkinesis.item.TomeOfBindingItem
 import org.shipwrights.enderkinesis.item.TomeOfChainingItem
 import org.shipwrights.enderkinesis.item.TomeOfCouplingItem
@@ -82,6 +81,8 @@ object EnderkinesisMod {
         EKSounds.register()
         // Instruments resolve their sound-event holder at construction time, so must come after sounds.
         org.shipwrights.enderkinesis.registry.EKInstruments.register()
+        // Entities before items: on Fabric, ArchitecturyMobBucketItem reads its entity type in the constructor.
+        EKEntities.register()
         EKItems.register()
         org.shipwrights.enderkinesis.registry.EKMenus.register()
         EKCreativeTab.register()
@@ -98,7 +99,6 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.registry.EKStructures.register()
         org.shipwrights.enderkinesis.registry.EKStructurePlacements.register()
         EKChunkGenerators.register()
-        EKEntities.register()
         org.shipwrights.enderkinesis.dimension.WohlonWorldSeed.init()
         EKPoiTypes.register()
 
@@ -315,6 +315,8 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.barnacle.YgannBarnacleLimbNetwork.init()
         org.shipwrights.enderkinesis.dimension.YgannDiscoveries.init()
         org.shipwrights.enderkinesis.item.StaffOfCommandItem.initEvents()
+        org.shipwrights.enderkinesis.item.SilverpointItem.initEvents()
+        org.shipwrights.enderkinesis.item.SilverpointNetwork.init()
         org.shipwrights.enderkinesis.item.GrandStaffRaising.init()
         org.shipwrights.enderkinesis.item.ShipCloakingTracker.init()
         org.shipwrights.enderkinesis.item.SunderingManager.init()
@@ -326,7 +328,6 @@ object EnderkinesisMod {
 
         org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.init()
 
-        GuideToStratus.init()
         org.shipwrights.enderkinesis.block.AncriteEye.init()
 
         org.shipwrights.enderkinesis.item.ScrollOfUnravelling.init()

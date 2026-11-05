@@ -286,20 +286,39 @@ class WohlonUnderstoryFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<
         for (face in HORIZONTAL) {
             if (random.nextFloat() >= LICHEN_CHANCE * lichenPatch) continue
             val run = random.nextIntBetweenInclusive(LICHEN_MIN_RUN, LICHEN_MAX_RUN)
-            for (y in startY until startY + run) {
-                if (!isWogorWood(level.getBlockState(pos.set(c.x + face.stepX, y, c.z + face.stepZ)))) break
-                val existing = level.getBlockState(pos.set(c.x, y, c.z))
-                val base = when {
-                    existing.`is`(lichen) -> existing
-                    existing.isAir -> lichen.defaultBlockState()
-                    else -> break
-                }
+            val woodTop = woodTopY(level, pos, c.x + face.stepX, c.z + face.stepZ, startY, run)
+            if (woodTop < startY) continue
+            val onRootOrBranch = woodTop < startY + run - 1
+            if (onRootOrBranch && random.nextFloat() >= LICHEN_WOOD_TOP_CHANCE) continue
+            for (y in startY..woodTop) {
                 // Bottom-up, so only the run's lowest block sees no lichen below and becomes the tip.
-                val state = lichen.withTip(base.setValue(MultifaceBlock.getFaceProperty(face), true), level, pos)
+                val state = lichenFace(level, lichen, pos.set(c.x, y, c.z), face) ?: break
                 placed = level.setBlock(pos, state, Block.UPDATE_CLIENTS) || placed
+                if (!onRootOrBranch || y != woodTop) continue
+                // The wood top takes lichen too, so the wall tip hangs from a carpet, not bare wood.
+                val top = lichenFace(level, lichen, pos.set(c.x + face.stepX, y + 1, c.z + face.stepZ), Direction.DOWN)
+                if (top != null) placed = level.setBlock(pos, top, Block.UPDATE_CLIENTS) || placed
             }
         }
         return placed
+    }
+
+    /** Highest wood Y in the first [run] blocks of the wall column from [startY], or startY - 1 when none. */
+    private fun woodTopY(level: WorldGenLevel, pos: BlockPos.MutableBlockPos, x: Int, z: Int, startY: Int, run: Int): Int {
+        var y = startY
+        while (y < startY + run && isWogorWood(level.getBlockState(pos.set(x, y, z)))) y++
+        return y - 1
+    }
+
+        /** [lichen] at [pos] with [face] added, or null when something other than air or lichen fills [pos]. */
+    private fun lichenFace(level: WorldGenLevel, lichen: WohlonLichenBlock, pos: BlockPos, face: Direction): BlockState? {
+        val existing = level.getBlockState(pos)
+        val base = when {
+            existing.`is`(lichen) -> existing
+            existing.isAir -> lichen.defaultBlockState()
+            else -> return null
+        }
+        return lichen.withTip(base.setValue(MultifaceBlock.getFaceProperty(face), true), level, pos)
     }
 
     /** Wood one block above the ground within [BASE_RADIUS]: a trunk or root flare stands next to this cell. */
@@ -362,6 +381,7 @@ class WohlonUnderstoryFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<
         const val LICHEN_CHANCE = 0.5f
         const val LICHEN_MIN_RUN = 2
         const val LICHEN_MAX_RUN = 5
+        const val LICHEN_WOOD_TOP_CHANCE = 0.25f
 
         const val NURSE_BUD_SHARE = 0.25f
 

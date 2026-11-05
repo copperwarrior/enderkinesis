@@ -7,6 +7,7 @@ import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.GlowLichenBlock
+import net.minecraft.world.level.block.MultifaceBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BooleanProperty
@@ -35,12 +36,17 @@ class WohlonLichenBlock(properties: Properties) : GlowLichenBlock(properties) {
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
     ): BlockState {
         val updated = super.updateShape(state, direction, neighborState, level, pos, neighborPos)
-        if (direction != Direction.DOWN || !updated.`is`(this)) return updated
-        return updated.setValue(TIP, !neighborState.`is`(this))
+        if (!updated.`is`(this)) return updated
+        val below = if (direction == Direction.DOWN) neighborState else level.getBlockState(pos.below())
+        return updated.setValue(TIP, isTip(updated, below))
     }
 
     fun withTip(state: BlockState, level: BlockGetter, pos: BlockPos): BlockState =
-        state.setValue(TIP, !level.getBlockState(pos.below()).`is`(this))
+        state.setValue(TIP, isTip(state, level.getBlockState(pos.below())))
+
+    // Floor and ceiling lichen is not a vertical patch, so it keeps the full texture.
+    private fun isTip(state: BlockState, below: BlockState): Boolean =
+        !below.`is`(this) && Direction.Plane.HORIZONTAL.any { MultifaceBlock.hasFace(state, it) }
 
     companion object {
         val TIP: BooleanProperty = BooleanProperty.create("tip")

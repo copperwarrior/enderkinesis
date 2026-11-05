@@ -28,6 +28,9 @@ object EKParticles {
     val SPLASH: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("crepusculite_splash") { EKOceanParticleType() }
 
+    val TIDE_MOTE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("shell_of_tides_mote") { EKOceanParticleType() }
+
     /** Short-lived foam-green dot spawned at a wave crest. The mesh renderer carries the
      *  wave geometry now, so the original SURFACE particle's purple→foam shift is gone;
      *  this is the standalone "white-cap" highlight that the mesh can't paint per-pixel.
@@ -98,6 +101,9 @@ object EKParticles {
 
     val RIVER_FOAM: RegistrySupplier<ParticleType<*>> =
         PARTICLES.register("river_foam") { EKOceanParticleType() }
+
+    val WATER_RIPPLE: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("water_ripple") { EKOceanParticleType() }
 
     /** Enchant-glyph particle for the reusable bezier beam (Wylland Tome, Tome of Signal orb
      *  network, future tomes). Identical to vanilla's enchanting-table glyph (same sga_a..sga_z
@@ -240,6 +246,8 @@ object EKParticles {
 
     fun foamCrest(): EKOceanParticleType = FOAM_CREST.get() as EKOceanParticleType
 
+    fun tideMote(): EKOceanParticleType = TIDE_MOTE.get() as EKOceanParticleType
+
     fun planarSpiral(): EKOceanParticleType = PLANAR_SPIRAL.get() as EKOceanParticleType
 
     fun shulkerPuffer(): EKOceanParticleType = SHULKER_PUFFER.get() as EKOceanParticleType
@@ -267,6 +275,8 @@ object EKParticles {
     fun riverMist(): EKOceanParticleType = RIVER_MIST.get() as EKOceanParticleType
 
     fun riverFoam(): EKOceanParticleType = RIVER_FOAM.get() as EKOceanParticleType
+
+    fun waterRipple(): EKOceanParticleType = WATER_RIPPLE.get() as EKOceanParticleType
 
     fun enchantedBookBeam(): EKOceanParticleType = ENCHANTED_BOOK_BEAM.get() as EKOceanParticleType
 

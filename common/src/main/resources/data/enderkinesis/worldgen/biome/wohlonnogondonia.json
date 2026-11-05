@@ -28,7 +28,14 @@
     }
   },
   "spawners": {
-    "monster": [],
+    "monster": [
+      {
+        "type": "enderkinesis:moskuo",
+        "weight": 8,
+        "minCount": 1,
+        "maxCount": 3
+      }
+    ],
     "creature": [
       {
         "type": "enderkinesis:shilleagk_deer",
@@ -48,7 +55,14 @@
     "axolotls": [],
     "underground_water_creature": [],
     "water_creature": [],
-    "water_ambient": [],
+    "water_ambient": [
+      {
+        "type": "enderkinesis:kekhekh",
+        "weight": 10,
+        "minCount": 1,
+        "maxCount": 4
+      }
+    ],
     "misc": []
   },
   "spawn_costs": {},

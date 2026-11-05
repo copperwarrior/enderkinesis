@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.block
 import net.minecraft.core.BlockPos
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.block.LeavesBlock
+import net.minecraft.world.level.block.LiquidBlock
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.shapes.CollisionContext
@@ -21,6 +22,15 @@ class WogorLeavesBlock(properties: BlockBehaviour.Properties) : LeavesBlock(prop
     ): VoxelShape {
         val passes = (context as? EntityCollisionContext)?.entity?.type?.`is`(PASSES_THROUGH_WOGOR_LEAVES) == true
         @Suppress("DEPRECATION")
-        return if (passes) Shapes.empty() else super.getCollisionShape(state, level, pos, context)
+        if (!passes) return super.getCollisionShape(state, level, pos, context)
+        // Same rule as LiquidBlock: a fluid walker stands on the water in a waterlogged leaf as on open water.
+        val fluid = state.fluidState
+        return if (!fluid.isEmpty && context.isAbove(LiquidBlock.STABLE_SHAPE, pos, true) &&
+            context.canStandOnFluid(level.getFluidState(pos.above()), fluid)
+        ) {
+            LiquidBlock.STABLE_SHAPE
+        } else {
+            Shapes.empty()
+        }
     }
 }

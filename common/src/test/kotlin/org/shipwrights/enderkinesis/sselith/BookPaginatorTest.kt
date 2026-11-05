@@ -21,6 +21,21 @@ class BookPaginatorTest {
     }
 
     @Test
+    fun `a sketch that does not fit moves to the next page whole`() {
+        val tag = "[sketch:structure=minecraft:igloo/top size=114 seed=3]"
+        val pages = BookPaginator.paginate("Heading\n\nOne line of text.\n$tag\nAfter.")
+        pages shouldHaveSize 2
+        pages[0] shouldBe "Heading\n\nOne line of text."
+        pages[1] shouldBe "$tag\nAfter."
+    }
+
+    @Test
+    fun `a small sketch stays on the page with its text`() {
+        val tag = "[sketch:structure=minecraft:igloo/top size=27]"
+        BookPaginator.paginate("Before. $tag After.") shouldBe listOf("Before.\n$tag\nAfter.")
+    }
+
+    @Test
     fun `blank text paginates to nothing`() {
         BookPaginator.paginate("") shouldHaveSize 0
         BookPaginator.paginate("   \n\n  ") shouldHaveSize 0

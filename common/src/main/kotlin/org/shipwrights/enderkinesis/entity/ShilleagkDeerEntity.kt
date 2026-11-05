@@ -1,15 +1,18 @@
 package org.shipwrights.enderkinesis.entity
 
+import dev.architectury.registry.registries.RegistrySupplier
 import java.util.EnumSet
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.registries.Registries
 import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
-import net.minecraft.sounds.SoundEvents
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.util.Mth
+import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.AnimationState
 import net.minecraft.world.entity.EntityDimensions
 import net.minecraft.world.entity.EntitySelector
@@ -33,11 +36,14 @@ import net.minecraft.world.level.GameRules
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.LiquidBlock
+import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.level.pathfinder.BlockPathTypes
 import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.CollisionContext
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Wohlon omnivore. It always flees players and predators, grazes Wohlon plants and wades into shallows for fish. */
 class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Level) : PathfinderMob(type, level) {
@@ -62,6 +68,10 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
     private var clientIdleEndTick: Int = -1
 
     private var mealCooldown: Int = 0
+    private var lastFleeTick: Int = Int.MIN_VALUE / 2
+
+    private var lastWalkPhase: Float = 0f
+    private val rippleScan = BlockPos.MutableBlockPos()
 
     val action: Action
         get() = Action.entries.getOrElse(entityData.get(DATA_ACTION).toInt()) { Action.NONE }
@@ -107,19 +117,29 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         goalSelector.addGoal(0, FloatGoal(this))
         goalSelector.addGoal(1, CorneredStrikeGoal())
         goalSelector.addGoal(1, PanicGoal(this, RUN_SPEED))
-        goalSelector.addGoal(2, AvoidEntityGoal(this, Player::class.java, FLEE_DISTANCE, RUN_SPEED, RUN_SPEED))
-        goalSelector.addGoal(
-            2,
-            AvoidEntityGoal(this, LivingEntity::class.java, FLEE_DISTANCE, RUN_SPEED, RUN_SPEED) {
-                it.type.`is`(PREDATORS)
-            },
-        )
+        goalSelector.addGoal(2, FleeGoal(Player::class.java) { true })
+        goalSelector.addGoal(2, FleeGoal(LivingEntity::class.java) { it.type.`is`(PREDATORS) })
         goalSelector.addGoal(3, HuntFishGoal())
         goalSelector.addGoal(4, GrazeGoal())
         goalSelector.addGoal(5, FreakyIdleGoal())
         goalSelector.addGoal(6, WaterAvoidingRandomStrollGoal(this, WALK_SPEED))
         goalSelector.addGoal(7, WatchDistantPlayerGoal())
         goalSelector.addGoal(8, RandomLookAroundGoal(this))
+    }
+
+    override fun getAmbientSound(): SoundEvent = EKSounds.SHILLEAGK_DEER_AMBIENT.get()
+
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.SHILLEAGK_DEER_HURT.get()
+
+    override fun getDeathSound(): SoundEvent = EKSounds.SHILLEAGK_DEER_DEATH.get()
+
+    override fun playStepSound(pos: BlockPos, state: BlockState) {
+        if (state.fluidState.`is`(FluidTags.WATER)) {
+            playSound(EKSounds.SHILLEAGK_DEER_WADE.get(), STEP_VOLUME, 1f)
+            return
+        }
+        super.playStepSound(pos, state)
+        playSound(EKSounds.SHILLEAGK_DEER_STEP.get(), STEP_VOLUME, 1f)
     }
 
     override fun removeWhenFarAway(distanceToClosestPlayer: Double): Boolean = false
@@ -143,6 +163,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         super.aiStep()
         if (level().isClientSide) {
             tickClientAnimations()
+            tickRipples()
         } else if (mealCooldown > 0) {
             mealCooldown--
         }
@@ -207,8 +228,55 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             else -> idleStampAnimationState to IDLE_STAMP_TICKS
         }
         state.start(tickCount)
+        if (state === idleStampAnimationState) {
+            level().playLocalSound(x, y, z, EKSounds.SHILLEAGK_DEER_STAMP.get(), soundSource, 1f, 1f, false)
+        }
         clientIdle = state
         clientIdleEndTick = tickCount + ticks
+    }
+
+    private fun tickRipples() {
+        val cycle = walkAnimation.position() / WALK_CYCLE_SWING
+        val phase = cycle - Mth.floor(cycle)
+        val last = lastWalkPhase
+        lastWalkPhase = phase
+        if (walkAnimation.speed() < IDLE_MAX_SWING_SPEED) return
+        for (foot in FEET) {
+            val touched = if (phase >= last) {
+                foot.phase > last && foot.phase <= phase
+            } else {
+                foot.phase > last || foot.phase <= phase
+            }
+            if (touched) rippleUnder(foot)
+        }
+    }
+
+    private fun rippleUnder(foot: Foot) {
+        val yaw = yBodyRot * Mth.DEG_TO_RAD
+        val sin = Mth.sin(yaw)
+        val cos = Mth.cos(yaw)
+        val fx = x + cos * foot.left + sin * foot.back
+        val fz = z + sin * foot.left - cos * foot.back
+        val surface = waterSurfaceAt(fx, fz)
+        if (!surface.isNaN()) level().addParticle(EKParticles.waterRipple(), fx, surface + RIPPLE_LIFT, fz, 0.0, 0.0, 0.0)
+    }
+
+    /** NaN when the foot is not in water, or when the surface is too far above it. */
+    private fun waterSurfaceAt(fx: Double, fz: Double): Double {
+        val level = level()
+        val pos = rippleScan.set(fx, y, fz)
+        if (!level.getFluidState(pos).`is`(FluidTags.WATER)) {
+            pos.move(Direction.DOWN)
+            if (!level.getFluidState(pos).`is`(FluidTags.WATER)) return Double.NaN
+        }
+        for (i in 0 until RIPPLE_MAX_DEPTH_BLOCKS) {
+            pos.move(Direction.UP)
+            if (!level.getFluidState(pos).`is`(FluidTags.WATER)) {
+                pos.move(Direction.DOWN)
+                return pos.y + level.getFluidState(pos).getHeight(level, pos).toDouble()
+            }
+        }
+        return Double.NaN
     }
 
     private fun stopClientIdle() {
@@ -242,6 +310,21 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
     }
 
     /** Walk up to a meal, play the graze clip, and consume it on the bite frame. */
+    /** The alarm marks the start of a flight, not each re-path while the threat stays near. */
+    private inner class FleeGoal<T : LivingEntity>(type: Class<T>, threat: (LivingEntity) -> Boolean) :
+        AvoidEntityGoal<T>(this, type, FLEE_DISTANCE, RUN_SPEED, RUN_SPEED, threat) {
+        override fun start() {
+            super.start()
+            if (tickCount - lastFleeTick > FLEE_GAP_TICKS) playSound(EKSounds.SHILLEAGK_DEER_ALARM.get(), 1f, 1f)
+            lastFleeTick = tickCount
+        }
+
+        override fun tick() {
+            super.tick()
+            lastFleeTick = tickCount
+        }
+    }
+
     private abstract inner class MealGoal(private val approachSpeed: Double) : Goal() {
         private var ticks = 0
         private var eatTicks = -1
@@ -254,6 +337,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         protected abstract val mealAction: Action
         protected abstract val eatDurationTicks: Int
         protected abstract val biteTick: Int
+        protected abstract val biteSound: RegistrySupplier<SoundEvent>
         protected open val creepsUntilBite: Boolean = false
         protected abstract fun findMeal(): Boolean
         protected abstract fun mealPosition(): Vec3
@@ -283,7 +367,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
                 if (eatTicks == biteTick && mealStillThere() && inMouthReach(mealPosition())) {
                     if (!consume()) return
                     heal(MEAL_HEAL)
-                    playSound(SoundEvents.GENERIC_EAT, 1f, 1f)
+                    playSound(biteSound.get(), 1f, 1f)
                     mealCooldown = MEAL_COOLDOWN_MIN + random.nextInt(MEAL_COOLDOWN_SPREAD)
                     ate = true
                 }
@@ -335,6 +419,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         override val mealAction: Action = Action.GRAZE
         override val eatDurationTicks: Int = GRAZE_TICKS
         override val biteTick: Int = GRAZE_BITE_TICK
+        override val biteSound: RegistrySupplier<SoundEvent> = EKSounds.SHILLEAGK_DEER_GRAZE
 
         override fun findMeal(): Boolean {
             val origin = blockPosition()
@@ -376,6 +461,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         override val mealAction: Action = Action.FISH
         override val eatDurationTicks: Int = FISH_EAT_TICKS
         override val biteTick: Int = FISH_BITE_TICK
+        override val biteSound: RegistrySupplier<SoundEvent> = EKSounds.SHILLEAGK_DEER_FISH
         override val creepsUntilBite: Boolean = true
 
         override fun findMeal(): Boolean {
@@ -447,6 +533,8 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             antler = random.nextBoolean()
             navigation.stop()
             setAction(if (antler) Action.ATTACK_ANTLER else Action.ATTACK_BITE)
+            // Each strike sound has the hit timed inside it.
+            playSound(if (antler) EKSounds.SHILLEAGK_DEER_ANTLER.get() else EKSounds.SHILLEAGK_DEER_BITE.get(), 1f, 1f)
         }
 
         override fun tick() {
@@ -495,6 +583,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             ticks = 0
             navigation.stop()
             setAction(Action.UPRIGHT)
+            playSound(EKSounds.SHILLEAGK_DEER_FREAKY.get(), 1f, 1f)
         }
 
         override fun tick() {
@@ -518,6 +607,9 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             lookAt?.let { distanceToSqr(it) >= FLEE_DISTANCE * FLEE_DISTANCE } ?: false
     }
 
+    /** [left] and [back] are in blocks from the body origin; [phase] is the touch-down point in the walk cycle. */
+    private class Foot(val phase: Float, val left: Float, val back: Float)
+
     companion object {
         const val ID_PATH = "shilleagk_deer"
         const val EATEN_TAG = "enderkinesis.eaten"
@@ -538,6 +630,8 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         private const val WALK_SPEED = 1.0
         private const val RUN_SPEED = 1.4
         private const val FLEE_DISTANCE = 12f
+        private const val FLEE_GAP_TICKS = 60
+        private const val STEP_VOLUME = 0.5f
         private const val LOOK_DISTANCE = 32f
 
         // Mob ground speed settles near 2.16 × (attribute × modifier)² blocks per tick.
@@ -567,6 +661,19 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         private const val ANTLER_DAMAGE = 3f
         private const val BITE_DAMAGE = 5f
         private const val ANTLER_KNOCKBACK = 1.0
+
+        // One walk loop of ShilleagkDeerAnimations.walk (0.5 s) at the design walk speed, in limb swing.
+        private const val TICKS_PER_SECOND = 20f
+        private const val WALK_CYCLE_SWING = 0.5f * TICKS_PER_SECOND * WALK_GROUND_SPEED * LIMB_SWING_PER_BLOCK
+        // Touch-down is each leg's lowest walk keyframe; offsets are the leg pivots in ShilleagkDeerModel.
+        private val FEET = listOf(
+            Foot(0.833f, 2.5f / 16f, -4.5f / 16f),
+            Foot(0f, -2.5f / 16f, -4.5f / 16f),
+            Foot(0f, 2.5f / 16f, 10.5f / 16f),
+            Foot(0.917f, -2.5f / 16f, 10.5f / 16f),
+        )
+        private const val RIPPLE_LIFT = 0.01
+        private const val RIPPLE_MAX_DEPTH_BLOCKS = 2
 
         private const val IDLE_CHANCE = 160
         private const val IDLE_MAX_SWING_SPEED = 0.05f

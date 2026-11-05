@@ -15,6 +15,7 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.block.SselithLecternBlock
+import org.shipwrights.enderkinesis.item.SketchTag
 import org.shipwrights.enderkinesis.item.TomeLore
 import java.io.IOException
 import java.util.Optional
@@ -47,11 +48,16 @@ enum class BookSkin(
     private val maskText: Boolean = false,
     private val textStyle: Style? = null,
     val stainsPage: Boolean = false,
+    val showsPageNumber: Boolean = true,
+    /** Page centre from the vanilla book image origin; inline sketches centre on it. */
+    val pageCentreX: Int = TEXT_X + TEXT_WIDTH / 2,
 ) {
     OLD_PAPER(
         "old_paper_ui", 2, frayLeft = OLD_PAPER_FRAY_LEFT, frayRight = OLD_PAPER_FRAY_RIGHT, stainsPage = true,
     ),
     SSELITH_BOOK("sselith_book_ui", 0, textStyle = TomeLore.SERIF_STYLE),
+    // The paper spans columns 20 to 153 of strike_readout.png, so its centre is left of the text column's.
+    STRIKE_READOUT("strike_readout", 0, textStyle = TomeLore.SLOPPY_STYLE, showsPageNumber = false, pageCentreX = 87),
 
     // For a book with no serif page breaks: the serif font is wider, so its pages would overflow.
     SSELITH_LECTERN("sselith_book_ui", 0),
@@ -180,7 +186,8 @@ enum class BookSkin(
         // Vanilla BookViewScreen text origin and line pitch.
         const val TEXT_X = 36
         const val TEXT_Y = 32
-        const val LINE_HEIGHT = 9
+        const val LINE_HEIGHT = SketchTag.LINE_HEIGHT
+        const val TEXT_WIDTH = 114
         private const val FRAY_PADDING = 2
         private const val ALPHA_SHIFT = 24
         private const val BLUE_SHIFT = 16

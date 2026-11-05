@@ -20,12 +20,25 @@ object WohlonGoatSacrifice {
     private const val CIRCLE_RADIUS_SQ = 3.5 * 3.5
     private const val CIRCLE_DY = 1
 
+    // Vanilla LivingEntity.hurt drops a hit inside these i-frames that does not beat the last one.
+    private const val HURT_IFRAMES = 10
+    private const val SACRIFICE_HEALTH = Float.MIN_VALUE
+
     fun init() {
+        EntityEvent.LIVING_HURT.register { entity, source, _ ->
+            val level = entity.level() as? ServerLevel
+            if (entity is Goat && level != null && entity.invulnerableTime <= HURT_IFRAMES &&
+                isRazorKill(source) && readyHeartNear(level, entity) != null
+            ) {
+                // The razor hit itself must kill, so LIVING_DEATH sees the razor as the source.
+                entity.health = SACRIFICE_HEALTH
+            }
+            EventResult.pass()
+        }
         EntityEvent.LIVING_DEATH.register { entity, source ->
-            if (entity is Goat && isRazorKill(source)) {
-                (entity.level() as? ServerLevel)?.let { level ->
-                    litHeartNear(level, entity)?.let { ignite(level, it, entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)) }
-                }
+            val level = entity.level() as? ServerLevel
+            if (entity is Goat && level != null && isRazorKill(source)) {
+                readyHeartNear(level, entity)?.let { ignite(level, it, entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)) }
             }
             EventResult.pass()
         }
@@ -35,6 +48,11 @@ object WohlonGoatSacrifice {
         val killer = source.entity as? LivingEntity ?: return false
         return !source.isIndirect && killer.mainHandItem.`is`(EKItems.BLESSED_RAZOR.get())
     }
+
+    private fun readyHeartNear(level: ServerLevel, goat: Goat): BlockPos? =
+        litHeartNear(level, goat)?.takeIf {
+            WohlonnogondoniaPortalRitual.checkPattern(level, it) && WohlonnogondoniaPortalRitual.isBiomeValid(level, it)
+        }
 
     private fun litHeartNear(level: ServerLevel, goat: Goat): BlockPos? {
         val feet = goat.blockPosition()
@@ -55,8 +73,6 @@ object WohlonGoatSacrifice {
     }
 
     private fun ignite(level: ServerLevel, heartPos: BlockPos, sacrifice: Vec3) {
-        if (!WohlonnogondoniaPortalRitual.checkPattern(level, heartPos)) return
-        if (!WohlonnogondoniaPortalRitual.isBiomeValid(level, heartPos)) return
         val portalPos = heartPos.above(2)
         if (!WohlonnogondoniaPortalManager.addPortal(level, portalPos)) return
         WohlonnogondoniaSpreader.startPortalSeed(level, portalPos)

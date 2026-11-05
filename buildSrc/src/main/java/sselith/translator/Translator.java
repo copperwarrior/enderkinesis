@@ -127,23 +127,33 @@ public final class Translator {
     /** One stripped-out format placeholder and its marker substitute. */
     record FormatSlot(String marker, String original) {}
 
+    // Sketch tags hold block ids and NBT that must reach the page as written. Keep in step with Sselith.kt.
     private static Stripped stripFormatTokens(String text) {
+        List<int[]> ranges = new ArrayList<>(SketchTagSpans.find(text));
+        int sketchCount = ranges.size();
         Matcher m = EnglishTokenizer.FORMAT_PATTERN.matcher(text);
-        if (!m.find()) {
+        while (m.find()) {
+            boolean inSketch = false;
+            for (int k = 0; k < sketchCount; k++) {
+                if (m.start() >= ranges.get(k)[0] && m.start() < ranges.get(k)[1]) inSketch = true;
+            }
+            if (!inSketch) ranges.add(new int[] {m.start(), m.end()});
+        }
+        if (ranges.isEmpty()) {
             return new Stripped(text, List.of());
         }
+        ranges.sort(java.util.Comparator.comparingInt(r -> r[0]));
         List<FormatSlot> slots = new ArrayList<>();
         StringBuilder clean = new StringBuilder();
         int last = 0;
-        int idx = 0;
-        do {
-            clean.append(text, last, m.start());
+        for (int idx = 0; idx < ranges.size(); idx++) {
+            int[] r = ranges.get(idx);
+            clean.append(text, last, r[0]);
             String marker = MARKER_PREFIX + encodeMarkerIndex(idx) + MARKER_SUFFIX;
             clean.append(marker);
-            slots.add(new FormatSlot(marker, m.group()));
-            idx++;
-            last = m.end();
-        } while (m.find());
+            slots.add(new FormatSlot(marker, text.substring(r[0], r[1])));
+            last = r[1];
+        }
         clean.append(text, last, text.length());
         return new Stripped(clean.toString(), slots);
     }

@@ -6,12 +6,17 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import org.shipwrights.enderkinesis.client.BookSkin;
 import org.shipwrights.enderkinesis.client.BookSkinHolder;
+import org.shipwrights.enderkinesis.client.InlineSketches;
+import org.shipwrights.enderkinesis.client.SketchLayout;
+import org.shipwrights.enderkinesis.client.SketchPlacement;
 import org.shipwrights.enderkinesis.client.PaperStain;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -26,6 +31,9 @@ import java.util.List;
 @Mixin(BookViewScreen.class)
 public abstract class BookViewScreenSkinMixin implements BookSkinHolder {
 
+    @Unique private static final int BOOK_SIZE = 192;
+    @Unique private static final int BOOK_TOP = 2;
+
     @Unique
     private BookSkin enderkinesis$skin;
 
@@ -33,6 +41,8 @@ public abstract class BookViewScreenSkinMixin implements BookSkinHolder {
     @Unique private int enderkinesis$pageY;
 
     @Shadow private List<FormattedCharSequence> cachedPageComponents;
+
+    @Unique private List<SketchPlacement> enderkinesis$sketches = List.of();
 
     @Unique private List<FormattedCharSequence> enderkinesis$stainedLines;
     @Unique private int[][] enderkinesis$stains;
@@ -116,6 +126,23 @@ public abstract class BookViewScreenSkinMixin implements BookSkinHolder {
         return result;
     }
 
+    // The page is split only when it changes, so the sketch layout runs once per page turn.
+    @WrapOperation(
+        method = "render(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/Font;split(Lnet/minecraft/network/chat/FormattedText;I)Ljava/util/List;"
+        )
+    )
+    private List<FormattedCharSequence> enderkinesis$layoutSketches(
+        Font font, FormattedText page, int width, Operation<List<FormattedCharSequence>> original
+    ) {
+        SketchLayout layout = InlineSketches.INSTANCE.layout(page, text -> original.call(font, text, width));
+        enderkinesis$sketches = layout.getSketches();
+        return layout.getLines();
+    }
+
+    // Drawn before the pop, so the sketches move with the skin's content shift.
     @Inject(
         method = "render(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
         at = @At(
@@ -124,7 +151,30 @@ public abstract class BookViewScreenSkinMixin implements BookSkinHolder {
         )
     )
     private void enderkinesis$endContentShift(GuiGraphics graphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
+        BookSkin skin = enderkinesis$skin;
+        int centre = skin != null ? skin.getPageCentreX() : BookSkin.TEXT_X + BookSkin.TEXT_WIDTH / 2;
+        int left = (((Screen) (Object) this).width - BOOK_SIZE) / 2;
+        InlineSketches.INSTANCE.draw(graphics, enderkinesis$sketches, left + centre, BOOK_TOP + BookSkin.TEXT_Y);
         graphics.pose().popPose();
+    }
+
+    // The page number is the only Component drawString in render.
+    @WrapOperation(
+        method = "render(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;IIIZ)I"
+        )
+    )
+    private int enderkinesis$hidePageNumber(
+        GuiGraphics graphics, Font font, Component text, int x, int y, int color, boolean shadow,
+        Operation<Integer> original
+    ) {
+        BookSkin skin = enderkinesis$skin;
+        if (skin != null && !skin.getShowsPageNumber()) {
+            return 0;
+        }
+        return original.call(graphics, font, text, x, y, color, shadow);
     }
 
     // The page number is the first text of the page, so the stains go below all the text.

@@ -3,11 +3,8 @@ package org.shipwrights.enderkinesis.compat.distanthorizons
 import com.mojang.blaze3d.systems.RenderSystem
 import com.seibel.distanthorizons.api.DhApi
 import com.seibel.distanthorizons.api.enums.rendering.EDhApiFogFalloff
-import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeDeferredRenderEvent
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeFogRenderEvent
-import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeRenderEvent
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiCancelableEventParam
-import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiRenderParam
 import net.minecraft.client.Minecraft
 import org.shipwrights.enderkinesis.client.IchaericInkVisuals
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
@@ -22,11 +19,22 @@ internal object DhApiAccess {
 
     fun isDhThread(): Boolean = DhApi.isDhThread()
 
-    fun registerRenderGate() {
-        DhApi.events.bind(DhApiBeforeRenderEvent::class.java, LodRenderGate())
-        // DH fires the deferred transparent pass as its own event class.
-        DhApi.events.bind(DhApiBeforeDeferredRenderEvent::class.java, DeferredLodRenderGate())
+    fun registerFogMatch() {
         DhApi.events.bind(DhApiBeforeFogRenderEvent::class.java, LodFogMatch())
+    }
+
+    /**
+     * Cancelling DH's render events skips the LODs but not its vanilla fade, which then fades far chunks
+     * into an empty LOD buffer. The API override sets rendererMode DISABLED, which gates both, and is not saved.
+     */
+    fun updateRenderGate() {
+        val configs = DhApi.Delayed.configs ?: return
+        val enabled = configs.graphics().renderingEnabled()
+        if (suppressLods()) {
+            if (enabled.apiValue != false) enabled.setValue(false)
+        } else if (enabled.apiValue != null) {
+            enabled.clearValue()
+        }
     }
 
     private fun suppressLods(): Boolean {
@@ -34,18 +42,6 @@ internal object DhApiAccess {
         // Fog in these ends inside vanilla range, so LODs could only show as fog-coloured shapes.
         return dimension == WeheloPocket.LEVEL_KEY || dimension == YgannAbyss.LEVEL_KEY ||
             dimension == SselithRepertory.LEVEL_KEY || dimension == Wohlonnogondonia.LEVEL_KEY
-    }
-
-    private class LodRenderGate : DhApiBeforeRenderEvent() {
-        override fun beforeRender(event: DhApiCancelableEventParam<DhApiRenderParam>) {
-            if (suppressLods()) event.cancelEvent()
-        }
-    }
-
-    private class DeferredLodRenderGate : DhApiBeforeDeferredRenderEvent() {
-        override fun beforeRender(event: DhApiCancelableEventParam<DhApiRenderParam>) {
-            if (suppressLods()) event.cancelEvent()
-        }
     }
 
     private fun ourFogShapesLods(): Boolean {

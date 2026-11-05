@@ -119,6 +119,13 @@ data class LatticeCatchZone(
     /** Lattice redstone power as a fade for all that draws the ocean: 1 at power 0, 0 at power 15. */
     val strength: Float = 1f,
 ) {
+    fun contains(x: Double, y: Double, z: Double): Boolean {
+        val nx = localNx(x, z)
+        val ny = (y - cy) / ay
+        val nz = localNz(x, z)
+        return nx * nx + ny * ny + nz * nz <= 1.0
+    }
+
     /** Ship-local normalized X/Z of a world point (the ellipse's own frame). */
     fun localNx(x: Double, z: Double): Double =
         (yawCos * (x - cx) - yawSin * (z - cz)) / ax

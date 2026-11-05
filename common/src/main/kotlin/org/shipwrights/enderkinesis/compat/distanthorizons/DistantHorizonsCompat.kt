@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.compat.distanthorizons
 
+import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.platform.Platform
 
 object DistantHorizonsCompat {
@@ -23,6 +24,8 @@ object DistantHorizonsCompat {
     fun isLodGeneration(): Boolean = LOADED && DhApiAccess.isDhThread()
 
     fun initClient() {
-        if (LOADED) DhApiAccess.registerRenderGate()
+        if (!LOADED) return
+        DhApiAccess.registerFogMatch()
+        ClientTickEvent.CLIENT_POST.register { _ -> DhApiAccess.updateRenderGate() }
     }
 }

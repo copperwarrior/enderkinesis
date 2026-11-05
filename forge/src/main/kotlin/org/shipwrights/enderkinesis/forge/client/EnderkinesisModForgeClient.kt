@@ -88,6 +88,14 @@ class EnderkinesisModForgeClient {
                 org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel.LAYER_LOCATION,
                 org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel::createBodyLayer,
             )
+            event.registerLayerDefinition(
+                org.shipwrights.enderkinesis.client.model.KekhekhModel.LAYER_LOCATION,
+                org.shipwrights.enderkinesis.client.model.KekhekhModel::createBodyLayer,
+            )
+            event.registerLayerDefinition(
+                org.shipwrights.enderkinesis.client.model.MoskuoModel.LAYER_LOCATION,
+                org.shipwrights.enderkinesis.client.model.MoskuoModel::createBodyLayer,
+            )
             // Robe layers, baked by the common TightRobeArmorRenderer.
             event.registerLayerDefinition(TightRobeArmorModel.INNER_LAYER, TightRobeArmorModel::createInnerLayer)
             event.registerLayerDefinition(TightRobeArmorModel.OUTER_LAYER, TightRobeArmorModel::createOuterLayer)
@@ -164,6 +172,24 @@ class EnderkinesisModForgeClient {
                 ),
             ) { instance ->
                 org.shipwrights.enderkinesis.client.OwlSightPasses.shader = instance
+            }
+            event.registerShader(
+                net.minecraft.client.renderer.ShaderInstance(
+                    event.resourceProvider,
+                    ResourceLocation("enderkinesis", "strike_sketch"),
+                    DefaultVertexFormat.POSITION_TEX,
+                ),
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.StrikeSketch.shader = instance
+            }
+            event.registerShader(
+                net.minecraft.client.renderer.ShaderInstance(
+                    event.resourceProvider,
+                    ResourceLocation("enderkinesis", "strike_normals"),
+                    DefaultVertexFormat.NEW_ENTITY,
+                ),
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.StrikeSketchRenderTypes.normalsShader = instance
             }
         }
 

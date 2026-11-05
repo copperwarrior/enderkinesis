@@ -2,11 +2,14 @@ package org.shipwrights.enderkinesis.registry
 
 import dev.architectury.core.item.ArchitecturySpawnEggItem
 import dev.architectury.core.item.ArchitecturyBucketItem
+import dev.architectury.core.item.ArchitecturyMobBucketItem
 import dev.architectury.registry.registries.DeferredRegister
 import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
+import net.minecraft.sounds.SoundEvents
 import net.minecraft.tags.TagKey
 import net.minecraft.world.item.BlockItem
+import net.minecraft.world.food.FoodProperties
 import net.minecraft.world.item.DoubleHighBlockItem
 import net.minecraft.world.item.HangingSignItem
 import net.minecraft.world.item.PlaceOnWaterBlockItem
@@ -19,13 +22,16 @@ import net.minecraft.world.item.Items
 import net.minecraft.world.item.RecordItem
 import net.minecraft.world.item.Rarity
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.world.level.material.Fluids
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.AlmanacOfEverywhereItem
+import org.shipwrights.enderkinesis.item.BlessedRazorItem
 import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.CrownOfTheDarkStarItem
-import org.shipwrights.enderkinesis.item.GuideToStratusItem
+import org.shipwrights.enderkinesis.item.SilverpointItem
 import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
+import org.shipwrights.enderkinesis.item.ShellOfTidesItem
 import org.shipwrights.enderkinesis.item.UlderGemItem
 import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.item.UlderShardItem
@@ -39,6 +45,7 @@ import org.shipwrights.enderkinesis.item.ScalingRobeArmorItem
 import net.minecraft.world.item.ArmorItem
 import org.shipwrights.enderkinesis.item.ScrollOfSculkCatastropheItem
 import org.shipwrights.enderkinesis.item.ScrollOfUnravellingItem
+import org.shipwrights.enderkinesis.item.StrikeReadoutItem
 import org.shipwrights.enderkinesis.item.StaffOfAegisItem
 import org.shipwrights.enderkinesis.item.StaffOfCommandItem
 import org.shipwrights.enderkinesis.item.StaffOfConcealmentItem
@@ -156,6 +163,22 @@ object EKItems {
     val WEYYE_FRUIT: RegistrySupplier<Item> =
         ITEMS.register("weyye_fruit") { WeyyeFruitItem(props()) }
 
+    // Salmon food values.
+    val RAW_KEKHEKH: RegistrySupplier<Item> = ITEMS.register("raw_kekhekh") {
+        Item(props().food(FoodProperties.Builder().nutrition(2).saturationMod(0.1f).build()))
+    }
+    val COOKED_KEKHEKH: RegistrySupplier<Item> = ITEMS.register("cooked_kekhekh") {
+        Item(props().food(FoodProperties.Builder().nutrition(6).saturationMod(0.8f).build()))
+    }
+    val KEKHEKH_BUCKET: RegistrySupplier<Item> = ITEMS.register("kekhekh_bucket") {
+        ArchitecturyMobBucketItem(
+            EKEntities.KEKHEKH,
+            { Fluids.WATER },
+            { SoundEvents.BUCKET_EMPTY_FISH },
+            props().stacksTo(1),
+        )
+    }
+
     /** Java-callable accessor for [WEYYE_FRUIT.get()] — used by client
      *  and server code that compares stack items without bouncing
      *  through the Kotlin object's instance getter. */
@@ -176,10 +199,8 @@ object EKItems {
             WyllandTomeItem(props().durability(WyllandTomeItem.MAX_DURABILITY))
         }
 
-    /** Guide to Stratus — right-click a lattice to raise its sea level, left-click to lower it.
-     *  See [GuideToStratusItem] and [org.shipwrights.enderkinesis.item.GuideToStratus]. */
-    val GUIDE_TO_STRATUS: RegistrySupplier<Item> =
-        ITEMS.register("guide_to_stratus") { GuideToStratusItem(props().stacksTo(1)) }
+    val SHELL_OF_TIDES: RegistrySupplier<Item> =
+        ITEMS.register("shell_of_tides") { ShellOfTidesItem(props().stacksTo(1)) }
 
     /** Irreverent Remnant "spawn egg" — testing tool that drops a single
      *  blob of the pseudo-entity. Not a real SpawnEggItem (there's no
@@ -441,7 +462,13 @@ object EKItems {
         ITEMS.register("waybread") { WaybreadItem(props()) }
 
     val BLESSED_RAZOR: RegistrySupplier<Item> =
-        ITEMS.register("blessed_razor") { Item(props().stacksTo(1)) }
+        ITEMS.register("blessed_razor") { BlessedRazorItem(props().stacksTo(1)) }
+
+    val SILVERPOINT: RegistrySupplier<Item> =
+        ITEMS.register("silverpoint") { SilverpointItem(props().stacksTo(1)) }
+
+    val STRIKE_READOUT: RegistrySupplier<Item> =
+        ITEMS.register("strike_readout") { StrikeReadoutItem(props().stacksTo(1)) }
 
     val WEHELO_BLADE: RegistrySupplier<Item> = ITEMS.register("wehelo_blade") {
         org.shipwrights.enderkinesis.item.WeheloBladeItem(props())
@@ -717,6 +744,18 @@ object EKItems {
                 0x35484C,
                 props(),
             )
+        }
+
+    /** Dark teal body with blood-red spots, sampled from the Moskuo texture. */
+    val MOSKUO_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("moskuo_spawn_egg") {
+            ArchitecturySpawnEggItem(EKEntities.MOSKUO, 0x1B3239, 0x4A0000, props())
+        }
+
+    /** Rust-brown scales over blue spots, sampled from the Kekhekh texture. */
+    val KEKHEKH_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("kekhekh_spawn_egg") {
+            ArchitecturySpawnEggItem(EKEntities.KEKHEKH, 0x56260F, 0x347096, props())
         }
 
     /** Yellow-green halo and white-yellow core of the flame. */

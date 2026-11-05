@@ -1,0 +1,10 @@
+{
+  "parent": "item/generated",
+  "textures": { "layer0": "enderkinesis:item/shell_of_tides" },
+  "display": {
+    "thirdperson_righthand": { "rotation": [0, -125, -48.2], "translation": [-0.75, 1.26, 1.64], "scale": [0.375, 0.375, 0.375] },
+    "thirdperson_lefthand": { "rotation": [0, 55, 48.2], "translation": [-0.75, 1.26, 1.64], "scale": [0.375, 0.375, 0.375] },
+    "firstperson_righthand": { "rotation": [0, -55, -53.2], "translation": [-1.57, -3.89, -8.32], "scale": [0.75, 0.75, 0.75] },
+    "firstperson_lefthand": { "rotation": [0, 115, 53.2], "translation": [-0.42, -3.89, -8.41], "scale": [0.75, 0.75, 0.75] }
+  }
+}

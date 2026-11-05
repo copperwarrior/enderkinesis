@@ -158,6 +158,7 @@ object CrepusculiteLatticeMeshRenderer {
         val time: Double,
         val cameraX: Double, val cameraZ: Double,
         val wakeSources: List<WakeSource>,
+        val tideRings: List<TideRing>,
         val cloakFade: Float,
         val phantom: Boolean, val lodFadeIn: Boolean,
         val meshStep: Double, val outerRadius: Double, val innerCullRadius: Double,
@@ -173,6 +174,7 @@ object CrepusculiteLatticeMeshRenderer {
     private const val REBUILD_NANOS = 33_000_000L
 
     private const val FINE_MESH_STEP: Double = 0.75
+    private const val MIN_NORMAL_Y: Double = 1e-3
     private const val FINE_RADIUS_BLOCKS: Double = 48.0
 
     private const val COARSE_MESH_STEP: Double = 3.0
@@ -229,6 +231,7 @@ object CrepusculiteLatticeMeshRenderer {
     private const val PHANTOM_VIEW_FALLOFF_POWER: Float = 1.8f
 
     private val tmpNormal = Vector3d()
+    private val tmpRingSlope = DoubleArray(2)
     private val maskMatD = org.joml.Matrix4d()
     private val maskMatF = Matrix4f()
     private val surfaceModelView = Matrix4f()
@@ -264,6 +267,7 @@ object CrepusculiteLatticeMeshRenderer {
         }
 
         val wakeSources = collectWakeSources(level)
+        val tideRings = TideRings.snapshot(time)
         val now = System.nanoTime()
         var anyData = false
 
@@ -321,7 +325,7 @@ object CrepusculiteLatticeMeshRenderer {
                     pb.building = true
                     pb.lastBuildNanos = now
                     val job = BuildJob(
-                        zone, time, cameraX, cameraZ, wakeSources, cloakFade,
+                        zone, time, cameraX, cameraZ, wakeSources, tideRings, cloakFade,
                         phantom = phantom,
                         lodFadeIn = coarse,
                         meshStep = when {
@@ -361,7 +365,7 @@ object CrepusculiteLatticeMeshRenderer {
             val shoreMap = if (cloakFade > 0f) {
                 CrepusculiteLatticeShoreMap.mapFor(be.blockPos.asLong(), zone, time, frameCounter)
             } else null
-            if (shoreMap != null && CrepusculiteLatticeOceanVolume.beginHeightMap(zone, wakeSources.isNotEmpty())) {
+            if (shoreMap != null && CrepusculiteLatticeOceanVolume.beginHeightMap(zone, wakeSources.isNotEmpty() || tideRings.isNotEmpty())) {
                 // The top layer and the phantom layer: the higher of the two is the surface.
                 for (pb in surfacePasses) drawSurface(zone, pb)
                 VertexBuffer.unbind()
@@ -530,6 +534,7 @@ object CrepusculiteLatticeMeshRenderer {
         val cameraX = job.cameraX
         val cameraZ = job.cameraZ
         val wakeSources = job.wakeSources
+        val tideRings = job.tideRings
         val cloakFade = job.cloakFade
         val phantom = job.phantom
         val lodFadeIn = job.lodFadeIn
@@ -672,12 +677,22 @@ object CrepusculiteLatticeMeshRenderer {
                     x + xOff, z + zOff, layerTime, intensity, waveCount, tmpNormal, tmpSwell,
                 )
                 val wakeH = Wake.heightAt(x + xOff, z + zOff, layerTime, wakeSources)
-                val worldY = flatY + (h + wakeH) * taper
+                val ringH = TideRings.heightAt(x, z, time, tideRings)
+                val worldY = flatY + (h + wakeH + ringH) * taper
                 py[idx] = worldY
+                // The shader shades from the swell channel and the normal, so a ring must change both to show.
+                if (ringH != 0.0) {
+                    TideRings.slopeAt(x, z, time, tideRings, tmpRingSlope)
+                    val ny = max(tmpNormal.y, MIN_NORMAL_Y)
+                    val shade = TideRings.SHADE_SCALE * taper
+                    tmpNormal.set(
+                        tmpNormal.x / ny - tmpRingSlope[0] * shade, 1.0, tmpNormal.z / ny - tmpRingSlope[1] * shade,
+                    ).normalize()
+                }
 
                 // rendertype_lattice_ocean.fsh does the colour per pixel. Gerstner normals point up,
                 // so the shader gets y back from x and z.
-                nr[idx] = ((tmpSwell[0] + swellMax) * invTwoSwellMax).coerceIn(0.0, 1.0).toFloat()
+                nr[idx] = ((tmpSwell[0] + ringH * TideRings.SHADE_SCALE * taper + swellMax) * invTwoSwellMax).coerceIn(0.0, 1.0).toFloat()
                 ng[idx] = (tmpNormal.x * 0.5 + 0.5).toFloat()
                 nb[idx] = (tmpNormal.z * 0.5 + 0.5).toFloat()
                 na[idx] = (TOP_BASE_ALPHA * layerAlphaScale * cloakFade * lodFade * dyeDim).coerceIn(0f, 1f)

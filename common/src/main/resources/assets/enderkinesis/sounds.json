@@ -820,6 +820,59 @@
       }
     ]
   },
+  "item.shell_of_tides.blow_start": {
+    "category": "record",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.blow_start",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/blow_start"
+    ]
+  },
+  "item.shell_of_tides.blow_loop": {
+    "category": "record",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.blow_loop",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/blow_loop"
+    ]
+  },
+  "item.shell_of_tides.blow_stop": {
+    "category": "record",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.blow_stop",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/blow_stop"
+    ]
+  },
+  "item.shell_of_tides.unanswered": {
+    "category": "record",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.unanswered",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/unanswered"
+    ]
+  },
+  "item.shell_of_tides.surge": {
+    "category": "player",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.surge",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/surge1",
+      "enderkinesis:item/shell_of_tides/surge2",
+      "enderkinesis:item/shell_of_tides/surge3"
+    ]
+  },
+  "item.shell_of_tides.ebb": {
+    "category": "player",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.ebb",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/ebb1",
+      "enderkinesis:item/shell_of_tides/ebb2",
+      "enderkinesis:item/shell_of_tides/ebb3"
+    ]
+  },
+  "item.shell_of_tides.bind": {
+    "category": "player",
+    "subtitle": "subtitles.enderkinesis.item.shell_of_tides.bind",
+    "sounds": [
+      "enderkinesis:item/shell_of_tides/bind"
+    ]
+  },
   "item.rod_of_levitation.lift": {
     "category": "player",
     "subtitle": "subtitles.enderkinesis.item.rod_of_levitation.lift",
@@ -4880,6 +4933,32 @@
         "name": "enderkinesis:item/wehelo_blade/inert",
         "stream": false
       }
+    ]
+  },
+  "item.enderkinesis.silverpoint.sketch": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.silverpoint.sketch",
+    "sounds": [
+      "enderkinesis:item/silverpoint/sketch1",
+      "enderkinesis:item/silverpoint/sketch2",
+      "enderkinesis:item/silverpoint/sketch3"
+    ]
+  },
+  "item.enderkinesis.silverpoint.take": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.silverpoint.take",
+    "sounds": [
+      "enderkinesis:item/silverpoint/take1",
+      "enderkinesis:item/silverpoint/take2"
+    ]
+  },
+  "item.enderkinesis.silverpoint.note": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.silverpoint.note",
+    "sounds": [
+      "enderkinesis:item/silverpoint/note1",
+      "enderkinesis:item/silverpoint/note2",
+      "enderkinesis:item/silverpoint/note3"
     ]
   },
   "block.shulker_strut.open": {
@@ -11174,5 +11253,159 @@
         "stream": false
       }
     ]
+  },
+  "entity.shilleagk_deer.ambient": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/ambient1",
+        "weight": 3
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/ambient2",
+        "weight": 3
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/ambient3",
+        "weight": 1
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/ambient4",
+        "weight": 3
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.ambient"
+  },
+  "entity.shilleagk_deer.alarm": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/alarm1"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/alarm2"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.alarm"
+  },
+  "entity.shilleagk_deer.hurt": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/hurt2"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/hurt3"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.hurt"
+  },
+  "entity.shilleagk_deer.death": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/death"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.death"
+  },
+  "entity.shilleagk_deer.step": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/step1"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/step2"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/step3"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/step4"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.step"
+  },
+  "entity.shilleagk_deer.wade": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/wade1"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/wade2"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/wade3"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/wade4"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.wade"
+  },
+  "entity.shilleagk_deer.graze": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/graze1"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/graze2"
+      },
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/graze3"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.graze"
+  },
+  "entity.shilleagk_deer.fish": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/fish"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.fish"
+  },
+  "entity.shilleagk_deer.antler": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/antler"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.antler"
+  },
+  "entity.shilleagk_deer.bite": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/bite"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.bite"
+  },
+  "entity.shilleagk_deer.stamp": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/stamp"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.stamp"
+  },
+  "entity.shilleagk_deer.freaky": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/shilleagk_deer/freaky"
+      }
+    ],
+    "subtitle": "subtitles.entity.shilleagk_deer.freaky"
   }
 }

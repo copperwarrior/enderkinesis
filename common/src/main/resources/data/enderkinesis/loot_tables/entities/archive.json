@@ -72,7 +72,7 @@
         { "type": "minecraft:item", "name": "enderkinesis:music_disc_mystery" },
         { "type": "minecraft:item", "name": "enderkinesis:almanac_of_everywhere" },
         { "type": "minecraft:item", "name": "enderkinesis:wylland_tome" },
-        { "type": "minecraft:item", "name": "enderkinesis:guide_to_stratus" },
+        { "type": "minecraft:item", "name": "enderkinesis:shell_of_tides" },
         { "type": "minecraft:item", "name": "enderkinesis:tome_of_signal" },
         { "type": "minecraft:item", "name": "enderkinesis:tome_of_binding" },
         { "type": "minecraft:item", "name": "enderkinesis:tome_of_chaining" },

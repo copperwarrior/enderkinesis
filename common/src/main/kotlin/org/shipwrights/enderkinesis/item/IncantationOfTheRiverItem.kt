@@ -135,8 +135,8 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
         private const val ENTITY_PUSH_SPEED = 0.12
 
         /** N per kg of ship mass, at the hit point. */
-        private const val PUSH_FORCE_PER_MASS = 20.0
-        private const val PUSH_MIN_FORCE = 2_500.0
+        private const val PUSH_FORCE_PER_MASS = 5.0
+        private const val PUSH_MIN_FORCE = 625.0
 
         /** Pressure factor at the palm and at [RANGE]; it falls with the square of the distance between them. */
         private const val CLOSE_PRESSURE = 2.0

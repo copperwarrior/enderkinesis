@@ -7,6 +7,7 @@ import net.minecraft.client.model.geom.ModelPart
 import net.minecraft.core.Direction
 import org.joml.Vector3f
 import org.joml.Vector4f
+import org.shipwrights.enderkinesis.client.TrypoemiaRender
 import org.shipwrights.enderkinesis.mixin.ModelPartCubesAccessor
 
 /**
@@ -72,6 +73,7 @@ class FaceUvCube(
         pose: PoseStack.Pose, consumer: VertexConsumer, packedLight: Int, packedOverlay: Int,
         red: Float, green: Float, blue: Float, alpha: Float,
     ) {
+        TrypoemiaRender.beginCube(faces, pose.pose())
         val matrix = pose.pose()
         val normalMatrix = pose.normal()
         for (face in faces) {

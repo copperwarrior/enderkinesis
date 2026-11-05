@@ -8,12 +8,16 @@ import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.MobCategory
 import net.minecraft.world.entity.SpawnPlacements
+import net.minecraft.world.entity.animal.AbstractFish
+import net.minecraft.world.entity.animal.WaterAnimal
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
+import org.shipwrights.enderkinesis.entity.KekhekhEntity
+import org.shipwrights.enderkinesis.entity.MoskuoEntity
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
 import org.shipwrights.enderkinesis.entity.LodestarDartEntity
 import org.shipwrights.enderkinesis.entity.MiasmaEntity
@@ -238,6 +242,22 @@ object EKEntities {
                 .build(ShilleagkDeerEntity.ID_PATH)
         }
 
+    val KEKHEKH: RegistrySupplier<EntityType<KekhekhEntity>> =
+        ENTITIES.register(KekhekhEntity.ID_PATH) {
+            EntityType.Builder.of(::KekhekhEntity, MobCategory.WATER_AMBIENT)
+                .sized(KekhekhEntity.WIDTH, KekhekhEntity.HEIGHT)
+                .clientTrackingRange(4)
+                .build(KekhekhEntity.ID_PATH)
+        }
+
+    val MOSKUO: RegistrySupplier<EntityType<MoskuoEntity>> =
+        ENTITIES.register(MoskuoEntity.ID_PATH) {
+            EntityType.Builder.of(::MoskuoEntity, MobCategory.MONSTER)
+                .sized(MoskuoEntity.WIDTH, MoskuoEntity.HEIGHT)
+                .clientTrackingRange(8)
+                .build(MoskuoEntity.ID_PATH)
+        }
+
     val WILL_O_THE_WISP: RegistrySupplier<EntityType<WillOTheWispEntity>> =
         ENTITIES.register(WillOTheWispEntity.ID_PATH) {
             EntityType.Builder.of(::WillOTheWispEntity, MobCategory.AMBIENT)
@@ -279,6 +299,8 @@ object EKEntities {
         EntityAttributeRegistry.register(WOHLEM) { WohlemEntity.createAttributes() }
         EntityAttributeRegistry.register(SSELITH_MOTH) { SselithMothEntity.createAttributes() }
         EntityAttributeRegistry.register(SHILLEAGK_DEER) { ShilleagkDeerEntity.createAttributes() }
+        EntityAttributeRegistry.register(KEKHEKH) { AbstractFish.createAttributes() }
+        EntityAttributeRegistry.register(MOSKUO) { MoskuoEntity.createAttributes() }
         EntityAttributeRegistry.register(WILL_O_THE_WISP) { WillOTheWispEntity.createAttributes() }
         // Vanilla goat attributes verbatim — `PrismaticGoat`
         // extends `Goat` directly, so its base stats match.
@@ -318,7 +340,11 @@ object EKEntities {
         // passive mob can stand on."
         placeOnGround(PRISMATIC_GOAT, ::isWohlonAnimalGround)
         placeOnGround(SHILLEAGK_DEER, ::isWohlonAnimalGround)
+        place(KEKHEKH, SpawnPlacements.Type.IN_WATER) { _, level, spawnType, pos, random ->
+            WaterAnimal.checkSurfaceWaterAnimalSpawnRules(KEKHEKH.get(), level, spawnType, pos, random)
+        }
         place(WILL_O_THE_WISP, SpawnPlacements.Type.NO_RESTRICTIONS, WillOTheWispEntity::canSpawn)
+        place(MOSKUO, SpawnPlacements.Type.NO_RESTRICTIONS, MoskuoEntity::canSpawn)
     }
 
     @Suppress("UNUSED_PARAMETER") // Shape fixed by SpawnPlacements.SpawnPredicate.

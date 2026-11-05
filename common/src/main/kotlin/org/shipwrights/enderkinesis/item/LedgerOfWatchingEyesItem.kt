@@ -8,7 +8,7 @@ import net.minecraft.world.item.ItemStack
 
 /**
  * Ledger of Watching Eyes — slot-companion for the Eyeroscope. Same shape as the other
- * lectern-readable tomes ([AlmanacOfEverywhereItem], [GuideToStratusItem], [WyllandTomeItem]):
+ * lectern-readable tomes ([AlmanacOfEverywhereItem], [WyllandTomeItem]):
  * extends [TomeItem] so the empty-lectern-click placement and the
  * `LecternBlockEntityHasBookMixin` book-view path both work without extra wiring, and
  * provides a fresh transient [Items.WRITTEN_BOOK] via [writtenBook] each time the lectern

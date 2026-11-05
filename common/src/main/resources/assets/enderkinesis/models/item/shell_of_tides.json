@@ -1,0 +1,13 @@
+{
+  "parent": "item/generated",
+  "textures": { "layer0": "enderkinesis:item/shell_of_tides" },
+  "display": {
+    "thirdperson_righthand": { "rotation": [0, 180, -48.2], "translation": [0.48, 2.19, 1.0], "scale": [0.413, 0.413, 0.413] },
+    "thirdperson_lefthand": { "rotation": [0, 0, 48.2], "translation": [0.48, 2.19, 1.0], "scale": [0.413, 0.413, 0.413] },
+    "firstperson_righthand": { "rotation": [0, -90, -23.2], "translation": [1.13, 2.04, 1.01], "scale": [0.51, 0.51, 0.51] },
+    "firstperson_lefthand": { "rotation": [0, 90, 23.2], "translation": [1.13, 2.04, 1.01], "scale": [0.51, 0.51, 0.51] }
+  },
+  "overrides": [
+    { "predicate": { "tooting": 1 }, "model": "enderkinesis:item/tooting_shell_of_tides" }
+  ]
+}

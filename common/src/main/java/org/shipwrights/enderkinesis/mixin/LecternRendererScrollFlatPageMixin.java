@@ -32,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * vanilla's BookModel doesn't paint over it.
  *
  * <p>Limited to scrolls only — every other lectern book (Almanac, Wylland,
- * Stratus, vanilla written / writable) still falls through to vanilla.
+ * vanilla written / writable) still falls through to vanilla.
  */
 @Mixin(LecternRenderer.class)
 public class LecternRendererScrollFlatPageMixin {

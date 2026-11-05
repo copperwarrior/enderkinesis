@@ -102,35 +102,16 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     private var clientIntensityTick = 0L
 
     /**
-     * Nudge this lattice's sea level by [delta] blocks (the Guide to Stratus: right-click raises,
-     * left-click lowers). Mutates the captured [seaLevel] directly, so the adjustment is
-     * intentionally **transient** — deactivating the lattice (redstone 15) or a cross-dimension
-     * teleport nulls [seaLevel] and re-captures it at the lattice's current position, discarding
-     * the edit. Takes effect on the next [serverTick] (which re-pushes the level to the inducer).
-     * Returns the new sea level, or null if it isn't captured yet (lattice inactive / not on a
-     * ship), in which case nothing changes.
+     * Nudge this lattice's sea level by [delta] blocks (the Shell of Tides). The edit is
+     * intentionally transient: deactivation or a cross-dimension teleport re-captures [seaLevel].
+     * Returns the new sea level, or null if the lattice is inactive.
      */
     fun nudgeSeaLevel(delta: Double): Double? {
-        val next = (seaLevel ?: return null) + delta
+        val previous = seaLevel ?: return null
+        val next = previous + delta
         seaLevel = next
         markChangedAndSync()
-        val sound = if (delta > 0.0) {
-            EKSounds.CREPUSCULITE_LATTICE_SEA_LEVEL_UP
-        } else {
-            EKSounds.CREPUSCULITE_LATTICE_SEA_LEVEL_DOWN
-        }
-        (level as? ServerLevel)?.let {
-            it.playSound(null, blockPos, sound.get(), SoundSource.BLOCKS, 1f, seaLevelPitch(it, next))
-        }
         return next
-    }
-
-    /** One semitone for each block of sea level above or below the lattice. */
-    private fun seaLevelPitch(level: ServerLevel, seaLevel: Double): Float {
-        val here = Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5)
-        level.getLoadedShipManagingPos(blockPos)?.transform?.shipToWorld?.transformPosition(here)
-        val semitones = (seaLevel - here.y) * SEA_LEVEL_SEMITONES_PER_BLOCK
-        return Math.pow(2.0, semitones / SEMITONES_PER_OCTAVE).toFloat().coerceIn(SEA_LEVEL_PITCH_MIN, SEA_LEVEL_PITCH_MAX)
     }
 
     /** Set the wave/particle tint to the given packed RGB. Persisted in NBT and synced to
@@ -454,7 +435,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         inducer.authorityTickedAt = level.gameTime
 
         // Re-push the (possibly player-adjusted) sea level each tick; the inducer caches it from
-        // creation, so a Guide-to-Stratus nudge wouldn't otherwise reach the physics/particles.
+        // creation, so a Shell of Tides nudge wouldn't otherwise reach the physics/particles.
         inducer.waterLineY = waterLine
 
         // Analogue-redstone-controlled fluid density (0 → 1500, 15 → 0).
@@ -1174,11 +1155,6 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         private const val SPLASH_BAND_SAFETY = 2.0
         /** One splash sound for each lattice in this interval, for all the blocks that cross. */
         private const val SPLASH_SOUND_INTERVAL_TICKS = 10L
-        private const val SEA_LEVEL_SEMITONES_PER_BLOCK = 1.0
-        private const val SEMITONES_PER_OCTAVE = 12.0
-        /** The sound engine clamps pitch to this range. */
-        private const val SEA_LEVEL_PITCH_MIN = 0.5f
-        private const val SEA_LEVEL_PITCH_MAX = 2.0f
         private const val SPLASH_PITCH_MIN = 0.9f
         private const val SPLASH_PITCH_SPREAD = 0.2f
         /** Height above the surface (blocks) at which a caught entity is out of the ocean. */

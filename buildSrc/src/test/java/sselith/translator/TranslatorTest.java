@@ -166,6 +166,16 @@ class TranslatorTest {
     }
 
     @Test
+    void sketchTagsPassThroughUntranslated() throws IOException {
+        assumeModels();
+        String tag = "[sketch=minecraft:oak_stairs[facing=north] size=60 seed=3]";
+        String entity = "[sketch:entity=minecraft:sheep{CustomName:'\"%s book\"'}]";
+        String out = buildTranslator().translate("The book shows " + tag + "\n" + entity + " here.");
+        assertTrue(out.contains(tag), "Expected the block tag as written. Got: " + out);
+        assertTrue(out.contains(entity), "Expected the entity tag as written. Got: " + out);
+    }
+
+    @Test
     void escapedPercentAndPlaceholdersPreserved() throws IOException {
         assumeModels();
         String out = buildTranslator().translate("%s is %d%% complete");

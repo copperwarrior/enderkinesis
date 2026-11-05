@@ -67,6 +67,16 @@ class EnderkinesisModFabricClient : ClientModInitializer {
         ) {
             org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel.createBodyLayer()
         }
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.KekhekhModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.KekhekhModel.createBodyLayer()
+        }
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.MoskuoModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.MoskuoModel.createBodyLayer()
+        }
 
         // Heart of the Wild — block-entity model registered the same way.
         // Drawn by [HeartOfTheWildRenderer] (registered in the common
@@ -189,6 +199,18 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 DefaultVertexFormat.POSITION,
             ) { instance ->
                 org.shipwrights.enderkinesis.client.OwlSightPasses.shader = instance
+            }
+            ctx.register(
+                ResourceLocation("enderkinesis", "strike_sketch"),
+                DefaultVertexFormat.POSITION_TEX,
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.StrikeSketch.shader = instance
+            }
+            ctx.register(
+                ResourceLocation("enderkinesis", "strike_normals"),
+                DefaultVertexFormat.NEW_ENTITY,
+            ) { instance ->
+                org.shipwrights.enderkinesis.client.StrikeSketchRenderTypes.normalsShader = instance
             }
         }
 

@@ -5,7 +5,8 @@
   "plugin": "org.shipwrights.enderkinesis.fabric.mixin.EnderkinesisFabricMixinPlugin",
   "mixins": [
     "BoatIchaericInkMixin",
-    "MilkBucketItemMadnessMixin"
+    "MilkBucketItemMadnessMixin",
+    "EnchantmentHelperBlessedRazorMixin"
   ],
   "client": [],
   "injectors": {

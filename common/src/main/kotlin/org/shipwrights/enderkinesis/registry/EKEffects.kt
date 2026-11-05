@@ -30,6 +30,7 @@ import org.shipwrights.enderkinesis.effect.FrozenEffect
 import org.shipwrights.enderkinesis.effect.AbsentEffect
 import org.shipwrights.enderkinesis.effect.OwlsMarkEffect
 import org.shipwrights.enderkinesis.effect.SselithMadnessEffect
+import org.shipwrights.enderkinesis.effect.TrypoemiaEffect
 import org.shipwrights.enderkinesis.effect.YgannMadnessEffect
 
 /** Status effects added by Enderkinesis. */
@@ -67,6 +68,9 @@ object EKEffects {
 
     val OWLS_MARK: RegistrySupplier<MobEffect> =
         EFFECTS.register("owls_mark") { OwlsMarkEffect() }
+
+    val TRYPOEMIA: RegistrySupplier<MobEffect> =
+        EFFECTS.register("trypoemia") { TrypoemiaEffect() }
 
     val CRYSTALLIZED: RegistrySupplier<MobEffect> =
         EFFECTS.register("crystallized") { CrystallizedEffect() }

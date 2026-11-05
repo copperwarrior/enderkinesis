@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.sselith
 
+import org.shipwrights.enderkinesis.item.SketchTag
+
 /**
  * Splits a block of plain text into vanilla book pages.
  *
@@ -41,17 +43,20 @@ object BookPaginator {
      * an empty list.
      */
     fun paginate(text: String, charWidth: (Char) -> Int = ::serifCharWidth): List<String> {
-        val lines = ArrayList<String>()
-        for (rawLine in text.split('\n')) wrapLine(rawLine, lines, charWidth)
+        val lines = ArrayList<Line>()
+        for (rawLine in text.split('\n')) addLine(rawLine, lines, charWidth)
 
         val pages = ArrayList<String>()
         var i = 0
         while (i < lines.size && pages.size < MAX_PAGES) {
             // Never start a page with blank padding lines.
-            while (i < lines.size && lines[i].isBlank()) i++
+            while (i < lines.size && lines[i].text.isBlank()) i++
             val pageLines = ArrayList<String>(LINES_PER_PAGE)
-            while (i < lines.size && pageLines.size < LINES_PER_PAGE) {
-                pageLines.add(lines[i]); i++
+            var used = 0
+            while (i < lines.size) {
+                val line = lines[i]
+                if (used > 0 && used + line.height > LINES_PER_PAGE) break
+                pageLines.add(line.text); used += line.height; i++
             }
             // Trim trailing blank lines so the page ends cleanly.
             while (pageLines.isNotEmpty() && pageLines.last().isBlank()) {
@@ -85,10 +90,30 @@ object BookPaginator {
         }
     }
 
+    /** A page line; a sketch tag stands alone on its line and fills [height] lines. */
+    private class Line(val text: String, val height: Int = 1)
+
+    private fun addLine(raw: String, out: MutableList<Line>, charWidth: (Char) -> Int) {
+        val tags = if (SketchTag.mayContain(raw)) SketchTag.findAll(raw).filter { it.spec != null } else emptyList()
+        if (tags.isEmpty()) {
+            wrapLine(raw, out, charWidth)
+            return
+        }
+        var at = 0
+        for (tag in tags) {
+            val before = raw.substring(at, tag.start)
+            if (before.isNotBlank()) wrapLine(before.trim(), out, charWidth)
+            out.add(Line(raw.substring(tag.start, tag.end), checkNotNull(tag.spec).lines))
+            at = tag.end
+        }
+        val after = raw.substring(at)
+        if (after.isNotBlank()) wrapLine(after.trim(), out, charWidth)
+    }
+
     /** Greedy word-wrap of one source line into [out]. A blank source
      *  line is preserved as one blank line (paragraph spacing). */
-    private fun wrapLine(line: String, out: MutableList<String>, charWidth: (Char) -> Int) {
-        if (line.isBlank()) { out.add(""); return }
+    private fun wrapLine(line: String, out: MutableList<Line>, charWidth: (Char) -> Int) {
+        if (line.isBlank()) { out.add(Line("")); return }
         val current = StringBuilder()
         var currentWidth = 0
         // Each token after the first has one space before it, so an empty token is a repeated space.
@@ -101,7 +126,7 @@ object BookPaginator {
                 if (currentWidth + spaces * SPACE_WIDTH + wWidth > PAGE_WIDTH) {
                     // The spaces fill the rest of this line and one space is the break. The others go to the next line.
                     val onNextLine = spaces - (PAGE_WIDTH - currentWidth) / SPACE_WIDTH - 1
-                    out.add(current.toString())
+                    out.add(Line(current.toString()))
                     current.setLength(0); currentWidth = 0
                     spaces = onNextLine.coerceIn(0, (PAGE_WIDTH - wWidth) / SPACE_WIDTH)
                 }
@@ -111,7 +136,7 @@ object BookPaginator {
                 spaces = 0
             }
         }
-        if (current.isNotEmpty()) out.add(current.toString())
+        if (current.isNotEmpty()) out.add(Line(current.toString()))
     }
 
     /** [word], or its parts when it is wider than a line. A part ends after a hyphen where possible. */

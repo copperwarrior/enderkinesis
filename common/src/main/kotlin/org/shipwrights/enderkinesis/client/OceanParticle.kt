@@ -36,7 +36,11 @@ class OceanParticle(
     vz: Double,
 ) : TextureSheetParticle(level, x, y, z) {
 
-    enum class Mode { SURFACE, DEEP, SPLASH, FOAM_CREST }
+    enum class Mode { SURFACE, DEEP, SPLASH, FOAM_CREST, TIDE_MOTE }
+
+    /** TIDE_MOTE vertical acceleration, from the spray's own climb so motes rise or sink with the sea. */
+    private var tideLift = 0.0
+    private var tideFoam = false
 
     private val baseX = x
     private val baseY = y
@@ -105,6 +109,18 @@ class OceanParticle(
             // Subtract the wave height at spawn → recover `waterLineY`.
             val spawnTime = level.gameTime.toDouble()
             waterLineY = y - GerstnerOcean.heightAt(x, z, spawnTime, SPLASH_WAVE_INTENSITY)
+        } else if (mode == Mode.TIDE_MOTE) {
+            hasPhysics = false
+            gravity = 0.0f
+            friction = TIDE_FRICTION
+            lifetime = 24 + this.random.nextInt(16)
+            quadSize *= 0.5f + this.random.nextFloat() * 0.4f
+            xd = vx; yd = vy; zd = vz
+            val speed = Math.sqrt(vx * vx + vy * vy + vz * vz)
+            tideLift = if (speed > 0.0) TIDE_LIFT * vy / speed else 0.0
+            tideFoam = this.random.nextFloat() < TIDE_FOAM_SHARE
+            alpha = strength
+            this.xo = x; this.yo = y; this.zo = z
         } else if (mode == Mode.FOAM_CREST) {
             // Crest foam highlight: small, foam-green from the moment it appears, slight
             // tangential drift (the velocity the server sent — typically the wave's tangent
@@ -150,8 +166,19 @@ class OceanParticle(
         when (mode) {
             Mode.SPLASH -> tickSplash()
             Mode.FOAM_CREST -> tickFoamCrest()
+            Mode.TIDE_MOTE -> tickTideMote()
             else -> tickWave()
         }
+    }
+
+    private fun tickTideMote() {
+        move(xd, yd, zd)
+        val f = friction.toDouble()
+        xd *= f; zd *= f
+        yd = yd * f + tideLift
+        if (tideFoam) setColor(FOAM_R, FOAM_G, FOAM_B) else setColor(tintR, tintG, tintB)
+        val fadeOut = (lifetime - age).toFloat() / (lifetime * 0.5f).coerceAtLeast(1f)
+        alpha = min(1.0f, fadeOut) * strength
     }
 
     /** Foam-crest tick: drift along the velocity it was given (typically the wave's tangent
@@ -293,6 +320,11 @@ class OceanParticle(
 
         // Bright spray foam.
         private const val SPLASH_R = 0.62f; private const val SPLASH_G = 1.00f; private const val SPLASH_B = 0.78f
+
+        private const val TIDE_FRICTION = 0.94f
+        /** Blocks/tick² at a straight-up or straight-down spray. */
+        private const val TIDE_LIFT = 0.02
+        private const val TIDE_FOAM_SHARE = 0.7f
 
         /** Splash keeps this fraction of downward speed when it hits a surface. */
         private const val SPLASH_BOUNCE = 0.4

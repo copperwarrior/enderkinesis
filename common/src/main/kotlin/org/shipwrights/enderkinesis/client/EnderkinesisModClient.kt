@@ -65,6 +65,8 @@ object EnderkinesisModClient {
         EntityRendererRegistry.register(EKEntities.SHILLEAGK_DEER) { ctx ->
             ShilleagkDeerRenderer(ctx)
         }
+        EntityRendererRegistry.register(EKEntities.KEKHEKH) { ctx -> KekhekhRenderer(ctx) }
+        EntityRendererRegistry.register(EKEntities.MOSKUO) { ctx -> MoskuoRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.WILL_O_THE_WISP) { ctx -> WillOTheWispRenderer(ctx) }
 
         // Archive — paper / book whirlwind. Renderer draws orbiting item models
@@ -169,6 +171,8 @@ object EnderkinesisModClient {
         // Wand of Ga'Mylan cage S2C receivers (added / removed / hp).
         org.shipwrights.enderkinesis.client.GamylanCageNetworkClient.init()
         SpellNetworkClient.init()
+        FramedSketches.init()
+        SilverpointView.init()
         org.shipwrights.enderkinesis.item.UlderScrollItem.clientUsed = { player, use, hand ->
             SpellHand.startUse(player, SpellHand.Use.valueOf(use.name), hand)
             SpellArmPoses.started(player, SpellHand.Use.valueOf(use.name), hand)
@@ -585,6 +589,7 @@ object EnderkinesisModClient {
         // Scrying-orb vignette shader: radial gradient with fBm-noise-perturbed edge,
         // POSITION-only full-screen quad. Same registration pattern as Ygann's.
         ScryingRenderTypes.init()
+        TrypoemiaRender.init()
         StaffGemGlow.init()
         CrepusculiteLatticeMeshRenderer.init()
 
@@ -612,6 +617,7 @@ object EnderkinesisModClient {
         SselithParallelClient.init()
         ScribesDeskClient.init()
         SatchelOfShelvingClient.init()
+        HornClient.init()
         // Staff of Scales — drag-to-set ship transform scale.
         ScalesClient.init()
         FusionClient.init()
@@ -801,6 +807,9 @@ object EnderkinesisModClient {
         registrar.register(EKParticles.foamCrest()) { sprites ->
             OceanParticle.Provider(sprites, OceanParticle.Mode.FOAM_CREST)
         }
+        registrar.register(EKParticles.tideMote()) { sprites ->
+            OceanParticle.Provider(sprites, OceanParticle.Mode.TIDE_MOTE)
+        }
 
         // Planar Anchor portal disc: ender-green recolour of vanilla `PORTAL`, same motion math.
         registrar.register(EKParticles.planarSpiral()) { sprites ->
@@ -857,6 +866,7 @@ object EnderkinesisModClient {
         registrar.register(EKParticles.riverFoam()) { sprites ->
             RiverSprayParticle.Provider(sprites, RiverSprayParticle.Mode.FOAM)
         }
+        registrar.register(EKParticles.waterRipple()) { sprites -> WaterRippleParticle.Provider(sprites) }
         registrar.register(EKParticles.eideticMote()) { sprites ->
             WindDustParticle.Provider(sprites, WindDustParticle.Mode.EIDETIC)
         }

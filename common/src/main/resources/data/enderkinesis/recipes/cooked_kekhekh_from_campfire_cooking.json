@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:campfire_cooking",
+  "category": "food",
+  "cookingtime": 600,
+  "experience": 0.35,
+  "ingredient": {
+    "item": "enderkinesis:raw_kekhekh"
+  },
+  "result": "enderkinesis:cooked_kekhekh"
+}

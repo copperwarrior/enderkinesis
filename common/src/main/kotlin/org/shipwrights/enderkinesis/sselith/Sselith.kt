@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import org.shipwrights.enderkinesis.item.SketchTag
 
 /**
  * Runtime Sselith translator — the "lite" counterpart to the build-time `sselith.translator`
@@ -58,18 +59,21 @@ object Sselith {
 
     private data class FormatSlot(val marker: String, val original: String)
 
+    // Sketch tags hold block ids and NBT that must reach the page as written. Keep in step with Translator.java.
     private fun stripFormatTokens(text: String): Pair<String, List<FormatSlot>> {
-        val matches = FORMAT.findAll(text).toList()
-        if (matches.isEmpty()) return text to emptyList()
+        val sketches = SketchTag.spans(text)
+        val ranges = (sketches + FORMAT.findAll(text).map { it.range }
+            .filter { f -> sketches.none { f.first in it } }).sortedBy { it.first }
+        if (ranges.isEmpty()) return text to emptyList()
         val slots = mutableListOf<FormatSlot>()
         val sb = StringBuilder()
         var last = 0
-        for ((i, m) in matches.withIndex()) {
-            sb.append(text, last, m.range.first)
+        for ((i, range) in ranges.withIndex()) {
+            sb.append(text, last, range.first)
             val marker = "qzfmt${encodeMarkerIndex(i)}qz"
             sb.append(marker)
-            slots.add(FormatSlot(marker, m.value))
-            last = m.range.last + 1
+            slots.add(FormatSlot(marker, text.substring(range)))
+            last = range.last + 1
         }
         sb.append(text, last, text.length)
         return sb.toString() to slots
