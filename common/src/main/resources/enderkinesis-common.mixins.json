@@ -10,7 +10,6 @@
     "LivingEntityRendererTrypoemiaMixin",
     "PlayerRendererTrypoemiaHandMixin",
     "LivingEntityRendererDarkStarCrownMixin",
-    "FluidOcclusionOverflowUnitMixin",
     "ModelBakeryGuardianSpikeMixin",
     "HttpTextureAccessor",
     "ClientAdvancementsProgressAccessor",
