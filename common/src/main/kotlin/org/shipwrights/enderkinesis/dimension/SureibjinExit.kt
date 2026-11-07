@@ -6,6 +6,7 @@ import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.stats.Stats
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.LivingEntity
@@ -45,9 +46,11 @@ object SureibjinExit {
                 EventResult.pass()
             }
         }
-        // Health set to zero with no `die` call.
+        // Health set to zero with no `die` call. A player whose `die` ran is left to the respawn restore.
         TickEvent.PLAYER_POST.register { player ->
-            if (player is ServerPlayer && player.isDeadOrDying && player.level().dimension() == Sureibjin.LEVEL_KEY) {
+            if (player is ServerPlayer && player.isDeadOrDying && !diedSinceLastAliveTick(player) &&
+                player.level().dimension() == Sureibjin.LEVEL_KEY
+            ) {
                 wakeUp(player)
             }
         }
@@ -61,6 +64,10 @@ object SureibjinExit {
             if (player.level().dimension() != Sureibjin.LEVEL_KEY) restoreIfDreaming(player)
         }
     }
+
+    // `ServerPlayer.die` does not set `dead`. It resets this stat, and `Player.tick` adds to it only when alive.
+    private fun diedSinceLastAliveTick(player: ServerPlayer): Boolean =
+        player.stats.getValue(Stats.CUSTOM.get(Stats.TIME_SINCE_DEATH)) == 0
 
     // [wakeUp] removes the snapshot before its teleport, so this acts only on an exit that it did not start.
     private fun restoreIfDreaming(player: ServerPlayer) {
