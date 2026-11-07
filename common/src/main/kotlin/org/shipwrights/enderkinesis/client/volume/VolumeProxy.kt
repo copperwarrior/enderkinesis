@@ -19,6 +19,11 @@ object VolumeProxy {
 
     fun begin(main: RenderTarget, blend: VolumeComposite.Blend = VolumeComposite.Blend.ALPHA) {
         VolumeComposite.bindOverMain(main, blend)
+        beginBound()
+    }
+
+    /** Like [begin], for a target and blend that the caller bound. End the run with [endBound]. */
+    fun beginBound() {
         // The cube faces wind inward, so back-face culling keeps only the far faces.
         RenderSystem.enableCull()
         (cube ?: buildCube().also { cube = it }).bind()
@@ -39,9 +44,14 @@ object VolumeProxy {
     }
 
     fun end(main: RenderTarget, effect: EffectInstance) {
+        endBound(effect)
+        VolumeComposite.restore(main)
+    }
+
+    /** Ends a [beginBound] run. The caller restores its target and state. */
+    fun endBound(effect: EffectInstance) {
         effect.clear()
         VertexBuffer.unbind()
-        VolumeComposite.restore(main)
     }
 
     private fun buildCube(): VertexBuffer {

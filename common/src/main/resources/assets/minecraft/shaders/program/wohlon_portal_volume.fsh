@@ -66,6 +66,9 @@ void main() {
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec3 emitted = vec3(0.0);
     float veil = 0.0;
+    // (cos, sin) of Spin and 0.7 Spin; each step turns them by theta with angle addition.
+    vec2 spinA = vec2(cos(Spin), sin(Spin));
+    vec2 spinB = vec2(cos(Spin * 0.7), sin(Spin * 0.7));
     ivec2 steps = sphereSteps(dir, t0, dt, jitter);
     for (int i = steps.x; i < steps.y; i++) {
         vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
@@ -75,9 +78,13 @@ void main() {
         float core = exp(-rn * rn / (CORE_WIDTH * CORE_WIDTH));
         float shell = exp(-(rn - 0.55) * (rn - 0.55) / 0.06) * (1.0 - rn);
         // Broad, low-contrast patches: the aura brightens and dims in places as they turn.
-        float theta = atan(p.z, p.x + 1.0e-6);
-        float patches = 0.8 + 0.2 * cos(2.0 * theta + Spin + p.y * 1.5) * cos(theta - Spin * 0.7);
-        vec3 colour = mix(TEAL, LIGHT_BLUE, 0.5 + 0.5 * cos(theta + Spin));
+        // (cos, sin) of theta = atan(p.z, p.x + 1e-6), and of 2 theta.
+        vec2 q = vec2(p.x + 1.0e-6, p.z);
+        vec2 th = q * inversesqrt(max(dot(q, q), 1.0e-24));
+        vec2 th2 = vec2(th.x * th.x - th.y * th.y, 2.0 * th.x * th.y);
+        float psi = Spin + p.y * 1.5;
+        float patches = 0.8 + 0.2 * (th2.x * cos(psi) - th2.y * sin(psi)) * (th.x * spinB.x + th.y * spinB.y);
+        vec3 colour = mix(TEAL, LIGHT_BLUE, 0.5 + 0.5 * (th.x * spinA.x - th.y * spinA.y));
         vec3 light = mix(LIGHT_BLUE, CYAN, 0.3) * core * CORE_EMISSION + colour * shell * patches * AURA_EMISSION;
         emitted += light * dt;
         veil += shell * dt;

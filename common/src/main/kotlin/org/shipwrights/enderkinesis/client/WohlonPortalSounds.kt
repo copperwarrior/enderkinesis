@@ -13,6 +13,7 @@ import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.block.WohlonPortalNetwork
 import org.shipwrights.enderkinesis.registry.EKSounds
+import java.util.function.Consumer
 
 object WohlonPortalSounds {
 
@@ -129,13 +130,28 @@ object WohlonPortalSounds {
 
     /** Each portal of the last syncs, with true for the Mother portal. Client thread only. */
     fun forEachPortal(now: Long, action: PortalAction) {
-        for (source in portals.values) {
-            if (!isStale(source, now)) action.accept(source.pos, source.event === EKSounds.WOHLON_MOTHER_PORTAL_LOOP)
-        }
+        portalVisitor.now = now
+        portalVisitor.action = action
+        // fastutil's values().forEach walks the table with no iterator: this runs each frame.
+        portals.values.forEach(portalVisitor)
+        portalVisitor.action = null
     }
 
     fun interface PortalAction {
         fun accept(pos: BlockPos, mother: Boolean)
+    }
+
+    private val portalVisitor = PortalVisitor()
+
+    private class PortalVisitor : Consumer<Source> {
+        var now = 0L
+        var action: PortalAction? = null
+
+        override fun accept(source: Source) {
+            if (!isStale(source, now)) {
+                checkNotNull(action).accept(source.pos, source.event === EKSounds.WOHLON_MOTHER_PORTAL_LOOP)
+            }
+        }
     }
 
     private fun isStale(source: Source, now: Long): Boolean = now - source.seenTick > STALE_TICKS

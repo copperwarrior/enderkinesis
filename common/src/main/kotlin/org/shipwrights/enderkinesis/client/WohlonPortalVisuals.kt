@@ -6,6 +6,8 @@ import com.mojang.blaze3d.shaders.Uniform
 import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
 import dev.architectury.event.events.client.ClientTickEvent
+import it.unimi.dsi.fastutil.longs.Long2FloatOpenHashMap
+import java.util.function.IntSupplier
 import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
@@ -13,13 +15,17 @@ import net.minecraft.client.renderer.EffectInstance
 import net.minecraft.core.BlockPos
 import net.minecraft.util.Mth
 import org.joml.Matrix4f
+import org.lwjgl.opengl.GL11
+import org.lwjgl.opengl.GL30
 import org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager
+import org.shipwrights.enderkinesis.client.volume.HalfResTarget
+import org.shipwrights.enderkinesis.client.volume.ScreenBounds
 import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 
-/** Client-side portal visuals at each synced Wohlon portal: slow drifting motes, a soft glow, and fog tentacles. */
+/** Client-side portal visuals at each synced Wohlon portal: slow drifting motes, a mote beam from a near player, a soft glow, and fog tentacles. */
 object WohlonPortalVisuals {
 
     // Motes for each portal per tick, as a chance: 0.6 is about 12 a second.
@@ -49,6 +55,24 @@ object WohlonPortalVisuals {
     private const val FOG_LIFT = 1.25f
     private const val TIME_PERIOD_SEC = 4000.0
 
+    // Tentacle lean toward the local player, in blocks for a portal of scale 1: none at START, all at FULL.
+    private const val LEAN_START = 5.0
+    private const val LEAN_FULL = 1.5
+    private const val LEAN_RISE_PER_SEC = 1f / 1.5f
+    private const val LEAN_FALL_PER_SEC = 1f / 2.5f
+    // The longest frame gap the easing counts, so a pause does not jump the lean.
+    private const val LEAN_MAX_STEP_SEC = 0.1f
+    private const val CHEST_SHARE = 0.6
+
+    // Beam motes from the local player's chest into the Heart, scaled by the same eased lean as the tentacles.
+    private const val BEAM_CHANCE = 0.6
+    private const val BEAM_SPEED = 2.5
+    private const val BEAM_MIN_LIFE = 12
+    private const val BEAM_MAX_LIFE = 50
+    private const val BEAM_JITTER = 0.15
+    private const val BEAM_BOW = 0.25
+    private const val BEAM_STOP_SHORT = 0.35
+
     private val COLOURS = arrayOf(
         floatArrayOf(0.50f, 0.80f, 1.00f),
         floatArrayOf(0.10f, 0.70f, 0.70f),
@@ -58,6 +82,10 @@ object WohlonPortalVisuals {
     private val view = VolumeView()
     private val effect = VolumeEffect("wohlon_portal_volume")
     private val fogEffect = VolumeEffect("wohlon_portal_fog")
+    private val fogHalf = HalfResTarget(GL30.GL_RGBA16F, GL11.GL_RGBA)
+    private val fogUpsample = VolumeEffect("wohlon_portal_fog_upsample", "HalfSampler" to IntSupplier { fogHalf.textureId })
+    private val pushUpsampleUniforms: (EffectInstance) -> Unit = ::pushUpsample
+    private val fogBounds = ScreenBounds()
     private var uniforms: Uniforms? = null
     private var fogUniforms: FogUniforms? = null
     private val localToView = Matrix4f()
@@ -68,17 +96,28 @@ object WohlonPortalVisuals {
     private val drawZ = DoubleArray(MAX_VOLUMES)
     private val drawScale = FloatArray(MAX_VOLUMES)
     private val drawFade = FloatArray(MAX_VOLUMES)
+    private val drawKey = LongArray(MAX_VOLUMES)
+    private val drawLean = FloatArray(MAX_VOLUMES)
+    private val drawTargetX = FloatArray(MAX_VOLUMES)
+    private val drawTargetY = FloatArray(MAX_VOLUMES)
+    private val drawTargetZ = FloatArray(MAX_VOLUMES)
+    // Eased lean for each portal, by packed position. Render thread only.
+    private val leans = Long2FloatOpenHashMap()
+    private var leanLevel: ClientLevel? = null
+    private var lastFrameNanos = 0L
     private var drawCount = 0
     private var tickLevel: ClientLevel? = null
     private var playerX = 0.0
     private var playerY = 0.0
     private var playerZ = 0.0
+    private var playerChestY = 0.0
 
     private val collect = WohlonPortalSounds.PortalAction { pos, mother ->
         if (drawCount < MAX_VOLUMES) {
             drawX[drawCount] = pos.x + 0.5
             drawY[drawCount] = pos.y + 0.5
             drawZ[drawCount] = pos.z + 0.5
+            drawKey[drawCount] = pos.asLong()
             drawScale[drawCount] = if (mother) WohlonnogondoniaPortalManager.MOTHER_VISUAL_SCALE.toFloat() else 1f
             drawCount++
         }
@@ -87,7 +126,10 @@ object WohlonPortalVisuals {
     private val spawnAt = WohlonPortalSounds.PortalAction { pos, mother ->
         val level = tickLevel ?: return@PortalAction
         if (pos.distToCenterSqr(playerX, playerY, playerZ) > PARTICLE_RANGE * PARTICLE_RANGE) return@PortalAction
-        spawnMotes(level, pos, if (mother) WohlonnogondoniaPortalManager.MOTHER_VISUAL_SCALE else 1.0)
+        val scale = if (mother) WohlonnogondoniaPortalManager.MOTHER_VISUAL_SCALE else 1.0
+        spawnMotes(level, pos, scale)
+        val lean = leans.get(pos.asLong())
+        if (lean > 0f) spawnBeam(level, pos, scale, lean)
     }
 
     fun init() {
@@ -100,6 +142,7 @@ object WohlonPortalVisuals {
         playerX = player.x
         playerY = player.y
         playerZ = player.z
+        playerChestY = player.y + player.bbHeight * CHEST_SHARE
         WohlonPortalSounds.forEachPortal(level.gameTime, spawnAt)
         tickLevel = null
     }
@@ -135,6 +178,39 @@ object WohlonPortalVisuals {
         }
     }
 
+    private fun spawnBeam(level: ClientLevel, pos: BlockPos, scale: Double, lean: Float) {
+        val random = level.random
+        if (random.nextDouble() >= BEAM_CHANCE * lean) return
+        val sx = playerX + (random.nextDouble() * 2.0 - 1.0) * BEAM_JITTER
+        val sy = playerChestY + (random.nextDouble() * 2.0 - 1.0) * BEAM_JITTER
+        val sz = playerZ + (random.nextDouble() * 2.0 - 1.0) * BEAM_JITTER
+        val cx = pos.x + 0.5
+        val cy = pos.y + 0.5
+        val cz = pos.z + 0.5
+        val dx = sx - cx
+        val dy = sy - cy
+        val dz = sz - cz
+        val dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        val stop = BEAM_STOP_SHORT * scale
+        if (dist <= stop) return
+        val ex = cx + dx / dist * stop
+        val ey = cy + dy / dist * stop
+        val ez = cz + dz / dist * stop
+        // A sideways bow, so the stream sways a little and is not a ruler line.
+        val flat = Math.sqrt(dx * dx + dz * dz).coerceAtLeast(1.0e-3)
+        val bow = (random.nextDouble() * 2.0 - 1.0) * BEAM_BOW * scale
+        val bx = -dz / flat * bow
+        val bz = dx / flat * bow
+        val life = Mth.clamp(((dist - stop) / BEAM_SPEED * 20.0).toInt(), BEAM_MIN_LIFE, BEAM_MAX_LIFE)
+        val size = (0.035 * Math.sqrt(scale)).toFloat() * (0.8f + random.nextFloat() * 0.4f)
+        WohlonMoteParticle.spawn(level, { t, out ->
+            // Leaves the player fast and settles at the Heart, like the gathering motes.
+            val k = t * (2.0 - t)
+            val b = Math.sin(t * Math.PI)
+            out.set(sx + (ex - sx) * k + bx * b, sy + (ey - sy) * k, sz + (ez - sz) * k + bz * b)
+        }, life, COLOURS[random.nextInt(COLOURS.size)], size)
+    }
+
     // Called with the other world-space volumes, before the fog passes.
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
@@ -155,18 +231,70 @@ object WohlonPortalVisuals {
             drawFade[i] = 1f - Mth.clamp(((dist - VOLUME_FADE_NEAR) / (VOLUME_FADE_FAR - VOLUME_FADE_NEAR)).toFloat(), 0f, 1f)
             if (drawFade[i] > 0f) visible++
         }
+        val now = System.nanoTime()
+        updateLeans(level, now)
         if (visible == 0) return
-        val tSec = System.nanoTime() * 1e-9
+        val tSec = now * 1e-9
         // The fog goes first, so the glow shows through it.
         renderFog(main, tSec)
         renderGlow(main, tSec)
     }
 
+    /** Eases each drawn portal's lean toward the local player's distance and sets the chest target in portal space. */
+    private fun updateLeans(level: ClientLevel, now: Long) {
+        if (leanLevel !== level) {
+            leans.clear()
+            leanLevel = level
+        }
+        val step = if (lastFrameNanos == 0L) 0f else ((now - lastFrameNanos) * 1e-9).toFloat().coerceIn(0f, LEAN_MAX_STEP_SEC)
+        lastFrameNanos = now
+        val player = Minecraft.getInstance().player
+        val pt = Minecraft.getInstance().frameTime
+        for (i in 0 until drawCount) {
+            var goal = 0f
+            if (player != null) {
+                val tx = Mth.lerp(pt.toDouble(), player.xo, player.x) - drawX[i]
+                val ty = Mth.lerp(pt.toDouble(), player.yo, player.y) + player.bbHeight * CHEST_SHARE - drawY[i]
+                val tz = Mth.lerp(pt.toDouble(), player.zo, player.z) - drawZ[i]
+                drawTargetX[i] = tx.toFloat()
+                drawTargetY[i] = ty.toFloat()
+                drawTargetZ[i] = tz.toFloat()
+                val scale = drawScale[i]
+                val dist = Math.sqrt(tx * tx + ty * ty + tz * tz)
+                val k = Mth.clamp(((LEAN_START * scale - dist) / ((LEAN_START - LEAN_FULL) * scale)).toFloat(), 0f, 1f)
+                goal = k * k * (3f - 2f * k)
+            }
+            val key = drawKey[i]
+            val current = leans.get(key)
+            val eased = if (goal > current) minOf(goal, current + LEAN_RISE_PER_SEC * step)
+                else maxOf(goal, current - LEAN_FALL_PER_SEC * step)
+            if (eased <= 0f) leans.remove(key) else leans.put(key, eased)
+            drawLean[i] = eased
+        }
+    }
+
+    /** Marches the tentacles at half resolution, then a depth-aware upsample puts them on main. */
     private fun renderFog(main: RenderTarget, tSec: Double) {
         val eff = fogEffect.get() ?: return
+        val upsample = fogUpsample.get() ?: return
+        fogBounds.reset()
+        for (i in 0 until drawCount) {
+            if (drawFade[i] <= 0f) continue
+            val reach = FOG_REACH * drawScale[i]
+            val sx = (drawX[i] - view.camX).toFloat()
+            val sy = (drawY[i] - view.camY).toFloat()
+            val sz = (drawZ[i] - view.camZ).toFloat()
+            fogBounds.addBox(view, sx - reach, sy - reach, sz - reach, sx + reach, sy + reach, sz + reach)
+        }
+        if (fogBounds.isEmpty) return
         val u = fogUniforms ?: FogUniforms(eff).also { fogUniforms = it }
+        fogHalf.bind(main)
+        // One texel of margin: the upsample reads the neighbours of each texel under the boxes.
+        fogBounds.applyScissor(fogHalf.width, fogHalf.height, 1)
+        fogHalf.clear()
+        VolumeComposite.bindPremultipliedLayer()
         val phase = tSec % (2.0 * TIME_PERIOD_SEC)
-        u.pushFrame(main.width, main.height, RenderSystem.getShaderFogColor(), (if (phase <= TIME_PERIOD_SEC) phase else 2.0 * TIME_PERIOD_SEC - phase).toFloat())
+        u.pushFrame(fogHalf.width, fogHalf.height, RenderSystem.getShaderFogColor(), (if (phase <= TIME_PERIOD_SEC) phase else 2.0 * TIME_PERIOD_SEC - phase).toFloat())
         var drawn = 0
         for (i in 0 until drawCount) {
             if (drawFade[i] <= 0f) continue
@@ -178,8 +306,10 @@ object WohlonPortalVisuals {
             u.reach.set(reach)
             u.seed.set(((drawX[i] * 0.37 + drawZ[i] * 0.61) % TAU).toFloat())
             u.strength.set(drawFade[i] * FOG_OPACITY)
+            u.lean.set(drawLean[i])
+            u.target.set(drawTargetX[i], drawTargetY[i], drawTargetZ[i])
             if (drawn == 0) {
-                VolumeProxy.begin(main, VolumeComposite.Blend.PREMULTIPLIED)
+                VolumeProxy.beginBound()
                 VolumeProxy.draw(eff)
             } else {
                 u.upload()
@@ -187,7 +317,16 @@ object WohlonPortalVisuals {
             }
             drawn++
         }
-        if (drawn > 0) VolumeProxy.end(main, eff)
+        VolumeProxy.endBound(eff)
+        fogBounds.applyScissor(main.width, main.height, 1)
+        VolumeComposite.drawOverMain(main, upsample, pushUpsampleUniforms, VolumeComposite.Blend.PREMULTIPLIED)
+        RenderSystem.disableScissor()
+        VolumeComposite.restore(main)
+    }
+
+    private fun pushUpsample(eff: EffectInstance) {
+        view.pushDepthParams(eff)
+        fogHalf.pushHalfSize(eff)
     }
 
     private fun renderGlow(main: RenderTarget, tSec: Double) {
@@ -236,11 +375,13 @@ object WohlonPortalVisuals {
         val reach: AbstractUniform = eff.safeGetUniform("Reach")
         val seed: AbstractUniform = eff.safeGetUniform("Seed")
         val strength: AbstractUniform = eff.safeGetUniform("Strength")
+        val lean: AbstractUniform = eff.safeGetUniform("Lean")
+        val target: AbstractUniform = eff.safeGetUniform("Target")
         private val time: AbstractUniform = eff.safeGetUniform("Time")
         private val fogColour: AbstractUniform = eff.safeGetUniform("FogColor")
         private val screenSize: AbstractUniform = eff.safeGetUniform("ScreenSize")
         private val perPortal: List<Uniform> =
-            listOf(boxMin, boxMax, localToView, camLocal, reach, seed, strength).filterIsInstance<Uniform>()
+            listOf(boxMin, boxMax, localToView, camLocal, reach, seed, strength, lean, target).filterIsInstance<Uniform>()
 
         fun upload() {
             for (uniform in perPortal) uniform.upload()

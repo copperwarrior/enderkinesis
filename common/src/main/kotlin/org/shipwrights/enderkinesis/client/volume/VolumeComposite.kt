@@ -41,6 +41,21 @@ object VolumeComposite {
         RenderSystem.blendFuncSeparate(blend.src, blend.dst, GlStateManager.SourceFactor.ZERO, GlStateManager.DestFactor.ONE)
     }
 
+    /**
+     * Premultiplied "over" on colour and alpha into a target that the caller bound and cleared, so a run of
+     * passes there composites later as one premultiplied layer. The JSON blend of the pass must match.
+     */
+    fun bindPremultipliedLayer() {
+        RenderSystem.disableDepthTest()
+        RenderSystem.depthMask(false)
+        RenderSystem.enableBlend()
+        RenderSystem.blendEquation(GL14.GL_FUNC_ADD)
+        RenderSystem.blendFuncSeparate(
+            GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+            GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+        )
+    }
+
     /** Call one time after the volume passes of a frame. */
     fun restore(main: RenderTarget) {
         RenderSystem.depthMask(true)
