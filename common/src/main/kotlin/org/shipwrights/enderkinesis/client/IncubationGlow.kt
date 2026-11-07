@@ -13,6 +13,7 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.world.entity.LivingEntity
+import org.shipwrights.enderkinesis.dimension.Sureibjin
 import org.shipwrights.enderkinesis.item.MundaneIncubation
 import java.util.function.Supplier
 import kotlin.math.PI
@@ -49,6 +50,8 @@ object IncubationGlow {
     @JvmStatic
     fun render(graphics: GuiGraphics, x: Int, y: Int, scale: Int, entity: LivingEntity) {
         if (progress < 0f || entity !== Minecraft.getInstance().player) return
+        // The incubation pauses in the dream; the glow comes back on the wake.
+        if (entity.level().dimension() == Sureibjin.LEVEL_KEY) return
         val radius = scale * (MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * progress)
         val cx = x.toFloat()
         val cy = y - scale * entity.bbHeight * CHEST
