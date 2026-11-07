@@ -30,7 +30,6 @@ import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
-import org.shipwrights.enderkinesis.registry.EKItems
 
 /**
  * Holds a world-frame target yaw; a PD torque around world Y turns the host ship until
@@ -88,35 +87,6 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
                 return InteractionResult.CONSUME
             }
             return InteractionResult.PASS
-        }
-
-        // Ledger of Watching Eyes — slotted in like a compass, but switches the eyeroscope
-        // into ship-tracking mode (no pin, no steering — just logs nearby ships). Checked
-        // before [resolveCompassPin] because the ledger extends WrittenBookItem, and
-        // `resolveCompassPin` would otherwise try to parse XYZ off its (auto-generated)
-        // first page and pin to that.
-        if (held.`is`(EKItems.LEDGER_OF_WATCHING_EYES.get())) {
-            val old = be.compassStack
-            val captured = held.copyWithCount(1)
-            be.insertLedger(captured)
-            if (!player.abilities.instabuild) held.shrink(1)
-            if (!old.isEmpty) {
-                if (!player.addItem(old)) player.drop(old, false)
-            }
-            return InteractionResult.CONSUME
-        }
-
-        // Ledger of Hunting Pincers — same slot, same flow, but captures the *player's*
-        // UUID so the BE can skip them when scanning for entity targets.
-        if (held.`is`(EKItems.LEDGER_OF_HUNTING_PINCERS.get())) {
-            val old = be.compassStack
-            val captured = held.copyWithCount(1)
-            be.insertHuntingLedger(captured, player.uuid)
-            if (!player.abilities.instabuild) held.shrink(1)
-            if (!old.isEmpty) {
-                if (!player.addItem(old)) player.drop(old, false)
-            }
-            return InteractionResult.CONSUME
         }
 
         val pin = resolveCompassPin(held, player)

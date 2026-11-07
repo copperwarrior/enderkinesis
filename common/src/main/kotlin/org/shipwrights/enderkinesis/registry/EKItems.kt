@@ -30,8 +30,6 @@ import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.CrownOfTheDarkStarItem
 import org.shipwrights.enderkinesis.item.CrownUntestedItem
 import org.shipwrights.enderkinesis.item.SilverpointItem
-import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
-import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
 import org.shipwrights.enderkinesis.item.ShellOfTidesItem
 import org.shipwrights.enderkinesis.item.UlderGemItem
 import org.shipwrights.enderkinesis.item.UlderScrollItem
@@ -134,25 +132,6 @@ object EKItems {
     val CROWN_UNTESTED: RegistrySupplier<Item> =
         ITEMS.register("crown_untested") {
             CrownUntestedItem(props().stacksTo(1).durability(CrownUntestedItem.MAX_DURABILITY))
-        }
-
-    /** Ledger of Watching Eyes — slot-companion for the Eyeroscope. While in the
-     *  eyeroscope's slot, logs every ship that enters a 64-block cube around the
-     *  eyeroscope (excluding the host and ships jointed to it). Right-clicking it in
-     *  hand opens the book viewer with the current log; the NBT carries both the
-     *  sighting list and a rendered `pages` tag so the vanilla
-     *  [WrittenBookItem.use] path can render it without us writing a custom GUI. */
-    val LEDGER_OF_WATCHING_EYES: RegistrySupplier<Item> =
-        ITEMS.register("ledger_of_watching_eyes") {
-            LedgerOfWatchingEyesItem(props().stacksTo(1))
-        }
-
-    /** Ledger of Hunting Pincers — same shape as [LEDGER_OF_WATCHING_EYES] but for
-     *  `LivingEntity` targets (mobs, players, animals). The eyeroscope BE skips the UUID
-     *  of whichever player placed the ledger so the holder doesn't end up tracked. */
-    val LEDGER_OF_HUNTING_PINCERS: RegistrySupplier<Item> =
-        ITEMS.register("ledger_of_hunting_pincers") {
-            LedgerOfHuntingPincersItem(props().stacksTo(1))
         }
 
     val PARALLELOGRAPH: RegistrySupplier<Item> =

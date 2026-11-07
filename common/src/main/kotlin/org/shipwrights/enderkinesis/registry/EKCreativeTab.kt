@@ -47,8 +47,6 @@ object EKCreativeTab {
             output.accept(EKItems.CREPUSCULITE_CHARM.get())
             output.accept(EKItems.CROWN_UNTESTED.get())
             output.accept(EKItems.CROWN_OF_THE_DARK_STAR.get())
-            output.accept(EKItems.LEDGER_OF_WATCHING_EYES.get())
-            output.accept(EKItems.LEDGER_OF_HUNTING_PINCERS.get())
             output.accept(EKItems.PARALLELOGRAPH.get())
             output.accept(EKItems.CREPUSCULITE_ORE_ITEM.get())
             output.accept(EKItems.MUNDANE_ORE_ITEM.get())
