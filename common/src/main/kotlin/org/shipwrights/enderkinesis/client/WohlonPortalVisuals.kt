@@ -215,7 +215,11 @@ object WohlonPortalVisuals {
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         val level = Minecraft.getInstance().level ?: return
-        if (IrisCompat.isShaderPackInUse()) return
+        if (IrisCompat.isShaderPackInUse()) {
+            // The client tick reads the leans for the beam, so a lean left here would keep the beam on.
+            leans.clear()
+            return
+        }
         drawCount = 0
         WohlonPortalSounds.forEachPortal(level.gameTime, collect)
         if (drawCount == 0) return
