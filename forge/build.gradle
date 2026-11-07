@@ -111,7 +111,10 @@ processResources {
 }
 
 loom {
+    accessWidenerPath = project(":common").loom.accessWidenerPath
     forge {
+        convertAccessWideners = true
+        extraAccessWideners.add loom.accessWidenerPath.get().asFile.name
         mixinConfig "enderkinesis-common.mixins.json"
         mixinConfig "enderkinesis.mixins.json"
     }

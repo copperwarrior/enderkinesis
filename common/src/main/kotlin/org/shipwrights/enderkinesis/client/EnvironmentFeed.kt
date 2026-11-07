@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.client
 
+import dev.architectury.event.events.client.ClientPlayerEvent
+import dev.architectury.networking.NetworkManager
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.MultiBufferSource
@@ -18,6 +20,7 @@ import org.valkyrienskies.mod.common.getShipsIntersecting
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 // Only the local player's held scrolls, so the view of other players does not fill with wisps.
 object EnvironmentFeed {
@@ -31,6 +34,25 @@ object EnvironmentFeed {
 
     private val wisps = ArrayList<Wisp>()
     private val glints = ArrayList<Glint>()
+
+    // Client thread only. Quintessence wisps wait until the scan shows no other element.
+    private val pendingFrom = ArrayList<Vec3>()
+    private val pendingHand = ArrayList<InteractionHand>()
+    private val nonBlockSources = HashMap<Element, Float>()
+
+    // Client thread only: the client game time when the server last reported a deed of the local player.
+    private val deedTimes = ElementalEnvironment.noDeeds()
+
+    fun init() {
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, ElementalEnvironment.S2C_DEED) { buf, _ ->
+            val ordinal = buf.readByte().toInt()
+            if (ordinal !in Element.entries.indices) return@registerReceiver
+            Minecraft.getInstance().execute {
+                Minecraft.getInstance().level?.let { deedTimes[ordinal] = it.gameTime }
+            }
+        }
+        ClientPlayerEvent.CLIENT_PLAYER_QUIT.register { ElementalEnvironment.noDeeds().copyInto(deedTimes) }
+    }
 
     fun isEmpty(): Boolean = wisps.isEmpty() && glints.isEmpty()
 
@@ -59,14 +81,23 @@ object EnvironmentFeed {
         val shipPoint = Vector3d()
         val random = level.random
         val r = ElementalEnvironment.RADIUS
+        pendingFrom.clear()
+        pendingHand.clear()
+        nonBlockSources.clear()
+        ElementalEnvironment.addPlaceSources(level, origin, nonBlockSources)
+        ElementalEnvironment.addEntityState(level, player, nonBlockSources)
+        ElementalEnvironment.addDeeds(deedTimes, level.gameTime, nonBlockSources)
+        // True also when no scroll holds Quintessence, which skips the block check.
+        var othersPresent = nonBlockSources.isNotEmpty() || held.none { Element.QUINTESSENCE in it.second }
         for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
             val weight = ElementalEnvironment.weight(dx, dy, dz)
             if (weight <= 0.0) continue
             pos.set(origin.x + dx, origin.y + dy, origin.z + dz)
             val worldState = level.getBlockState(pos)
+            if (!othersPresent && ElementalEnvironment.givesOtherThanQuintessence(worldState)) othersPresent = true
             for ((hand, elements) in held) for (element in elements) {
                 val chance = FEED_CHANCE * weight * ElementalEnvironment.share(worldState, element)
-                if (chance > 0.0 && random.nextDouble() < chance) spawn(player, hand, element, onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random))
+                if (chance > 0.0 && random.nextDouble() < chance) feed(player, hand, element, onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random), othersPresent)
             }
             // Ship blocks also feed it: map each world cell into shipyard space, then the wisp back to world.
             for (ship in ships) {
@@ -74,15 +105,39 @@ object EnvironmentFeed {
                 pos.set(shipPoint.x, shipPoint.y, shipPoint.z)
                 val state = level.getBlockState(pos)
                 if (state.isAir) continue
+                if (!othersPresent && ElementalEnvironment.givesOtherThanQuintessence(state)) othersPresent = true
                 for ((hand, elements) in held) for (element in elements) {
                     val chance = FEED_CHANCE * weight * ElementalEnvironment.share(state, element)
                     if (chance <= 0.0 || random.nextDouble() >= chance) continue
                     val p = onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random)
                     ship.transform.shipToWorld.transformPosition(p.x, p.y, p.z, shipPoint)
-                    spawn(player, hand, element, Vec3(shipPoint.x, shipPoint.y, shipPoint.z))
+                    feed(player, hand, element, Vec3(shipPoint.x, shipPoint.y, shipPoint.z), othersPresent)
                 }
             }
         }
+        for ((hand, elements) in held) for (element in elements) {
+            val value = nonBlockSources[element] ?: continue
+            if (random.nextDouble() < FEED_CHANCE * ElementalEnvironment.FULL * value) feed(player, hand, element, around(centre, random), othersPresent)
+        }
+        if (!othersPresent) for (i in pendingFrom.indices) spawn(player, pendingHand[i], Element.QUINTESSENCE, pendingFrom[i])
+    }
+
+    private fun feed(player: Player, hand: InteractionHand, element: Element, from: Vec3, othersPresent: Boolean) {
+        if (element != Element.QUINTESSENCE) {
+            spawn(player, hand, element, from)
+        } else if (!othersPresent) {
+            pendingFrom.add(from)
+            pendingHand.add(hand)
+        }
+    }
+
+    // A non-block source has no block face, so its wisp starts in the space around the player.
+    private fun around(centre: Vec3, random: net.minecraft.util.RandomSource): Vec3 {
+        val y = random.nextDouble() * 2 - 1
+        val a = random.nextDouble() * 2 * Math.PI
+        val h = sqrt(1 - y * y)
+        val d = AROUND_MIN + random.nextDouble() * (ElementalEnvironment.RADIUS - AROUND_MIN)
+        return centre.add(cos(a) * h * d, y * d, sin(a) * h * d)
     }
 
     private fun spawn(player: Player, hand: InteractionHand, element: Element, from: Vec3) {
@@ -149,6 +204,7 @@ object EnvironmentFeed {
     // Chance per tick for a full-weight block made only of one element.
     private const val FEED_CHANCE = 0.015
     private const val MAX_WISPS = 64
+    private const val AROUND_MIN = 1.5
     private const val WISP_PUFFS = 5
     // Fraction of the path between puffs.
     private const val WISP_SPACING = 0.05

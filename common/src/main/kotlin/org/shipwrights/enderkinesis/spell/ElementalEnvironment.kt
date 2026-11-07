@@ -2,8 +2,27 @@ package org.shipwrights.enderkinesis.spell
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
+import dev.architectury.event.EventResult
+import dev.architectury.event.events.common.BlockEvent
+import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
+import dev.architectury.networking.NetworkManager
+import io.netty.buffer.Unpooled
+import net.minecraft.network.FriendlyByteBuf
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.core.Holder
+import net.minecraft.tags.BiomeTags
+import net.minecraft.tags.BlockTags
+import net.minecraft.world.level.biome.Biome
+import net.minecraft.tags.DamageTypeTags
+import net.minecraft.world.damagesource.DamageSource
+import net.minecraft.world.damagesource.DamageTypes
+import net.minecraft.world.effect.MobEffects
+import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.level.Level
+import net.minecraft.world.level.biome.Biomes
+import net.minecraft.world.level.block.CropBlock
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.tags.TagKey
@@ -14,7 +33,11 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.dimension.EKDamageSources
+import org.shipwrights.enderkinesis.dimension.SselithRepertory
+import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import org.shipwrights.enderkinesis.item.UlderScrollItem
+import org.shipwrights.enderkinesis.ritual.SunErasure
 import org.valkyrienskies.mod.common.BlockStateInfo
 import org.valkyrienskies.mod.common.getShipsIntersecting
 import kotlin.math.sqrt
@@ -39,12 +62,25 @@ object ElementalEnvironment {
         val now = level.gameTime
         byEntity[entity.id]?.takeIf { now - it.tick < RESAMPLE_TICKS }?.let { return it.values }
         if (byEntity.size > 512) byEntity.entries.removeIf { now - it.value.tick >= RESAMPLE_TICKS }
-        val values = at(level, entity.position().add(0.0, entity.bbHeight * 0.5, 0.0))
+        val values = sample(level, entity.position().add(0.0, entity.bbHeight * 0.5, 0.0))
+        addEntitySources(level, entity, values)
+        quintessenceAlone(values)
         byEntity[entity.id] = Sample(now, values)
         return values
     }
 
-    fun at(level: ServerLevel, centre: Vec3): Map<Element, Float> {
+    fun at(level: ServerLevel, centre: Vec3): Map<Element, Float> = sample(level, centre).also(::quintessenceAlone)
+
+    // Quintessence is the absence of the other elements.
+    private fun quintessenceAlone(values: HashMap<Element, Float>) {
+        if (values.size > 1) values.remove(Element.QUINTESSENCE)
+    }
+
+    private fun add(values: MutableMap<Element, Float>, element: Element, value: Float) {
+        values[element] = ((values[element] ?: 0f) + value).coerceAtMost(1f)
+    }
+
+    private fun sample(level: ServerLevel, centre: Vec3): HashMap<Element, Float> {
         val sums = DoubleArray(Element.entries.size)
         val ships = level.getShipsIntersecting(AABB(centre, centre).inflate(RADIUS + 1.0)).toList()
         val origin = BlockPos.containing(centre)
@@ -65,18 +101,120 @@ object ElementalEnvironment {
                 count(level.getBlockState(pos), weight)
             }
         }
-        if (level.isDay && !level.isRaining && level.canSeeSky(origin.above())) sums[Element.SUNFIRE.ordinal] += SUN_SKY * FULL
         val out = HashMap<Element, Float>()
         for (element in TAGS.keys) {
             val value = (sums[element.ordinal] / FULL).coerceAtMost(1.0).toFloat()
             if (value > 0f) out[element] = value
         }
+        addPlaceSources(level, origin, out)
         return out
+    }
+
+    /** The sources at [origin] that are not blocks. Both sides can read them. */
+    fun addPlaceSources(level: Level, origin: BlockPos, out: MutableMap<Element, Float>) {
+        if (sunlit(level, origin.above())) add(out, Element.SUNFIRE, SUN_SKY)
+        if (level.getBiome(origin).value().coldEnoughToSnow(origin)) add(out, Element.WINTER, SOURCE)
+        if (inVoid(level, origin)) add(out, Element.VOID, SOURCE)
+        if (wet(level.getBiome(origin))) add(out, Element.CORRUPTION, SOURCE)
+    }
+
+    private fun sunlit(level: Level, pos: BlockPos): Boolean {
+        if (level.isRaining || level.isThundering || !level.canSeeSky(pos)) return false
+        // Sselith has a fixed time, so isDay is always false there.
+        if (level.dimension() == SselithRepertory.LEVEL_KEY) return true
+        return level.isDay && !SunErasure.erased(level)
+    }
+
+    // Vanilla oceans and rivers have an ordinary downfall of 0.5.
+    private fun wet(biome: Holder<Biome>): Boolean =
+        biome.value().climateSettings.downfall() >= WET_DOWNFALL ||
+            biome.`is`(BiomeTags.IS_OCEAN) || biome.`is`(BiomeTags.IS_RIVER)
+
+    private fun inVoid(level: Level, pos: BlockPos): Boolean =
+        level.dimension() == Level.END || level.dimension() == YgannAbyss.LEVEL_KEY ||
+            level.getBiome(pos).`is`(Biomes.THE_VOID)
+
+    /** The sources in the state of [entity]. Both sides can read them. Deeds are in [addDeeds]. */
+    fun addEntityState(level: Level, entity: Entity, values: MutableMap<Element, Float>) {
+        if (entity.isOnFire || entity.isInLava) add(values, Element.PYRE, SOURCE)
+        if (!entity.onGround() && entity.fallDistance > FREE_FALL) add(values, Element.GRAVITY, SOURCE)
+        if (entity.isInPowderSnow || entity.wasInPowderSnow ||
+            (entity.onGround() && level.getBlockState(entity.onPos).`is`(BlockTags.ICE))
+        ) add(values, Element.WINTER, SOURCE)
+    }
+
+    private fun addEntitySources(level: ServerLevel, entity: Entity, values: HashMap<Element, Float>) {
+        addEntityState(level, entity, values)
+        deeds[entity.id]?.let { addDeeds(it, level.gameTime, values) }
+    }
+
+    /** [times] holds the game time of the last deed for each element, by ordinal. */
+    fun addDeeds(times: LongArray, now: Long, values: MutableMap<Element, Float>) {
+        for (element in Element.entries) {
+            if (now - times[element.ordinal] < DEED_TICKS) add(values, element, SOURCE)
+        }
+    }
+
+    fun noDeeds(): LongArray = LongArray(Element.entries.size) { NEVER }
+
+    // What one element source gives. CHARGE_THRESHOLD is lower, so one source recharges scrolls.
+    private const val SOURCE = 0.5f
+    private const val WET_DOWNFALL = 0.9f
+    private const val FREE_FALL = 3f
+    private const val DEED_TICKS = 200L
+    private const val NEVER = Long.MIN_VALUE / 2
+
+    // Server thread only: entity id to the game time of its last deed for each element.
+    private val deeds = HashMap<Int, LongArray>()
+
+    /** A deed of [entity] that gives [element] for a short time: a bone meal use, a teleport, a hit. */
+    @JvmStatic
+    fun deed(entity: Entity, element: Element) {
+        val level = entity.level() as? ServerLevel ?: return
+        val now = level.gameTime
+        if (deeds.size > MAX_TRACKED) deeds.values.removeIf { times -> times.all { now - it >= DEED_TICKS } }
+        val times = deeds.getOrPut(entity.id, ::noDeeds)
+        val last = times[element.ordinal]
+        times[element.ordinal] = now
+        if (entity is ServerPlayer && now - last >= RESEND_TICKS) sendDeed(entity, element)
+    }
+
+    val S2C_DEED: ResourceLocation = EnderkinesisMod.id("elemental_deed")
+
+    // The client then sees a deed at most this late, so its Quintessence check stays close to the server.
+    private const val RESEND_TICKS = 20L
+
+    private fun sendDeed(player: ServerPlayer, element: Element) {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeByte(element.ordinal)
+        NetworkManager.sendToPlayer(player, S2C_DEED, buf)
+    }
+
+    private const val MAX_TRACKED = 512
+    private const val TELEPORT_MIN_SQR = 4.0
+
+    @JvmStatic
+    fun teleported(entity: Entity, to: Level, x: Double, y: Double, z: Double) {
+        if (entity.level() != to || entity.distanceToSqr(x, y, z) >= TELEPORT_MIN_SQR) deed(entity, Element.CHAOS)
+    }
+
+    private fun onHurt(entity: LivingEntity, source: DamageSource) {
+        deed(entity, Element.BLOOD)
+        if (source.`is`(DamageTypeTags.IS_FALL)) deed(entity, Element.GRAVITY)
+        if (source.`is`(EKDamageSources.ROT_KEY) || (source.`is`(DamageTypes.MAGIC) && entity.hasEffect(MobEffects.POISON))) {
+            deed(entity, Element.CORRUPTION)
+        }
     }
 
     fun weight(dx: Int, dy: Int, dz: Int): Double {
         val d = sqrt((dx * dx + dy * dy + dz * dz).toDouble())
         return if (d > RADIUS + 0.5) 0.0 else 1.0 - d / (RADIUS + 1)
+    }
+
+    fun givesOtherThanQuintessence(state: BlockState): Boolean {
+        if (state.isAir) return false
+        for (element in TAGS.keys) if (element != Element.QUINTESSENCE && share(state, element) > 0.0) return true
+        return false
     }
 
     fun share(state: BlockState, element: Element): Double {
@@ -90,7 +228,7 @@ object ElementalEnvironment {
         return ((mass / stone - 1.0) / HEAVY_SPAN).coerceIn(0.0, 1.0)
     }
 
-    private const val SUN_SKY = 0.5
+    private const val SUN_SKY = 0.5f
 
     // In multiples of the mass of stone.
     private const val HEAVY_SPAN = 1.0
@@ -118,6 +256,15 @@ object ElementalEnvironment {
             if (server.tickCount % RECHARGE_TICKS != 0) return@Server
             for (player in server.playerList.players) rechargeCarried(player)
         })
+        EntityEvent.LIVING_HURT.register { entity, source, amount ->
+            if (!entity.level().isClientSide && amount > 0f) onHurt(entity, source)
+            EventResult.pass()
+        }
+        BlockEvent.BREAK.register { _, _, state, player, _ ->
+            val block = state.block
+            if (block is CropBlock && block.isMaxAge(state)) deed(player, Element.GENESIS)
+            EventResult.pass()
+        }
         LifecycleEvent.SERVER_STOPPING.register { reset() }
     }
 
@@ -139,5 +286,8 @@ object ElementalEnvironment {
         }
     }
 
-    fun reset() = byEntity.clear()
+    fun reset() {
+        byEntity.clear()
+        deeds.clear()
+    }
 }

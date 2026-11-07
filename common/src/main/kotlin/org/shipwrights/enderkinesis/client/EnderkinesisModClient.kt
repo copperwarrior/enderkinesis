@@ -600,6 +600,7 @@ object EnderkinesisModClient {
         SureibjinSky.init()
         WohlonSkyBand.init()
         SunErasureRoots.init()
+        EnvironmentFeed.init()
         RitualRootTrail.init()
         FireWhirlwind.init()
         SelvesClient.init()

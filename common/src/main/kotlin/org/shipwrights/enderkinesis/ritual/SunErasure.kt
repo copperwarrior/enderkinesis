@@ -105,6 +105,8 @@ object SunErasure {
     @JvmStatic
     fun skyBrightness(level: Level, vanilla: Float): Float = vanilla * (1f - fade(level))
 
+    fun erased(level: Level): Boolean = fade(level) > 0f
+
     private fun fade(level: Level): Float {
         if (level.dimension() != Level.OVERWORLD) return 0f
         val start = if (level.isClientSide) clientStart else serverStart

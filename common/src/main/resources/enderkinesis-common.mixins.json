@@ -297,7 +297,9 @@
     "WorldGenRegionCrewCaptureMixin",
     "EntityIchaericInkMixin",
     "LevelSunErasureMixin",
-    "EntityWeheloReturnCleanupMixin"
+    "EntityWeheloReturnCleanupMixin",
+    "ItemUseElementSourceMixin",
+    "EntityTeleportElementSourceMixin"
   ],
   "injectors": {
     "defaultRequire": 1

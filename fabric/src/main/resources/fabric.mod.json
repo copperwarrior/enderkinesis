@@ -24,6 +24,7 @@
       "org.shipwrights.enderkinesis.fabric.client.EnderkinesisModFabricClient"
     ]
   },
+  "accessWidener": "enderkinesis.accesswidener",
   "mixins": [
     "enderkinesis-common.mixins.json",
     "enderkinesis.mixins.json"
