@@ -84,6 +84,7 @@ object EnderkinesisMod {
         // Entities before items: on Fabric, ArchitecturyMobBucketItem reads its entity type in the constructor.
         EKEntities.register()
         EKItems.register()
+        org.shipwrights.enderkinesis.registry.EKRecipeSerializers.register()
         org.shipwrights.enderkinesis.registry.EKMenus.register()
         EKCreativeTab.register()
         // Trades depend on EKItems being registered (the scroll is the
@@ -244,6 +245,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.spell.AbyssalPockets.init()
         org.shipwrights.enderkinesis.spell.SpellNetwork.init()
         org.shipwrights.enderkinesis.spell.ElementalEnvironment.init()
+        org.shipwrights.enderkinesis.item.MundaneIncubation.init()
         org.shipwrights.enderkinesis.spell.SelfCasts.init()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()

@@ -1,0 +1,19 @@
+{
+  "type": "enderkinesis:knowledge_of_death_shaped",
+  "category": "equipment",
+  "pattern": [
+    " D ",
+    "GGG"
+  ],
+  "key": {
+    "G": {
+      "item": "minecraft:gold_ingot"
+    },
+    "D": {
+      "item": "minecraft:diamond"
+    }
+  },
+  "result": {
+    "item": "enderkinesis:crown_untested"
+  }
+}

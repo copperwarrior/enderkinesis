@@ -88,6 +88,13 @@ object EKBlocks {
         Block(crepusculiteProps().strength(5.0f, 9.0f))
     }
 
+    val MUNDANE_ORE: RegistrySupplier<Block> = BLOCKS.register("mundane_ore") {
+        net.minecraft.world.level.block.DropExperienceBlock(
+            BlockBehaviour.Properties.copy(net.minecraft.world.level.block.Blocks.DIAMOND_ORE),
+            net.minecraft.util.valueproviders.UniformInt.of(3, 7),
+        )
+    }
+
     /** Crepusculite block — ore-storage form, 9 raw crepusculite compressed. */
     val CREPUSCULITE_BLOCK: RegistrySupplier<Block> = BLOCKS.register("crepusculite_block") {
         Block(crepusculiteProps())

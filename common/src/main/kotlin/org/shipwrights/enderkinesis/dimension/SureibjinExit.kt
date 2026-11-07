@@ -3,9 +3,16 @@ package org.shipwrights.enderkinesis.dimension
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.PlayerEvent
+import dev.architectury.event.events.common.TickEvent
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.damagesource.DamageSource
+import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.enchantment.EnchantmentHelper
+import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKItems
 
 /**
  * Sureibjin exit: in the dream coast, lethal damage of any kind doesn't
@@ -24,13 +31,32 @@ import net.minecraft.world.entity.LivingEntity
  */
 object SureibjinExit {
 
+    private val CROWN_UNTESTED_RECIPE: ResourceLocation = EnderkinesisMod.id("crown_untested")
+
     fun init() {
         EntityEvent.LIVING_HURT.register(::onLivingHurt)
+        // The hurt check sees the raw amount, before difficulty scaling and other mods' damage changes,
+        // and some deaths skip `hurt`. Any death that gets to `die` wakes the player instead.
+        EntityEvent.LIVING_DEATH.register { entity, _ ->
+            if (entity is ServerPlayer && entity.level().dimension() == Sureibjin.LEVEL_KEY) {
+                wakeUp(entity)
+                EventResult.interruptFalse()
+            } else {
+                EventResult.pass()
+            }
+        }
+        // Health set to zero with no `die` call.
+        TickEvent.PLAYER_POST.register { player ->
+            if (player is ServerPlayer && player.isDeadOrDying && player.level().dimension() == Sureibjin.LEVEL_KEY) {
+                wakeUp(player)
+            }
+        }
+        PlayerEvent.PLAYER_JOIN.register(::unlockCrownRecipe)
         // A command or a mod teleport can take a player out of the dream with no death.
         PlayerEvent.CHANGE_DIMENSION.register { player, from, to ->
             if (from == Sureibjin.LEVEL_KEY && to != Sureibjin.LEVEL_KEY) restoreIfDreaming(player)
         }
-        // A death that did not go through `hurt` ends in a normal respawn.
+        // A death that another mod forces past the death hook ends in a normal respawn.
         PlayerEvent.PLAYER_RESPAWN.register { player, _ ->
             if (player.level().dimension() != Sureibjin.LEVEL_KEY) restoreIfDreaming(player)
         }
@@ -45,10 +71,20 @@ object SureibjinExit {
 
     /** Vanilla's `readAdditionalSaveData` rebuilds inventory, ender chest, food, XP, effects and abilities. */
     private fun restoreState(player: ServerPlayer, snapshot: SureibjinEntry.ReturnSnapshot) {
+        val crown = player.getItemBySlot(EquipmentSlot.HEAD).takeIf { it.`is`(EKItems.CROWN_UNTESTED.get()) }?.copy()
         player.inventory.clearContent()
         // `readAdditionalSaveData` adds the saved effects to the current ones, so remove the dream's effects first.
         player.removeAllEffects()
         player.readAdditionalSaveData(snapshot.playerStateTag)
+        if (crown != null) wearDarkStarCrown(player, crown)
+    }
+
+    private fun wearDarkStarCrown(player: ServerPlayer, untested: ItemStack) {
+        val crown = ItemStack(EKItems.CROWN_OF_THE_DARK_STAR.get())
+        if (untested.hasCustomHoverName()) crown.setHoverName(untested.hoverName)
+        EnchantmentHelper.setEnchantments(EnchantmentHelper.getEnchantments(untested), crown)
+        if (player.getItemBySlot(EquipmentSlot.HEAD).isEmpty) player.setItemSlot(EquipmentSlot.HEAD, crown)
+        else player.inventory.placeItemBackInInventory(crown)
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -99,6 +135,14 @@ object SureibjinExit {
             snapshot.x, snapshot.y, snapshot.z,
             snapshot.yRot, snapshot.xRot,
         )
+    }
+
+    // Players who got Knowledge of Death before the advancement gave this recipe as a reward.
+    private fun unlockCrownRecipe(player: ServerPlayer) {
+        val advancement = player.server.advancements.getAdvancement(SureibjinEntry.ADV_KNOWLEDGE_OF_DEATH) ?: return
+        if (!player.advancements.getOrStartProgress(advancement).isDone) return
+        if (player.recipeBook.contains(CROWN_UNTESTED_RECIPE)) return
+        player.awardRecipesByKey(arrayOf(CROWN_UNTESTED_RECIPE))
     }
 
     /** Minimal heal to survive the next tick — the snapshot restore (if

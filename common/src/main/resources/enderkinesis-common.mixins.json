@@ -5,6 +5,7 @@
   "minVersion": "0.8",
   "plugin": "org.shipwrights.enderkinesis.mixin.EnderkinesisMixinPlugin",
   "client": [
+    "InventoryScreenIncubationGlowMixin",
     "PlayerRendererSelvesMixin",
     "EntityRenderDispatcherSelvesMixin",
     "AbstractClientPlayerSelvesMixin",
@@ -174,6 +175,9 @@
     "FogRendererSunErasureMixin"
   ],
   "mixins": [
+    "TransientCraftingContainerMenuAccessor",
+    "CraftingMenuPlayerAccessor",
+    "InventoryMenuOwnerAccessor",
     "PlayerSelvesMixin",
     "LivingEntitySelvesMixin",
     "EntitySelvesMixin",

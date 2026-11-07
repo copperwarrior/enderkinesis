@@ -28,6 +28,7 @@ import org.shipwrights.enderkinesis.item.AlmanacOfEverywhereItem
 import org.shipwrights.enderkinesis.item.BlessedRazorItem
 import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.CrownOfTheDarkStarItem
+import org.shipwrights.enderkinesis.item.CrownUntestedItem
 import org.shipwrights.enderkinesis.item.SilverpointItem
 import org.shipwrights.enderkinesis.item.LedgerOfHuntingPincersItem
 import org.shipwrights.enderkinesis.item.LedgerOfWatchingEyesItem
@@ -127,6 +128,9 @@ object EKItems {
 
     val CROWN_OF_THE_DARK_STAR: RegistrySupplier<Item> =
         ITEMS.register("crown_of_the_dark_star") { CrownOfTheDarkStarItem(props().stacksTo(1)) }
+
+    val CROWN_UNTESTED: RegistrySupplier<Item> =
+        ITEMS.register("crown_untested") { CrownUntestedItem(props().stacksTo(1)) }
 
     /** Ledger of Watching Eyes — slot-companion for the Eyeroscope. While in the
      *  eyeroscope's slot, logs every ship that enters a 64-block cube around the
@@ -407,6 +411,20 @@ object EKItems {
     val ULDER_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, ULDER_SPINEL_SHARD)
     val ULDER_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, ULDER_BLOODSTONE_SHARD)
 
+    private val GEMS: Map<Element, RegistrySupplier<Item>> by lazy {
+        listOf(ULDER_CITRINE, ULDER_ONYX, ULDER_JADE, ULDER_AQUAMARINE, ULDER_MOONSTONE, ULDER_SPINEL, ULDER_BLOODSTONE)
+            .associateBy { (it.get() as UlderGemItem).element }
+    }
+
+    /** Null for the fusions and Sundering, which have no gem. */
+    fun gemOf(element: Element): Item? = GEMS[element]?.get()
+
+    val MUNDANE_STONE: RegistrySupplier<Item> = ITEMS.register("mundane_stone") {
+        org.shipwrights.enderkinesis.item.MundaneStoneItem(
+            props().food(FoodProperties.Builder().nutrition(0).saturationMod(0f).alwaysEat().build()),
+        )
+    }
+
     val ULDER_SCROLL: RegistrySupplier<Item> =
         ITEMS.register("ulder_scroll") { UlderScrollItem(props().stacksTo(1)) }
 
@@ -510,6 +528,7 @@ object EKItems {
         }
 
     val CREPUSCULITE_ORE_ITEM = blockItem("crepusculite_ore", EKBlocks.CREPUSCULITE_ORE)
+    val MUNDANE_ORE_ITEM = blockItem("mundane_ore", EKBlocks.MUNDANE_ORE)
     val CREPUSCULITE_BLOCK_ITEM = blockItem("crepusculite_block", EKBlocks.CREPUSCULITE_BLOCK)
     val CREPUSCULITE_GLASS_ITEM = blockItem("crepusculite_glass", EKBlocks.CREPUSCULITE_GLASS)
     val CREPUSCULITE_LATTICE_ITEM = blockItem("crepusculite_lattice", EKBlocks.CREPUSCULITE_LATTICE)

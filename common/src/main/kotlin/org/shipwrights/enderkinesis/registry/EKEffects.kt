@@ -75,6 +75,9 @@ object EKEffects {
     val CRYSTALLIZED: RegistrySupplier<MobEffect> =
         EFFECTS.register("crystallized") { CrystallizedEffect() }
 
+    val INCUBATION: RegistrySupplier<MobEffect> =
+        EFFECTS.register("incubation") { org.shipwrights.enderkinesis.effect.IncubationEffect() }
+
     val ENTANGLED: RegistrySupplier<MobEffect> = EFFECTS.register("entangled") { EntangledEffect() }
 
     val WEIGHTED: RegistrySupplier<MobEffect> = EFFECTS.register("weighted") { WeightedEffect() }

@@ -37,5 +37,10 @@ val canSpawnIn: TagKey<Biome> = TagKey.create(
             GenerationStep.Decoration.UNDERGROUND_DECORATION,
             geode
         )
+        BiomeModifications.addFeature(
+            BiomeSelectors.foundInOverworld(),
+            GenerationStep.Decoration.UNDERGROUND_ORES,
+            ResourceKey.create(Registries.PLACED_FEATURE, EnderkinesisMod.id("mundane_ore"))
+        )
     }
 }

@@ -9,10 +9,13 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.player.Inventory
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKItems
 
 /**
  * Sureibjin entry: a player who successfully starts to sleep in any of the
@@ -102,6 +105,10 @@ object SureibjinEntry {
         // A snapshot from a dream that ended with no restore. The new snapshot replaces it.
         SureibjinReturnSavedData.get(server).take(player.uuid)?.let { returnStaleItems(player, it) }
 
+        // The worn Crown Untested goes into the dream, not into the snapshot, so it cannot come back twice.
+        val crown = player.getItemBySlot(EquipmentSlot.HEAD).takeIf { it.`is`(EKItems.CROWN_UNTESTED.get()) }
+        if (crown != null) player.setItemSlot(EquipmentSlot.HEAD, ItemStack.EMPTY)
+
         // 1. Snapshot the full player NBT (inventory, ender chest, food,
         //    XP, abilities, active effects — everything `addAdditionalSaveData`
         //    writes when the world saves). One tag, everything captured.
@@ -123,6 +130,7 @@ object SureibjinEntry {
         //    distance. The exit hook will rebuild the original state from
         //    the snapshot above.
         resetToCleanState(player)
+        if (crown != null) player.setItemSlot(EquipmentSlot.HEAD, crown)
 
         // 3. Free the bed (BedBlock.use sets OCCUPIED before the sleep
         //    completes; vanilla wake handles it, but a defensive clear
