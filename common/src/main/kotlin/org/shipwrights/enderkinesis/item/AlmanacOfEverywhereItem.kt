@@ -12,6 +12,8 @@ import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.client.OldPaperClient
 import org.shipwrights.enderkinesis.dimension.AlmanacData
 import org.shipwrights.enderkinesis.dimension.DimensionNames
+import org.shipwrights.enderkinesis.dimension.Sureibjin
+import org.shipwrights.enderkinesis.dimension.WeheloPocket
 import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import org.shipwrights.enderkinesis.util.Sga
 
@@ -42,7 +44,7 @@ class AlmanacOfEverywhereItem(properties: Properties) : TomeItem(properties) {
      *  and always in survival, right-click opens the book.
      *
      *  Populate uses [AlmanacData.addEntryTrusted], not the [AlmanacData.addVisited] gate, so the
-     *  hidden Ygann's Abyss entry gets recorded too. */
+     *  hidden Ygann's Abyss entry gets recorded too. The Wehelo pocket and Sureibjin are never recorded. */
     override fun use(
         level: Level, player: Player, hand: InteractionHand
     ): InteractionResultHolder<ItemStack> {
@@ -60,7 +62,9 @@ class AlmanacOfEverywhereItem(properties: Properties) : TomeItem(properties) {
         val server = level.server ?: return
         var added = 0
         for (lvl in server.allLevels) {
-            if (AlmanacData.addEntryTrusted(stack, lvl.dimension().location())) added++
+            val dim = lvl.dimension().location()
+            if (dim == WeheloPocket.ID || dim == Sureibjin.ID) continue
+            if (AlmanacData.addEntryTrusted(stack, dim)) added++
         }
         AlmanacData.markCreativePopulated(stack)
         player.displayClientMessage(

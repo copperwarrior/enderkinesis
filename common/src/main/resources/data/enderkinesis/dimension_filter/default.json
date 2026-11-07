@@ -2,12 +2,14 @@
   "deny": [
     "enderkinesis:sselith_repertory",
     "enderkinesis:wohlonnogondonia",
-    "enderkinesis:wehelo_pocket"
+    "enderkinesis:wehelo_pocket",
+    "enderkinesis:sureibjin"
   ],
   "learnable_deny": [
     "enderkinesis:ygann_abyss",
     "enderkinesis:sselith_repertory",
     "enderkinesis:wohlonnogondonia",
-    "enderkinesis:wehelo_pocket"
+    "enderkinesis:wehelo_pocket",
+    "enderkinesis:sureibjin"
   ]
 }
