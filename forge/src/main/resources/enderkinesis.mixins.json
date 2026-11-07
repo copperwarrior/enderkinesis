@@ -5,6 +5,7 @@
   "plugin": "org.shipwrights.enderkinesis.forge.mixin.EnderkinesisForgeMixinPlugin",
   "mixins": [
     "FluidTypeIchaericInkMixin",
+    "ForgeHooksSelvesMixin",
     "LivingEntitySureibjinSwimForgeMixin",
     "LootTableForgeAccessor"
   ],

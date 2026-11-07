@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.mixin;
 
-import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
@@ -17,15 +16,6 @@ public abstract class LivingEntitySelvesMixin {
     @ModifyReturnValue(method = "canBreatheUnderwater", at = @At("RETURN"))
     private boolean enderkinesis$selvesGills(boolean original) {
         return Selves.breathesWater((LivingEntity) (Object) this, original);
-    }
-
-    // At the drowning check, because water mobs override canBreatheUnderwater.
-    @ModifyExpressionValue(
-        method = "baseTick",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;canBreatheUnderwater()Z")
-    )
-    private boolean enderkinesis$selvesBodyDrowns(boolean original) {
-        return original && !SelvesBodies.losesTrait((LivingEntity) (Object) this);
     }
 
     @ModifyReturnValue(method = "onClimbable", at = @At("RETURN"))
