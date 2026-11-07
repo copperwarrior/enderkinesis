@@ -62,18 +62,9 @@ object OarscribeModel {
         }
     }
 
-    // Render thread only. /enderkinesis oarscribe pen replaces the pose for tuning.
-    private val plain = Rig()
-    private val mirror = Rig()
-
-    init {
-        setPen(OarscribePenPose.DEFAULT)
-    }
-
-    fun setPen(pose: OarscribePenPose) {
-        plain.set(pose, mirrored = false)
-        mirror.set(pose, mirrored = true)
-    }
+    // Render thread only.
+    private val plain = Rig().apply { set(OarscribePenPose.DEFAULT, mirrored = false) }
+    private val mirror = Rig().apply { set(OarscribePenPose.DEFAULT, mirrored = true) }
 
     /** The pen point, in model pixels. */
     fun penPoint(mirrored: Boolean): Vector3fc = rig(mirrored).point

@@ -282,7 +282,6 @@ object EnderkinesisMod {
         SselithVoidWrap.init()
         org.shipwrights.enderkinesis.dimension.SselithParallel.init()
         org.shipwrights.enderkinesis.command.SselithCommands.init()
-        org.shipwrights.enderkinesis.command.OarscribeCommands.init()
         org.shipwrights.enderkinesis.command.ElementCommands.init()
         org.shipwrights.enderkinesis.block.ScribesDeskNetwork.init()
         org.shipwrights.enderkinesis.item.SatchelOfShelvingNetwork.init()

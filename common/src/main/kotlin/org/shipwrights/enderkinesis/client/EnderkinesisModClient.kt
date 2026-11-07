@@ -660,12 +660,6 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WogorBudClientTracker.tick(level) }
 
         SselithEclipseClient.init()
-        NetworkManager.registerReceiver(
-            NetworkManager.Side.S2C, org.shipwrights.enderkinesis.command.OarscribeCommands.PEN_POSE_PACKET,
-        ) { buf, ctx ->
-            val pose = org.shipwrights.enderkinesis.block.OarscribePenPose.read(buf)
-            ctx.queue { OarscribeModel.setPen(pose) }
-        }
         SselithEclipseSounds.init()
         OwlSightTracker.init()
         SselithMadnessAfflicted.init()
