@@ -9,6 +9,7 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.TooltipFlag
 import net.minecraft.world.level.Level
+import org.shipwrights.enderkinesis.client.OldPaperClient
 import org.shipwrights.enderkinesis.dimension.AlmanacData
 import org.shipwrights.enderkinesis.dimension.DimensionNames
 import org.shipwrights.enderkinesis.dimension.YgannAbyss
@@ -37,30 +38,34 @@ class AlmanacOfEverywhereItem(properties: Properties) : TomeItem(properties) {
 
     override fun pageCount(stack: ItemStack): Int = AlmanacLore.pageCount()
 
-    /** Creative-only: right-click records every dimension the server has loaded.
+    /** The first creative right-click records every dimension the server has loaded; after that,
+     *  and always in survival, right-click opens the book.
      *
-     *  Routes through [AlmanacData.addEntryTrusted] rather than the player-flow
-     *  [AlmanacData.addVisited] gate so the hidden Ygann's Abyss entry gets populated too —
-     *  the gate exists to block accidental player-driven recording (carrying the almanac
-     *  through a portal, etc.), and creative populate is an explicit operator action that
-     *  should see everything the server has loaded. */
+     *  Populate uses [AlmanacData.addEntryTrusted], not the [AlmanacData.addVisited] gate, so the
+     *  hidden Ygann's Abyss entry gets recorded too. */
     override fun use(
         level: Level, player: Player, hand: InteractionHand
     ): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
-        if (!level.isClientSide && player.isCreative) {
-            val server = level.server
-            if (server != null) {
-                var added = 0
-                for (lvl in server.allLevels) {
-                    if (AlmanacData.addEntryTrusted(stack, lvl.dimension().location())) added++
-                }
-                player.displayClientMessage(
-                    Component.translatable("message.enderkinesis.almanac.populated", added), true
-                )
-            }
+        if (player.isCreative && !AlmanacData.isCreativePopulated(stack)) {
+            if (!level.isClientSide) populate(level, player, stack)
+        } else if (level.isClientSide) {
+            // Null skin: same view as a vanilla lectern.
+            OldPaperClient.open(writtenBook(stack), skin = null)
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide)
+    }
+
+    private fun populate(level: Level, player: Player, stack: ItemStack) {
+        val server = level.server ?: return
+        var added = 0
+        for (lvl in server.allLevels) {
+            if (AlmanacData.addEntryTrusted(stack, lvl.dimension().location())) added++
+        }
+        AlmanacData.markCreativePopulated(stack)
+        player.displayClientMessage(
+            Component.translatable("message.enderkinesis.almanac.populated", added), true
+        )
     }
 
     override fun inventoryTick(

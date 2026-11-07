@@ -13,6 +13,7 @@ import net.minecraft.world.item.ItemStack
 object AlmanacData {
     private const val VISITED = "VisitedDimensions"
     private const val SELECTED = "SelectedIndex"
+    private const val CREATIVE_POPULATED = "CreativePopulated"
 
     fun visited(stack: ItemStack): List<ResourceLocation> {
         val tag = stack.tag ?: return emptyList()
@@ -43,6 +44,12 @@ object AlmanacData {
         list.add(StringTag.valueOf(id))
         tag.put(VISITED, list)
         return true
+    }
+
+    fun isCreativePopulated(stack: ItemStack): Boolean = stack.tag?.getBoolean(CREATIVE_POPULATED) == true
+
+    fun markCreativePopulated(stack: ItemStack) {
+        stack.orCreateTag.putBoolean(CREATIVE_POPULATED, true)
     }
 
     fun selectedIndex(stack: ItemStack): Int = stack.tag?.getInt(SELECTED) ?: 0
