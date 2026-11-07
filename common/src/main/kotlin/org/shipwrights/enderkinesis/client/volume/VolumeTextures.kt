@@ -25,11 +25,21 @@ object VolumeTextures {
         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, null as ByteBuffer?)
     }
 
-    fun uploadR8(tex: Int, x: Int, y: Int, width: Int, height: Int, data: ByteBuffer) {
+    /**
+     * Uploads the [width] x [height] rectangle at ([x], [y]) of [data], a full image [rowLength] texels wide,
+     * to the same place in [tex]. Leaves the unpack state at the GL defaults.
+     */
+    @Suppress("LongParameterList") // Mirrors glTexSubImage2D.
+    fun uploadR8Region(tex: Int, x: Int, y: Int, width: Int, height: Int, rowLength: Int, data: ByteBuffer) {
         GlStateManager._bindTexture(tex)
         resetUnpack()
+        GlStateManager._pixelStore(GL11.GL_UNPACK_ROW_LENGTH, rowLength)
+        GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, x)
+        GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, y)
         data.rewind()
         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, x, y, width, height, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
+        resetUnpack()
+        GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, DEFAULT_UNPACK_ALIGNMENT)
     }
 
     /** Allocates an R8 3D texture with repeat wrap and no mips. [bind3D] it by hand: EffectInstance binds samplers as 2D. */
@@ -65,6 +75,8 @@ object VolumeTextures {
         GL11.glBindTexture(GL12.GL_TEXTURE_3D, tex)
         GlStateManager._activeTexture(GL13.GL_TEXTURE0)
     }
+
+    private const val DEFAULT_UNPACK_ALIGNMENT = 4
 
     // NativeImage uploads leave unpack state set; a stale row length would shear an upload.
     private fun resetUnpack() {

@@ -19,6 +19,7 @@ import org.shipwrights.enderkinesis.client.OrbBeamLineRenderType;
 import org.shipwrights.enderkinesis.client.OrbLinkVolume;
 import org.shipwrights.enderkinesis.client.BlackSunVolume;
 import org.shipwrights.enderkinesis.client.GasFieldClient;
+import org.shipwrights.enderkinesis.client.GpuPassTimers;
 import org.shipwrights.enderkinesis.client.SpellCloakVolume;
 import org.shipwrights.enderkinesis.client.SpellCubeFx;
 import org.shipwrights.enderkinesis.client.StillpointGlowVolume;
@@ -145,25 +146,43 @@ public abstract class LevelRendererBubblePassMixin {
         SpellCubeFx.captureView(poseStack, projectionMatrix, camera);
 
         // Before the fog, like the orb links.
+        GpuPassTimers.begin(GpuPassTimers.SSELITH_ECLIPSE_GLOW);
         SselithEclipseGlow.render(poseStack, projectionMatrix, camera, partialTick);
+        GpuPassTimers.end(GpuPassTimers.SSELITH_ECLIPSE_GLOW);
         WillfaerFlameVolume.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.begin(GpuPassTimers.WOHLON_PORTAL);
         WohlonPortalVisuals.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.WOHLON_PORTAL);
+        GpuPassTimers.begin(GpuPassTimers.WOHLON_RITUAL_TENDRILS);
         WohlonRitualTendrils.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.WOHLON_RITUAL_TENDRILS);
+        GpuPassTimers.begin(GpuPassTimers.WOHLON_RITE_PEDESTAL);
         WohlonRitePedestalVisuals.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.WOHLON_RITE_PEDESTAL);
         WohlonStaffGhost.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.begin(GpuPassTimers.HEART_OF_THE_WILD_TENDRILS);
         HeartOfTheWildTendrils.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.HEART_OF_THE_WILD_TENDRILS);
         GrandStaffClient.render(poseStack, projectionMatrix, camera);
         GrandStaffDreadClient.render(poseStack, projectionMatrix, camera);
         GrandStaffDecayClient.render(poseStack, projectionMatrix, camera);
         // The dome goes after the water murk, and the upwelling's mist over the dome.
+        GpuPassTimers.begin(GpuPassTimers.FOUNTAIN_OF_BLESSING);
         FountainOfBlessingDome.render(poseStack, camera);
         FountainOfBlessingVolume.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.FOUNTAIN_OF_BLESSING);
         WeatheringFog.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.begin(GpuPassTimers.WOHLON_TREE_GHOST);
         WohlonTreeGhost.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.WOHLON_TREE_GHOST);
+        GpuPassTimers.begin(GpuPassTimers.WOHLON_FOG_WISPS);
         WohlonFogWisps.render(poseStack, projectionMatrix, camera);
+        GpuPassTimers.end(GpuPassTimers.WOHLON_FOG_WISPS);
 
         // World-space fog goes under the screen-space overlays below.
+        GpuPassTimers.begin(GpuPassTimers.SSELITH_VOID_FOG);
         SselithVoidFog.render(poseStack, projectionMatrix, camera, partialTick);
+        GpuPassTimers.end(GpuPassTimers.SSELITH_VOID_FOG);
 
         // Each renderRefraction call is a no-op when its effect isn't active.
         // Order: concealment first so scrying/tome-summon see the refracted
