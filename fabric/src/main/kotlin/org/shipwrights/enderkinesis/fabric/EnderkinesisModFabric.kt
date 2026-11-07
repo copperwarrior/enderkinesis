@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.biome.v1.BiomeModifications
 import net.fabricmc.fabric.api.biome.v1.BiomeSelectors
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceKey
+import net.minecraft.tags.BiomeTags
 import net.minecraft.tags.TagKey
 import net.minecraft.world.level.biome.Biome
 import net.minecraft.world.level.levelgen.GenerationStep
@@ -38,7 +39,7 @@ val canSpawnIn: TagKey<Biome> = TagKey.create(
             geode
         )
         BiomeModifications.addFeature(
-            BiomeSelectors.foundInOverworld(),
+            BiomeSelectors.tag(BiomeTags.IS_OVERWORLD),
             GenerationStep.Decoration.UNDERGROUND_ORES,
             ResourceKey.create(Registries.PLACED_FEATURE, EnderkinesisMod.id("mundane_ore"))
         )
