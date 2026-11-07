@@ -887,6 +887,10 @@ object EKSounds {
     val SILVERPOINT_SKETCH: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.silverpoint.sketch")
     val SILVERPOINT_TAKE: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.silverpoint.take")
     val SILVERPOINT_NOTE: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.silverpoint.note")
+    val MUNDANE_STONE_CHOKE: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.mundane_stone.choke")
+    val MUNDANE_STONE_SWALLOW: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.mundane_stone.swallow")
+    val MUNDANE_STONE_STIR: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.mundane_stone.stir")
+    val MUNDANE_STONE_HATCH: RegistrySupplier<SoundEvent> = ambient("item.enderkinesis.mundane_stone.hatch")
 
     val ENDER_ASTROLABE_STEP: SoundEvent = eager("block.ender_astrolabe.step")
     val ENDER_ASTROLABE_PLACE: SoundEvent = eager("block.ender_astrolabe.place")

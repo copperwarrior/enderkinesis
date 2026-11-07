@@ -15,6 +15,7 @@ import net.minecraft.network.protocol.game.ClientboundHurtAnimationPacket
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
@@ -24,6 +25,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.dimension.Sureibjin
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.ElementalEnvironment
 import java.util.UUID
@@ -35,8 +37,18 @@ object MundaneIncubation {
     private const val STEP_TICKS = 20
     private const val SECOND_TICKS = 20
     private const val FUSION_SHARDS = 7
+    private const val STIR_MIN_TICKS = 20 * 60
+    private const val STIR_MAX_TICKS = 20 * 120
+    private const val STIR_VOLUME_MIN = 0.4f
+    private const val STIR_VOLUME_MAX = 1f
+    private const val UNSCHEDULED = Int.MIN_VALUE
 
-    private class Incubation(var remaining: Int, val points: FloatArray = FloatArray(Element.entries.size))
+    // stirAt is a remaining-ticks mark. It is not saved: after a load, the next stir is scheduled again.
+    private class Incubation(
+        var remaining: Int,
+        val points: FloatArray = FloatArray(Element.entries.size),
+        var stirAt: Int = UNSCHEDULED,
+    )
 
     private class Data : SavedData() {
         val byPlayer = HashMap<UUID, Incubation>()
@@ -106,7 +118,7 @@ object MundaneIncubation {
             for (player in server.playerList.players) {
                 if (!player.isAlive || dreaming(player)) continue
                 val incubation = data.byPlayer[player.uuid] ?: continue
-                advance(data, player, incubation, 1)
+                advance(data, player, incubation, 1, playStir = true)
             }
         })
         PlayerEvent.PLAYER_JOIN.register { player ->
@@ -116,7 +128,7 @@ object MundaneIncubation {
     }
 
     // Each step adds the current place and state once, so a skip counts as that time spent here.
-    private fun advance(data: Data, player: ServerPlayer, incubation: Incubation, steps: Int): Int {
+    private fun advance(data: Data, player: ServerPlayer, incubation: Incubation, steps: Int, playStir: Boolean): Int {
         val counted = minOf(steps, (incubation.remaining + STEP_TICKS - 1) / STEP_TICKS)
         for ((element, value) in ElementalEnvironment.of(player.serverLevel(), player)) {
             incubation.points[element.ordinal] += value * counted
@@ -127,9 +139,21 @@ object MundaneIncubation {
             hatch(player, incubation)
         } else {
             mark(player, incubation)
+            stir(player, incubation, playStir)
         }
         data.setDirty()
         return counted
+    }
+
+    // A skip only schedules the next stir, so it does not play a burst of them.
+    private fun stir(player: ServerPlayer, incubation: Incubation, play: Boolean) {
+        if (incubation.stirAt != UNSCHEDULED && incubation.remaining > incubation.stirAt) return
+        if (play && incubation.stirAt != UNSCHEDULED) {
+            val progress = 1f - incubation.remaining.toFloat() / INCUBATION_TICKS
+            val volume = STIR_VOLUME_MIN + (STIR_VOLUME_MAX - STIR_VOLUME_MIN) * progress
+            player.playNotifySound(EKSounds.MUNDANE_STONE_STIR.get(), SoundSource.PLAYERS, volume, 1f)
+        }
+        incubation.stirAt = incubation.remaining - (STIR_MIN_TICKS + player.random.nextInt(STIR_MAX_TICKS - STIR_MIN_TICKS + 1))
     }
 
     /** `/enderkinesis incubation skip`: the seconds counted, or 0 when no stone incubates in a living, awake [player]. */
@@ -138,7 +162,7 @@ object MundaneIncubation {
         if (!player.isAlive || dreaming(player)) return 0
         val data = data(player.server)
         val incubation = data.byPlayer[player.uuid] ?: return 0
-        val counted = advance(data, player, incubation, seconds * SECOND_TICKS / STEP_TICKS)
+        val counted = advance(data, player, incubation, seconds * SECOND_TICKS / STEP_TICKS, playStir = false)
         return counted * STEP_TICKS / SECOND_TICKS
     }
 
@@ -211,6 +235,7 @@ object MundaneIncubation {
         level.sendParticles(DustParticleOptions(BLOOD, 1.4f), x, y, z, 40, 0.3, 0.35, 0.3, 0.0)
         // The hurt shake and red flash, with no damage and no hurt sound.
         level.chunkSource.broadcastAndSend(player, ClientboundHurtAnimationPacket(player))
+        level.playSound(null, x, y, z, EKSounds.MUNDANE_STONE_HATCH.get(), SoundSource.PLAYERS, 1f, 1f)
         player.removeEffect(EKEffects.INCUBATION.get())
         send(player, null)
         for (stack in hatchItems(player, hatchElement(incubation.points))) {

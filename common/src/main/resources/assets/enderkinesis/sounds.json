@@ -4961,6 +4961,41 @@
       "enderkinesis:item/silverpoint/note3"
     ]
   },
+  "item.enderkinesis.mundane_stone.choke": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.mundane_stone.choke",
+    "sounds": [
+      "enderkinesis:item/mundane_stone/choke1",
+      "enderkinesis:item/mundane_stone/choke2",
+      "enderkinesis:item/mundane_stone/choke3"
+    ]
+  },
+  "item.enderkinesis.mundane_stone.swallow": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.mundane_stone.swallow",
+    "sounds": [
+      "enderkinesis:item/mundane_stone/swallow1",
+      "enderkinesis:item/mundane_stone/swallow2"
+    ]
+  },
+  "item.enderkinesis.mundane_stone.stir": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.mundane_stone.stir",
+    "sounds": [
+      "enderkinesis:item/mundane_stone/stir1",
+      "enderkinesis:item/mundane_stone/stir2",
+      "enderkinesis:item/mundane_stone/stir3",
+      "enderkinesis:item/mundane_stone/stir4"
+    ]
+  },
+  "item.enderkinesis.mundane_stone.hatch": {
+    "category": "player",
+    "subtitle": "subtitles.item.enderkinesis.mundane_stone.hatch",
+    "sounds": [
+      "enderkinesis:item/mundane_stone/hatch1",
+      "enderkinesis:item/mundane_stone/hatch2"
+    ]
+  },
   "block.shulker_strut.open": {
     "category": "block",
     "sounds": [

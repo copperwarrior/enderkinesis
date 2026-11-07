@@ -178,6 +178,7 @@ object EnderkinesisModClient {
         ConcealmentNetworkClient.init()
         FramedSketches.init()
         SilverpointView.init()
+        MundaneStoneSounds.init()
         SketchPictures.init()
         org.shipwrights.enderkinesis.item.UlderScrollItem.clientUsed = { player, use, hand ->
             SpellHand.startUse(player, SpellHand.Use.valueOf(use.name), hand)
