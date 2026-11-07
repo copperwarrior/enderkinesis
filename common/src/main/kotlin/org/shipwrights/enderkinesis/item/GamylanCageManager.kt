@@ -6,6 +6,7 @@ import dev.architectury.event.events.common.InteractionEvent
 import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
+import net.minecraft.core.SectionPos
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
@@ -95,6 +96,9 @@ object GamylanCageManager {
      *  restart. 200 ticks (~10s) is well past the point VS reports
      *  ready in practice. */
     private const val STALE_SWEEP_GRACE_TICKS: Long = 200L
+
+    /** Ticks a chunk stays loaded before its terrain counts as in physics. */
+    private const val TERRAIN_SETTLE_TICKS: Long = 20L
 
     /** Per-dimension deadline: at [gameTime] we sweep once, then clear
      *  the entry. Populated by SERVER_LEVEL_LOAD, consumed by the
@@ -192,6 +196,7 @@ object GamylanCageManager {
                     data.fadeComplete = true
                     dirty = true
                 }
+                updateTerrainReady(level, data, now)
                 // HP regen: one damage-stage per HP_REGEN_STAGE_INTERVAL_TICKS
                 // of quiet. `lastDamageTick` doubles as the regen timer —
                 // bumping it forward by the interval on each stage restore
@@ -488,6 +493,23 @@ object GamylanCageManager {
         GamylanCagePersistence.markDirty(level)
         GamylanCageNetwork.broadcastHp(level, bodyId, data.hp)
         if (data.hp <= 0) breakCage(level, data)
+    }
+
+    private fun updateTerrainReady(level: ServerLevel, data: GamylanCageData, now: Long) {
+        val pos = level.shipObjectWorld.allBodies.getById(data.bodyId)?.kinematics?.position ?: return
+        val loaded = level.hasChunk(
+            SectionPos.blockToSectionCoord(pos.x()),
+            SectionPos.blockToSectionCoord(pos.z()),
+        )
+        when {
+            !loaded -> {
+                data.terrainReady = false
+                data.terrainLoadedAt = -1L
+            }
+            data.terrainReady -> {}
+            data.terrainLoadedAt < 0L -> data.terrainLoadedAt = now
+            now - data.terrainLoadedAt >= TERRAIN_SETTLE_TICKS -> data.terrainReady = true
+        }
     }
 
     /** Look up the cage's current VS body position. Returns null if

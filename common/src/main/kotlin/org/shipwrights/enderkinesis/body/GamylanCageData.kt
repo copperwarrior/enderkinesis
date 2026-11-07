@@ -88,6 +88,11 @@ data class GamylanCageData(
      *  by the per-tick regen check, which resets [hp] to [maxHp] once
      *  enough ticks pass without further damage. */
     @Volatile var lastDamageTick: Long = -1L,
+    /** False while the ground under the body may be absent from physics. VS2 restores standalone bodies
+     *  on the first tick, before their chunks load, so a restored cage starts false. */
+    @Volatile var terrainReady: Boolean = true,
+    /** Server-thread only. Game time the cage's chunk was first seen loaded, or -1. */
+    var terrainLoadedAt: Long = -1L,
     /** Captured target was a player — UUID for the client to look up
      *  the GameProfile (skin / cape). Null for non-player captures.
      *  When set, the client builds a `RemotePlayer` ghost rather than

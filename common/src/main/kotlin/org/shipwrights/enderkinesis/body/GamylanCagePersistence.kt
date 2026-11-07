@@ -102,6 +102,7 @@ class GamylanCagePersistence : SavedData() {
                 fadeEndGameTime = t.getLong("fadeEnd"),
                 fadeComplete = t.getBoolean("fadeDone"),
                 lastDamageTick = t.getLong("lastDmg"),
+                terrainReady = false,
                 playerProfileUuid = uuid,
                 playerName = name,
                 playerCustomizationByte = t.getByte("custom"),

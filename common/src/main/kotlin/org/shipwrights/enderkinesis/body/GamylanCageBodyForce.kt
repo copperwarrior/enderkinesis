@@ -163,6 +163,12 @@ object GamylanCageBodyForce {
                         force.y += mass * (LOCK_SPRING_K * (data.hoverPos.y - pos.y()) - LOCK_DAMPING * vel.y())
                         force.z += mass * (LOCK_SPRING_K * (data.hoverPos.z - pos.z()) - LOCK_DAMPING * vel.z())
                     }
+                    !data.terrainReady -> {
+                        force.set(0.0, mass * GRAVITY, 0.0)
+                        force.x -= mass * LOCK_DAMPING * vel.x()
+                        force.y -= mass * LOCK_DAMPING * vel.y()
+                        force.z -= mass * LOCK_DAMPING * vel.z()
+                    }
                     else -> return@forEachInVsDim   // free fall
                 }
 
