@@ -16,6 +16,7 @@ import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.client.CatalogerTomeWorldRenderer
+import org.shipwrights.enderkinesis.client.CrownUntestedArmorRenderer
 import org.shipwrights.enderkinesis.client.EnderkinesisModClient
 import org.shipwrights.enderkinesis.client.OrbBeamLineRenderer
 import org.shipwrights.enderkinesis.client.SselithDimensionEffects
@@ -161,6 +162,12 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             EKItems.BLUE_WITCH_ROBES.get(),
             EKItems.BLUE_WITCH_ROBE_BOTTOMS.get(),
             EKItems.BLUE_WITCH_SANDALS.get(),
+        )
+        ArmorRenderer.register(
+            { matrices, consumers, stack, _, slot, light, model ->
+                CrownUntestedArmorRenderer.INSTANCE.render(matrices, consumers, stack, slot, light, model)
+            },
+            EKItems.CROWN_UNTESTED.get(),
         )
 
         // Register the custom Sselith DimensionSpecialEffects. The dimension_type
