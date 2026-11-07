@@ -14,8 +14,8 @@ import org.shipwrights.enderkinesis.fabric.compat.trinkets.TrinketsCompat
 /**
  * Fabric-side initializer. Common content is registered through Architectury in
  * [EnderkinesisMod.init]; here we inject the crepusculite geode into every biome in the
- * `enderkinesis:geode_can_spawn_in` tag (Forge does the same via `data/forge/biome_modifier/`,
- * which references the same tag).
+ * `enderkinesis:geode_can_spawn_in` tag (Forge does the same via
+ * `data/enderkinesis/forge/biome_modifier/`, which references the same tag).
  */
 class EnderkinesisModFabric : ModInitializer {
     override fun onInitialize() {

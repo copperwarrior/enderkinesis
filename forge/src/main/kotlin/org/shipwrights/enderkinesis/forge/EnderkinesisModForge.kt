@@ -12,7 +12,7 @@ import org.shipwrights.enderkinesis.forge.compat.curios.CuriosCompat
 /**
  * Forge-side entrypoint. All content is registered through Architectury in [EnderkinesisMod.init];
  * the crepusculite geode is injected into the Small End Islands biome via
- * `data/forge/biome_modifier/`, so no Forge-side worldgen code is needed.
+ * `data/enderkinesis/forge/biome_modifier/`, so no Forge-side worldgen code is needed.
  */
 @Mod(EnderkinesisMod.MOD_ID)
 class EnderkinesisModForge {

@@ -4,7 +4,6 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.BlockEvent
-import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
@@ -26,6 +25,7 @@ import net.minecraft.world.level.block.CropBlock
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.tags.TagKey
+import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
@@ -122,7 +122,16 @@ object ElementalEnvironment {
         if (level.isRaining || level.isThundering || !level.canSeeSky(pos)) return false
         // Sselith has a fixed time, so isDay is always false there.
         if (level.dimension() == SselithRepertory.LEVEL_KEY) return true
-        return level.isDay && !SunErasure.erased(level)
+        return isDay(level) && !SunErasure.erased(level)
+    }
+
+    // Level.isDay reads skyDarken, which ClientLevel sets only in its constructor; this is updateSkyBrightness's sum.
+    private fun isDay(level: Level): Boolean {
+        if (level.dimensionType().hasFixedTime()) return false
+        val rain = 1.0 - (level.getRainLevel(1f) * WEATHER_DIM) / WEATHER_DIM_DIVISOR
+        val thunder = 1.0 - (level.getThunderLevel(1f) * WEATHER_DIM) / WEATHER_DIM_DIVISOR
+        val sun = 0.5 + 2.0 * Mth.clamp(Mth.cos(level.getTimeOfDay(1f) * Mth.TWO_PI).toDouble(), -0.25, 0.25)
+        return ((1.0 - sun * rain * thunder) * SKY_DARKEN_RANGE).toInt() < DAY_SKY_DARKEN
     }
 
     // Vanilla oceans and rivers have an ordinary downfall of 0.5.
@@ -160,6 +169,10 @@ object ElementalEnvironment {
     // What one element source gives. CHARGE_THRESHOLD is lower, so one source recharges scrolls.
     private const val SOURCE = 0.5f
     private const val WET_DOWNFALL = 0.9f
+    private const val WEATHER_DIM = 5f
+    private const val WEATHER_DIM_DIVISOR = 16.0
+    private const val SKY_DARKEN_RANGE = 11.0
+    private const val DAY_SKY_DARKEN = 4
     private const val FREE_FALL = 3f
     private const val DEED_TICKS = 200L
     private const val NEVER = Long.MIN_VALUE / 2
@@ -198,7 +211,8 @@ object ElementalEnvironment {
         if (entity.level() != to || entity.distanceToSqr(x, y, z) >= TELEPORT_MIN_SQR) deed(entity, Element.CHAOS)
     }
 
-    private fun onHurt(entity: LivingEntity, source: DamageSource) {
+    @JvmStatic
+    fun damaged(entity: LivingEntity, source: DamageSource) {
         deed(entity, Element.BLOOD)
         if (source.`is`(DamageTypeTags.IS_FALL)) deed(entity, Element.GRAVITY)
         if (source.`is`(EKDamageSources.ROT_KEY) || (source.`is`(DamageTypes.MAGIC) && entity.hasEffect(MobEffects.POISON))) {
@@ -256,10 +270,6 @@ object ElementalEnvironment {
             if (server.tickCount % RECHARGE_TICKS != 0) return@Server
             for (player in server.playerList.players) rechargeCarried(player)
         })
-        EntityEvent.LIVING_HURT.register { entity, source, amount ->
-            if (!entity.level().isClientSide && amount > 0f) onHurt(entity, source)
-            EventResult.pass()
-        }
         BlockEvent.BREAK.register { _, _, state, player, _ ->
             val block = state.block
             if (block is CropBlock && block.isMaxAge(state)) deed(player, Element.GENESIS)

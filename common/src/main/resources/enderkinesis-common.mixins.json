@@ -303,7 +303,9 @@
     "LevelSunErasureMixin",
     "EntityWeheloReturnCleanupMixin",
     "ItemUseElementSourceMixin",
-    "EntityTeleportElementSourceMixin"
+    "EntityTeleportElementSourceMixin",
+    "LivingEntityHurtElementSourceMixin",
+    "ServerPlayerMundaneDeathMixin"
   ],
   "injectors": {
     "defaultRequire": 1

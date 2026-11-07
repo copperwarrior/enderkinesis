@@ -1,7 +1,5 @@
 package org.shipwrights.enderkinesis.item
 
-import dev.architectury.event.EventResult
-import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
@@ -112,10 +110,6 @@ object MundaneIncubation {
                 data.setDirty()
             }
         })
-        EntityEvent.LIVING_DEATH.register { entity, _ ->
-            if (entity is ServerPlayer) onDeath(entity)
-            EventResult.pass()
-        }
         PlayerEvent.PLAYER_JOIN.register { player ->
             val incubation = data(player.server).byPlayer[player.uuid]
             if (incubation != null) mark(player, incubation) else send(player, null)
@@ -123,7 +117,8 @@ object MundaneIncubation {
     }
 
     // Before the inventory drops, so the stone drops with it, or stays with keepInventory.
-    private fun onDeath(player: ServerPlayer) {
+    @JvmStatic
+    fun onDeath(player: ServerPlayer) {
         if (dreaming(player)) return
         val data = data(player.server)
         data.byPlayer.remove(player.uuid) ?: return
