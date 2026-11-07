@@ -704,8 +704,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
 
     private fun isDeviceGone(server: ServerLevel, entry: StaffOfCommandItem.Companion.Entry): Boolean {
         val state = server.getBlockState(entry.pos)
-        val id = entry.blockId ?: return state.isAir
-        return net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.block) != id
+        return net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.block) != entry.blockId
     }
 
     private fun commandNextBlock(server: ServerLevel) {
@@ -713,7 +712,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         commanded.removeAll { it.dim == dim && LoadedRay.blockLoaded(server, it.pos) && isDeviceGone(server, it) }
         val blocks = commanded.filter {
             it.dim == dim && LoadedRay.blockLoaded(server, it.pos) &&
-                orderForKey(it.blockId?.toString())?.hasTarget() == true
+                orderForKey(it.blockId.toString())?.hasTarget() == true
         }
         // An entity that does not resolve can be in an unloaded chunk, so it stays in the list.
         val minions = commandedEntities.filter {
@@ -726,7 +725,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         fireSequence = (fireSequence + 1) % total.coerceAtLeast(1)
         if (pick < blocks.size) {
             val entry = blocks[pick]
-            val order = orderForKey(entry.blockId?.toString()) ?: return
+            val order = orderForKey(entry.blockId.toString()) ?: return
             val aim = currentAim(server, order) ?: return
             val watch = order.verb == VERB_WATCH
             val ship = server.getLoadedShipManagingPos(entry.pos)
@@ -896,7 +895,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
             val c = CompoundTag()
             c.putLong(StaffOfCommandItem.POS_TAG, e.pos.asLong())
             c.putString(StaffOfCommandItem.DIM_TAG, e.dim.toString())
-            e.blockId?.let { c.putString(StaffOfCommandItem.BLOCK_TAG, it.toString()) }
+            c.putString(StaffOfCommandItem.BLOCK_TAG, e.blockId.toString())
             list.add(c)
         }
         tag.put(NBT_BLOCKS, list)
@@ -951,11 +950,13 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         for (i in 0 until list.size) {
             val c = list.getCompound(i)
             val dim = ResourceLocation.tryParse(c.getString(StaffOfCommandItem.DIM_TAG)) ?: continue
+            if (!c.contains(StaffOfCommandItem.BLOCK_TAG, Tag.TAG_STRING.toInt())) continue
+            val blockId = ResourceLocation.tryParse(c.getString(StaffOfCommandItem.BLOCK_TAG)) ?: continue
             commanded.add(
                 StaffOfCommandItem.Companion.Entry(
                     net.minecraft.core.BlockPos.of(c.getLong(StaffOfCommandItem.POS_TAG)),
                     dim,
-                    ResourceLocation.tryParse(c.getString(StaffOfCommandItem.BLOCK_TAG)),
+                    blockId,
                 ),
             )
         }
@@ -965,12 +966,10 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
             val c = entityList.getCompound(i)
             if (!c.hasUUID(StaffOfCommandItem.UUID_TAG)) continue
             val dim = ResourceLocation.tryParse(c.getString(StaffOfCommandItem.DIM_TAG)) ?: continue
+            if (!c.contains(StaffOfCommandItem.TYPE_TAG, Tag.TAG_STRING.toInt())) continue
+            val typeId = ResourceLocation.tryParse(c.getString(StaffOfCommandItem.TYPE_TAG)) ?: continue
             commandedEntities.add(
-                StaffOfCommandItem.Companion.EntityEntry(
-                    c.getUUID(StaffOfCommandItem.UUID_TAG), dim,
-                    ResourceLocation.tryParse(c.getString(StaffOfCommandItem.TYPE_TAG))
-                        ?: StaffOfCommandItem.CONSTRILIAR_ID,
-                ),
+                StaffOfCommandItem.Companion.EntityEntry(c.getUUID(StaffOfCommandItem.UUID_TAG), dim, typeId),
             )
         }
     }

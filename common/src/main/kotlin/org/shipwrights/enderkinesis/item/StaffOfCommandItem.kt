@@ -211,8 +211,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             "${org.shipwrights.enderkinesis.EnderkinesisMod.MOD_ID}:ender_astrolabe",
         )
 
-        /** Entity id of the constriliar — the wheel key its entries group
-         *  under, and the migration default for pre-[TYPE_TAG] entries. */
+        /** Entity id of the constriliar — the wheel key its entries group under. */
         val CONSTRILIAR_ID: ResourceLocation =
             ResourceLocation(org.shipwrights.enderkinesis.EnderkinesisMod.MOD_ID,
                 org.shipwrights.enderkinesis.entity.ConstriliarEntity.ID_PATH)
@@ -224,7 +223,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
         fun availableKeys(stack: ItemStack): List<String> {
             val keys = ArrayList<String>()
             for (entry in readEntries(stack)) {
-                val key = entry.blockId?.toString() ?: continue
+                val key = entry.blockId.toString()
                 if (key !in keys) keys.add(key)
             }
             for (entry in readEntityEntries(stack)) {
@@ -290,7 +289,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             val serverLevel = level as? ServerLevel
             var fired = 0
             for (entry in readEntries(stack)) {
-                if (entry.blockId?.toString() != selectedKey) continue      // other family
+                if (entry.blockId.toString() != selectedKey) continue      // other family
                 if (entry.dim != currentDim) continue                       // other dimension
                 val ship = level.getLoadedShipManagingPos(entry.pos)
                 if (!isReachable(player, level, entry.pos, ship)) continue  // out of range
@@ -376,14 +375,10 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
         }
 
         /** [blockId] is stamped at add-time so the wheel (client) and the type
-         *  filter can group entries without loading the target chunk. Null only
-         *  for entries written before the tag existed — those never match a
-         *  wheel slot; re-add the block to migrate. */
-        data class Entry(val pos: BlockPos, val dim: ResourceLocation, val blockId: ResourceLocation?)
+         *  filter can group entries without loading the target chunk. */
+        data class Entry(val pos: BlockPos, val dim: ResourceLocation, val blockId: ResourceLocation)
 
-        /** [typeId] follows the same at-add-time stamping as [Entry.blockId].
-         *  Entries from before the tag existed default to the constriliar id —
-         *  they were the only commandable entity back then. */
+        /** [typeId] follows the same at-add-time stamping as [Entry.blockId]. */
         data class EntityEntry(val uuid: java.util.UUID, val dim: ResourceLocation, val typeId: ResourceLocation)
 
         fun readEntityEntries(stack: ItemStack): List<EntityEntry> {
@@ -394,10 +389,9 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 val c = list.getCompound(i)
                 if (!c.hasUUID(UUID_TAG)) continue
                 val dim = ResourceLocation.tryParse(c.getString(DIM_TAG)) ?: continue
-                val typeId = if (c.contains(TYPE_TAG, Tag.TAG_STRING.toInt())) {
-                    ResourceLocation.tryParse(c.getString(TYPE_TAG))
-                } else null
-                out.add(EntityEntry(c.getUUID(UUID_TAG), dim, typeId ?: CONSTRILIAR_ID))
+                if (!c.contains(TYPE_TAG, Tag.TAG_STRING.toInt())) continue
+                val typeId = ResourceLocation.tryParse(c.getString(TYPE_TAG)) ?: continue
+                out.add(EntityEntry(c.getUUID(UUID_TAG), dim, typeId))
             }
             return out
         }
@@ -522,9 +516,8 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 val c = list.getCompound(i)
                 val pos = BlockPos.of(c.getLong(POS_TAG))
                 val dim = ResourceLocation.tryParse(c.getString(DIM_TAG)) ?: continue
-                val blockId = if (c.contains(BLOCK_TAG, Tag.TAG_STRING.toInt())) {
-                    ResourceLocation.tryParse(c.getString(BLOCK_TAG))
-                } else null
+                if (!c.contains(BLOCK_TAG, Tag.TAG_STRING.toInt())) continue
+                val blockId = ResourceLocation.tryParse(c.getString(BLOCK_TAG)) ?: continue
                 out.add(Entry(pos, dim, blockId))
             }
             return out
@@ -540,7 +533,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 val c = CompoundTag()
                 c.putLong(POS_TAG, e.pos.asLong())
                 c.putString(DIM_TAG, e.dim.toString())
-                e.blockId?.let { c.putString(BLOCK_TAG, it.toString()) }
+                c.putString(BLOCK_TAG, e.blockId.toString())
                 list.add(c)
             }
             tag.put(ENTRIES_TAG, list)
