@@ -38,8 +38,7 @@ object VolumeTextures {
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, y)
         data.rewind()
         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, x, y, width, height, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
-        resetUnpack()
-        GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, DEFAULT_UNPACK_ALIGNMENT)
+        restoreUnpackDefaults()
     }
 
     /** Allocates an R8 3D texture with repeat wrap and no mips. [bind3D] it by hand: EffectInstance binds samplers as 2D. */
@@ -65,8 +64,10 @@ object VolumeTextures {
         GL12.glTexSubImage3D(GL12.GL_TEXTURE_3D, 0, x, y, z, width, height, depth, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
     }
 
+    /** Unbinds the 3D texture and leaves the unpack state at the GL defaults. */
     fun endUpload3D() {
         GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0)
+        restoreUnpackDefaults()
     }
 
     /** Pass 0 for [tex] to unbind. GlStateManager tracks only 2D bindings, so this leaves its cache valid. */
@@ -86,5 +87,11 @@ object VolumeTextures {
         GlStateManager._pixelStore(GL12.GL_UNPACK_IMAGE_HEIGHT, 0)
         GlStateManager._pixelStore(GL12.GL_UNPACK_SKIP_IMAGES, 0)
         GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, 1)
+    }
+
+    // Sodium uploads its own textures and assumes the GL defaults.
+    private fun restoreUnpackDefaults() {
+        resetUnpack()
+        GlStateManager._pixelStore(GL11.GL_UNPACK_ALIGNMENT, DEFAULT_UNPACK_ALIGNMENT)
     }
 }
