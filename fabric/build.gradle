@@ -120,6 +120,8 @@ processResources {
     from(project(":common").layout.buildDirectory.dir("generated/sselith/resourcepacks")) {
         into "resourcepacks"
     }
+    // Same root rule: the loader finds fabric.mod.json's accessWidener only in this module's root.
+    from(project(":common").loom.accessWidenerPath)
     dependsOn project(":common").tasks.named("translateLangJson")
 }
 
@@ -128,8 +130,8 @@ shadowJar {
 
     configurations = [project.configurations.shadowCommon]
     archiveClassifier.set "dev-shadow"
-    // resourcepacks/sselith/ ends up in both this module's processResources output (dev mirror)
-    // and common's shaded jar; skip the duplicate so shadowJar merges cleanly.
+    // resourcepacks/sselith/ and the access widener end up in both this module's processResources
+    // output (dev mirror) and common's shaded jar; skip the duplicate so shadowJar merges cleanly.
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
