@@ -24,7 +24,7 @@ object WohlonRitualNetwork {
     const val SEND_RANGE: Double = 96.0
     private const val MAX_TIPS = 16
 
-    fun sendIgnite(level: ServerLevel, candlePos: BlockPos, sacrifice: Vec3) {
+    fun sendIgnite(level: ServerLevel, candlePos: BlockPos, sacrifice: Vec3, candles: List<BlockPos>) {
         for (player in level.players()) {
             if (!inRange(player.x, player.y, player.z, candlePos)) continue
             val buf = FriendlyByteBuf(Unpooled.buffer())
@@ -32,6 +32,8 @@ object WohlonRitualNetwork {
             buf.writeDouble(sacrifice.x)
             buf.writeDouble(sacrifice.y)
             buf.writeDouble(sacrifice.z)
+            buf.writeVarInt(candles.size)
+            candles.forEach { buf.writeLong(it.asLong()) }
             NetworkManager.sendToPlayer(player, S2C_IGNITE, buf)
         }
     }

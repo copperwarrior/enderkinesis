@@ -1,0 +1,25 @@
+{
+  "layout": "enderkinesis:rituals/thunder",
+  "center": {
+    "block": "minecraft:white_candle",
+    "properties": {
+      "candles": "1"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:light"
+  },
+  "conditions": [
+    {
+      "type": "enderkinesis:dimension",
+      "dimension": "minecraft:overworld"
+    }
+  ],
+  "offerings": [
+    "minecraft:prismarine_crystals"
+  ],
+  "effect": {
+    "type": "enderkinesis:set_weather",
+    "weather": "thunder"
+  }
+}

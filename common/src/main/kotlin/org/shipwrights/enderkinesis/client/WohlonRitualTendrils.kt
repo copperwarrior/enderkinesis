@@ -12,7 +12,6 @@ import org.joml.Matrix4f
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.WohlonRitualNetwork
 import org.shipwrights.enderkinesis.block.WohlonRitualTimeline
-import org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalRitual
 import org.shipwrights.enderkinesis.util.ClassWarmup
 
 /**
@@ -23,6 +22,7 @@ object WohlonRitualTendrils {
 
     private const val MAX_RITUALS = 4
     private const val MAX_TIPS = 16
+    private const val MAX_CANDLES = 64
 
     private const val RISE = WohlonRitualTimeline.RISE
     private const val RISE_STAGGER = WohlonRitualTimeline.RISE_STAGGER
@@ -47,12 +47,13 @@ object WohlonRitualTendrils {
 
     private class Tendril(val curve: TendrilCurve, val delay: Double)
 
-    private class Ritual(val candle: BlockPos, sacrifice: Vector3d, val igniteNanos: Long) {
+    private class Ritual(val candle: BlockPos, sacrifice: Vector3d, candles: List<BlockPos>, val igniteNanos: Long) {
         val heart = Vector3d(candle.x + 0.5, candle.y + HEART_Y, candle.z + 0.5)
         val frame = TendrilFrame(heart)
-        val rise: List<Tendril> = WohlonnogondoniaPortalRitual.PATTERN.mapIndexed { i, slot ->
-            riseTendril(Vector3d(candle.x + slot.dx + 0.5, candle.y + CANDLE_FLAME_Y, candle.z + slot.dz + 0.5), i)
-        } + riseTendril(sacrifice, WohlonnogondoniaPortalRitual.PATTERN.size)
+        val candleCount = candles.size
+        val rise: List<Tendril> = candles.mapIndexed { i, offset ->
+            riseTendril(Vector3d(candle.x + offset.x + 0.5, candle.y + offset.y + CANDLE_FLAME_Y, candle.z + offset.z + 0.5), i)
+        } + riseTendril(sacrifice, candles.size)
 
         private fun riseTendril(start: Vector3d, index: Int) =
             Tendril(TendrilCurve(start, riseControl(start, heart), Vector3d(heart)), index * RISE_STAGGER)
@@ -72,7 +73,8 @@ object WohlonRitualTendrils {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_IGNITE) { buf, _ ->
             val candle = BlockPos.of(buf.readLong())
             val sacrifice = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
-            Minecraft.getInstance().execute { onIgnite(candle, sacrifice) }
+            val candles = List(buf.readVarInt().coerceIn(0, MAX_CANDLES)) { BlockPos.of(buf.readLong()) }
+            Minecraft.getInstance().execute { onIgnite(candle, sacrifice, candles) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_ROOTS) { buf, _ ->
             val portal = BlockPos.of(buf.readLong())
@@ -85,9 +87,9 @@ object WohlonRitualTendrils {
 
     fun onDisconnect() = rituals.clear()
 
-    private fun onIgnite(candle: BlockPos, sacrifice: Vector3d) {
+    private fun onIgnite(candle: BlockPos, sacrifice: Vector3d, candles: List<BlockPos>) {
         if (rituals.size >= MAX_RITUALS) rituals.removeAt(0)
-        rituals.add(Ritual(candle.immutable(), sacrifice, System.nanoTime()))
+        rituals.add(Ritual(candle.immutable(), sacrifice, candles, System.nanoTime()))
     }
 
     private fun onRoots(portal: BlockPos, tips: LongArray) {
@@ -105,7 +107,7 @@ object WohlonRitualTendrils {
             )
             Tendril(curve, random.nextDouble() * SPREAD_STAGGER)
         }
-        ritual.spreadStart = WohlonRitualTimeline.spreadStart(ageSec(ritual))
+        ritual.spreadStart = WohlonRitualTimeline.spreadStart(ageSec(ritual), ritual.candleCount)
     }
 
     private fun ageSec(ritual: Ritual): Double = (System.nanoTime() - ritual.igniteNanos) * 1e-9

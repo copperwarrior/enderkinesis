@@ -613,7 +613,7 @@ object EKBlocks {
     }
 
     val ICHAERIC_INK_JAR: RegistrySupplier<Block> = BLOCKS.register("ichaeric_ink_jar") {
-        IchaericInkJarBlock(BlockBehaviour.Properties.copy(Blocks.GLASS).sound(EKSounds.ICHAERIC_INK_GLASS_SOUND_TYPE))
+        IchaericInkJarBlock(BlockBehaviour.Properties.copy(Blocks.GLASS).randomTicks().sound(EKSounds.ICHAERIC_INK_GLASS_SOUND_TYPE))
     }
 
     val INEGRIC_RETORT: RegistrySupplier<Block> = BLOCKS.register("inegric_retort") {

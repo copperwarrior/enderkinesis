@@ -19,6 +19,7 @@ import net.minecraft.world.item.context.UseOnContext
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.block.ScribesDeskNetwork
 import org.shipwrights.enderkinesis.client.BookshelfPageClient
+import org.shipwrights.enderkinesis.dimension.SselithChatTeleport
 import org.shipwrights.enderkinesis.dimension.SselithParallel
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKBlocks
@@ -27,6 +28,7 @@ import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.sselith.BookshelfPage
 import org.shipwrights.enderkinesis.sselith.SselithDustBurst
+import org.valkyrienskies.mod.api.isBlockInShipyard
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -100,13 +102,22 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
 
     /** Carry [player] to the location of [page]; false when no library holds the page. */
     private fun travel(player: ServerPlayer, page: String): Boolean {
+        val level = player.server.getLevel(SselithRepertory.LEVEL_KEY) ?: return false
         // A shelf's page has its own location; written text goes to a page that starts with it.
         val location = BookshelfPage.locations(page).firstOrNull()
-            ?: BookshelfPage.locationStartingWith(ScribesDeskNetwork.words(page), page.hashCode().toLong())
+            ?: BookshelfPage.locationStartingWith(ScribesDeskNetwork.words(page), page.hashCode().toLong()) {
+                !level.isBlockInShipyard(it.x, it.y, it.z)
+            }
             ?: return false
-        val level = player.server.getLevel(SselithRepertory.LEVEL_KEY) ?: return false
+        // The page mapping covers the VS2 shipyard; a full page there has no other location.
+        if (level.isBlockInShipyard(location.x, location.y, location.z)) {
+            player.displayClientMessage(Component.translatable(UNWITNESSED_KEY), true)
+            return false
+        }
         val target = BlockPos(location.x, location.y, location.z)
         val spot = standingSpot(level, target) ?: target
+        // Inside Sselith, keep the saved point: it leads back to the world the player came from.
+        if (player.level().dimension() != SselithRepertory.LEVEL_KEY) SselithChatTeleport.saveReturnPoint(player)
         SselithDustBurst.at(player.serverLevel(), player)
         playAt(player, EKSounds.EIDETIC_BOOKMARK_TRAVEL.get())
         player.teleportTo(level, spot.x + 0.5, spot.y.toDouble(), spot.z + 0.5, player.yRot, player.xRot)
@@ -144,6 +155,7 @@ class EideticBookmarkItem(properties: Properties) : Item(properties) {
 
     companion object {
         const val SAVED_KEY = "message.enderkinesis.eidetic_bookmark.saved"
+        private const val UNWITNESSED_KEY = "message.enderkinesis.eidetic_bookmark.unwitnessed"
 
         // Twice a bow's full draw.
         private const val CHARGE_TICKS = 40

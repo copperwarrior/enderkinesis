@@ -13,6 +13,8 @@ internal class WeheloPocketData : SavedData() {
     private val slots: MutableMap<UUID, Int> = mutableMapOf()
     private val returns: MutableMap<UUID, ReturnPoint> = mutableMapOf()
     private val furnished: MutableSet<Int> = mutableSetOf()
+    /** By pocket slot: the return point the last entity to leave that pocket went back to. */
+    private val lastLeft: MutableMap<Int, ReturnPoint> = mutableMapOf()
     private var nextSlot = 0
 
     fun slotOf(owner: UUID): Int? = slots[owner]
@@ -33,14 +35,21 @@ internal class WeheloPocketData : SavedData() {
         if (furnished.add(slot)) setDirty()
     }
 
-    fun setReturn(player: UUID, point: ReturnPoint) {
-        returns[player] = point
+    fun setReturn(entity: UUID, point: ReturnPoint) {
+        returns[entity] = point
         setDirty()
     }
 
-    fun peekReturn(player: UUID): ReturnPoint? = returns[player]
+    fun peekReturn(entity: UUID): ReturnPoint? = returns[entity]
 
-    fun takeReturn(player: UUID): ReturnPoint? = returns.remove(player)?.also { setDirty() }
+    fun takeReturn(entity: UUID): ReturnPoint? = returns.remove(entity)?.also { setDirty() }
+
+    fun lastLeft(slot: Int): ReturnPoint? = lastLeft[slot]
+
+    fun setLastLeft(slot: Int, point: ReturnPoint) {
+        lastLeft[slot] = point
+        setDirty()
+    }
 
     override fun save(tag: CompoundTag): CompoundTag {
         tag.putInt("Next", nextSlot)
@@ -60,6 +69,13 @@ internal class WeheloPocketData : SavedData() {
         }
         tag.put("Returns", returnList)
         tag.putIntArray("Furnished", furnished.toIntArray())
+        val lastList = ListTag()
+        for ((slot, point) in lastLeft) {
+            val entry = point.save(CompoundTag())
+            entry.putInt("Slot", slot)
+            lastList.add(entry)
+        }
+        tag.put("LastLeft", lastList)
         return tag
     }
 
@@ -80,6 +96,11 @@ internal class WeheloPocketData : SavedData() {
                 ReturnPoint.load(entry)?.let { data.returns[entry.getUUID("UUID")] = it }
             }
             tag.getIntArray("Furnished").forEach { data.furnished += it }
+            val lastList = tag.getList("LastLeft", Tag.TAG_COMPOUND.toInt())
+            for (i in 0 until lastList.size) {
+                val entry = lastList.getCompound(i)
+                ReturnPoint.load(entry)?.let { data.lastLeft[entry.getInt("Slot")] = it }
+            }
             return data
         }
 

@@ -15,6 +15,11 @@ uniform vec3 BoxMax;
 // 0..1 spawn/despawn fade, and 0..1 progress of the death burst.
 uniform float Fade;
 uniform float Burst;
+// 1 in a silverpoint sketch, which reads alpha as coverage; the world blend needs alpha 1.
+uniform float Coverage;
+// xyz is the view direction in local axes; w is 1 for an orthographic sketch, where all rays are parallel.
+uniform vec4 OrthoRay;
+uniform mat4 LocalToView;
 
 // Ease-out, so the burst throws out fast and then slows. WillfaerFlameVolume grows the box by the same curve.
 float spreadOf(float b) { return 1.0 - (1.0 - b) * (1.0 - b); }
@@ -129,18 +134,29 @@ vec3 motes(vec3 o, vec3 d, float far, float ticks) {
     return light;
 }
 
+float sceneNdc() { return texture(DepthSampler, gl_FragCoord.xy / ScreenSize).r * 2.0 - 1.0; }
+
 // Distance to the scene along the unit view ray [d], world axes. Clip w is view depth.
 float sceneDistance(vec3 d) {
-    float ndc = texture(DepthSampler, gl_FragCoord.xy / ScreenSize).r * 2.0 - 1.0;
-    return DepthParams.y / (ndc + DepthParams.x) / (ViewProj * vec4(d, 0.0)).w;
+    return DepthParams.y / (sceneNdc() + DepthParams.x) / (ViewProj * vec4(d, 0.0)).w;
+}
+
+// Orthographic: NDC depth is linear along the ray, so solve for the distance from [o] where it meets the scene.
+float sceneDistanceOrtho(vec3 o, vec3 d) {
+    vec4 a = ViewProj * LocalToView * vec4(o, 1.0);
+    vec4 b = ViewProj * LocalToView * vec4(o + d, 1.0);
+    return (sceneNdc() - a.z / a.w) / (b.z / b.w - a.z / a.w);
 }
 
 void main() {
     float ticks = SpellTicks;
-    vec3 d = normalize(localPos - CamLocal);
-    float scene = sceneDistance(d);
+    bool ortho = OrthoRay.w > 0.5;
+    vec3 d = ortho ? OrthoRay.xyz : normalize(localPos - CamLocal);
+    // An orthographic ray starts just outside the box, on the side toward the viewer.
+    vec3 o = ortho ? localPos - d * (2.0 * length(BoxMax)) : CamLocal;
+    float scene = ortho ? sceneDistanceOrtho(o, d) : sceneDistance(d);
     vec3 inv = 1.0 / d;
-    vec3 ta = (-BoxMax - CamLocal) * inv, tb = (BoxMax - CamLocal) * inv;
+    vec3 ta = (-BoxMax - o) * inv, tb = (BoxMax - o) * inv;
     vec3 lo = min(ta, tb), hi = max(ta, tb);
     float enter = max(max(max(lo.x, lo.y), lo.z), 0.0);
     float leave = min(min(min(hi.x, hi.y), hi.z), scene);
@@ -154,16 +170,16 @@ void main() {
     float k0 = stepLen / Radius;
     for (int i = 0; i < STEPS; i++) {
         vec3 col;
-        float k = fire((CamLocal + d * (enter + (float(i) + jitter) * stepLen)) / Radius, ticks, fl, col) * k0;
+        float k = fire((o + d * (enter + (float(i) + jitter) * stepLen)) / Radius, ticks, fl, col) * k0;
         light += col * k;
         amount += k;
     }
-    vec3 sparks = motes(CamLocal, d, scene, ticks);
+    vec3 sparks = motes(o, d, scene, ticks);
     float a = 1.0 - exp(-amount);
     vec3 col = amount > 1e-4 ? light / amount * a : vec3(0.0);
     col = (col + sparks) * Fade;
     float total = max(max(col.r, col.g), col.b);
     if (total < 0.004) discard;
     // Additive with alpha 1: the colour already carries the coverage.
-    fragColor = vec4(col, 1.0);
+    fragColor = vec4(col, Coverage > 0.5 ? min(total, 1.0) : 1.0);
 }

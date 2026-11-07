@@ -1,0 +1,30 @@
+{
+  "layout": "enderkinesis:rituals/staff",
+  "center": {
+    "block": "minecraft:light_blue_candle",
+    "properties": {
+      "candles": "4"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:light"
+  },
+  "conditions": [
+    {
+      "type": "enderkinesis:dimension",
+      "dimension": "enderkinesis:wohlonnogondonia"
+    }
+  ],
+  "effect": {
+    "type": "enderkinesis:staff",
+    "feed_candles": [
+      "minecraft:yellow_candle",
+      "minecraft:black_candle",
+      "minecraft:green_candle",
+      "minecraft:cyan_candle",
+      "minecraft:white_candle",
+      "minecraft:pink_candle",
+      "minecraft:red_candle"
+    ]
+  }
+}

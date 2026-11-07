@@ -1,0 +1,23 @@
+{
+  "layout": "enderkinesis:rituals/rolling_waters",
+  "center": {
+    "block": "minecraft:light_blue_candle",
+    "properties": {
+      "candles": "4"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:light"
+  },
+  "conditions": [
+    {
+      "type": "enderkinesis:raining"
+    }
+  ],
+  "offerings": [
+    "minecraft:heart_of_the_sea"
+  ],
+  "effect": {
+    "type": "enderkinesis:rolling_waters"
+  }
+}

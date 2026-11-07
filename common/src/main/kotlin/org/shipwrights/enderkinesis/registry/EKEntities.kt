@@ -16,6 +16,7 @@ import net.minecraft.world.level.levelgen.Heightmap
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
+import org.shipwrights.enderkinesis.entity.EauhorranaEntity
 import org.shipwrights.enderkinesis.entity.KekhekhEntity
 import org.shipwrights.enderkinesis.entity.MoskuoEntity
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
@@ -30,6 +31,7 @@ import org.shipwrights.enderkinesis.entity.SselithMothEntity
 import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
 import org.shipwrights.enderkinesis.entity.ShilleagkDeerEntity
 import org.shipwrights.enderkinesis.entity.ShulkonautEntity
+import org.shipwrights.enderkinesis.entity.WeheloStoneCreature
 import org.shipwrights.enderkinesis.entity.WeheloTearEntity
 import org.shipwrights.enderkinesis.entity.WohlemEntity
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
@@ -144,6 +146,17 @@ object EKEntities {
                 .build(WeheloTearEntity.ID_PATH)
         }
 
+    // Not saved: the creature, and the blade it holds, are lost into the fog when the pocket unloads.
+    val WEHELO_STONE_CREATURE: RegistrySupplier<EntityType<WeheloStoneCreature>> =
+        ENTITIES.register(WeheloStoneCreature.ID_PATH) {
+            EntityType.Builder.of(::WeheloStoneCreature, MobCategory.MISC)
+                .sized(0.6f, 1.95f)
+                .noSave()
+                .fireImmune()
+                .clientTrackingRange(8)
+                .build(WeheloStoneCreature.ID_PATH)
+        }
+
     val PLAYER_CORPSE: RegistrySupplier<EntityType<PlayerCorpseEntity>> =
         ENTITIES.register(PlayerCorpseEntity.ID_PATH) {
             EntityType.Builder.of(::PlayerCorpseEntity, MobCategory.MISC)
@@ -151,6 +164,7 @@ object EKEntities {
                 .clientTrackingRange(10)
                 .build(PlayerCorpseEntity.ID.toString())
         }
+
 
     /** Wik-Lak Host — player-summoned humanoid construct (see
      *  [WikLakHostEntity]). MISC category so it doesn't compete for the
@@ -250,6 +264,14 @@ object EKEntities {
                 .build(KekhekhEntity.ID_PATH)
         }
 
+    val EAUHORRANA: RegistrySupplier<EntityType<EauhorranaEntity>> =
+        ENTITIES.register(EauhorranaEntity.ID_PATH) {
+            EntityType.Builder.of(::EauhorranaEntity, MobCategory.WATER_CREATURE)
+                .sized(EauhorranaEntity.WIDTH, EauhorranaEntity.HEIGHT)
+                .clientTrackingRange(8)
+                .build(EauhorranaEntity.ID_PATH)
+        }
+
     val MOSKUO: RegistrySupplier<EntityType<MoskuoEntity>> =
         ENTITIES.register(MoskuoEntity.ID_PATH) {
             EntityType.Builder.of(::MoskuoEntity, MobCategory.MONSTER)
@@ -300,8 +322,10 @@ object EKEntities {
         EntityAttributeRegistry.register(SSELITH_MOTH) { SselithMothEntity.createAttributes() }
         EntityAttributeRegistry.register(SHILLEAGK_DEER) { ShilleagkDeerEntity.createAttributes() }
         EntityAttributeRegistry.register(KEKHEKH) { AbstractFish.createAttributes() }
+        EntityAttributeRegistry.register(EAUHORRANA) { EauhorranaEntity.createAttributes() }
         EntityAttributeRegistry.register(MOSKUO) { MoskuoEntity.createAttributes() }
         EntityAttributeRegistry.register(WILL_O_THE_WISP) { WillOTheWispEntity.createAttributes() }
+        EntityAttributeRegistry.register(WEHELO_STONE_CREATURE) { WeheloStoneCreature.createAttributes() }
         // Vanilla goat attributes verbatim — `PrismaticGoat`
         // extends `Goat` directly, so its base stats match.
         EntityAttributeRegistry.register(PRISMATIC_GOAT) {
@@ -345,6 +369,7 @@ object EKEntities {
         }
         place(WILL_O_THE_WISP, SpawnPlacements.Type.NO_RESTRICTIONS, WillOTheWispEntity::canSpawn)
         place(MOSKUO, SpawnPlacements.Type.NO_RESTRICTIONS, MoskuoEntity::canSpawn)
+        place(EAUHORRANA, SpawnPlacements.Type.IN_WATER, EauhorranaEntity::canSpawn)
     }
 
     @Suppress("UNUSED_PARAMETER") // Shape fixed by SpawnPlacements.SpawnPredicate.

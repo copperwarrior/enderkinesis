@@ -19,13 +19,15 @@ class WillOTheWispRenderer(ctx: EntityRendererProvider.Context) : EntityRenderer
         light: Int,
     ) {
         if (SpellLayers.invisible(entity)) return
+        // A sketch draws a detached copy from saved data, where the saved life times are stale against the clock.
+        val detached = entity.level().getEntity(entity.id) !== entity
         WillfaerFlameVolume.queue(
             Mth.lerp(partialTick.toDouble(), entity.xo, entity.x),
             Mth.lerp(partialTick.toDouble(), entity.yo, entity.y) + entity.bbHeight * 0.5,
             Mth.lerp(partialTick.toDouble(), entity.zo, entity.z),
             REACH,
             (entity.id % SEED_SPREAD).toFloat(),
-            entity.fade(partialTick),
+            if (detached) 1f else entity.fade(partialTick),
             entity.burst(partialTick),
         )
         // Draws the name tag of a wisp left by a player death.

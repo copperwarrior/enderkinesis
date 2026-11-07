@@ -1,7 +1,7 @@
 {
   "feature": "enderkinesis:crepusculite_geode",
   "placement": [
-    { "type": "minecraft:rarity_filter", "chance": 260 },
+    { "type": "minecraft:rarity_filter", "chance": 520 },
     { "type": "minecraft:in_square" },
     {
       "type": "minecraft:height_range",

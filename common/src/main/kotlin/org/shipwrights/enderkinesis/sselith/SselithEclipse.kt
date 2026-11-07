@@ -32,6 +32,7 @@ import net.minecraft.world.level.LightLayer
 import net.minecraft.world.level.chunk.LightChunkGetter
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
+import org.shipwrights.enderkinesis.dimension.SselithMothSpawner
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -151,6 +152,9 @@ object SselithEclipse {
         val t = ((gameTimeFractional % cycle) + cycle) % cycle
         return if (t < ACTIVE_TICKS) rampedIntensity(t) else 0f
     }
+
+    fun isActive(level: Level): Boolean =
+        level.dimension() == SselithRepertory.LEVEL_KEY && intensity(level.gameTime) > 0f
 
     /** Trapezoid intensity for a position inside the active window: ramp-in, plateau,
      *  ramp-out. Out-of-range input returns 0. */
@@ -303,6 +307,7 @@ object SselithEclipse {
         if (entity is Player) playDustDeath(level, entity)
         // The client starts the fall-over animation from the synced health value, so it must hide the body.
         if (entity is ServerPlayer) {
+            SselithMothSpawner.spawnDeathMoth(level, entity)
             for (viewer in level.players()) {
                 val buf = FriendlyByteBuf(Unpooled.buffer())
                 buf.writeVarInt(entity.id)

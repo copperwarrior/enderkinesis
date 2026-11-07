@@ -7,6 +7,7 @@ import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
 import net.minecraft.util.Mth
@@ -19,13 +20,18 @@ import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier
 import net.minecraft.world.entity.ai.attributes.Attributes
 import net.minecraft.world.entity.ai.control.FlyingMoveControl
+import net.minecraft.world.entity.ai.village.poi.PoiManager
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.registry.EKPoiTypes
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.sselith.SselithEclipse
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -262,6 +268,7 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
                 isLanded() -> tickLanded()
                 escapeTicks > 0 -> tickEscape()
                 landAnchor != null -> tickApproach()
+                tickLanternSeek() -> Unit
                 else -> {
                     runBoidStep()
                     maybeStartLanding()
@@ -534,6 +541,102 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
         pendingPos = null
         pendingNormal = null
         approachTicks = 0
+    }
+
+    // ------------------------------------------------------ eclipse lanterns
+
+    private var lanternPos: BlockPos? = null
+    private var hoverPoint: Vec3? = null
+    private var lanternTicks = 0
+    private var lanternReached = false
+    private var lanternSearchCooldown = 0
+
+    /** During an eclipse, fly to the nearest Sselith lantern and hover around it.
+     *  Returns false when the moth must flock as usual this tick. */
+    private fun tickLanternSeek(): Boolean {
+        if (!SselithEclipse.isActive(level())) {
+            if (lanternPos != null) clearLantern()
+            lanternSearchCooldown = 0
+            return false
+        }
+        if (lanternSearchCooldown > 0) lanternSearchCooldown--
+        val lantern = lanternPos ?: findLantern()?.also { lanternPos = it } ?: return false
+        if (!level().getBlockState(lantern).`is`(EKBlocks.SSELITH_LANTERN.get())) {
+            clearLantern()
+            return false
+        }
+        appliedBobVy = 0.0
+        lanternTicks++
+        if (!lanternReached) {
+            if (lantern.distToCenterSqr(position()) < LANTERN_ARRIVE_DIST * LANTERN_ARRIVE_DIST) {
+                lanternReached = true
+            } else if (lanternTicks > LANTERN_GIVE_UP_TICKS) {
+                clearLantern()
+                lanternSearchCooldown = LANTERN_RETRY_COOLDOWN
+                return false
+            }
+        }
+        val hover = hoverPoint
+        val reached = hover != null && position().distanceToSqr(hover) < HOVER_REACH * HOVER_REACH
+        // Throttled, so a target with no path does not run the pathfinder each tick.
+        val stalled = navigation.isDone && lanternTicks % LAND_REPATH_INTERVAL == 0
+        if (hover == null || reached || stalled) {
+            val next = pickHoverPoint(lantern)
+            hoverPoint = next
+            navigation.moveTo(next.x, next.y, next.z, if (lanternReached) HOVER_NAV_SPEED else LAND_NAV_SPEED)
+        }
+        return true
+    }
+
+    /** Only loaded chunks: `PoiManager.getInSquare` reads unloaded POI sections from disk on the server thread. */
+    private fun findLantern(): BlockPos? {
+        if (lanternSearchCooldown > 0 || (tickCount + id) % LANTERN_SEARCH_INTERVAL != 0) return null
+        val level = level() as? ServerLevel ?: return null
+        val origin = blockPosition()
+        val centre = ChunkPos(origin)
+        val chunkRadius = LANTERN_SEARCH_RADIUS / 16 + 1
+        var best: BlockPos? = null
+        var bestDistSq = Double.MAX_VALUE
+        for (cx in centre.x - chunkRadius..centre.x + chunkRadius) {
+            for (cz in centre.z - chunkRadius..centre.z + chunkRadius) {
+                if (!level.chunkSource.hasChunk(cx, cz)) continue
+                val records = level.poiManager.getInChunk(
+                    { it.`is`(EKPoiTypes.SSELITH_LANTERN_KEY) }, ChunkPos(cx, cz), PoiManager.Occupancy.ANY,
+                )
+                for (record in records.iterator()) {
+                    val pos = record.pos
+                    if (kotlin.math.abs(pos.x - origin.x) > LANTERN_SEARCH_RADIUS ||
+                        kotlin.math.abs(pos.z - origin.z) > LANTERN_SEARCH_RADIUS
+                    ) continue
+                    val distSq = pos.distSqr(origin)
+                    if (distSq < bestDistSq) {
+                        bestDistSq = distSq
+                        best = pos
+                    }
+                }
+            }
+        }
+        return best
+    }
+
+    private fun pickHoverPoint(lantern: BlockPos): Vec3 {
+        repeat(HOVER_PICK_TRIES) {
+            val p = Vec3(
+                lantern.x + 0.5 + (random.nextDouble() - 0.5) * 2.0 * HOVER_RADIUS_XZ,
+                lantern.y + HOVER_MIN_LIFT + random.nextDouble() * (HOVER_MAX_LIFT - HOVER_MIN_LIFT),
+                lantern.z + 0.5 + (random.nextDouble() - 0.5) * 2.0 * HOVER_RADIUS_XZ,
+            )
+            if (level().getBlockState(BlockPos.containing(p)).isAir) return p
+        }
+        return Vec3(lantern.x + 0.5, lantern.y + HOVER_MIN_LIFT, lantern.z + 0.5)
+    }
+
+    private fun clearLantern() {
+        navigation.stop()
+        lanternPos = null
+        hoverPoint = null
+        lanternTicks = 0
+        lanternReached = false
     }
 
     // ------------------------------------------------------------- escape
@@ -918,6 +1021,18 @@ class SselithMothEntity(type: EntityType<out SselithMothEntity>, level: Level) :
         /** Consecutive colliding ticks before the moth declares itself
          *  stuck; escape flight duration; escape speed; SDF sample range
          *  for picking the way out. */
+        private const val LANTERN_SEARCH_RADIUS = 32
+        private const val LANTERN_SEARCH_INTERVAL = 40
+        private const val LANTERN_ARRIVE_DIST = 6.0
+        private const val LANTERN_GIVE_UP_TICKS = 600
+        private const val LANTERN_RETRY_COOLDOWN = 200
+        private const val HOVER_REACH = 1.5
+        private const val HOVER_RADIUS_XZ = 3.0
+        private const val HOVER_MIN_LIFT = 1.5
+        private const val HOVER_MAX_LIFT = 3.5
+        private const val HOVER_PICK_TRIES = 4
+        private const val HOVER_NAV_SPEED = 0.5
+
         private const val STUCK_TICKS_THRESHOLD = 8
         private const val ESCAPE_TICKS = 30
         private const val ESCAPE_SPEED = MAX_SPEED * 1.5

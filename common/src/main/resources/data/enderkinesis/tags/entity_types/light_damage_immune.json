@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
-    "enderkinesis:cataloger"
+    "enderkinesis:cataloger",
+    "enderkinesis:sselith_moth"
   ]
 }

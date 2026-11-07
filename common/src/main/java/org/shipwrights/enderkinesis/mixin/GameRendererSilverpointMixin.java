@@ -15,4 +15,10 @@ public abstract class GameRendererSilverpointMixin {
     private void enderkinesis$silverpointDepth(float partialTick, long finishNanoTime, PoseStack pose, CallbackInfo ci) {
         SilverpointView.afterLevel();
     }
+
+    // Frame start, before any target is bound for the frame: the viewfinder's gather and bake run here each frame.
+    @Inject(method = "render", at = @At("HEAD"))
+    private void enderkinesis$silverpointFrame(float partialTick, long nanoTime, boolean renderLevel, CallbackInfo ci) {
+        SilverpointView.frame();
+    }
 }

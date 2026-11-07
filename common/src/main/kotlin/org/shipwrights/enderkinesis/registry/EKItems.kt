@@ -752,6 +752,12 @@ object EKItems {
             ArchitecturySpawnEggItem(EKEntities.MOSKUO, 0x1B3239, 0x4A0000, props())
         }
 
+    /** Dark olive scales over blue spots, sampled from the Eauhorrana texture. */
+    val EAUHORRANA_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("eauhorrana_spawn_egg") {
+            ArchitecturySpawnEggItem(EKEntities.EAUHORRANA, 0x343018, 0x327DB9, props())
+        }
+
     /** Rust-brown scales over blue spots, sampled from the Kekhekh texture. */
     val KEKHEKH_SPAWN_EGG: RegistrySupplier<Item> =
         ITEMS.register("kekhekh_spawn_egg") {

@@ -49,8 +49,19 @@
       }
     },
     {
+      "when": {
+        "open": "false"
+      },
       "apply": {
         "model": "enderkinesis:block/ichaeric_ink_jar"
+      }
+    },
+    {
+      "when": {
+        "open": "true"
+      },
+      "apply": {
+        "model": "enderkinesis:block/ichaeric_ink_jar_open"
       }
     }
   ]

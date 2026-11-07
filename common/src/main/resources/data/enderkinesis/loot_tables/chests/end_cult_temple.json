@@ -1,0 +1,35 @@
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": { "type": "minecraft:uniform", "min": 4, "max": 7 },
+      "entries": [
+        {
+          "type": "minecraft:item", "name": "minecraft:iron_ingot", "weight": 20,
+          "functions": [{ "function": "minecraft:set_count", "count": { "type": "minecraft:uniform", "min": 1, "max": 5 } }]
+        },
+        {
+          "type": "minecraft:item", "name": "enderkinesis:ancrite_scrap", "weight": 15,
+          "functions": [{ "function": "minecraft:set_count", "count": { "type": "minecraft:uniform", "min": 1, "max": 3 } }]
+        },
+        {
+          "type": "minecraft:item", "name": "enderkinesis:crepusculite", "weight": 15,
+          "functions": [{ "function": "minecraft:set_count", "count": { "type": "minecraft:uniform", "min": 1, "max": 3 } }]
+        },
+        { "type": "minecraft:item", "name": "minecraft:diamond_pickaxe", "weight": 3 },
+        { "type": "minecraft:item", "name": "enderkinesis:shell_of_tides", "weight": 2 },
+        { "type": "minecraft:item", "name": "enderkinesis:music_disc_mystery", "weight": 2 }
+      ]
+    },
+    {
+      "rolls": 1,
+      "entries": [
+        { "type": "minecraft:empty", "weight": 6 },
+        { "type": "minecraft:item", "name": "enderkinesis:end_cult_hood", "weight": 1 },
+        { "type": "minecraft:item", "name": "enderkinesis:end_cult_robes", "weight": 1 },
+        { "type": "minecraft:item", "name": "enderkinesis:end_cult_robe_bottoms", "weight": 1 },
+        { "type": "minecraft:item", "name": "enderkinesis:end_cult_shoes", "weight": 1 }
+      ]
+    }
+  ]
+}

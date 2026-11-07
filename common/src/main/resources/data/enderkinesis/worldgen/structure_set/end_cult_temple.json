@@ -1,0 +1,11 @@
+{
+  "structures": [
+    { "structure": "enderkinesis:end_cult_temple", "weight": 1 }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "salt": 1592087461,
+    "spacing": 48,
+    "separation": 16
+  }
+}

@@ -12,11 +12,11 @@ object WohlonRitualTimeline {
     // A tree build that never reports its roots still fades out.
     const val ROOTS_TIMEOUT = 8.0
 
-    /** The candle tendrils have all reached the Heart, with a short pause after. */
-    val riseEnd: Double = RISE + RISE_STAGGER * WohlonnogondoniaPortalRitual.PATTERN.size + SPREAD_GAP
+    /** The [candles] tendrils have all reached the Heart, with a short pause after. */
+    fun riseEnd(candles: Int): Double = RISE + RISE_STAGGER * candles + SPREAD_GAP
 
     /** The root tendrils start when the root tips are known, but not before the rise ends. */
-    fun spreadStart(rootsKnownSec: Double): Double = maxOf(rootsKnownSec, riseEnd)
+    fun spreadStart(rootsKnownSec: Double, candles: Int): Double = maxOf(rootsKnownSec, riseEnd(candles))
 
     /** The last root tendril is grown, has held, and has faded. */
     fun fadeStart(spreadStart: Double): Double = spreadStart + SPREAD + SPREAD_STAGGER + HOLD

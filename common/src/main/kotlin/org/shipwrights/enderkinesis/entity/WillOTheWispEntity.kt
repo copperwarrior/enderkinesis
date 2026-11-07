@@ -9,6 +9,7 @@ import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.tags.FluidTags
 import net.minecraft.util.RandomSource
 import net.minecraft.world.DifficultyInstance
+import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.MobSpawnType
@@ -20,6 +21,7 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.registry.EKEffects
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -65,6 +67,9 @@ class WillOTheWispEntity(type: EntityType<out WillOTheWispEntity>, level: Level)
             discard()
         }
     }
+
+    override fun canBeAffected(effect: MobEffectInstance): Boolean =
+        effect.effect != EKEffects.TRYPOEMIA.get() && super.canBeAffected(effect)
 
     // Vanilla also drops ambient mobs at random within view; the lifetime replaces that, so they fade out instead.
     override fun checkDespawn() {

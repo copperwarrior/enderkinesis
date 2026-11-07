@@ -1,0 +1,26 @@
+{
+  "layout": "enderkinesis:rituals/sun_erasure",
+  "center": {
+    "block": "minecraft:yellow_candle",
+    "properties": {
+      "candles": "1"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:projectile_at_sun",
+    "radius": 3.5,
+    "angle": 20
+  },
+  "conditions": [
+    {
+      "type": "enderkinesis:dimension",
+      "dimension": "minecraft:overworld"
+    },
+    {
+      "type": "enderkinesis:open_sky"
+    }
+  ],
+  "effect": {
+    "type": "enderkinesis:erase_sun"
+  }
+}

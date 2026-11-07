@@ -29,6 +29,7 @@ import net.minecraft.world.entity.ai.control.FlyingMoveControl
 import net.minecraft.world.entity.ai.goal.Goal
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomFlyingGoal
 import net.minecraft.world.entity.ai.navigation.PathNavigation
+import net.minecraft.world.entity.animal.AbstractFish
 import net.minecraft.world.entity.animal.FlyingAnimal
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.level.Level
@@ -148,6 +149,7 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
 
     private fun isPrey(entity: LivingEntity): Boolean =
         entity !== this && entity.isAlive && entity !is MoskuoEntity && entity !is ArmorStand &&
+            entity !is AbstractFish && entity !is EauhorranaEntity && entity !is WillOTheWispEntity &&
             EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(entity)
 
     private fun stingVictim(victim: LivingEntity): Boolean {

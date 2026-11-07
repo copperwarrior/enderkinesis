@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.dimension
 import net.minecraft.core.BlockPos
 import dev.architectury.event.events.common.TickEvent
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.MobSpawnType
 import net.minecraft.world.phys.AABB
 import org.shipwrights.enderkinesis.entity.SselithMothEntity
@@ -44,7 +45,7 @@ object SselithMothSpawner {
         }
     }
 
-    private fun trySpawnForPlayer(level: ServerLevel, player: net.minecraft.server.level.ServerPlayer) {
+    private fun trySpawnForPlayer(level: ServerLevel, player: ServerPlayer) {
         val bbHalf = SPAWN_MAX_DIST * 2.0
         val presence = level.getEntitiesOfClass(
             SselithMothEntity::class.java,
@@ -68,8 +69,17 @@ object SselithMothSpawner {
         spawnFlock(level, cx, cy, cz)
     }
 
+    /** A player killed by the eclipse becomes one regular moth, but only near other moths. */
+    fun spawnDeathMoth(level: ServerLevel, player: ServerPlayer) {
+        val near = level.getEntitiesOfClass(
+            SselithMothEntity::class.java,
+            AABB.ofSize(player.position(), DEATH_MOTH_RADIUS * 2, DEATH_MOTH_RADIUS * 2, DEATH_MOTH_RADIUS * 2),
+        )
+        if (near.isEmpty()) return
+        spawnMoth(level, player.x, player.y, player.z, level.random.nextFloat() * (2f * PI.toFloat()))
+    }
+
     private fun spawnFlock(level: ServerLevel, cx: Double, cy: Double, cz: Double) {
-        val type = EKEntities.SSELITH_MOTH.get()
         val rng = level.random
         val flockSize = MIN_FLOCK + rng.nextInt(MAX_FLOCK - MIN_FLOCK + 1)
         // Shared migration heading for the whole flock. Random — some
@@ -85,18 +95,19 @@ object SselithMothSpawner {
             val jz = perpZ * spread + (rng.nextFloat() - 0.5f) * FLOCK_JITTER
             val jy = (rng.nextFloat() - 0.5f) * 4.0f
             if (!level.isPositionEntityTicking(BlockPos.containing(cx + jx, cy + jy, cz + jz))) return@repeat
-            val moth = type.create(level) ?: return@repeat
-            moth.moveTo(
-                cx + jx, cy + jy, cz + jz,
-                Math.toDegrees(flockDriftYaw.toDouble()).toFloat(), 0f,
-            )
-            moth.setDriftYaw(flockDriftYaw)
-            moth.finalizeSpawn(
-                level, level.getCurrentDifficultyAt(moth.blockPosition()),
-                MobSpawnType.NATURAL, null, null,
-            )
-            level.addFreshEntity(moth)
+            spawnMoth(level, cx + jx, cy + jy, cz + jz, flockDriftYaw)
         }
+    }
+
+    private fun spawnMoth(level: ServerLevel, x: Double, y: Double, z: Double, driftYaw: Float) {
+        val moth = EKEntities.SSELITH_MOTH.get().create(level) ?: return
+        moth.moveTo(x, y, z, Math.toDegrees(driftYaw.toDouble()).toFloat(), 0f)
+        moth.setDriftYaw(driftYaw)
+        moth.finalizeSpawn(
+            level, level.getCurrentDifficultyAt(moth.blockPosition()),
+            MobSpawnType.NATURAL, null, null,
+        )
+        level.addFreshEntity(moth)
     }
 
     /** Spawn cadence in ticks. Every 200 ticks (10 s) is slow enough that
@@ -129,6 +140,8 @@ object SselithMothSpawner {
     /** Altitude every moth converges to (Y = ±this). Must match
      *  [SselithMothEntity.MOTH_ALTITUDE]'s numeric value. */
     private const val MOTH_ALTITUDE: Double = 134.5
+
+    private const val DEATH_MOTH_RADIUS: Double = 24.0
 
     private const val MIN_FLOCK: Int = 3
     private const val MAX_FLOCK: Int = 5

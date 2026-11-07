@@ -93,8 +93,16 @@ class EnderkinesisModForgeClient {
                 org.shipwrights.enderkinesis.client.model.KekhekhModel::createBodyLayer,
             )
             event.registerLayerDefinition(
+                org.shipwrights.enderkinesis.client.model.WeheloStoneCreatureModel.LAYER_LOCATION,
+                org.shipwrights.enderkinesis.client.model.WeheloStoneCreatureModel::createBodyLayer,
+            )
+            event.registerLayerDefinition(
                 org.shipwrights.enderkinesis.client.model.MoskuoModel.LAYER_LOCATION,
                 org.shipwrights.enderkinesis.client.model.MoskuoModel::createBodyLayer,
+            )
+            event.registerLayerDefinition(
+                org.shipwrights.enderkinesis.client.model.EauhorranaModel.LAYER_LOCATION,
+                org.shipwrights.enderkinesis.client.model.EauhorranaModel::createBodyLayer,
             )
             // Robe layers, baked by the common TightRobeArmorRenderer.
             event.registerLayerDefinition(TightRobeArmorModel.INNER_LAYER, TightRobeArmorModel::createInnerLayer)

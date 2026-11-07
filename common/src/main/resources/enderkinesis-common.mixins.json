@@ -5,6 +5,9 @@
   "minVersion": "0.8",
   "plugin": "org.shipwrights.enderkinesis.mixin.EnderkinesisMixinPlugin",
   "client": [
+    "PlayerRendererSelvesMixin",
+    "EntityRenderDispatcherSelvesMixin",
+    "AbstractClientPlayerSelvesMixin",
     "ModelPartCubesAccessor",
     "ModelPartCubeTrypoemiaMixin",
     "LivingEntityRendererTrypoemiaMixin",
@@ -17,7 +20,6 @@
     "ItemFrameRendererStrikeSketchMixin",
     "GameRendererSilverpointMixin",
     "BlockEntityLevelAccessor",
-    "StructureTemplateAccessor",
     "CompositeRenderTypeAccessor",
     "CompositeStateAccessor",
     "EmptyTextureStateShardInvoker",
@@ -59,6 +61,7 @@
     "RenderTargetDepthAccessor",
     "LevelRendererMothClothOverlayMixin",
     "ItemInHandRendererWindsEmptyHandMixin",
+    "ItemInHandRendererSilverpointFrameMixin",
     "PlayerRendererWindsArmPoseMixin",
     "HumanoidModelWindsCastPoseMixin",
     "HumanoidModelSpellPoseMixin",
@@ -165,9 +168,20 @@
     "BiomeSliceAccessor",
     "WorldSliceOrbDynamicLightMixin",
     "WorldSliceSpellDarknessMixin",
-    "WorldSlicePhasedMixin"
+    "WorldSlicePhasedMixin",
+    "ClientLevelSunErasureMixin",
+    "LevelRendererSunErasureMixin",
+    "FogRendererSunErasureMixin"
   ],
   "mixins": [
+    "PlayerSelvesMixin",
+    "LivingEntitySelvesMixin",
+    "EntitySelvesMixin",
+    "ItemEntitySelvesMixin",
+    "MobSelvesMixin",
+    "MobDropChancesAccessor",
+    "WaterAnimalSelvesMixin",
+    "AxolotlSelvesMixin",
     "LivingEntityEatenNoLootMixin",
     "EnchantmentBlessedRazorMixin",
     "LivingEntityDeathLootInvoker",
@@ -259,6 +273,7 @@
     "SkyLightEngineSselithEclipseMixin",
     "SnowLayerBlockWohlonMeltMixin",
     "SpawnPlacementsInvoker",
+    "StructureTemplateAccessor",
     "StructureTemplateCrewCaptureMixin",
     "TagEntryAccessor",
     "AnvilMenuImbueMixin",
@@ -280,7 +295,9 @@
     "ThrownEnderpearlDiscordMixin",
     "EnderManDiscordMixin",
     "WorldGenRegionCrewCaptureMixin",
-    "EntityIchaericInkMixin"
+    "EntityIchaericInkMixin",
+    "LevelSunErasureMixin",
+    "EntityWeheloReturnCleanupMixin"
   ],
   "injectors": {
     "defaultRequire": 1

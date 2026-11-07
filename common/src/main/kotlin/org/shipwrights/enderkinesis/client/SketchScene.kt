@@ -9,20 +9,25 @@ import net.minecraft.client.renderer.ItemBlockRenderTypes
 import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
+import net.minecraft.client.renderer.block.model.BakedQuad
 import net.minecraft.client.renderer.texture.OverlayTexture
+import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.commands.arguments.blocks.BlockStateParser
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.NbtIo
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.FastColor
+import net.minecraft.util.RandomSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.inventory.InventoryMenu
 import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.EntityBlock
 import net.minecraft.world.level.block.ChestBlock
+import net.minecraft.world.level.block.EntityBlock
 import net.minecraft.world.level.block.RenderShape
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BedPart
@@ -32,6 +37,7 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
+import org.joml.Vector3f
 import org.shipwrights.enderkinesis.item.SketchSubject
 import org.shipwrights.enderkinesis.mixin.BlockEntityLevelAccessor
 import org.shipwrights.enderkinesis.mixin.StructureTemplateAccessor
@@ -84,10 +90,10 @@ internal sealed class SketchScene {
             val centreY = (minY + pieces.maxOf { it.first.y } + 1) / 2f
             val centreZ = (minZ + pieces.maxOf { it.first.z } + 1) / 2f
             for ((offset, part) in pieces) {
-                pose.pushPose()
-                pose.translate(offset.x - centreX, offset.y - centreY, offset.z - centreZ)
-                drawState(part, null, pose, source)
-                pose.popPose()
+                drawStateAt(
+                    part, null, pose, source,
+                    (offset.x - centreX).toDouble(), (offset.y - centreY).toDouble(), (offset.z - centreZ).toDouble(),
+                )
             }
         }
     }
@@ -101,8 +107,11 @@ internal sealed class SketchScene {
             pose.translate(0f, -entity.bbHeight / 2f, 0f)
             // As InventoryScreen does: a shadow would sample the world at the origin.
             dispatcher.setRenderShadow(false)
+            val flames = WillfaerFlameVolume.mark()
             try {
                 dispatcher.render(entity, 0.0, 0.0, 0.0, ENTITY_YAW, 1f, pose, source, LightTexture.FULL_BRIGHT)
+                // Renderers queue flames in world space; the pose moves the drawn entity down by half its height.
+                WillfaerFlameVolume.shift(flames, -entity.x, -entity.y - entity.bbHeight / 2.0, -entity.z)
             } catch (e: RuntimeException) {
                 if (failed.add(entity.type)) LOG.warn("Sketch skips the renderer of {}", entity.type, e)
             } finally {
@@ -126,16 +135,13 @@ internal sealed class SketchScene {
 
         override fun draw(pose: PoseStack, source: MultiBufferSource, normals: Boolean) {
             val size = template.size
-            pose.pushPose()
-            pose.translate(-size.x / 2f, -size.y / 2f, -size.z / 2f)
             for (info in blocks) {
                 val state = finalState(info.state(), info.nbt()) ?: continue
-                pose.pushPose()
-                pose.translate(info.pos().x.toFloat(), info.pos().y.toFloat(), info.pos().z.toFloat())
-                drawState(state, info.nbt(), pose, source)
-                pose.popPose()
+                drawStateAt(
+                    state, info.nbt(), pose, source,
+                    info.pos().x - size.x / 2.0, info.pos().y - size.y / 2.0, info.pos().z - size.z / 2.0,
+                )
             }
-            pose.popPose()
         }
 
         // Jigsaw blocks become their final state when the structure places; structure voids place nothing.
@@ -179,10 +185,8 @@ internal sealed class SketchScene {
                 val block = blocks[i]
                 fade = block.fade
                 ground = block.ground
-                pose.pushPose()
-                pose.translate(block.offset.x, block.offset.y, block.offset.z)
-                drawState(block.state, block.nbt, pose, faded)
-                pose.popPose()
+                drawStateAt(block.state, block.nbt, pose, faded, block.offset.x, block.offset.y, block.offset.z, block.tint, block.faces)
+                if (!block.state.fluidState.isEmpty) drawFluid(block, pose, faded)
             }
             if (to <= blocks.size) return
             ground = false
@@ -192,10 +196,15 @@ internal sealed class SketchScene {
                 for (view in entities) {
                     val entity = view.entity
                     fade = view.fade
+                    val flames = WillfaerFlameVolume.mark()
                     try {
                         dispatcher.render(
                             entity, view.offset.x, view.offset.y, view.offset.z, entity.yRot, 1f, pose, faded,
                             LightTexture.FULL_BRIGHT,
+                        )
+                        // Renderers queue flames in world space at the current position; move them to the drawn feet.
+                        WillfaerFlameVolume.shift(
+                            flames, view.offset.x - entity.x, view.offset.y - entity.y, view.offset.z - entity.z,
                         )
                     } catch (e: RuntimeException) {
                         if (failed.add(entity.type)) LOG.warn("Sketch skips the renderer of {}", entity.type, e)
@@ -230,7 +239,44 @@ internal sealed class SketchScene {
     }
 
     /** A block of a view; [offset] is its minimum corner, and [fade] scales its coverage from 0 to 1. */
-    class ViewBlock(val offset: Vec3, val state: BlockState, val nbt: CompoundTag?, val fade: Float, val ground: Boolean)
+    /** [pos] is the block's place in the level; [faces] has bit `Direction.ordinal` set for each face the level draws. */
+    @Suppress("LongParameterList") // One block's state as the viewfinder saw it.
+    class ViewBlock(
+        val pos: BlockPos, val offset: Vec3, val state: BlockState, val nbt: CompoundTag?, val fade: Float, val ground: Boolean,
+        val faces: Int, val tint: Int,
+    )
+
+    /**
+     * LiquidBlockRenderer output, made to fit an entity render type: it writes section-local positions with no pose, no
+     * overlay and the level's light. The pose moves it to [x], [y], [z] less the section offset, and the light is full,
+     * as for every other part of a sketch.
+     */
+    private class FluidVertices(
+        private val inner: VertexConsumer,
+        private val pose: PoseStack.Pose,
+        private val x: Float,
+        private val y: Float,
+        private val z: Float,
+    ) : VertexConsumer {
+        private val position = Vector3f()
+        private val normal = Vector3f()
+
+        override fun vertex(x: Double, y: Double, z: Double): VertexConsumer = apply {
+            pose.pose().transformPosition(x.toFloat() + this.x, y.toFloat() + this.y, z.toFloat() + this.z, position)
+            inner.vertex(position.x.toDouble(), position.y.toDouble(), position.z.toDouble())
+        }
+        override fun color(r: Int, g: Int, b: Int, a: Int): VertexConsumer = apply { inner.color(r, g, b, a) }
+        override fun uv(u: Float, v: Float): VertexConsumer = apply { inner.uv(u, v).overlayCoords(OverlayTexture.NO_OVERLAY) }
+        override fun overlayCoords(u: Int, v: Int): VertexConsumer = this
+        override fun uv2(u: Int, v: Int): VertexConsumer = apply { inner.uv2(LightTexture.FULL_BRIGHT) }
+        override fun normal(x: Float, y: Float, z: Float): VertexConsumer = apply {
+            pose.normal().transform(normal.set(x, y, z))
+            inner.normal(normal.x, normal.y, normal.z)
+        }
+        override fun endVertex() = inner.endVertex()
+        override fun defaultColor(r: Int, g: Int, b: Int, a: Int) = inner.defaultColor(r, g, b, a)
+        override fun unsetDefaultColor() = inner.unsetDefaultColor()
+    }
 
     /** A live entity of a view; [offset] is its feet. */
     class ViewEntity(val offset: Vec3, val entity: Entity, val fade: Float)
@@ -240,6 +286,12 @@ internal sealed class SketchScene {
 
         // Render thread only: warn once for each block or entity type.
         private val failed = HashSet<Any>()
+
+        // Render thread only.
+        private val modelRandom = RandomSource.create()
+        private const val MODEL_SEED = 42L
+        private const val ALL_FACES = 0x3F
+        private const val SECTION_MASK = 15
 
         // Half of a unit cube's widest isometric span (about 0.79), with a margin for the outline and wobble.
         private const val BLOCK_EXTENT = 0.9f
@@ -265,8 +317,26 @@ internal sealed class SketchScene {
         private val ORB_QUAD = listOf(0 to 0, 0 to 1, 1 to 1, 1 to 0)
         private const val CHANNEL_MAX = 255f
 
+        // Fluids are translucent and write depth, so they draw after every solid block, or the bed behind them is lost.
         fun ofCamera(blocks: List<ViewBlock>, entities: List<ViewEntity>, camera: SceneCamera): SketchScene =
-            ViewScene(blocks.take(MAX_STRUCTURE_BLOCKS), entities, camera)
+            ViewScene(blocks.take(MAX_STRUCTURE_BLOCKS).sortedBy { !it.state.fluidState.isEmpty }, entities, camera)
+
+        /** The block's fluid, as the level draws it: biome colour, and only the sides that meet no fluid or solid face. */
+        private fun drawFluid(block: ViewBlock, pose: PoseStack, source: MultiBufferSource) {
+            val level = Minecraft.getInstance().level ?: return
+            val pos = block.pos
+            val consumer = FluidVertices(
+                source.getBuffer(RenderType.entityTranslucentCull(InventoryMenu.BLOCK_ATLAS)), pose.last(),
+                (block.offset.x - (pos.x and SECTION_MASK)).toFloat(),
+                (block.offset.y - (pos.y and SECTION_MASK)).toFloat(),
+                (block.offset.z - (pos.z and SECTION_MASK)).toFloat(),
+            )
+            try {
+                Minecraft.getInstance().blockRenderer.renderLiquid(pos, level, consumer, block.state, block.state.fluidState)
+            } catch (e: RuntimeException) {
+                if (failed.add(block.state.fluidState.type)) LOG.warn("Sketch skips the fluid {}", block.state.fluidState, e)
+            }
+        }
 
         /**
          * Every part of the block that [state] is a part of, placed as the game places them, so that either half of a
@@ -339,7 +409,26 @@ internal sealed class SketchScene {
             return null
         }
 
-        private fun drawState(state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource) {
+        /** Draws [state] with its minimum corner at ([x], [y], [z]). */
+        @Suppress("LongParameterList") // A position and tint on top of drawState's parameters.
+        private fun drawStateAt(
+            state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource,
+            x: Double, y: Double, z: Double,
+            // Without a level and position, grass and foliage colours fall back to a fixed default, not the biome's.
+            tint: Int = Minecraft.getInstance().blockColors.getColor(state, null, null, 0),
+            faces: Int = ALL_FACES,
+        ) {
+            pose.pushPose()
+            pose.translate(x, y, z)
+            val flames = WillfaerFlameVolume.mark()
+            drawState(state, nbt, pose, source, tint, faces)
+            // Block entity renderers queue flames in world space, and the detached block entity sits at the origin.
+            WillfaerFlameVolume.shift(flames, x, y, z)
+            pose.popPose()
+        }
+
+        @Suppress("LongParameterList") // A block's state, data, tint and drawn faces, and where to draw it.
+        private fun drawState(state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource, tint: Int, faces: Int) {
             if (state.`is`(EKBlocks.FRACTAL_PROJECTOR.get())) {
                 drawOrb(pose, source)
                 return
@@ -348,20 +437,40 @@ internal sealed class SketchScene {
             val blocks = minecraft.blockRenderer
             when (state.renderShape) {
                 RenderShape.MODEL -> {
-                    val tint = minecraft.blockColors.getColor(state, null, null, 0)
-                    blocks.modelRenderer.renderModel(
-                        pose.last(), source.getBuffer(ItemBlockRenderTypes.getRenderType(state, true)), state,
-                        blocks.getBlockModel(state),
-                        channel(tint, FastColor.ARGB32::red), channel(tint, FastColor.ARGB32::green),
-                        channel(tint, FastColor.ARGB32::blue),
-                        LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY,
-                    )
+                    drawModel(state, blocks.getBlockModel(state), pose, source.getBuffer(ItemBlockRenderTypes.getRenderType(state, true)), tint, faces)
                     drawBlockEntity(state, nbt, pose, source)
                 }
                 RenderShape.ENTITYBLOCK_ANIMATED -> if (!drawBlockEntity(state, nbt, pose, source)) {
                     blocks.renderSingleBlock(state, pose, source, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY)
                 }
                 else -> drawBlockEntity(state, nbt, pose, source)
+            }
+        }
+
+        /** As ModelBlockRenderer.renderModel, but only the quads of [faces] and those that face no side. */
+        @Suppress("LongParameterList") // renderModel's parameters, with the faces to draw.
+        private fun drawModel(state: BlockState, model: BakedModel, pose: PoseStack, consumer: VertexConsumer, tint: Int, faces: Int) {
+            val red = channel(tint, FastColor.ARGB32::red)
+            val green = channel(tint, FastColor.ARGB32::green)
+            val blue = channel(tint, FastColor.ARGB32::blue)
+            for (direction in Direction.entries) {
+                if (faces and (1 shl direction.ordinal) == 0) continue
+                // renderModel seeds 42 before each quad list, so random models pick the same variants.
+                modelRandom.setSeed(MODEL_SEED)
+                drawQuads(model.getQuads(state, direction, modelRandom), pose, consumer, red, green, blue)
+            }
+            modelRandom.setSeed(MODEL_SEED)
+            drawQuads(model.getQuads(state, null, modelRandom), pose, consumer, red, green, blue)
+        }
+
+        @Suppress("LongParameterList") // A quad list and its tint.
+        private fun drawQuads(quads: List<BakedQuad>, pose: PoseStack, consumer: VertexConsumer, red: Float, green: Float, blue: Float) {
+            for (quad in quads) {
+                val tinted = quad.isTinted
+                consumer.putBulkData(
+                    pose.last(), quad, if (tinted) red else 1f, if (tinted) green else 1f, if (tinted) blue else 1f,
+                    LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY,
+                )
             }
         }
 

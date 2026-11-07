@@ -17,7 +17,7 @@ class WeheloTearEntity(type: EntityType<out WeheloTearEntity>, level: Level) : E
 
     private var owner: UUID? = null
     private var exit = false
-    /** For an exit tear, the destination. For an entry tear, where a player who goes in returns to. */
+    /** For an entry tear, where an entity that goes in returns to. An exit tear finds each entity's own way back. */
     private var target: ReturnPoint? = null
 
     init {
@@ -45,7 +45,7 @@ class WeheloTearEntity(type: EntityType<out WeheloTearEntity>, level: Level) : E
         if (tickCount == LIFE_TICKS - CLOSE_TICKS) SpellSounds.play(level, position(), EKSounds.WEHELO_TEAR_CLOSE)
         for (entity in level.getEntities(this, boundingBox, ::canPass)) {
             // The move plays the second pass at the destination.
-            val moved = if (exit) WeheloPocket.leave(entity, target) else WeheloPocket.enter(entity, owner, target)
+            val moved = if (exit) WeheloPocket.leave(entity) else WeheloPocket.enter(entity, owner, target)
             if (moved) SpellSounds.play(level, position(), EKSounds.WEHELO_PASS) else entity.setPortalCooldown()
         }
     }

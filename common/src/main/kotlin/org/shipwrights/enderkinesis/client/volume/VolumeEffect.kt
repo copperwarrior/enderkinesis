@@ -21,6 +21,15 @@ class VolumeEffect(private val name: String, private vararg val samplers: Pair<S
         return loaded
     }
 
+    /** Points `DepthSampler` at [textureId] until [useSceneDepth], for a pass over a target that is not main. */
+    fun useDepth(textureId: Int) {
+        effect?.setSampler("DepthSampler", IntSupplier { textureId })
+    }
+
+    fun useSceneDepth() {
+        effect?.setSampler("DepthSampler", SCENE_DEPTH)
+    }
+
     // Samplers a program does not declare are ignored, so passes can share one sampler set.
     private fun load(): EffectInstance? = try {
         EffectInstance(Minecraft.getInstance().resourceManager, name).also {

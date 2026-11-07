@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.entity
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
@@ -23,10 +24,14 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.AbstractCandleBlock
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.CandleBlock
 import net.minecraft.world.phys.AABB
-import org.shipwrights.enderkinesis.block.WohlonCandleRites
 import org.shipwrights.enderkinesis.block.WohlonStaffRites
+import org.shipwrights.enderkinesis.ritual.Ritual
+import org.shipwrights.enderkinesis.ritual.RitualContext
+import org.shipwrights.enderkinesis.ritual.Rituals
+import org.shipwrights.enderkinesis.ritual.Staff
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
 
@@ -40,9 +45,11 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
     /** Server only; the client sees the first one as [sacrifice] and the count as [filledSlots]. */
     private val offerings = ArrayList<ItemStack>()
 
-    var rite: WohlonCandleRites.Rite
-        get() = WohlonCandleRites.Rite.entries[entityData.get(DATA_RITE).toInt()]
-        private set(value) = entityData.set(DATA_RITE, value.ordinal.toByte())
+    private var ritualId: ResourceLocation? = null
+    private var rotation = 0
+
+    /** Server only; null when a reload removed the ritual. */
+    private val ritual: Ritual? get() = ritualId?.let(Rituals::byId)
 
     var stage: Stage
         get() = Stage.entries[entityData.get(DATA_STAGE).toInt()]
@@ -61,19 +68,25 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
     var staffAdvancements: List<ResourceLocation> = emptyList()
         private set
 
+    /** Offsets from the center and blocks of the candles that feed the pedestal, parsed on sync. */
+    var feedSlots: List<Pair<BlockPos, Block>> = emptyList()
+        private set
+
     /** Client tick count when [stage] became [Stage.CLOSING]; the visuals fade from there. */
     var closingTick: Int = -1
         private set
 
-    constructor(level: ServerLevel, candle: BlockPos, rite: WohlonCandleRites.Rite) :
+    constructor(level: ServerLevel, context: RitualContext) :
         this(EKEntities.WOHLON_RITE_PEDESTAL.get(), level) {
-        this.candle = candle.immutable()
-        this.rite = rite
+        candle = context.center.immutable()
+        ritualId = context.ritual.id
+        rotation = context.rotation
         setPos(candle.x + 0.5, candle.y.toDouble(), candle.z + 0.5)
+        syncFeed(context)
     }
 
     override fun defineSynchedData() {
-        entityData.define(DATA_RITE, 0)
+        entityData.define(DATA_FEED, CompoundTag())
         entityData.define(DATA_STAGE, 0)
         entityData.define(DATA_SACRIFICE, ItemStack.EMPTY)
         entityData.define(DATA_RESULT, ItemStack.EMPTY)
@@ -87,6 +100,13 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
     override fun onSyncedDataUpdated(key: EntityDataAccessor<*>) {
         super.onSyncedDataUpdated(key)
         if (key == DATA_STAGE && level().isClientSide && stage == Stage.CLOSING) closingTick = tickCount
+        if (key == DATA_FEED) {
+            val list = entityData.get(DATA_FEED).getList(NBT_FEED, Tag.TAG_COMPOUND.toInt())
+            feedSlots = list.map { e ->
+                val slot = e as CompoundTag
+                BlockPos.of(slot.getLong("offset")) to BuiltInRegistries.BLOCK.get(ResourceLocation(slot.getString("block")))
+            }
+        }
         if (key == DATA_ADVANCEMENTS) {
             staffAdvancements = entityData.get(DATA_ADVANCEMENTS).split(' ').filter { it.isNotEmpty() }.mapNotNull(ResourceLocation::tryParse)
         }
@@ -106,9 +126,10 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
 
     // Each offering taken starts the wait again, so a rite with many slots does not run out of time.
     private fun tickWaiting(server: ServerLevel) {
-        if (!WohlonCandleRites.isLitCenter(server.getBlockState(candle))) {
+        val ritual = ritual
+        if (ritual == null || !ritual.center.isLit(server.getBlockState(candle))) {
             // Snuffing is how a staff rite is cancelled, and its offerings burn with it.
-            if (rite == WohlonCandleRites.Rite.STAFF) offerings.clear()
+            if (ritual?.effect is Staff) offerings.clear()
             close(server, fizzle = true)
         } else if (stageAge >= WAIT_TICKS) {
             close(server, fizzle = true)
@@ -124,11 +145,12 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
         if (held.isEmpty) {
             // The pedestal covers the candle from above, so it takes the empty-hand snuff that the candle would.
             val state = server.getBlockState(candle)
-            if (WohlonCandleRites.isLitCenter(state)) AbstractCandleBlock.extinguish(player, state, server, candle)
+            if (ritual?.center?.isLit(state) == true) AbstractCandleBlock.extinguish(player, state, server, candle)
             return InteractionResult.CONSUME
         }
-        if (age < RISE_TICKS || !rite.wants(offerings, held)) return InteractionResult.PASS
-        val recipe = if (rite == WohlonCandleRites.Rite.STAFF) WohlonCandleRites.staffRecipe(offerings) else null
+        val ritual = ritual ?: return InteractionResult.PASS
+        if (age < RISE_TICKS || !ritual.offerings.wants(offerings, held)) return InteractionResult.PASS
+        val recipe = staffRecipe()
         if (recipe != null && player is ServerPlayer && !recipe.isKnownBy(player)) {
             player.displayClientMessage(Component.translatable(MISSING_KNOWLEDGE), true)
             return InteractionResult.CONSUME
@@ -141,14 +163,14 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
         offerings.add(stack)
         syncOfferings()
         stageAge = 0
-        if (rite.isComplete(offerings)) stage = Stage.ABSORBING
+        if (ritual?.offerings?.isComplete(offerings) == true) stage = Stage.ABSORBING
         server.playSound(null, x, cradleY(), z, EKSounds.WOHLON_RITUAL_HEART_ARRIVE.get(), SoundSource.BLOCKS, 1.5f, 1f)
     }
 
     private fun syncOfferings() {
         entityData.set(DATA_SACRIFICE, offerings.firstOrNull()?.copy() ?: ItemStack.EMPTY)
         entityData.set(DATA_FILLED, maxOf(offerings.size - 1, 0).toByte())
-        val recipe = if (rite == WohlonCandleRites.Rite.STAFF) WohlonCandleRites.staffRecipe(offerings) else null
+        val recipe = staffRecipe()
         entityData.set(DATA_RESULT, recipe?.let { ItemStack(it.result) } ?: ItemStack.EMPTY)
         entityData.set(DATA_COLOUR, recipe?.colour ?: 0)
         entityData.set(DATA_BODY_COLOUR, recipe?.bodyColour ?: WohlonStaffRites.NO_BODY_COLOUR)
@@ -156,8 +178,22 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
         entityData.set(DATA_ADVANCEMENTS, recipe?.advancements?.joinToString(" ") ?: "")
     }
 
+    private fun staffRecipe(): WohlonStaffRites.Recipe? = if (ritual?.effect is Staff) Staff.recipe(offerings) else null
+
+    private fun syncFeed(context: RitualContext) {
+        val list = ListTag()
+        for (slot in context.ritual.effect.feedSlots(context)) {
+            list.add(CompoundTag().apply {
+                putLong("offset", slot.offset.asLong())
+                putString("block", BuiltInRegistries.BLOCK.getKey(slot.state.block).toString())
+            })
+        }
+        entityData.set(DATA_FEED, CompoundTag().apply { put(NBT_FEED, list) })
+    }
+
     private fun finish(server: ServerLevel) {
-        val made = rite.resolve(server, candle, offerings)
+        val ritual = ritual
+        val made = ritual?.effect?.resolve(RitualContext(server, ritual, candle, rotation, null), offerings)
         if (made == null) {
             dropOfferings(server)
         } else {
@@ -207,7 +243,8 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
 
     override fun addAdditionalSaveData(tag: CompoundTag) {
         tag.putLong("candle", candle.asLong())
-        tag.putByte("rite", rite.ordinal.toByte())
+        ritualId?.let { tag.putString("ritual", it.toString()) }
+        tag.putByte("rotation", rotation.toByte())
         tag.putByte("stage", stage.ordinal.toByte())
         tag.putInt("age", age)
         tag.putInt("stageAge", stageAge)
@@ -218,7 +255,8 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
 
     override fun readAdditionalSaveData(tag: CompoundTag) {
         candle = BlockPos.of(tag.getLong("candle"))
-        rite = WohlonCandleRites.Rite.entries[tag.getByte("rite").toInt().coerceIn(0, WohlonCandleRites.Rite.entries.size - 1)]
+        ritualId = ResourceLocation.tryParse(tag.getString("ritual"))
+        rotation = tag.getByte("rotation").toInt()
         stage = Stage.entries[tag.getByte("stage").toInt().coerceIn(0, Stage.entries.size - 1)]
         age = tag.getInt("age")
         stageAge = tag.getInt("stageAge")
@@ -226,6 +264,9 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
         val list = tag.getList("offerings", Tag.TAG_COMPOUND.toInt())
         for (i in 0 until list.size) ItemStack.of(list.getCompound(i)).takeUnless { it.isEmpty }?.let(offerings::add)
         syncOfferings()
+        val server = level() as? ServerLevel ?: return
+        val ritual = ritual ?: return
+        if (rotation in ritual.layout?.rotations?.indices ?: IntRange.EMPTY) syncFeed(RitualContext(server, ritual, candle, rotation, null))
     }
 
     companion object {
@@ -239,8 +280,9 @@ class WohlonRitePedestal(type: EntityType<out WohlonRitePedestal>, level: Level)
         const val CRADLE_HEIGHT = 1.35
         private const val RECEIVE_BOTTOM = 0.5
 
-        private val DATA_RITE: EntityDataAccessor<Byte> =
-            SynchedEntityData.defineId(WohlonRitePedestal::class.java, EntityDataSerializers.BYTE)
+        private const val NBT_FEED = "slots"
+        private val DATA_FEED: EntityDataAccessor<CompoundTag> =
+            SynchedEntityData.defineId(WohlonRitePedestal::class.java, EntityDataSerializers.COMPOUND_TAG)
         private val DATA_STAGE: EntityDataAccessor<Byte> =
             SynchedEntityData.defineId(WohlonRitePedestal::class.java, EntityDataSerializers.BYTE)
         private val DATA_SACRIFICE: EntityDataAccessor<ItemStack> =

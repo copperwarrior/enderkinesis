@@ -1,141 +1,18 @@
 package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
-import net.minecraft.core.registries.Registries
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.BlockTags
-import net.minecraft.tags.TagKey
 import net.minecraft.world.entity.Entity
-import net.minecraft.world.level.biome.Biome
-import net.minecraft.world.level.block.Block
-import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.CandleBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.registry.EKSounds
 
-/**
- * Ritual logic + teleport target picker for the Heart Candle ⇒
- * Wohlonnogondonia portal.
- *
- * Three pieces, all server-side and stateless:
- *
- *  - [PATTERN] — the 8 light-blue candle offsets + required candle
- *    counts that must all be lit in the player's local biome for
- *    the ritual to fire. Y-aligned with the heart candle; offsets
- *    are (dx, dz) where dz<0 is north, dz>0 is south.
- *  - [checkPattern] — verifies every [PATTERN] slot.
- *  - [VALID_BIOMES_TAG] / [isBiomeValid] — the heart candle's local
- *    biome must be in this tag.
- *  - [pickLandingSpot] / [teleportToMotherTree] — pick a random open
- *    ground voxel in a ring around Wohlon's origin (the Mother
- *    Tree's footprint) and move the entity there, handling
- *    cross-dimension transfer for players vs. mobs.
- */
+/** Teleport target picker for the Wohlonnogondonia portal. The ritual that makes the portal is data: `data/enderkinesis/rituals/wohlon_portal.json`. */
 object WohlonnogondoniaPortalRitual {
-
-
-    /** A single slot in the ritual pattern: position offset from
-     *  the heart candle (X east, Z south) and the exact candle
-     *  count required at that slot. All slots must hold a LIT
-     *  light_blue_candle with the specified CANDLES value. */
-    data class PatternSlot(val dx: Int, val dz: Int, val count: Int, val candle: Block = Blocks.LIGHT_BLUE_CANDLE)
-
-    /** Ritual pattern (top is north, bottom is south):
-     *  ```
-     *  X X X 1 X X X
-     *  X 2 X X X 2 X
-     *  X X X X X X X
-     *  2 X X H X X 2
-     *  X X X X X X X
-     *  X 3 X X X 3 X
-     *  X X X 4 X X X
-     *  ```
-     *  H is the heart candle, numbers are required CANDLES counts
-     *  of LIT light_blue_candle at that offset. X slots aren't
-     *  checked — anything (or nothing) can occupy them. This is
-     *  the canonical (north-aligned) orientation; the ritual
-     *  also accepts any 90°-rotated form via [ROTATIONS]. */
-    val PATTERN: List<PatternSlot> = listOf(
-        PatternSlot(0, -3, 1),
-        PatternSlot(-2, -2, 2), PatternSlot(2, -2, 2),
-        PatternSlot(-3,  0, 2), PatternSlot(3,  0, 2),
-        PatternSlot(-2,  2, 3), PatternSlot(2,  2, 3),
-        PatternSlot(0,  3, 4),
-    )
-
-    /** All four cardinal rotations of [PATTERN], precomputed at
-     *  class init. [checkPattern] succeeds if the candles around
-     *  the heart match ANY of these — so the ritual is built
-     *  exactly the same shape regardless of which compass
-     *  direction the player approaches it from. Rotation rule
-     *  for 90° clockwise in MC's (+X east, +Z south) plane is
-     *  `(x, z) → (-z, x)`; the four orientations are the
-     *  identity, that map applied once, twice, and thrice.
-     *  Candle counts move with the slot — i.e. in the 90° CW
-     *  form, the "1" lives on the east side and the "4" on the
-     *  west side; the *shape* of the ring rotates with the
-     *  player's framing, not the numbers. */
-    val ROTATIONS: List<List<PatternSlot>> = rotations(PATTERN)
-
-    fun rotations(pattern: List<PatternSlot>): List<List<PatternSlot>> = listOf(
-        pattern,                                                   // 0°   (canonical, north-up)
-        pattern.map { it.copy(dx = -it.dz, dz = it.dx) },          // 90°  CW
-        pattern.map { it.copy(dx = -it.dx, dz = -it.dz) },         // 180°
-        pattern.map { it.copy(dx = it.dz, dz = -it.dx) },          // 270° CW (90° CCW)
-    )
-
-    /** Biome tag enumerating the overworld biomes in which the
-     *  ritual is allowed to succeed. Data file at
-     *  `data/enderkinesis/tags/worldgen/biome/wohlon_portal_valid_biomes.json`. */
-    val VALID_BIOMES_TAG: TagKey<Biome> = TagKey.create(
-        Registries.BIOME,
-        ResourceLocation("enderkinesis", "wohlon_portal_valid_biomes"),
-    )
-
-    /** True iff every slot of ANY [ROTATIONS] entry, applied
-     *  relative to [heartPos], holds a LIT
-     *  `minecraft:light_blue_candle` with the required CANDLES
-     *  count. Short-circuits as soon as one rotation matches.
-     *  Y stays equal to the heart candle's Y — the pattern is a
-     *  flat ring on the same plane. */
-    fun checkPattern(level: ServerLevel, heartPos: BlockPos): Boolean = matchesAny(level, heartPos, ROTATIONS)
-
-    fun matchesAny(level: ServerLevel, center: BlockPos, rotations: List<List<PatternSlot>>): Boolean {
-        for (rotation in rotations) {
-            if (matchesRotation(level, center, rotation)) return true
-        }
-        return false
-    }
-
-    /** Per-rotation matcher: every slot must hold a LIT light
-     *  blue candle with the required CANDLES count. Stops on
-     *  the first miss within the rotation so we move on to the
-     *  next orientation immediately. */
-    private fun matchesRotation(
-        level: ServerLevel,
-        heartPos: BlockPos,
-        rotation: List<PatternSlot>,
-    ): Boolean {
-        for (slot in rotation) {
-            val pos = heartPos.offset(slot.dx, 0, slot.dz)
-            val state = level.getBlockState(pos)
-            if (!state.`is`(slot.candle)) return false
-            if (state.getValue(CandleBlock.CANDLES) != slot.count) return false
-            if (!state.getValue(CandleBlock.LIT)) return false
-        }
-        return true
-    }
-
-    /** The heart candle's local biome must be in
-     *  [VALID_BIOMES_TAG]. */
-    fun isBiomeValid(level: ServerLevel, pos: BlockPos): Boolean {
-        return level.getBiome(pos).`is`(VALID_BIOMES_TAG)
-    }
 
     /** Pick a random "open ground voxel under the Mother Tree" in
      *  Wohlon.

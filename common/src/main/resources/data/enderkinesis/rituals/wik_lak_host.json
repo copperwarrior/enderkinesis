@@ -1,0 +1,24 @@
+{
+  "layout": "enderkinesis:rituals/wik_lak_host",
+  "center": {
+    "block": "#enderkinesis:wik_lak_skulls"
+  },
+  "alternatives": {
+    "minecraft:mud": "#enderkinesis:wik_lak_mud"
+  },
+  "trigger": {
+    "type": "enderkinesis:place",
+    "advancements": [
+      "enderkinesis:sureibjin/knowledge_of_death"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "enderkinesis:biome",
+      "biome": "enderkinesis:wohlonnogondonia"
+    }
+  ],
+  "effect": {
+    "type": "enderkinesis:wik_lak_host"
+  }
+}

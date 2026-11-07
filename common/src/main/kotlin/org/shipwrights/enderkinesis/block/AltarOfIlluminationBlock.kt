@@ -74,7 +74,8 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
             held.`is`(EKItems.PENFEATHER_OF_THE_ACCURSED_OWL.get()) -> Action.FINISH
             held.isEmpty && hand == InteractionHand.MAIN_HAND && !altar.ready.isEmpty -> Action.TAKE
             // Only when the off hand has nothing to do here, so it still gets its turn.
-            held.isEmpty && hand == InteractionHand.MAIN_HAND && !usable(player.offhandItem, state, altar) -> Action.READOUT
+            held.isEmpty && hand == InteractionHand.MAIN_HAND && !usable(player.offhandItem, state, altar) ->
+                if (altar.hasTakeableShard) Action.TAKE_SHARD else Action.READOUT
             else -> return InteractionResult.PASS
         }
         if (level.isClientSide) return InteractionResult.SUCCESS
@@ -84,12 +85,13 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
             Action.INSCRIBE -> inscribe(level, pos, player, held, shard!!, altar)
             Action.FINISH -> finish(state, level, pos, player, altar)
             Action.TAKE -> take(level, pos, player, altar)
+            Action.TAKE_SHARD -> takeShard(level, pos, player, altar)
             Action.READOUT -> inkReadout(player, state.getValue(INK))
         }
         return InteractionResult.CONSUME
     }
 
-    private enum class Action { BLANK, INK, INSCRIBE, FINISH, TAKE, READOUT }
+    private enum class Action { BLANK, INK, INSCRIBE, FINISH, TAKE, TAKE_SHARD, READOUT }
 
     private fun usable(stack: ItemStack, state: BlockState, altar: AltarOfIlluminationBlockEntity): Boolean =
         (stack.`is`(PAPER_TAG) && !altar.hasScroll) ||
@@ -156,10 +158,19 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
     }
 
     private fun take(level: Level, pos: BlockPos, player: Player, altar: AltarOfIlluminationBlockEntity) {
-        val scroll = altar.takeReady()
-        if (!player.inventory.add(scroll)) Containers.dropItemStack(level, pos.x + 0.5, pos.y + 1.4, pos.z + 0.5, scroll)
+        give(level, pos, player, altar.takeReady())
         play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_TAKE)
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
+    }
+
+    private fun takeShard(level: Level, pos: BlockPos, player: Player, altar: AltarOfIlluminationBlockEntity) {
+        give(level, pos, player, altar.takeBackShard())
+        play(level, pos, EKSounds.ALTAR_OF_ILLUMINATION_INSCRIBE)
+        level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos)
+    }
+
+    private fun give(level: Level, pos: BlockPos, player: Player, stack: ItemStack) {
+        if (!player.inventory.add(stack)) Containers.dropItemStack(level, pos.x + 0.5, pos.y + 1.4, pos.z + 0.5, stack)
     }
 
     private fun play(level: Level, pos: BlockPos, sound: RegistrySupplier<SoundEvent>) {

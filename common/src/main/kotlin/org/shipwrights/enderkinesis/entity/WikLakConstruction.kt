@@ -1,147 +1,49 @@
 package org.shipwrights.enderkinesis.entity
 
-import dev.architectury.event.EventResult
-import dev.architectury.event.events.common.BlockEvent
-import java.util.UUID
-import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.server.level.ServerLevel
-import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundSource
-import net.minecraft.world.entity.Entity
-import net.minecraft.world.level.Level
-import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.HeartOfTheWildManager
-import org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalRitual
-import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
-import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.ritual.RitualContext
+import org.shipwrights.enderkinesis.ritual.RitualEffect
 
 /**
- * Detects the "mud + mud + skull" golem pattern and converts it into a
- * [WikLakHostEntity] owned by the placer. Pattern (bottom → top):
- *
- *   y    : mud      (becomes the host's feet position)
- *   y+1  : mud
- *   y+2  : skeleton skull OR wither-skeleton skull   ← placement trigger
- *
- * Both skull variants work; the placer becomes the host's [WikLakHostEntity.creatorUuid].
- * Gated to Wohlonnogondonia biome cells — anywhere else a player just builds
- * a regular skull-on-mud pillar. Wall-mounted skulls (`SKELETON_WALL_SKULL`,
- * `WITHER_SKELETON_WALL_SKULL`) are excluded by design; the construction
- * must read as a vertical totem, not an arbitrary head-on-a-wall.
- *
- * Architectury's [BlockEvent.PLACE] fires at different points across
- * Fabric (pre-set) and Forge (post-set), so the actual pattern check is
- * deferred one server tick via `server.execute { … }` — by then the world
- * state is consistent on both loaders.
+ * Raises a [WikLakHostEntity] for the player who fired the ritual (`data/enderkinesis/rituals/wik_lak_host.json`).
+ * The totem is the center block and the template blocks straight below it; the host stands on the lowest one.
  */
-object WikLakConstruction {
+object WikLakConstruction : RitualEffect {
 
-    fun init() {
-        BlockEvent.PLACE.register(::onPlace)
-    }
-
-    private fun onPlace(
-        level: Level,
-        pos: BlockPos,
-        state: BlockState,
-        placer: Entity?,
-    ): EventResult {
-        if (level.isClientSide) return EventResult.pass()
-        val server = level as? ServerLevel ?: return EventResult.pass()
-        val player = placer as? ServerPlayer ?: return EventResult.pass()
-        if (!isSkull(state)) return EventResult.pass()
-        // The ritual is learned, not stumbled into: only players who hold
-        // Sureibjin's "Knowledge of Death" advancement can raise a host —
-        // everyone else just built a skull-on-mud pillar.
-        if (!hasKnowledgeOfDeath(player)) return EventResult.pass()
-
-        // Capture coords + creator now; defer the pattern check so Fabric
-        // and Forge agree on whether the skull is in the world yet.
-        val skullPos = pos.immutable()
-        val creator = player.uuid
-        server.server.execute { tryConstruct(server, skullPos, creator) }
-        return EventResult.pass()
-    }
-
-    /** Advancement id gating the ritual. */
-    private val KNOWLEDGE_OF_DEATH = net.minecraft.resources.ResourceLocation(
-        org.shipwrights.enderkinesis.EnderkinesisMod.MOD_ID, "sureibjin/knowledge_of_death",
-    )
-
-    private fun hasKnowledgeOfDeath(player: ServerPlayer): Boolean {
-        val advancement = player.server.advancements.getAdvancement(KNOWLEDGE_OF_DEATH) ?: return false
-        return player.advancements.getOrStartProgress(advancement).isDone
-    }
-
-    private fun tryConstruct(level: ServerLevel, skullPos: BlockPos, creator: UUID) {
-        if (!isSkull(level.getBlockState(skullPos))) return
-        val mudUpper = skullPos.below()
-        val mudLower = skullPos.below(2)
-        if (!isMud(level.getBlockState(mudUpper))) return
-        if (!isMud(level.getBlockState(mudLower))) return
-        if (!level.getBiome(skullPos).`is`(Wohlonnogondonia.BIOME_KEY)) return
-        // Same 8-slot light-blue candle ring the Heart Candle portal ritual
-        // uses (see [WohlonnogondoniaPortalRitual.PATTERN]) — checked at the
-        // bottom-of-pillar Y plane so the pattern surrounds the host's feet,
-        // matching where the heart candle sits in the portal ritual. All four
-        // rotations are accepted, same as the portal.
-        if (!WohlonnogondoniaPortalRitual.checkPattern(level, mudLower)) return
-
-        // Consume the three pattern blocks first so a half-build can't strand
-        // a floating skull if entity creation fails on the next line. The
-        // suppress guard skips [HeartOfTheWildManager.onBlockDestroyed] for
-        // these specific destructions — the construction sacrifices the
-        // blocks intentionally and a wogor bud must NOT regrow where the
-        // host now stands.
+    override fun resolve(context: RitualContext, offered: List<ItemStack>): ItemStack? {
+        val level = context.level
+        val creator = context.player ?: return null
+        val column = context.blocks.filter { it.offset.x == 0 && it.offset.z == 0 && it.offset.y < 0 }
+            .map { context.center.offset(it.offset) }
+        val feet = column.minByOrNull { it.y } ?: context.center
+        // The totem is sacrificed on purpose, so a wogor bud must not regrow where the host stands.
         HeartOfTheWildManager.withEnrollSuppressed {
-            level.removeBlock(skullPos, false)
-            level.removeBlock(mudUpper, false)
-            level.removeBlock(mudLower, false)
+            level.removeBlock(context.center, false)
+            column.forEach { level.removeBlock(it, false) }
         }
 
-        val host = EKEntities.WIK_LAK_HOST.get().create(level) ?: return
-        host.moveTo(
-            mudLower.x + 0.5,
-            mudLower.y.toDouble(),
-            mudLower.z + 0.5,
-            level.random.nextFloat() * 360f,
-            0f,
-        )
-        host.creatorUuid = creator
+        val host = EKEntities.WIK_LAK_HOST.get().create(level) ?: return ItemStack.EMPTY
+        host.moveTo(feet.x + 0.5, feet.y.toDouble(), feet.z + 0.5, level.random.nextFloat() * 360f, 0f)
+        host.creatorUuid = creator.uuid
         level.addFreshEntity(host)
 
-        level.playSound(
-            null, mudLower,
-            EKSounds.WIK_LAK_BIND.get(), SoundSource.NEUTRAL,
-            1f, 1f,
-        )
-        level.sendParticles(
-            ParticleTypes.SCULK_SOUL,
-            mudLower.x + 0.5, mudLower.y + 1.0, mudLower.z + 0.5,
-            32, 0.3, 0.6, 0.3, 0.05,
-        )
+        level.playSound(null, feet, EKSounds.WIK_LAK_BIND.get(), SoundSource.NEUTRAL, 1f, 1f)
+        level.sendParticles(ParticleTypes.SCULK_SOUL, feet.x + 0.5, feet.y + 1.0, feet.z + 0.5, 32, 0.3, 0.6, 0.3, 0.05)
 
-        // Bind-thread visual: a dense beaded line of short-life fireflies
-        // from the host's chest to the creator's. The bind particle is the
-        // 1-second variant of the ambient Wohlon firefly, so the line
-        // appears bright at summon and disappears in step with the soul-
-        // escape sound rather than persisting as ambient glitter.
-        val creatorPlayer = level.getPlayerByUUID(creator) as? ServerPlayer
-        if (creatorPlayer != null) {
-            val hostChest = host.position().add(0.0, host.bbHeight * 0.75, 0.0)
-            val creatorChest = creatorPlayer.position().add(0.0, creatorPlayer.bbHeight * 0.75, 0.0)
-            spawnFireflyThread(level, hostChest, creatorChest)
-        }
-
+        val hostChest = host.position().add(0.0, host.bbHeight * 0.75, 0.0)
+        val creatorChest = creator.position().add(0.0, creator.bbHeight * 0.75, 0.0)
+        spawnFireflyThread(level, hostChest, creatorChest)
+        return ItemStack.EMPTY
     }
-
     /** Distribute [fireflies][EKParticles.WOHLON_FIREFLY] along the segment
      *  `from → to`, one per ~0.4 blocks of length up to [MAX_FIREFLIES].
      *  Each anchor gets a small ~0.1-block perpendicular jitter so the line
@@ -189,12 +91,6 @@ object WikLakConstruction {
             }
         }
     }
-
-    private fun isSkull(state: BlockState): Boolean =
-        state.`is`(Blocks.SKELETON_SKULL) || state.`is`(Blocks.WITHER_SKELETON_SKULL)
-
-    private fun isMud(state: BlockState): Boolean =
-        state.`is`(Blocks.MUD) || state.`is`(EKBlocks.WOHLON_MUD.get())
 
     /** Spacing between consecutive firefly anchors along the bind line.
      *  ~0.2 blocks per bead gives a continuous-looking rope of glitter

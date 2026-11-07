@@ -101,16 +101,17 @@ object BookshelfPage {
     /**
      * A location whose page starts with [words]: the words, then filler drawn from [seed] until the page is full,
      * so one phrase and seed always lead to the same place. Null when the words share no language or no
-     * filler fits in [MAX_FILL_ATTEMPTS] draws.
+     * filler that fits and passes [accept] comes in [MAX_FILL_ATTEMPTS] draws.
      */
-    fun locationStartingWith(words: List<String>, seed: Long): Location? {
+    fun locationStartingWith(words: List<String>, seed: Long, accept: (Location) -> Boolean = { true }): Location? {
         if (words.isEmpty() || words.size > WORDS) return null
         val language = languageOf(words) ?: return null
         val lib = library(language)
         val rng = Random(seed)
         repeat(MAX_FILL_ATTEMPTS) {
             val page = words + List(WORDS - words.size) { lib.randomWord(rng) }
-            lib.indexOfWords(page)?.let { return location(Address(language, it)) }
+            val location = lib.indexOfWords(page)?.let { location(Address(language, it)) }
+            if (location != null && accept(location)) return location
         }
         return null
     }

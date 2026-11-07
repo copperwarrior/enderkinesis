@@ -324,6 +324,11 @@ object EKParticles {
 
     fun ichaericInkDrip(): EKOceanParticleType = ICHAERIC_INK_DRIP.get() as EKOceanParticleType
 
+    val WEATHERING_RAIN: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("weathering_rain") { EKOceanParticleType() }
+
+    fun weatheringRain(): EKOceanParticleType = WEATHERING_RAIN.get() as EKOceanParticleType
+
     val SPELL_MOTES: Map<SpellMote, RegistrySupplier<ParticleType<*>>> =
         SpellMote.entries.associateWith { mote -> PARTICLES.register(mote.id) { EKOceanParticleType() } }
 

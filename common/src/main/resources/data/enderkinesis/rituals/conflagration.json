@@ -1,0 +1,20 @@
+{
+  "layout": "enderkinesis:rituals/conflagration",
+  "center": {
+    "block": "minecraft:red_candle",
+    "properties": {
+      "candles": "4"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:light"
+  },
+  "offerings": [
+    "minecraft:fire_charge"
+  ],
+  "effect": {
+    "type": "enderkinesis:conflagration",
+    "radius": 16,
+    "duration": 100
+  }
+}

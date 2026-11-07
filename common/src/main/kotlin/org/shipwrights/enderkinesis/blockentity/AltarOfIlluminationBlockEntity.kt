@@ -19,7 +19,7 @@ import org.shipwrights.enderkinesis.spell.Inscription
 import org.shipwrights.enderkinesis.spell.Spell
 
 /**
- * Glyphs never come back out; only an opposite undoes one. The finish takes its ink bottle
+ * Only a plain glyph comes back out as its shard; a fusion stays until an opposite undoes it. The finish takes its ink bottle
  * only when the scroll rises ([inkDropPending], a scheduled block tick).
  */
 // Not a Container: hoppers and other automation must find no inventory here.
@@ -86,6 +86,8 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
 
     val hasScroll: Boolean get() = !blank.isEmpty
 
+    val hasTakeableShard: Boolean get() = takeableIndex() >= 0
+
     /** Glyphs already on the altar stay. */
     fun placeBlank(paper: ItemStack) {
         blank = paper.copyWithCount(1)
@@ -142,6 +144,25 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
         kept += new
         events = kept
     }
+
+    /** Removes the newest plain glyph and returns its shard, or EMPTY. */
+    fun takeBackShard(): ItemStack {
+        val i = takeableIndex()
+        if (i < 0) return ItemStack.EMPTY
+        val shard = ItemStack(checkNotNull(EKItems.shardOf(glyphs[i])))
+        glyphs = glyphs.filterIndexed { j, _ -> j != i }
+        events = events.mapNotNull { e ->
+            when {
+                e.kind == Event.Kind.FINISH || e.index < i -> e
+                e.index == i -> null
+                else -> e.movedTo(e.index - 1)
+            }
+        }
+        changed()
+        return shard
+    }
+
+    private fun takeableIndex(): Int = glyphs.indexOfLast { !it.isFusion && EKItems.shardOf(it) != null }
 
     fun takeReady(): ItemStack {
         val out = ready

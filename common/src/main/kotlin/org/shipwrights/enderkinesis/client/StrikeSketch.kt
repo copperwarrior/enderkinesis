@@ -105,7 +105,7 @@ class StrikeSketch(private val spec: SketchSpec) {
         }
         val colour = renderScene(resolution, normals = false, projection, orient, scene)
         val normals = renderScene(resolution, normals = true, projection, orient, scene)
-        val out = shade(shader, colour, normals, scale, size, spec.seed, frame, rebuilt = camera != null)
+        val out = shade(shader, colour, normals, scale, size, spec.seed, frame, rebuilt = camera != null, wash = spec.colour)
         colour.destroyBuffers()
         normals.destroyBuffers()
         return out
@@ -187,8 +187,12 @@ class StrikeSketch(private val spec: SketchSpec) {
                 orient(pose)
                 val buffers = Minecraft.getInstance().renderBuffers().bufferSource()
                 val source = if (normals) StrikeSketchRenderTypes.normalsSource(buffers) else buffers
+                val rotation = Matrix4f(pose.last().pose())
+                val flames = WillfaerFlameVolume.mark()
                 scene.drawPart(pose, source, normals, from, to)
                 buffers.endBatch()
+                if (!normals) WillfaerFlameVolume.renderInto(target, flames, projection, rotation)
+                WillfaerFlameVolume.rewind(flames)
             }
             Minecraft.getInstance().mainRenderTarget.bindWrite(true)
         }
@@ -196,7 +200,7 @@ class StrikeSketch(private val spec: SketchSpec) {
         /** Graphite over [colour] and its [normals], both in GL row order; the inputs stay open. */
         internal fun shade(
             shader: ShaderInstance, colour: TextureTarget, normals: TextureTarget,
-            scale: Int, size: Int, seed: Int, frame: SketchFrame, rebuilt: Boolean,
+            scale: Int, size: Int, seed: Int, frame: SketchFrame, rebuilt: Boolean, wash: Boolean,
         ): TextureTarget {
             val resolution = colour.width
             val measure = readBack(colour) { StrikeSketchMeasure.of(it) }
@@ -219,6 +223,7 @@ class StrikeSketch(private val spec: SketchSpec) {
             shader.safeGetUniform("Frame").set(frame.zoom, frame.offsetX, frame.offsetY, 0f)
             shader.safeGetUniform("OutlineGround").set(if (rebuilt) 1f else 0f)
             shader.safeGetUniform("SideFade").set(if (rebuilt) VIEW_SIDE_FADE else 0f)
+            shader.safeGetUniform("Colour").set(if (wash) 1f else 0f)
             withIdentityMatrices(Matrix4f()) { fullScreenQuad() }
             Minecraft.getInstance().mainRenderTarget.bindWrite(true)
             return out
@@ -323,7 +328,7 @@ internal class SlicedBake(private val spec: SketchSpec, private val scene: Sketc
         check(done) { "the bake has passes left" }
         val shader = StrikeSketch.shader
         val frame = if (spec.notes && spec.size >= StrikeSketch.NOTES_MIN_SIZE) SketchFrame.WITH_NOTES else SketchFrame.PLAIN
-        val out = shader?.let { StrikeSketch.shade(it, colour, normals, scale, spec.size, spec.seed, frame, rebuilt = true) }
+        val out = shader?.let { StrikeSketch.shade(it, colour, normals, scale, spec.size, spec.seed, frame, rebuilt = true, wash = spec.colour) }
         close()
         return out?.let(StrikeSketch::topFirst)
     }

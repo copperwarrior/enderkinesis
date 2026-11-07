@@ -159,13 +159,17 @@ object WeheloPocketClient {
             // Out of the fog and back: hidden past the fog end, at rest inside it.
             val near = smooth(age / EYE_EMERGE) * smooth((eye.life - age) / EYE_EMERGE)
             val distance = EYE_HIDDEN + (eye.rest - EYE_HIDDEN) * near
-            // The same smoothstep as vanilla linear fog. Emissive eyes fog to black, as vanilla's eyes shader does.
-            val fog = smooth(((distance - FOG_START) / (FOG_END - FOG_START)).toFloat())
-            val grey = (255 * (1f - fog)).toInt()
-            val rgb = (grey shl 16) or (grey shl 8) or grey
+            val rgb = eyeRgb(distance)
             val centre = view.cam.add(eye.dir.scale(distance))
             for (side in EYE_SIDES) square(glow, matrix, view, centre.add(view.left.scale(side * EYE_GAP * 0.5)), rgb)
         }
+    }
+
+    /** The same smoothstep as vanilla linear fog. Emissive eyes fog to black, as vanilla's eyes shader does. */
+    fun eyeRgb(distance: Double): Int {
+        val fog = smooth(((distance - FOG_START) / (FOG_END - FOG_START)).toFloat())
+        val grey = (255 * (1f - fog)).toInt()
+        return (grey shl 16) or (grey shl 8) or grey
     }
 
     private fun square(c: com.mojang.blaze3d.vertex.VertexConsumer, m: Matrix4f, view: SpellView, at: Vec3, rgb: Int) {
@@ -178,7 +182,7 @@ object WeheloPocketClient {
     private const val TEAR_SEAL_TICKS = 16f
     const val FOG_GREY = 0.18f
     const val FOG_START = 0.0f
-    const val FOG_END = 32.0f
+    const val FOG_END = WeheloPocket.FOG_END
 
     private const val MAX_EYES = 3
     private const val EYE_SOUND_DISTANCE = 2.0
@@ -198,7 +202,7 @@ object WeheloPocketClient {
     private const val EYE_LIFE_RANGE = 80
     private const val EYE_EMERGE = 25
     private const val EYE_BLINK = 3
-    private const val EYE_GAP = 0.34
-    private const val EYE_HALF = 0.05
+    const val EYE_GAP = 0.34
+    const val EYE_HALF = 0.05
     private val EYE_SIDES = doubleArrayOf(-1.0, 1.0)
 }

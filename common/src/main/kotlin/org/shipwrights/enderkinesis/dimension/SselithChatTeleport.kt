@@ -133,14 +133,7 @@ object SselithChatTeleport {
         if (nearShelves < SselithBookshelfScan.MIN_BOOKSHELVES) return true
 
         val sselithLevel = server.getLevel(SselithRepertory.LEVEL_KEY) ?: return true
-        SselithReturnSavedData.get(server).put(
-            player.uuid,
-            ReturnPoint(
-                dimension = currentDim,
-                x = player.x, y = player.y, z = player.z,
-                yRot = player.yRot, xRot = player.xRot,
-            ),
-        )
+        saveReturnPoint(player)
         val hissMono = EKSounds.SSELITH_HISS_MONO.get()
         SselithDustBurst.at(player.serverLevel(), player)
         playForOthers(player, hissMono)
@@ -155,6 +148,18 @@ object SselithChatTeleport {
         player.playNotifySound(EKSounds.SSELITH_HISS.get(), SoundSource.PLAYERS, 1.0f, 1.0f)
         sendGlyphSeed(player, EKParticles.sselithArrivalStorm())
         return true
+    }
+
+    /** Save where [player] stands now, so the invocation in Sselith can bring them back. */
+    fun saveReturnPoint(player: ServerPlayer) {
+        SselithReturnSavedData.get(player.server).put(
+            player.uuid,
+            ReturnPoint(
+                dimension = player.level().dimension(),
+                x = player.x, y = player.y, z = player.z,
+                yRot = player.yRot, xRot = player.xRot,
+            ),
+        )
     }
 
     private fun sendGlyphSeed(player: ServerPlayer, seed: SimpleParticleType) {

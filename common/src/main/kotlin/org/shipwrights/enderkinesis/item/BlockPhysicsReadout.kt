@@ -20,6 +20,7 @@ data class BlockPhysicsReadout(
     val state: BlockState,
     override val owner: String,
     override val sketchSeed: Int,
+    override val sketchColour: Boolean,
     val mass: Double,
     val friction: Double,
     val elasticity: Double,
@@ -44,7 +45,7 @@ data class BlockPhysicsReadout(
     )
 
     override val sketch: SketchSpec
-        get() = SketchSpec(SketchSubject.Block(state), sketchSeed, StrikeReadout.SKETCH_SIZE, notes = true)
+        get() = SketchSpec(SketchSubject.Block(state), sketchSeed, StrikeReadout.SKETCH_SIZE, notes = true, colour = sketchColour)
 
     override fun lines(): List<Component> = listOf(
         line("mass", mass.toString()),
@@ -63,6 +64,7 @@ data class BlockPhysicsReadout(
         put(KEY_STATE, NbtUtils.writeBlockState(state))
         putString(StrikeReadout.KEY_OWNER, owner)
         putInt(StrikeReadout.KEY_SKETCH_SEED, sketchSeed)
+        if (sketchColour) putBoolean(StrikeReadout.KEY_SKETCH_COLOUR, true)
         putDouble(KEY_MASS, mass)
         putDouble(KEY_FRICTION, friction)
         putDouble(KEY_ELASTICITY, elasticity)
@@ -88,12 +90,15 @@ data class BlockPhysicsReadout(
         private const val KEY_JUMP = "jump_factor"
 
         // Unlisted blocks get VS2's config defaults when the resolver builds the physics state.
-        fun of(level: BlockGetter, pos: BlockPos, state: BlockState, owner: String, sketchSeed: Int): BlockPhysicsReadout {
+        fun of(
+            level: BlockGetter, pos: BlockPos, state: BlockState, owner: String, sketchSeed: Int, sketchColour: Boolean,
+        ): BlockPhysicsReadout {
             val block = state.block
             return BlockPhysicsReadout(
                 state = state,
                 owner = owner,
                 sketchSeed = sketchSeed,
+                sketchColour = sketchColour,
                 mass = BlockStateInfo.get(state)?.first ?: VSGameConfig.SERVER.defaultBlockMass,
                 friction = MassDatapackResolver.getBlockStateFriction(state)
                     ?: VSGameConfig.SERVER.defaultBlockFriction,
@@ -119,6 +124,7 @@ data class BlockPhysicsReadout(
                 state = state,
                 owner = tag.getString(StrikeReadout.KEY_OWNER),
                 sketchSeed = tag.getInt(StrikeReadout.KEY_SKETCH_SEED),
+                sketchColour = tag.getBoolean(StrikeReadout.KEY_SKETCH_COLOUR),
                 mass = tag.getDouble(KEY_MASS),
                 friction = tag.getDouble(KEY_FRICTION),
                 elasticity = tag.getDouble(KEY_ELASTICITY),

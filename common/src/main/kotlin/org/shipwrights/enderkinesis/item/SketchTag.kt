@@ -19,7 +19,10 @@ sealed interface SketchSubject {
     data class Picture(val key: String) : SketchSubject
 }
 
-data class SketchSpec(val subject: SketchSubject, val seed: Int, val size: Int, val notes: Boolean) {
+/** [colour] adds a line-and-wash layer from the subject's own colours under the graphite. */
+data class SketchSpec(
+    val subject: SketchSubject, val seed: Int, val size: Int, val notes: Boolean, val colour: Boolean = false,
+) {
     /** Book lines the sketch fills. */
     val lines: Int get() = (size + SketchTag.LINE_HEIGHT - 1) / SketchTag.LINE_HEIGHT
 }
@@ -30,7 +33,7 @@ class FoundSketchTag(val start: Int, val end: Int, val spec: SketchSpec?)
 /**
  * Sketch tags on book pages:
  * `[sketch=minecraft:oak_stairs[facing=north]]`, `[sketch:entity=minecraft:sheep{Color:14b}]`,
- * `[sketch:structure=minecraft:igloo/top]`, each with optional `size=`, `seed=` and `notes=false`.
+ * `[sketch:structure=minecraft:igloo/top]`, each with optional `size=`, `seed=`, `notes=false` and `colour=true`.
  */
 object SketchTag {
 
@@ -50,7 +53,8 @@ object SketchTag {
             is SketchSubject.Picture -> ":picture=" + s.key
         }
         val notes = if (spec.notes) "" else " notes=false"
-        return "[sketch$subject size=${spec.size} seed=${spec.seed}$notes]"
+        val colour = if (spec.colour) " colour=true" else ""
+        return "[sketch$subject size=${spec.size} seed=${spec.seed}$notes$colour]"
     }
 
     fun mayContain(text: String): Boolean = text.contains(OPEN)
@@ -151,6 +155,7 @@ object SketchTag {
             seed = settings["seed"]?.toIntOrNull() ?: raw.hashCode(),
             size = (settings["size"]?.toIntOrNull() ?: DEFAULT_SIZE).coerceIn(MIN_SIZE, MAX_SIZE),
             notes = settings["notes"]?.lowercase() !in OFF,
+            colour = (settings["colour"] ?: settings["color"])?.lowercase()?.let { it !in OFF } ?: false,
         )
     }
 

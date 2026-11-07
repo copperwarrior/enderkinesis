@@ -213,6 +213,7 @@ object EnderkinesisMod {
         )
         ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.item.Scraps, id("scraps"))
         ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.WohlonStaffRites, id("wohlon_staff_rites"))
+        ReloadListenerRegistry.register(PackType.SERVER_DATA, org.shipwrights.enderkinesis.ritual.Rituals, id("rituals"))
         ReloadListenerRegistry.register(
             PackType.SERVER_DATA, org.shipwrights.enderkinesis.block.InegricRetortRates, id("inegric_retort"),
         )
@@ -256,7 +257,6 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.block.WohlonnogondoniaWorldRootGrower.init()
         org.shipwrights.enderkinesis.block.WohlonRollingWaters.init()
         org.shipwrights.enderkinesis.block.WohlonReachingRoot.init()
-        org.shipwrights.enderkinesis.entity.WikLakConstruction.init()
         org.shipwrights.enderkinesis.util.ShipMoves.init()
         org.shipwrights.enderkinesis.worldgen.YgannAnchorShipifyProcessor.init()
         org.shipwrights.enderkinesis.worldgen.RoamingEndShipShipifyProcessor.init()
@@ -275,7 +275,7 @@ object EnderkinesisMod {
         YgannMadnessOnExit.init()
         YgannMadnessBehavior.init()
         org.shipwrights.enderkinesis.dimension.WohlonDeathWisp.init()
-        org.shipwrights.enderkinesis.block.WohlonGoatSacrifice.init()
+        org.shipwrights.enderkinesis.ritual.Rituals.init()
 
         SselithVoidWrap.init()
         org.shipwrights.enderkinesis.dimension.SselithParallel.init()

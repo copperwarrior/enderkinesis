@@ -19,6 +19,8 @@ uniform vec4 Frame;
 uniform float OutlineGround;
 // Width of the fade at the left and right of a rebuilt view, in render UV; 0 for none.
 uniform float SideFade;
+// 1 for a dye wash under the graphite: each block's own colour, snapped to the nearest of the 16 dye colours.
+uniform float Colour;
 in vec2 texCoord0;
 out vec4 fragColor;
 const float PI = 3.14159265;
@@ -255,6 +257,97 @@ float notes(vec2 p) {
   }
   return ink;
 }
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), f.x), mix(hash2(i + vec2(0.0, 1.0)), hash2(i + 1.0), f.x), f.y);
+}
+// Lighting.setupFor3DItems in view space. The colour pass is lit only by these, so dividing them out gives the albedo.
+const vec3 ITEM_LIGHT0 = vec3(-0.22252, 0.17150, 0.95973);
+const vec3 ITEM_LIGHT1 = vec3(-0.21501, 0.97183, 0.09657);
+float itemLight(vec2 uv) {
+  vec3 n = normalize(normalAt(uv));
+  return min(1.0, (max(0.0, dot(ITEM_LIGHT0, n)) + max(0.0, dot(ITEM_LIGHT1, n))) * 0.6 + 0.4);
+}
+// Within r GUI px: the most coverage (a reach past small forms such as candles), and the mean albedo of covered pixels.
+float washReach(vec2 uv, float r) {
+  vec2 d = r * PixelScale / SketchSize / 3.0;
+  float most = 0.0;
+  for (int y = -3; y <= 3; y++) for (int x = -3; x <= 3; x++) {
+    float k = length(vec2(x, y)) / 3.0;
+    if (k > 1.0) continue;
+    most = max(most, coverage(uv + vec2(float(x), float(y)) * d) * (1.0 - 0.6 * k * k));
+  }
+  return most;
+}
+vec3 nearAlbedo(vec2 uv, float r) {
+  vec2 d = r * PixelScale / SketchSize / 3.0;
+  vec4 s = vec4(0.0);
+  for (int y = -3; y <= 3; y++) for (int x = -3; x <= 3; x++) {
+    if (length(vec2(x, y)) > 3.0) continue;
+    vec2 p = uv + vec2(float(x), float(y)) * d;
+    vec4 c = colourAt(p);
+    if (c.a < 0.5) continue;
+    s += vec4(c.rgb / itemLight(p), 1.0);
+  }
+  return s.a > 0.0 ? s.rgb / s.a : vec3(1.0);
+}
+// DyeColor texture colours, white to black.
+const vec3 DYES[16] = vec3[16](
+  vec3(0.976, 1.0, 0.996), vec3(0.976, 0.502, 0.114), vec3(0.78, 0.306, 0.741), vec3(0.227, 0.702, 0.855),
+  vec3(0.996, 0.847, 0.239), vec3(0.502, 0.78, 0.122), vec3(0.953, 0.545, 0.667), vec3(0.278, 0.31, 0.322),
+  vec3(0.616, 0.616, 0.592), vec3(0.086, 0.612, 0.612), vec3(0.537, 0.196, 0.722), vec3(0.235, 0.267, 0.667),
+  vec3(0.514, 0.329, 0.196), vec3(0.369, 0.486, 0.086), vec3(0.69, 0.18, 0.149), vec3(0.114, 0.114, 0.129));
+// Painter's wells, 64 colours: each dye darker, as is, lighter and muted (greyed halfway to its own value).
+// Muted neutrals and lighter white repeat other wells, so 5 mixed wells take their places.
+const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+const vec3 MIXES[5] = vec3[5](
+  vec3(0.329, 0.490, 0.390), vec3(0.187, 0.334, 0.243), vec3(0.442, 0.407, 0.141), vec3(0.755, 0.588, 0.217),
+  vec3(0.270, 0.293, 0.437));
+vec3 well(vec3 dye, int j) {
+  if (j == 0) return dye * 0.65;
+  if (j == 2) return mix(dye, vec3(1.0), 0.35);
+  if (j == 3) return mix(dye, vec3(dot(dye, LUMA)), 0.5);
+  return dye;
+}
+bool repeats(int i, int j) { return (j == 3 && (i == 0 || i == 7 || i == 8 || i == 15)) || (i == 0 && j == 2); }
+// Hue and chroma count more than lightness.
+float dyeDistance(vec3 c, vec3 p) {
+  vec3 diff = c - p;
+  float dl = dot(diff, LUMA);
+  vec3 dc = diff - dl;
+  return dot(dc, dc) + dl * dl * 0.35;
+}
+vec3 nearestDye(vec3 c) {
+  vec3 best = DYES[0];
+  float bestD = 1e9;
+  for (int i = 0; i < 16; i++) for (int j = 0; j < 4; j++) {
+    if (repeats(i, j)) continue;
+    vec3 p = well(DYES[i], j);
+    float dist = dyeDistance(c, p);
+    if (dist < bestD) { bestD = dist; best = p; }
+  }
+  for (int k = 0; k < 5; k++) {
+    float dist = dyeDistance(c, MIXES[k]);
+    if (dist < bestD) { bestD = dist; best = MIXES[k]; }
+  }
+  return best;
+}
+// Set a little off the line and a little past each form; darker where it dried; bare paper on the brightest tops.
+vec4 dyeWash(float ink, vec2 uv) {
+  vec2 g = texCoord0 * SketchSize / PixelScale;
+  vec2 wuv = frame(wobble(texCoord0, SEED + 31.0, 0.012) + vec2(0.004, -0.003));
+  float reach = washReach(wuv, 2.4) * (0.75 + 0.5 * vnoise(g / 3.5));
+  float body = smoothstep(0.35, 0.55, reach);
+  float rim = smoothstep(0.3, 0.45, reach) * (1.0 - smoothstep(0.5, 0.75, reach));
+  float leave = smoothstep(0.88, 0.98, tone(wuv)) * smoothstep(0.4, 0.7, vnoise(g / 6.0 + 13.0));
+  float depth = mix(0.55, 0.85, 1.0 - tone(wuv));
+  float a = (body * depth * (0.8 + 0.2 * vnoise(g / 9.0)) + rim * 0.3) * (1.0 - leave * 0.85) * sideFade(uv);
+  vec3 c = nearestDye(nearAlbedo(wuv, 2.4)) * mix(1.0, itemLight(wuv), 0.5) * (1.0 - rim * 0.25);
+  float outA = 1.0 - (1.0 - a) * (1.0 - ink);
+  return outA < 0.001 ? vec4(0.0) : vec4((c * a * (1.0 - ink) + INK * ink) / outA, outA);
+}
+
 void main() {
   vec2 uv = frame(grain(wobble(texCoord0, SEED + 5.0, 0.004), 0.002));
   float alpha = coverage(uv);
@@ -284,9 +377,11 @@ void main() {
   // Gentle edges in light areas (book spines, ring lines) get light marks; dark areas stay one mass.
   float keep = step(0.25, hash2(floor(texCoord0 * SketchSize / (PixelScale * 3.0)) + 7.0));
   marks = max(marks, detail(uv, alpha, 0.4, 0.9) * 0.35 * (1.0 - smoothstep(0.3, 0.6, raw)) * keep);
-  float ink = max(max(max(smudge, lines), groundInk), max(edges, marks)) * sideFade(uv);
+  // Under a wash the graphite tone is a light underdrawing; the wash carries the values.
+  float tonal = Colour > 0.5 ? 0.3 : 1.0;
+  float ink = max(max(max(smudge * tonal, lines * tonal), groundInk), max(edges, marks)) * sideFade(uv);
   vec2 np = wobble(texCoord0, SEED + 23.0, 0.002);
   ink = max(ink, notes(np) * mix(0.85 * t, 1.0, alpha));
-  if (ink < 0.02) discard;
-  fragColor = vec4(INK, ink);
+  fragColor = Colour > 0.5 ? dyeWash(ink, uv) : vec4(INK, ink);
+  if (fragColor.a < 0.02) discard;
 }

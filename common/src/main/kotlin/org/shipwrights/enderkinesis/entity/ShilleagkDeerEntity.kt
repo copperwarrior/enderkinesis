@@ -479,17 +479,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
 
         override fun consume(): Boolean {
             val fish = prey ?: return false
-            // Return value ignored: a duplicate tag is harmless.
-            // The tag must be on before hurt(): death drops run inside it.
-            fish.addTag(EATEN_TAG)
-            val killed = fish.hurt(damageSources().mobAttack(this@ShilleagkDeerEntity), Float.MAX_VALUE)
-            if (killed) {
-                // XP drops later, in tickDeath.
-                fish.skipDropExperience()
-            } else {
-                fish.removeTag(EATEN_TAG)
-            }
-            return killed
+            return fish.eatWhole(this@ShilleagkDeerEntity)
         }
 
         // The default WATER malus keeps paths on land when there is a dry route; a hunt wades straight in.

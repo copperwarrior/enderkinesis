@@ -1,0 +1,8 @@
+{
+  "type": "enderkinesis:end_cult_temple",
+  "biomes": "#enderkinesis:has_structure/end_cult_temple",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none",
+  "start_pool": "enderkinesis:end_cult_temple/start"
+}

@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.block
 import com.mojang.logging.LogUtils
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import it.unimi.dsi.fastutil.longs.LongArrayList
@@ -236,6 +237,8 @@ object WohlonnogondoniaTreeGrower {
 
     /** Game tick of each fresh ignite, by portal, until its build installs. Server thread only. */
     private val igniteTicks = Long2LongOpenHashMap().apply { defaultReturnValue(NO_IGNITE) }
+    /** Candle tendrils of each fresh ignite, by portal, for [WohlonRitualTimeline.riseEnd]. Server thread only. */
+    private val igniteCandles = Long2IntOpenHashMap()
     private const val NO_IGNITE = Long.MIN_VALUE
     private const val TICKS_PER_SECOND = 20.0
 
@@ -244,6 +247,7 @@ object WohlonnogondoniaTreeGrower {
         LifecycleEvent.SERVER_STOPPED.register { _ ->
             buildsInFlight.clear()
             igniteTicks.clear()
+            igniteCandles.clear()
         }
         // The first ritual of a session loaded these on its ignite tick.
         LifecycleEvent.SERVER_STARTED.register { _ ->
@@ -258,7 +262,7 @@ object WohlonnogondoniaTreeGrower {
     }
 
     @JvmStatic
-    fun startTree(level: ServerLevel, portalPos: BlockPos) {
+    fun startTree(level: ServerLevel, portalPos: BlockPos, igniteCandleCount: Int) {
         // ============================================================
         //   Main-thread phase — collect everything the off-thread
         //   build will need that requires level / chunk access.
@@ -304,6 +308,7 @@ object WohlonnogondoniaTreeGrower {
         data.pending.add(params)
         data.setDirty()
         igniteTicks.put(portalPos.asLong(), level.gameTime)
+        igniteCandles.put(portalPos.asLong(), igniteCandleCount)
         launchBuild(level, params, announce = true)
     }
 
@@ -477,9 +482,9 @@ object WohlonnogondoniaTreeGrower {
     private fun isCanopyObstacle(state: BlockState): Boolean = state.blocksMotion() && !isTreeReplaceable(state)
 
     /** The ignite tendrils reach the root tips first; the roots then grow along them. */
-    private fun holdForIgniteAnimation(level: ServerLevel, job: TreeJob, igniteTick: Long) {
+    private fun holdForIgniteAnimation(level: ServerLevel, job: TreeJob, igniteTick: Long, candles: Int) {
         val sinceIgnite = (level.gameTime - igniteTick) / TICKS_PER_SECOND
-        val end = WohlonRitualTimeline.animationEnd(WohlonRitualTimeline.spreadStart(sinceIgnite))
+        val end = WohlonRitualTimeline.animationEnd(WohlonRitualTimeline.spreadStart(sinceIgnite, candles))
         job.startTick = level.gameTime + Math.ceil((end - sinceIgnite) * TICKS_PER_SECOND).toLong()
     }
 
@@ -516,8 +521,9 @@ object WohlonnogondoniaTreeGrower {
                 data.pending.remove(params)
                 data.setDirty()
                 val ignite = igniteTicks.remove(params.portalPos.asLong())
+                val candles = igniteCandles.remove(params.portalPos.asLong())
                 if (job != null) {
-                    if (announce && ignite != NO_IGNITE) holdForIgniteAnimation(level, job, ignite)
+                    if (announce && ignite != NO_IGNITE) holdForIgniteAnimation(level, job, ignite, candles)
                     installTreeJob(level, params, job)
                     if (announce) {
                         spreadAroundTree(level, params, job)

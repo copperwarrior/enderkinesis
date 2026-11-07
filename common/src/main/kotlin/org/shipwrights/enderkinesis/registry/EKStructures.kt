@@ -5,6 +5,7 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.levelgen.structure.StructureType
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.worldgen.EndCultTempleStructure
 import org.shipwrights.enderkinesis.worldgen.SselithRuinStructure
 
 /**
@@ -21,6 +22,11 @@ object EKStructures {
     val SSELITH_RUIN: RegistrySupplier<StructureType<SselithRuinStructure>> =
         STRUCTURES.register("sselith_ruin") {
             StructureType<SselithRuinStructure> { SselithRuinStructure.CODEC }
+        }
+
+    val END_CULT_TEMPLE: RegistrySupplier<StructureType<EndCultTempleStructure>> =
+        STRUCTURES.register("end_cult_temple") {
+            StructureType<EndCultTempleStructure> { EndCultTempleStructure.CODEC }
         }
 
     fun register() = STRUCTURES.register()

@@ -1,0 +1,15 @@
+{
+  "name": "enderkinesis:end_cult_temple/start",
+  "fallback": "minecraft:empty",
+  "elements": [
+    {
+      "weight": 1,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "enderkinesis:end_cult_temple",
+        "projection": "rigid",
+        "processors": "enderkinesis:end_cult_temple"
+      }
+    }
+  ]
+}

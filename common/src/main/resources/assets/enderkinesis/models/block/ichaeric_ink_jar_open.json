@@ -1,0 +1,328 @@
+{
+	"format_version": "1.9.0",
+	"credit": "Made with Blockbench",
+	"texture_size": [
+		64,
+		64
+	],
+	"textures": {
+		"1": "enderkinesis:block/ichaeric_ink_jar",
+		"particle": "enderkinesis:block/ichaeric_ink_jar"
+	},
+	"elements": [
+		{
+			"name": "jar_body",
+			"from": [
+				3,
+				0,
+				3
+			],
+			"to": [
+				13,
+				11,
+				13
+			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					9,
+					0,
+					9
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						0,
+						0,
+						2.5,
+						2.75
+					],
+					"texture": "#1"
+				},
+				"east": {
+					"uv": [
+						2.5,
+						0,
+						5,
+						2.75
+					],
+					"texture": "#1"
+				},
+				"south": {
+					"uv": [
+						0,
+						2.75,
+						2.5,
+						5.5
+					],
+					"texture": "#1"
+				},
+				"west": {
+					"uv": [
+						2.5,
+						2.75,
+						5,
+						5.5
+					],
+					"texture": "#1"
+				},
+				"up": {
+					"uv": [
+						5,
+						0,
+						7.5,
+						2.5
+					],
+					"texture": "#1"
+				},
+				"down": {
+					"uv": [
+						5,
+						2.5,
+						7.5,
+						5
+					],
+					"texture": "#1"
+				}
+			}
+		},
+		{
+			"name": "jar_rim",
+			"from": [
+				3.5,
+				12,
+				3.5
+			],
+			"to": [
+				12.5,
+				14,
+				12.5
+			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					9,
+					2,
+					9
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						7.25,
+						6.75,
+						9.5,
+						7.25
+					],
+					"texture": "#1"
+				},
+				"east": {
+					"uv": [
+						7.5,
+						0,
+						9.75,
+						0.5
+					],
+					"texture": "#1"
+				},
+				"south": {
+					"uv": [
+						7.5,
+						0.5,
+						9.75,
+						1
+					],
+					"texture": "#1"
+				},
+				"west": {
+					"uv": [
+						7.5,
+						1,
+						9.75,
+						1.5
+					],
+					"texture": "#1"
+				},
+				"up": {
+					"uv": [
+						5,
+						5,
+						7.25,
+						7.25
+					],
+					"texture": "#1"
+				},
+				"down": {
+					"uv": [
+						0,
+						5.5,
+						2.25,
+						7.75
+					],
+					"texture": "#1"
+				}
+			}
+		},
+		{
+			"name": "jar_neck",
+			"from": [
+				4,
+				11,
+				4
+			],
+			"to": [
+				12,
+				12,
+				12
+			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					9,
+					1,
+					9
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						7.5,
+						1.5,
+						9.5,
+						1.75
+					],
+					"texture": "#1"
+				},
+				"east": {
+					"uv": [
+						7.5,
+						1.75,
+						9.5,
+						2
+					],
+					"texture": "#1"
+				},
+				"south": {
+					"uv": [
+						7.5,
+						2,
+						9.5,
+						2.25
+					],
+					"texture": "#1"
+				},
+				"west": {
+					"uv": [
+						2.25,
+						7.5,
+						4.25,
+						7.75
+					],
+					"texture": "#1"
+				},
+				"up": {
+					"uv": [
+						2.25,
+						5.5,
+						4.25,
+						7.5
+					],
+					"texture": "#1"
+				},
+				"down": {
+					"uv": [
+						4.25,
+						7.25,
+						6.25,
+						9.25
+					],
+					"texture": "#1"
+				}
+			}
+		},
+		{
+			"name": "jar_stopper_propped",
+			"from": [
+				4.5,
+				0,
+				-0.7
+			],
+			"to": [
+				11.5,
+				7,
+				0.3
+			],
+			"rotation": {
+				"angle": 22.5,
+				"axis": "x",
+				"origin": [
+					8,
+					0,
+					0.3
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						7.25,
+						5,
+						9,
+						6.75
+					],
+					"texture": "#1"
+				},
+				"south": {
+					"uv": [
+						6.25,
+						7.25,
+						8,
+						9
+					],
+					"texture": "#1"
+				},
+				"east": {
+					"uv": [
+						7.5,
+						2.5,
+						9.25,
+						2.75
+					],
+					"rotation": 90,
+					"texture": "#1"
+				},
+				"west": {
+					"uv": [
+						7.5,
+						3,
+						9.25,
+						3.25
+					],
+					"rotation": 90,
+					"texture": "#1"
+				},
+				"up": {
+					"uv": [
+						7.5,
+						2.25,
+						9.25,
+						2.5
+					],
+					"texture": "#1"
+				},
+				"down": {
+					"uv": [
+						7.5,
+						2.75,
+						9.25,
+						3
+					],
+					"texture": "#1"
+				}
+			}
+		}
+	]
+}

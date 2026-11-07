@@ -55,6 +55,14 @@ object EKPoiTypes {
         return block.stateDefinition.possibleStates.toHashSet()
     }
 
+    /** Sselith moths fly to these lanterns during an eclipse. */
+    val SSELITH_LANTERN_KEY: ResourceKey<PoiType> =
+        ResourceKey.create(Registries.POINT_OF_INTEREST_TYPE, EnderkinesisMod.id("sselith_lantern"))
+
+    val SSELITH_LANTERN: RegistrySupplier<PoiType> = POI_TYPES.register("sselith_lantern") {
+        PoiType(EKBlocks.SSELITH_LANTERN.get().stateDefinition.possibleStates.toHashSet(), MAX_TICKETS, VALID_RANGE)
+    }
+
     /** Ulder Statue blockstates — every facing of all 7 statue kinds. Used by both
      *  the cataloger wander goal (so a cataloger walks toward statues like signs /
      *  lecterns) and by [org.shipwrights.enderkinesis.dimension.SselithMadness]
@@ -119,6 +127,7 @@ object EKPoiTypes {
             if (isCatalogerTargetBlock(block) || isStatueBlock(block)) set.add(block)
         }
         set.add(Blocks.LECTERN)
+        set.add(EKBlocks.SSELITH_LANTERN.get())
         set
     }
 
@@ -159,6 +168,9 @@ object EKPoiTypes {
             val statueHolder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
                 .getHolderOrThrow(STATUE_KEY)
             PoiTypesInvoker.`enderkinesis$registerBlockStates`(statueHolder, statueHolder.value().matchingStates())
+            val lanternHolder = BuiltInRegistries.POINT_OF_INTEREST_TYPE
+                .getHolderOrThrow(SSELITH_LANTERN_KEY)
+            PoiTypesInvoker.`enderkinesis$registerBlockStates`(lanternHolder, lanternHolder.value().matchingStates())
         }
     }
 }

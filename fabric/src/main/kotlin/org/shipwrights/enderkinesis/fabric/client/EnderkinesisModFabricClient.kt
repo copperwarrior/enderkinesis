@@ -73,10 +73,21 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             org.shipwrights.enderkinesis.client.model.KekhekhModel.createBodyLayer()
         }
         EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.WeheloStoneCreatureModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.WeheloStoneCreatureModel.createBodyLayer()
+        }
+        EntityModelLayerRegistry.registerModelLayer(
             org.shipwrights.enderkinesis.client.model.MoskuoModel.LAYER_LOCATION,
         ) {
             org.shipwrights.enderkinesis.client.model.MoskuoModel.createBodyLayer()
         }
+        EntityModelLayerRegistry.registerModelLayer(
+            org.shipwrights.enderkinesis.client.model.EauhorranaModel.LAYER_LOCATION,
+        ) {
+            org.shipwrights.enderkinesis.client.model.EauhorranaModel.createBodyLayer()
+        }
+
 
         // Heart of the Wild — block-entity model registered the same way.
         // Drawn by [HeartOfTheWildRenderer] (registered in the common

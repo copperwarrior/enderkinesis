@@ -68,7 +68,9 @@ object EnderkinesisModClient {
         }
         EntityRendererRegistry.register(EKEntities.KEKHEKH) { ctx -> KekhekhRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.MOSKUO) { ctx -> MoskuoRenderer(ctx) }
+        EntityRendererRegistry.register(EKEntities.EAUHORRANA) { ctx -> EauhorranaRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.WILL_O_THE_WISP) { ctx -> WillOTheWispRenderer(ctx) }
+        EntityRendererRegistry.register(EKEntities.WEHELO_STONE_CREATURE) { ctx -> WeheloStoneCreatureRenderer(ctx) }
 
         // Archive — paper / book whirlwind. Renderer draws orbiting item models
         // sampled from a fixed generic mix (paper + book); the actual loot list
@@ -176,6 +178,7 @@ object EnderkinesisModClient {
         ConcealmentNetworkClient.init()
         FramedSketches.init()
         SilverpointView.init()
+        SketchPictures.init()
         org.shipwrights.enderkinesis.item.UlderScrollItem.clientUsed = { player, use, hand ->
             SpellHand.startUse(player, SpellHand.Use.valueOf(use.name), hand)
             SpellArmPoses.started(player, SpellHand.Use.valueOf(use.name), hand)
@@ -559,6 +562,14 @@ object EnderkinesisModClient {
         WohlonPortalSounds.init()
         WohlonPortalVisuals.init()
         WohlonRitualTendrils.init()
+        WeatheringFog.init()
+        dev.architectury.networking.NetworkManager.registerReceiver(
+            dev.architectury.networking.NetworkManager.Side.S2C, org.shipwrights.enderkinesis.ritual.SunErasure.S2C_STATE,
+        ) { buf, _ ->
+            val start = buf.readLong()
+            val end = buf.readLong()
+            net.minecraft.client.Minecraft.getInstance().execute { org.shipwrights.enderkinesis.ritual.SunErasure.receive(start, end) }
+        }
         HeartOfTheWildTendrils.init()
         WohlonTreeGhost.init()
         WohlonRitualSounds.init()
@@ -588,6 +599,10 @@ object EnderkinesisModClient {
         // mesh facets.
         SureibjinSky.init()
         WohlonSkyBand.init()
+        SunErasureRoots.init()
+        RitualRootTrail.init()
+        FireWhirlwind.init()
+        SelvesClient.init()
 
         // Scrying-orb vignette shader: radial gradient with fBm-noise-perturbed edge,
         // POSITION-only full-screen quad. Same registration pattern as Ygann's.
@@ -877,6 +892,7 @@ object EnderkinesisModClient {
         registrar.register(EKParticles.ichaericInkDrip()) { sprites ->
             IchaericInkDripParticle.Provider(sprites)
         }
+        registrar.register(EKParticles.weatheringRain()) { sprites -> WeatheringRainParticle.Provider(sprites) }
 
         registrar.register(EKParticles.archiveSpiralDust()) { sprites ->
             ArchiveSpiralDustParticle.Provider(sprites)

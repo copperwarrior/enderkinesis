@@ -31,13 +31,16 @@ class EntityReadout(
     val look: CompoundTag?,
     override val owner: String,
     override val sketchSeed: Int,
+    override val sketchColour: Boolean,
     val width: Float,
     val height: Float,
     private val details: List<Component>,
 ) : StrikeReadout {
 
     override val sketch: SketchSpec?
-        get() = look?.let { SketchSpec(SketchSubject.Entity(type, it), sketchSeed, StrikeReadout.SKETCH_SIZE, notes = true) }
+        get() = look?.let {
+            SketchSpec(SketchSubject.Entity(type, it), sketchSeed, StrikeReadout.SKETCH_SIZE, notes = true, colour = sketchColour)
+        }
 
     override fun rounded(): Component = Component.translatable(
         "message.enderkinesis.silverpoint.rounded_entity",
@@ -56,6 +59,7 @@ class EntityReadout(
         look?.let { put(KEY_LOOK, it) }
         putString(StrikeReadout.KEY_OWNER, owner)
         putInt(StrikeReadout.KEY_SKETCH_SEED, sketchSeed)
+        if (sketchColour) putBoolean(StrikeReadout.KEY_SKETCH_COLOUR, true)
         putFloat(KEY_WIDTH, width)
         putFloat(KEY_HEIGHT, height)
         put(KEY_DETAILS, ListTag().apply { details.forEach { add(StringTag.valueOf(Component.Serializer.toJson(it))) } })
@@ -77,7 +81,7 @@ class EntityReadout(
             "HurtTime", "HurtByTimestamp", "DeathTime", "AbsorptionAmount", "LastPoiTime",
         )
 
-        fun of(entity: Entity, owner: String, sketchSeed: Int): EntityReadout {
+        fun of(entity: Entity, owner: String, sketchSeed: Int, sketchColour: Boolean): EntityReadout {
             // A player cannot be made from saved data, so it has no sketch.
             val look = if (entity.type.canSummon()) {
                 entity.saveWithoutId(CompoundTag()).apply { UNSEEN.forEach(::remove) }
@@ -90,6 +94,7 @@ class EntityReadout(
                 look = look,
                 owner = owner,
                 sketchSeed = sketchSeed,
+                sketchColour = sketchColour,
                 width = entity.bbWidth,
                 height = entity.bbHeight,
                 details = details(entity),
@@ -106,6 +111,7 @@ class EntityReadout(
                 look = if (tag.contains(KEY_LOOK, Tag.TAG_COMPOUND.toInt())) tag.getCompound(KEY_LOOK) else null,
                 owner = tag.getString(StrikeReadout.KEY_OWNER),
                 sketchSeed = tag.getInt(StrikeReadout.KEY_SKETCH_SEED),
+                sketchColour = tag.getBoolean(StrikeReadout.KEY_SKETCH_COLOUR),
                 width = tag.getFloat(KEY_WIDTH),
                 height = tag.getFloat(KEY_HEIGHT),
                 details = details,

@@ -1,9 +1,12 @@
 package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.network.chat.Component
 import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
+import net.minecraft.util.RandomSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
@@ -13,17 +16,21 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.ItemUtils
 import net.minecraft.world.item.Items
 import net.minecraft.world.item.TooltipFlag
+import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
+import net.minecraft.world.level.block.state.properties.BooleanProperty
 import net.minecraft.world.level.block.state.properties.IntegerProperty
 import net.minecraft.world.level.gameevent.GameEvent
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 import dev.architectury.registry.registries.RegistrySupplier
@@ -31,16 +38,31 @@ import dev.architectury.registry.registries.RegistrySupplier
 class IchaericInkJarBlock(properties: Properties) : Block(properties) {
 
     init {
-        registerDefaultState(stateDefinition.any().setValue(BOTTLES, 0))
+        registerDefaultState(stateDefinition.any().setValue(BOTTLES, 0).setValue(OPEN, false))
     }
 
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
-        builder.add(BOTTLES)
+        builder.add(BOTTLES, OPEN)
     }
 
     @Deprecated("Deprecated in Java")
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         SHAPE
+
+    override fun getStateForPlacement(context: BlockPlaceContext): BlockState =
+        defaultBlockState().setValue(OPEN, isUnderRetort(context.level, context.clickedPos))
+
+    @Deprecated("Deprecated in Java")
+    override fun updateShape(
+        state: BlockState, direction: Direction, neighborState: BlockState,
+        level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
+    ): BlockState = if (direction == Direction.UP) state.setValue(OPEN, isUnderRetort(level, pos)) else state
+
+    // Catches a column change that neither the jar nor the retort touches directly.
+    @Deprecated("Deprecated in Java")
+    override fun randomTick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
+        refreshOpen(level, pos, state)
+    }
 
     @Deprecated("Deprecated in Java")
     override fun use(
@@ -88,6 +110,22 @@ class IchaericInkJarBlock(properties: Properties) : Block(properties) {
         const val MAX_BOTTLES = 6
         const val CONTENTS_KEY = "message.enderkinesis.ichaeric_ink_jar.contents"
         val BOTTLES: IntegerProperty = IntegerProperty.create("bottles", 0, MAX_BOTTLES)
+        val OPEN: BooleanProperty = BooleanProperty.create("open")
+
+        fun refreshOpen(level: Level, pos: BlockPos, state: BlockState) {
+            val open = isUnderRetort(level, pos)
+            if (state.getValue(OPEN) != open) level.setBlock(pos, state.setValue(OPEN, open), Block.UPDATE_ALL)
+        }
+
+        // The same column rule as the retort drip, so the jar opens only where drips land.
+        private fun isUnderRetort(level: BlockGetter, pos: BlockPos): Boolean {
+            val cursor = pos.mutable()
+            repeat(InegricRetortBlock.MAX_DRIP_DISTANCE) {
+                val above = level.getBlockState(cursor.move(Direction.UP))
+                if (!above.isAir) return above.`is`(EKBlocks.INEGRIC_RETORT.get())
+            }
+            return false
+        }
 
         /** Marks a jar [stack] as holding [bottles], as the placed block will. */
         fun withBottles(stack: ItemStack, bottles: Int): ItemStack {

@@ -24,6 +24,8 @@
     { "name": "Radius",      "type": "float",     "count": 1,  "values": [ 0.5 ] },
     { "name": "Seed",        "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "Fade",        "type": "float",     "count": 1,  "values": [ 1.0 ] },
-    { "name": "Burst",       "type": "float",     "count": 1,  "values": [ 0.0 ] }
+    { "name": "Burst",       "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "Coverage",    "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "OrthoRay",    "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 0.0, 0.0 ] }
   ]
 }

@@ -1,0 +1,21 @@
+{
+  "layout": "enderkinesis:rituals/wohlon_portal",
+  "center": {
+    "block": "enderkinesis:heart_candle"
+  },
+  "trigger": {
+    "type": "enderkinesis:kill",
+    "entity": "minecraft:goat",
+    "weapon": "enderkinesis:blessed_razor",
+    "radius": 3.5
+  },
+  "conditions": [
+    {
+      "type": "enderkinesis:biome",
+      "biome": "#enderkinesis:wohlon_portal_valid_biomes"
+    }
+  ],
+  "effect": {
+    "type": "enderkinesis:wohlon_portal"
+  }
+}

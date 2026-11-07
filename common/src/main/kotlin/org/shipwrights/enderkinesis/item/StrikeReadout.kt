@@ -11,6 +11,9 @@ sealed interface StrikeReadout {
 
     /** Picks the sketch's field notes; fixed on the paper so it looks the same each time it opens. */
     val sketchSeed: Int
+
+    /** A dye was in the other hand at the strike, so the sketch has a dye wash. */
+    val sketchColour: Boolean
     val title: Component
 
     /** Null when the subject cannot be drawn. */
@@ -41,6 +44,7 @@ sealed interface StrikeReadout {
         const val KEY_KIND = "kind"
         const val KEY_OWNER = "owner"
         const val KEY_SKETCH_SEED = "sketch_seed"
+        const val KEY_SKETCH_COLOUR = "sketch_colour"
 
         // Papers from before entity readouts have no kind.
         fun load(tag: CompoundTag): StrikeReadout? = when (tag.getString(KEY_KIND)) {

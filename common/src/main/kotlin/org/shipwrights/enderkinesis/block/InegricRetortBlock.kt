@@ -52,7 +52,21 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
 
     @Deprecated("Deprecated in Java")
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, moved: Boolean) {
-        if (level is ServerLevel && !oldState.`is`(this)) syncDripping(state, level, pos)
+        if (level !is ServerLevel || oldState.`is`(this)) return
+        syncDripping(state, level, pos)
+        refreshJarBelow(level, pos)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
+        super.onRemove(state, level, pos, newState, moved)
+        if (!level.isClientSide && !newState.`is`(this)) refreshJarBelow(level, pos)
+    }
+
+    private fun refreshJarBelow(level: Level, pos: BlockPos) {
+        val target = firstBlockBelow(level, pos) ?: return
+        val state = level.getBlockState(target)
+        if (state.`is`(EKBlocks.ICHAERIC_INK_JAR.get())) IchaericInkJarBlock.refreshOpen(level, target, state)
     }
 
     @Deprecated("Deprecated in Java")
@@ -68,18 +82,21 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
     }
 
     private fun drip(level: ServerLevel, pos: BlockPos) {
-        val cursor = pos.mutable()
-        for (step in 1..MAX_DRIP_DISTANCE) {
-            cursor.move(Direction.DOWN)
-            val state = level.getBlockState(cursor)
-            if (state.isAir) continue
-            if (state.`is`(EKBlocks.ICHAERIC_INK_JAR.get())) {
-                fillJar(level, cursor, state)
-            } else if (step > 1 && state.isFaceSturdy(level, cursor, Direction.UP)) {
-                placePuddle(level, cursor.above())
-            }
-            return
+        val target = firstBlockBelow(level, pos) ?: return
+        val state = level.getBlockState(target)
+        if (state.`is`(EKBlocks.ICHAERIC_INK_JAR.get())) {
+            fillJar(level, target, state)
+        } else if (pos.y - target.y > 1 && state.isFaceSturdy(level, target, Direction.UP)) {
+            placePuddle(level, target.above())
         }
+    }
+
+    private fun firstBlockBelow(level: BlockGetter, pos: BlockPos): BlockPos? {
+        val cursor = pos.mutable()
+        repeat(MAX_DRIP_DISTANCE) {
+            if (!level.getBlockState(cursor.move(Direction.DOWN)).isAir) return cursor.immutable()
+        }
+        return null
     }
 
     private fun fillJar(level: ServerLevel, pos: BlockPos, state: BlockState) {
@@ -106,7 +123,7 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
         val DRIPPING: BooleanProperty = BooleanProperty.create("dripping")
 
         // Pointed dripstone's cauldron search length and water drip particle chance.
-        private const val MAX_DRIP_DISTANCE = 11
+        const val MAX_DRIP_DISTANCE = 11
         private const val DRIP_PARTICLE_CHANCE = 0.12f
 
         private const val TIP_Y = 1.0 / 16.0

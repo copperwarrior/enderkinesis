@@ -11,7 +11,6 @@ import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.inventory.InventoryMenu
 import net.minecraft.world.item.ItemDisplayContext
-import org.shipwrights.enderkinesis.block.WohlonCandleRites
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
 
 class WohlonRitePedestalRenderer(ctx: EntityRendererProvider.Context) : EntityRenderer<WohlonRitePedestal>(ctx) {
@@ -29,7 +28,7 @@ class WohlonRitePedestalRenderer(ctx: EntityRendererProvider.Context) : EntityRe
         WohlonRitePedestalVisuals.queue(entity, partialTick)
         WohlonStaffGhost.queue(entity, partialTick)
         val stack = entity.sacrifice
-        if (stack.isEmpty || entity.rite == WohlonCandleRites.Rite.STAFF) return
+        if (stack.isEmpty || entity.staffSlots > 0) return
         val t = entity.tickCount + partialTick
         poseStack.pushPose()
         poseStack.translate(0.0, WohlonRitePedestal.CRADLE_HEIGHT + 0.15 + Math.sin(t * 0.1) * 0.05, 0.0)

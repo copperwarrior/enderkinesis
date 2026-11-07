@@ -1,0 +1,18 @@
+{
+  "layout": "enderkinesis:rituals/reaching_root",
+  "center": {
+    "block": "minecraft:light_blue_candle",
+    "properties": {
+      "candles": "4"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:light"
+  },
+  "offerings": [
+    "enderkinesis:weyye_fruit"
+  ],
+  "effect": {
+    "type": "enderkinesis:reaching_root"
+  }
+}

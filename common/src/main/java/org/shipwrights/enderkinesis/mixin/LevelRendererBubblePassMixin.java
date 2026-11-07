@@ -35,6 +35,7 @@ import org.shipwrights.enderkinesis.client.WohlonTreeGhost;
 import org.shipwrights.enderkinesis.client.HeartOfTheWildTendrils;
 import org.shipwrights.enderkinesis.client.FountainOfBlessingDome;
 import org.shipwrights.enderkinesis.client.FountainOfBlessingVolume;
+import org.shipwrights.enderkinesis.client.WeatheringFog;
 import org.shipwrights.enderkinesis.client.GrandStaffClient;
 import org.shipwrights.enderkinesis.client.GrandStaffDecayClient;
 import org.shipwrights.enderkinesis.client.GrandStaffDreadClient;
@@ -157,6 +158,7 @@ public abstract class LevelRendererBubblePassMixin {
         // The dome goes after the water murk, and the upwelling's mist over the dome.
         FountainOfBlessingDome.render(poseStack, camera);
         FountainOfBlessingVolume.render(poseStack, projectionMatrix, camera);
+        WeatheringFog.render(poseStack, projectionMatrix, camera);
         WohlonTreeGhost.render(poseStack, projectionMatrix, camera);
         WohlonFogWisps.render(poseStack, projectionMatrix, camera);
 

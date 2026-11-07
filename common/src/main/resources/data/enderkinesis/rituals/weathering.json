@@ -1,0 +1,17 @@
+{
+  "layout": "enderkinesis:rituals/weathering",
+  "center": {
+    "block": "minecraft:white_candle",
+    "properties": {
+      "candles": "4"
+    }
+  },
+  "trigger": {
+    "type": "enderkinesis:light"
+  },
+  "effect": {
+    "type": "enderkinesis:weathering",
+    "radius": 16,
+    "duration": 1200
+  }
+}

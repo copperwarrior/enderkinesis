@@ -276,6 +276,7 @@ object EKCreativeTab {
             output.accept(EKItems.SHULKONAUT_SPAWN_EGG.get())
             output.accept(EKItems.SHILLEAGK_DEER_SPAWN_EGG.get())
             output.accept(EKItems.KEKHEKH_SPAWN_EGG.get())
+            output.accept(EKItems.EAUHORRANA_SPAWN_EGG.get())
             output.accept(EKItems.MOSKUO_SPAWN_EGG.get())
             output.accept(EKItems.WILL_O_THE_WISP_SPAWN_EGG.get())
         }

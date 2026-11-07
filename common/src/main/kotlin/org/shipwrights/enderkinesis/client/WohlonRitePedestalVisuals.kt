@@ -3,10 +3,8 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import net.minecraft.client.Camera
 import net.minecraft.core.BlockPos
-import net.minecraft.world.level.block.Blocks
 import org.joml.Matrix4f
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.block.WohlonCandleRites
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
 import java.util.WeakHashMap
 
@@ -122,24 +120,18 @@ object WohlonRitePedestalVisuals {
         }
     }
 
-    // The client does not know the ring's rotation, so it finds the one whose gem candles stand.
     private fun buildFeed(pedestal: WohlonRitePedestal): List<Feed> {
-        val level = pedestal.level()
         val center = BlockPos.containing(pedestal.position())
-        val gemSlots = WohlonCandleRites.Rite.STAFF.rotations
-            .map { rotation -> rotation.filter { it.candle != Blocks.BLUE_CANDLE } }
-            .firstOrNull { slots -> slots.all { level.getBlockState(center.offset(it.dx, 0, it.dz)).`is`(it.candle) } }
-            ?: return emptyList()
         val gem = rgb(pedestal.staffColour)
-        return gemSlots.mapIndexed { i, slot ->
+        return pedestal.feedSlots.mapIndexed { i, (offset, candle) ->
             val curve = TendrilCurve(
-                Vector3d(center.x + slot.dx + 0.5, pedestal.y + FLAME_Y, center.z + slot.dz + 0.5),
+                Vector3d(center.x + offset.x + 0.5, pedestal.y + offset.y + FLAME_Y, center.z + offset.z + 0.5),
                 Vector3d(),
                 Vector3d(),
                 wild = FEED_WILD,
                 seed = pedestal.id * 3.17 + i * 19.3,
             )
-            Feed(curve, TendrilStyle(FEED_RADIUS, rgb(slot.candle.defaultMapColor().col), gem), i * 2.39 + pedestal.id * 0.61)
+            Feed(curve, TendrilStyle(FEED_RADIUS, rgb(candle.defaultMapColor().col), gem), i * 2.39 + pedestal.id * 0.61)
         }
     }
 
