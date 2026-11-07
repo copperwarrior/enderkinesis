@@ -7,7 +7,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.RenderType;
 import org.joml.Matrix4f;
-import org.shipwrights.enderkinesis.client.GpuPassTimers;
 import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -31,10 +30,6 @@ public abstract class LevelRendererWohlonWaterMurkMixin {
         boolean translucent = type == RenderType.translucent();
         if (translucent) WohlonWaterMurk.beforeTranslucent(Minecraft.getInstance().getMainRenderTarget());
         original.call(instance, type, poseStack, camX, camY, camZ, projection);
-        if (translucent) {
-            GpuPassTimers.begin(GpuPassTimers.WATER_MURK);
-            WohlonWaterMurk.afterTranslucent(poseStack, projection, Minecraft.getInstance().gameRenderer.getMainCamera());
-            GpuPassTimers.end(GpuPassTimers.WATER_MURK);
-        }
+        if (translucent) WohlonWaterMurk.afterTranslucent(poseStack, projection, Minecraft.getInstance().gameRenderer.getMainCamera());
     }
 }
