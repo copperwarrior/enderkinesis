@@ -37,7 +37,7 @@ object FusionRenderTypes {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
             sink.registerShader(
                 ShaderInstance(
-                    namespacedShaderResources(provider, EnderkinesisMod.MOD_ID),
+                    namespacedShaderProvider(provider, EnderkinesisMod.MOD_ID),
                     "rendertype_fusion_bubble",
                     DefaultVertexFormat.POSITION_COLOR,
                 )

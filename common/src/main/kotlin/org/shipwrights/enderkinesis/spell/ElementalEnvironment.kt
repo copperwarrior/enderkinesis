@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.spell
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.BlockEvent
@@ -27,6 +28,7 @@ import net.minecraft.server.level.ServerPlayer
 import net.minecraft.tags.TagKey
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
@@ -40,7 +42,10 @@ import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.ritual.SunErasure
 import org.valkyrienskies.mod.common.BlockStateInfo
 import org.valkyrienskies.mod.common.getShipsIntersecting
+import java.util.Locale
 import kotlin.math.sqrt
+
+typealias ElementReasons = MutableMap<Element, MutableList<String>>
 
 /** Packs add blocks to an element with the tag `enderkinesis:elemental_environment/<id>`. */
 object ElementalEnvironment {
@@ -49,8 +54,11 @@ object ElementalEnvironment {
     const val FULL = 24.0
     private const val RESAMPLE_TICKS = 10
 
+    // Declared before TAGS: object properties initialize in order.
+    private val NOT_FROM_BLOCKS = setOf(Element.SUNDERING, Element.QUINTESSENCE, Element.SUNFIRE)
+
     private val TAGS: Map<Element, TagKey<net.minecraft.world.level.block.Block>> =
-        Element.entries.filter { it != Element.SUNDERING && it != Element.QUINTESSENCE }
+        Element.entries.filter { it !in NOT_FROM_BLOCKS }
             .associateWith { TagKey.create(Registries.BLOCK, EnderkinesisMod.id("elemental_environment/${it.id}")) }
 
     private class Sample(val tick: Long, val values: Map<Element, Float>)
@@ -69,26 +77,50 @@ object ElementalEnvironment {
         return values
     }
 
-    fun at(level: ServerLevel, centre: Vec3): Map<Element, Float> = sample(level, centre).also(::addQuintessence)
+    fun at(level: ServerLevel, centre: Vec3): Map<Element, Float> = sample(level, centre).also { addQuintessence(it) }
+
+    /** A fresh sample of [entity] with the sources of each element, for `/enderkinesis elements`. */
+    fun explain(level: ServerLevel, entity: Entity): Pair<Map<Element, Float>, Map<Element, List<String>>> {
+        val why: ElementReasons = HashMap()
+        val values = sample(level, entity.position().add(0.0, entity.bbHeight * 0.5, 0.0), why)
+        addEntityState(level, entity, values, why)
+        deeds[entity.id]?.let { addDeeds(it, level.gameTime, values, why) }
+        addQuintessence(values, why)
+        return values to why
+    }
 
     /** Quintessence is the absence of all other elements, so call this after every other source. */
-    fun addQuintessence(values: MutableMap<Element, Float>) {
-        if (values.isEmpty()) values[Element.QUINTESSENCE] = SOURCE
+    fun addQuintessence(values: MutableMap<Element, Float>, why: ElementReasons? = null) {
+        if (values.isEmpty()) add(values, Element.QUINTESSENCE, SOURCE, why, "no other element")
     }
 
     private fun add(values: MutableMap<Element, Float>, element: Element, value: Float) {
         values[element] = ((values[element] ?: 0f) + value).coerceAtMost(1f)
     }
 
-    private fun sample(level: ServerLevel, centre: Vec3): HashMap<Element, Float> {
+    private fun add(
+        values: MutableMap<Element, Float>, element: Element, value: Float, why: ElementReasons?, reason: String,
+    ) {
+        add(values, element, value)
+        why?.getOrPut(element, ::ArrayList)?.add(reason)
+    }
+
+    private fun sample(level: ServerLevel, centre: Vec3, why: ElementReasons? = null): HashMap<Element, Float> {
         val sums = DoubleArray(Element.entries.size)
         val ships = level.getShipsIntersecting(AABB(centre, centre).inflate(RADIUS + 1.0)).toList()
         val origin = BlockPos.containing(centre)
         val pos = BlockPos.MutableBlockPos()
         val shipPoint = Vector3d()
+        val byBlock = if (why == null) null else HashMap<Element, HashMap<Block, Double>>()
         fun count(state: BlockState, weight: Double) {
             if (state.isAir) return
-            for (element in TAGS.keys) sums[element.ordinal] += weight * share(state, element)
+            for (element in TAGS.keys) {
+                val part = weight * share(state, element)
+                sums[element.ordinal] += part
+                if (byBlock != null && part > 0.0) {
+                    byBlock.getOrPut(element, ::HashMap).merge(state.block, part) { a, b -> a + b }
+                }
+            }
         }
         for (dx in -RADIUS..RADIUS) for (dy in -RADIUS..RADIUS) for (dz in -RADIUS..RADIUS) {
             val weight = weight(dx, dy, dz)
@@ -106,23 +138,32 @@ object ElementalEnvironment {
             val value = (sums[element.ordinal] / FULL).coerceAtMost(1.0).toFloat()
             if (value > 0f) out[element] = value
         }
-        addPlaceSources(level, origin, out)
+        byBlock?.forEach { (element, blocks) -> why?.put(element, mutableListOf(blockReason(blocks))) }
+        addPlaceSources(level, origin, out, why)
         return out
     }
 
+    private fun blockReason(blocks: Map<Block, Double>): String =
+        "blocks: " + blocks.entries.sortedByDescending { it.value }.take(REASON_BLOCKS).joinToString { (block, part) ->
+            "%s %.2f".format(Locale.ROOT, BuiltInRegistries.BLOCK.getKey(block).path, part / FULL)
+        }
+
     /** The sources at [origin] that are not blocks. Both sides can read them. */
-    fun addPlaceSources(level: Level, origin: BlockPos, out: MutableMap<Element, Float>) {
-        if (sunlit(level, origin.above())) add(out, Element.SUNFIRE, SUN_SKY)
-        if (level.getBiome(origin).value().coldEnoughToSnow(origin)) add(out, Element.WINTER, SOURCE)
-        if (inVoid(level, origin)) add(out, Element.VOID, SOURCE)
-        if (wet(level.getBiome(origin))) add(out, Element.CORRUPTION, SOURCE)
+    fun addPlaceSources(level: Level, origin: BlockPos, out: MutableMap<Element, Float>, why: ElementReasons? = null) {
+        val sun = sunlight(level, origin.above())
+        if (sun > 0f) add(out, Element.SUNFIRE, SUN_SKY * sun, why, "daylight or Sselith light")
+        if (level.getBiome(origin).value().coldEnoughToSnow(origin)) add(out, Element.WINTER, SOURCE, why, "cold biome")
+        if (inVoid(level, origin)) add(out, Element.VOID, SOURCE, why, "the End, Ygann or the void biome")
+        if (wet(level.getBiome(origin))) add(out, Element.CORRUPTION, SOURCE, why, "wet biome")
     }
 
-    private fun sunlit(level: Level, pos: BlockPos): Boolean {
-        if (level.isRaining || level.isThundering || !level.canSeeSky(pos)) return false
-        // Sselith has a fixed time, so isDay is always false there.
-        if (level.dimension() == SselithRepertory.LEVEL_KEY) return true
-        return isDay(level) && !SunErasure.erased(level)
+    // 0 to 1: the sine of the sun's height, so 1 at noon and 0 at the horizon.
+    private fun sunlight(level: Level, pos: BlockPos): Float {
+        if (level.isRaining || level.isThundering || !level.canSeeSky(pos)) return 0f
+        // Sselith has a fixed time and a constant light, so isDay is always false there.
+        if (level.dimension() == SselithRepertory.LEVEL_KEY) return 1f
+        if (!isDay(level) || SunErasure.erased(level)) return 0f
+        return Mth.cos(level.getTimeOfDay(1f) * Mth.TWO_PI).coerceAtLeast(0f)
     }
 
     // Level.isDay reads skyDarken, which ClientLevel sets only in its constructor; this is updateSkyBrightness's sum.
@@ -144,12 +185,14 @@ object ElementalEnvironment {
             level.getBiome(pos).`is`(Biomes.THE_VOID)
 
     /** The sources in the state of [entity]. Both sides can read them. Deeds are in [addDeeds]. */
-    fun addEntityState(level: Level, entity: Entity, values: MutableMap<Element, Float>) {
-        if (entity.isOnFire || entity.isInLava) add(values, Element.PYRE, SOURCE)
-        if (!entity.onGround() && entity.fallDistance > FREE_FALL) add(values, Element.GRAVITY, SOURCE)
+    fun addEntityState(level: Level, entity: Entity, values: MutableMap<Element, Float>, why: ElementReasons? = null) {
+        if (entity.isOnFire || entity.isInLava) add(values, Element.PYRE, SOURCE, why, "on fire or in lava")
+        if (!entity.onGround() && entity.fallDistance > FREE_FALL) {
+            add(values, Element.GRAVITY, SOURCE, why, "free fall")
+        }
         if (entity.isInPowderSnow || entity.wasInPowderSnow ||
             (entity.onGround() && level.getBlockState(entity.onPos).`is`(BlockTags.ICE))
-        ) add(values, Element.WINTER, SOURCE)
+        ) add(values, Element.WINTER, SOURCE, why, "powder snow or ice")
     }
 
     private fun addEntitySources(level: ServerLevel, entity: Entity, values: HashMap<Element, Float>) {
@@ -158,9 +201,12 @@ object ElementalEnvironment {
     }
 
     /** [times] holds the game time of the last deed for each element, by ordinal. */
-    fun addDeeds(times: LongArray, now: Long, values: MutableMap<Element, Float>) {
+    fun addDeeds(times: LongArray, now: Long, values: MutableMap<Element, Float>, why: ElementReasons? = null) {
         for (element in Element.entries) {
-            if (now - times[element.ordinal] < DEED_TICKS) add(values, element, SOURCE)
+            val age = now - times[element.ordinal]
+            if (age >= DEED_TICKS) continue
+            add(values, element, SOURCE)
+            why?.getOrPut(element, ::ArrayList)?.add("deed $age ticks ago")
         }
     }
 
@@ -168,6 +214,7 @@ object ElementalEnvironment {
 
     // What one element source gives. CHARGE_THRESHOLD is lower, so one source recharges scrolls.
     private const val SOURCE = 0.5f
+    private const val REASON_BLOCKS = 4
     private const val WET_DOWNFALL = 0.9f
     private const val WEATHER_DIM = 5f
     private const val WEATHER_DIM_DIVISOR = 16.0

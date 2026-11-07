@@ -16,6 +16,7 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.effect.MobEffectInstance
+import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.saveddata.SavedData
 import org.joml.Vector3f
@@ -32,6 +33,7 @@ object MundaneIncubation {
     private const val NAME = "enderkinesis_mundane_incubation"
     const val INCUBATION_TICKS = 20 * 60 * 10
     private const val STEP_TICKS = 20
+    private const val SECOND_TICKS = 20
     private const val FUSION_SHARDS = 7
 
     private class Incubation(var remaining: Int, val points: FloatArray = FloatArray(Element.entries.size))
@@ -78,6 +80,13 @@ object MundaneIncubation {
     private fun data(server: MinecraftServer): Data =
         server.overworld().dataStorage.computeIfAbsent(Data::load, ::Data, NAME)
 
+    // Client thread only: the last state the server sent for the local player.
+    var clientIncubating = false
+
+    /** Both sides: the server reads its saved data, the client the synced state. */
+    fun incubating(player: Player): Boolean =
+        if (player is ServerPlayer) data(player.server).byPlayer.containsKey(player.uuid) else clientIncubating
+
     /** False when a stone already incubates in [player]. */
     fun start(player: ServerPlayer): Boolean {
         val data = data(player.server)
@@ -97,23 +106,40 @@ object MundaneIncubation {
             for (player in server.playerList.players) {
                 if (!player.isAlive || dreaming(player)) continue
                 val incubation = data.byPlayer[player.uuid] ?: continue
-                for ((element, value) in ElementalEnvironment.of(player.serverLevel(), player)) {
-                    incubation.points[element.ordinal] += value
-                }
-                incubation.remaining -= STEP_TICKS
-                if (incubation.remaining <= 0) {
-                    data.byPlayer.remove(player.uuid)
-                    hatch(player, incubation)
-                } else {
-                    mark(player, incubation)
-                }
-                data.setDirty()
+                advance(data, player, incubation, 1)
             }
         })
         PlayerEvent.PLAYER_JOIN.register { player ->
             val incubation = data(player.server).byPlayer[player.uuid]
             if (incubation != null) mark(player, incubation) else send(player, null)
         }
+    }
+
+    // Each step adds the current place and state once, so a skip counts as that time spent here.
+    private fun advance(data: Data, player: ServerPlayer, incubation: Incubation, steps: Int): Int {
+        val counted = minOf(steps, (incubation.remaining + STEP_TICKS - 1) / STEP_TICKS)
+        for ((element, value) in ElementalEnvironment.of(player.serverLevel(), player)) {
+            incubation.points[element.ordinal] += value * counted
+        }
+        incubation.remaining -= counted * STEP_TICKS
+        if (incubation.remaining <= 0) {
+            data.byPlayer.remove(player.uuid)
+            hatch(player, incubation)
+        } else {
+            mark(player, incubation)
+        }
+        data.setDirty()
+        return counted
+    }
+
+    /** `/enderkinesis incubation skip`: the seconds counted, or 0 when no stone incubates in a living, awake [player]. */
+    fun skip(player: ServerPlayer, seconds: Int): Int {
+        require(seconds > 0) { "seconds must be positive: $seconds" }
+        if (!player.isAlive || dreaming(player)) return 0
+        val data = data(player.server)
+        val incubation = data.byPlayer[player.uuid] ?: return 0
+        val counted = advance(data, player, incubation, seconds * SECOND_TICKS / STEP_TICKS)
+        return counted * STEP_TICKS / SECOND_TICKS
     }
 
     // Before the inventory drops, so the stone drops with it, or stays with keepInventory.

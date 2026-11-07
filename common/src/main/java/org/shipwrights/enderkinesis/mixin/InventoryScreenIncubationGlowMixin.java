@@ -18,6 +18,6 @@ public abstract class InventoryScreenIncubationGlowMixin {
         GuiGraphics graphics, int x, int y, int scale, Quaternionf pose, Quaternionf camera, LivingEntity entity,
         CallbackInfo ci
     ) {
-        IncubationGlow.render(graphics, x, y, scale, entity);
+        IncubationGlow.render(graphics, x, y, scale, pose, entity);
     }
 }
