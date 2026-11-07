@@ -188,6 +188,8 @@
     "AxolotlSelvesMixin",
     "LivingEntityEatenNoLootMixin",
     "EnchantmentBlessedRazorMixin",
+    "EnchantmentCrownMixin",
+    "InventoryCrownWearMixin",
     "LivingEntityDeathLootInvoker",
     "LevelChunkWeheloPocketGuardMixin",
     "PlayerWeheloPocketShellMixin",

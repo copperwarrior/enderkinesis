@@ -127,10 +127,14 @@ object EKItems {
         }
 
     val CROWN_OF_THE_DARK_STAR: RegistrySupplier<Item> =
-        ITEMS.register("crown_of_the_dark_star") { CrownOfTheDarkStarItem(props().stacksTo(1)) }
+        ITEMS.register("crown_of_the_dark_star") {
+            CrownOfTheDarkStarItem(props().stacksTo(1).durability(CrownOfTheDarkStarItem.MAX_DURABILITY))
+        }
 
     val CROWN_UNTESTED: RegistrySupplier<Item> =
-        ITEMS.register("crown_untested") { CrownUntestedItem(props().stacksTo(1)) }
+        ITEMS.register("crown_untested") {
+            CrownUntestedItem(props().stacksTo(1).durability(CrownUntestedItem.MAX_DURABILITY))
+        }
 
     /** Ledger of Watching Eyes — slot-companion for the Eyeroscope. While in the
      *  eyeroscope's slot, logs every ship that enters a 64-block cube around the
