@@ -253,6 +253,7 @@
     "LivingEntitySureibjinSwimMixin",
     "PlayerSleepCounterAccessor",
     "PlayerSureibjinSwimMixin",
+    "PlayerSureibjinWakeMixin",
     "LivingEntityWeyyeFruitUninterruptibleMixin",
     "LootItemAccessor",
     "LootPoolAccessor",

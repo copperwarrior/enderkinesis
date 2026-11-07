@@ -7,9 +7,7 @@ import dev.architectury.event.events.common.TickEvent
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.stats.Stats
-import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.EquipmentSlot
-import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.enchantment.EnchantmentHelper
 import org.shipwrights.enderkinesis.EnderkinesisMod
@@ -35,9 +33,7 @@ object SureibjinExit {
     private val CROWN_UNTESTED_RECIPE: ResourceLocation = EnderkinesisMod.id("crown_untested")
 
     fun init() {
-        EntityEvent.LIVING_HURT.register(::onLivingHurt)
-        // The hurt check sees the raw amount, before difficulty scaling and other mods' damage changes,
-        // and some deaths skip `hurt`. Any death that gets to `die` wakes the player instead.
+        // Some deaths skip `actuallyHurt` (PlayerSureibjinWakeMixin). Any death that gets to `die` wakes the player.
         EntityEvent.LIVING_DEATH.register { entity, _ ->
             if (entity is ServerPlayer && entity.level().dimension() == Sureibjin.LEVEL_KEY) {
                 wakeUp(entity)
@@ -94,19 +90,12 @@ object SureibjinExit {
         else player.inventory.placeItemBackInInventory(crown)
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private fun onLivingHurt(
-        entity: LivingEntity, source: DamageSource, amount: Float,
-    ): EventResult {
-        if (entity !is ServerPlayer) return EventResult.pass()
-        if (entity.level().dimension() != Sureibjin.LEVEL_KEY) return EventResult.pass()
-
-        // Only intercept lethal — non-lethal damage stays so the cause of
-        // the wake-up still reads as the cause.
-        if (entity.health - amount > 0f) return EventResult.pass()
-
-        wakeUp(entity)
-        return EventResult.interruptFalse()
+    /** Called with the final damage, after difficulty, armor, absorption and both loaders' damage events. */
+    @JvmStatic
+    fun wakeInsteadOfLethalHit(player: ServerPlayer): Boolean {
+        if (player.level().dimension() != Sureibjin.LEVEL_KEY) return false
+        wakeUp(player)
+        return true
     }
 
     /** Restore the snapshotted player state and teleport back to the bed.
