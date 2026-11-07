@@ -350,8 +350,10 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // Don't touch cachedTargetYawRad here — pin-mode physTick computes its own target from
         // the cached ship + raw pin pos and ignores `cachedTargetYawRad` entirely.
         syncAfterChange()
-        playSlotSound(EKSounds.EYEROSCOPE_INSERT.get())
+        playSlotSound(if (isBook(stack)) EKSounds.EYEROSCOPE_BOOK_INSERT.get() else EKSounds.EYEROSCOPE_INSERT.get())
     }
+
+    private fun isBook(stack: ItemStack): Boolean = stack.`is`(Items.WRITTEN_BOOK) || stack.`is`(Items.WRITABLE_BOOK)
 
     /** Right-click empty-handed while a compass is in the slot: pull the compass out, freeze
      *  the most-recently sampled bearing as the new static target. The returned stack is what
@@ -369,7 +371,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         cachedPinShip = null
         lastPhysInDeadZone = false
         syncAfterChange()
-        playSlotSound(EKSounds.EYEROSCOPE_EJECT.get())
+        playSlotSound(if (isBook(out)) EKSounds.EYEROSCOPE_BOOK_EJECT.get() else EKSounds.EYEROSCOPE_EJECT.get())
         return out
     }
 
