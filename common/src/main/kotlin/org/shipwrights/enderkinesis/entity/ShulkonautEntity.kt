@@ -927,16 +927,6 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
                     ),
                 )
             }
-        } else if (tag.getString(NBT_SELECTOR).isNotEmpty()) {
-            // Legacy single-order fields → the default order.
-            orders.add(
-                StandingOrder(
-                    null,
-                    tag.getString(NBT_ORDER_VERB).takeIf { it.isNotEmpty() } ?: VERB_TO,
-                    if (tag.contains(NBT_ORDER_ARG)) tag.getDouble(NBT_ORDER_ARG) else null,
-                    tag.getString(NBT_SELECTOR),
-                ),
-            )
         }
         autoEnrolled = tag.getBoolean(NBT_AUTO_ENROLLED)
         savedAnchor = if (tag.contains(NBT_ANCHOR)) net.minecraft.core.BlockPos.of(tag.getLong(NBT_ANCHOR)) else null

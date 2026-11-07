@@ -97,8 +97,7 @@ class GamylanCagePersistence : SavedData() {
                 maxHp = t.getInt("maxHp"),
                 hp = t.getInt("hp"),
                 shapeDims = getVec3d(t, "shape"),
-                entityCullSize = if (t.contains("cullx")) getVec3d(t, "cull")
-                    else Vector3d(getVec3d(t, "shape").x * 2.0, getVec3d(t, "shape").y * 2.0, getVec3d(t, "shape").x * 2.0),
+                entityCullSize = getVec3d(t, "cull"),
                 dimId = t.getString("dimId"),
                 fadeEndGameTime = t.getLong("fadeEnd"),
                 fadeComplete = t.getBoolean("fadeDone"),

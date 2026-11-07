@@ -8,7 +8,6 @@ import net.minecraft.nbt.Tag
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.AbstractCauldronBlock
@@ -39,9 +38,6 @@ class RuneBlockEntity(pos: BlockPos, state: BlockState) : BlockEntity(EKBlockEnt
     var host: BlockState? = null
         private set
 
-    /** Only for a rune saved before host states were kept. */
-    private var legacyHost: Block? = null
-
     /** Not saved: a rune loaded from disk is armed. */
     private var armsAt = 0L
 
@@ -65,13 +61,7 @@ class RuneBlockEntity(pos: BlockPos, state: BlockState) : BlockEntity(EKBlockEnt
         if (was === now) return false
         host = now
         setChanged()
-        if (was == null) {
-            // Only the block is known.
-            val block = legacyHost ?: return false
-            legacyHost = null
-            return block !== now.block && !isNaturalChange(block.defaultBlockState(), now)
-        }
-        return !isNaturalChange(was, now)
+        return was != null && !isNaturalChange(was, now)
     }
 
     override fun setLevel(level: Level) {
@@ -94,13 +84,9 @@ class RuneBlockEntity(pos: BlockPos, state: BlockState) : BlockEntity(EKBlockEnt
         super.load(tag)
         spell = Spell.load(tag, Spell.NBT_GLYPHS) ?: Spell(emptyList())
         owner = if (tag.hasUUID(NBT_OWNER)) tag.getUUID(NBT_OWNER) else null
-        if (tag.contains(NBT_HOST_STATE, Tag.TAG_COMPOUND.toInt())) {
-            host = NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), tag.getCompound(NBT_HOST_STATE))
-            legacyHost = null
-        } else {
-            host = null
-            legacyHost = ResourceLocation.tryParse(tag.getString(NBT_HOST))?.let { BuiltInRegistries.BLOCK.getOptional(it).orElse(null) }
-        }
+        host = if (tag.contains(NBT_HOST_STATE, Tag.TAG_COMPOUND.toInt())) {
+            NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), tag.getCompound(NBT_HOST_STATE))
+        } else null
         // The rune is tinted from its spell, so its chunk section redraws when the spell arrives.
         level?.takeIf { it.isClientSide }?.sendBlockUpdated(blockPos, blockState, blockState, Block.UPDATE_IMMEDIATE)
     }
@@ -110,7 +96,6 @@ class RuneBlockEntity(pos: BlockPos, state: BlockState) : BlockEntity(EKBlockEnt
         tag.put(Spell.NBT_GLYPHS, spell.save())
         owner?.let { tag.putUUID(NBT_OWNER, it) }
         host?.let { tag.put(NBT_HOST_STATE, NbtUtils.writeBlockState(it)) }
-        if (host == null) legacyHost?.let { tag.putString(NBT_HOST, BuiltInRegistries.BLOCK.getKey(it).toString()) }
     }
 
     override fun getUpdateTag(): CompoundTag = saveWithoutMetadata()
@@ -119,7 +104,6 @@ class RuneBlockEntity(pos: BlockPos, state: BlockState) : BlockEntity(EKBlockEnt
 
     companion object {
         private const val NBT_OWNER = "Owner"
-        private const val NBT_HOST = "Host"
         private const val NBT_HOST_STATE = "HostState"
 
         /** Must agree with the client appear delay in `RuneVfx`. */

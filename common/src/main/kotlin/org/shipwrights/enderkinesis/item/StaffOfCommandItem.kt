@@ -262,8 +262,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
          *  devices were reached. */
         /** Drop entries whose position no longer holds their stamped block type.
          *  Unverifiable entries (other dimension, unloaded chunk) are kept — absence
-         *  of evidence isn't a broken block. Legacy null-stamp entries get stamped
-         *  from the live block when it's still commandable, dropped otherwise. */
+         *  of evidence isn't a broken block. */
         fun validateEntries(level: ServerLevel, stack: ItemStack) {
             val entries = readEntries(stack)
             if (entries.isEmpty()) return
@@ -277,16 +276,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 }
                 val state = level.getBlockState(e.pos)
                 val actual = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.block)
-                when {
-                    e.blockId == actual -> kept.add(e)
-                    e.blockId == null -> {
-                        val stillCommandable = level.getBlockEntity(e.pos) is Commandable ||
-                            VanillaCommandables.supports(state)
-                        if (stillCommandable) kept.add(Entry(e.pos, e.dim, actual))
-                        changed = true
-                    }
-                    else -> changed = true   // block replaced/broken — invalidate
-                }
+                if (e.blockId == actual) kept.add(e) else changed = true
             }
             if (changed) writeEntries(stack, kept)
         }

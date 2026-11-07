@@ -62,7 +62,7 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
                     kind, tag.getLong("Time"), element("Shard"), tag.getInt("Index"), element("Before"), element("After"),
                     tag.getList("Glyphs", Tag.TAG_STRING.toInt()).mapNotNull { Element.byId(it.asString) }, tag.getInt("InkBefore"),
                     if (tag.contains("Paper", Tag.TAG_COMPOUND.toInt())) ItemStack.of(tag.getCompound("Paper")) else ItemStack.EMPTY,
-                    if (tag.contains("Origin")) tag.getInt("Origin") else tag.getInt("Index"),
+                    tag.getInt("Origin"),
                 )
             }
         }

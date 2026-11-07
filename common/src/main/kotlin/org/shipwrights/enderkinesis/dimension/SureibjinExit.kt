@@ -4,13 +4,11 @@ import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.EntityEvent
 import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.stats.Stats
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.enchantment.EnchantmentHelper
-import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKItems
 
 /**
@@ -30,8 +28,6 @@ import org.shipwrights.enderkinesis.registry.EKItems
  */
 object SureibjinExit {
 
-    private val CROWN_UNTESTED_RECIPE: ResourceLocation = EnderkinesisMod.id("crown_untested")
-
     fun init() {
         // Some deaths skip `actuallyHurt` (PlayerSureibjinWakeMixin). Any death that gets to `die` wakes the player.
         EntityEvent.LIVING_DEATH.register { entity, _ ->
@@ -50,7 +46,6 @@ object SureibjinExit {
                 wakeUp(player)
             }
         }
-        PlayerEvent.PLAYER_JOIN.register(::unlockCrownRecipe)
         // A command or a mod teleport can take a player out of the dream with no death.
         PlayerEvent.CHANGE_DIMENSION.register { player, from, to ->
             if (from == Sureibjin.LEVEL_KEY && to != Sureibjin.LEVEL_KEY) restoreIfDreaming(player)
@@ -131,14 +126,6 @@ object SureibjinExit {
             snapshot.x, snapshot.y, snapshot.z,
             snapshot.yRot, snapshot.xRot,
         )
-    }
-
-    // Players who got Knowledge of Death before the advancement gave this recipe as a reward.
-    private fun unlockCrownRecipe(player: ServerPlayer) {
-        val advancement = player.server.advancements.getAdvancement(SureibjinEntry.ADV_KNOWLEDGE_OF_DEATH) ?: return
-        if (!player.advancements.getOrStartProgress(advancement).isDone) return
-        if (player.recipeBook.contains(CROWN_UNTESTED_RECIPE)) return
-        player.awardRecipesByKey(arrayOf(CROWN_UNTESTED_RECIPE))
     }
 
     /** Minimal heal to survive the next tick — the snapshot restore (if

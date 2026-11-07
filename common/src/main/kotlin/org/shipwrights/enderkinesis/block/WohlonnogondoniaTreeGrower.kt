@@ -1185,8 +1185,7 @@ object WohlonnogondoniaTreeGrower {
         // as the wave moves outward.
         if (newlyPlaced.isNotEmpty()) {
             // Only neighbours in an open layer join; later ones join when their layer opens.
-            val frontierEnd = if (job.layerEnds.isEmpty()) job.voxels.size
-                else job.layerEnds[job.currentLayer.coerceAtMost(job.layerEnds.size - 1)]
+            val frontierEnd = job.layerEnds[job.currentLayer.coerceAtMost(job.layerEnds.size - 1)]
             val placedPositions = ArrayList<BlockPos>(newlyPlaced.size)
             for (idx in newlyPlaced) {
                 val pos = BlockPos.of(job.voxels[idx])
@@ -1204,17 +1203,15 @@ object WohlonnogondoniaTreeGrower {
         // A layer opens when the one before it is complete, or after [LAYER_ADVANCE_INTERVAL] ticks, so
         // voxels the cascade cannot reach yet do not stall the tree.
         job.layerTimer++
-        if (job.layerEnds.isNotEmpty()) {
-            while (job.currentLayer < job.layerEnds.size - 1 &&
-                job.placed.nextClearBit(0) >= job.layerEnds[job.currentLayer]) {
-                advanceWoodLayer(job)
-                changed = true
-            }
-            if (job.currentLayer < job.layerEnds.size - 1 &&
-                job.layerTimer >= LAYER_ADVANCE_INTERVAL) {
-                advanceWoodLayer(job)
-                changed = true
-            }
+        while (job.currentLayer < job.layerEnds.size - 1 &&
+            job.placed.nextClearBit(0) >= job.layerEnds[job.currentLayer]) {
+            advanceWoodLayer(job)
+            changed = true
+        }
+        if (job.currentLayer < job.layerEnds.size - 1 &&
+            job.layerTimer >= LAYER_ADVANCE_INTERVAL) {
+            advanceWoodLayer(job)
+            changed = true
         }
         return changed
     }
@@ -1856,10 +1853,8 @@ object WohlonnogondoniaTreeGrower {
          *  the same `segDistSq` ring around their nearest skeleton
          *  segment. Used by [tickJob] to gate placement strictly per
          *  layer — every voxel in layer N places before any layer-N+1
-         *  voxel enters the frontier. Empty for legacy jobs loaded
-         *  from saves predating this field; in that case all voxels
-         *  are treated as one big layer (matches the prior behaviour). */
-        val layerEnds: IntArray = intArrayOf(),
+         *  voxel enters the frontier. */
+        val layerEnds: IntArray,
         /** Index into [layerEnds] of the currently-active layer.
          *  Advances when every voxel in `[0, layerEnds[currentLayer])`
          *  is placed OR when [layerTimer] hits [LAYER_ADVANCE_INTERVAL]
@@ -1923,9 +1918,7 @@ object WohlonnogondoniaTreeGrower {
             }
 
             frontier.clear()
-            // Legacy jobs with no `layerEnds` use the full range.
-            val frontierEnd = if (layerEnds.isEmpty()) voxels.size
-                else layerEnds[currentLayer.coerceAtMost(layerEnds.size - 1)]
+            val frontierEnd = layerEnds[currentLayer.coerceAtMost(layerEnds.size - 1)]
             for (i in voxels.indices) {
                 if (placed.get(i)) continue
                 if (i >= frontierEnd) continue

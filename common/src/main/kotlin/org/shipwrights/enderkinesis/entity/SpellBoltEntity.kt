@@ -1,7 +1,6 @@
 package org.shipwrights.enderkinesis.entity
 
 import net.minecraft.nbt.CompoundTag
-import net.minecraft.nbt.Tag
 import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
@@ -123,11 +122,9 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         spell = Spell.load(tag, Spell.NBT_GLYPHS) ?: Spell(emptyList())
         entityData.set(ELEMENTS, SpellVfx.elementBits(spell.magnitudes.keys))
         ownerUuid = if (tag.hasUUID(NBT_OWNER)) tag.getUUID(NBT_OWNER) else null
-        castPoint = if (tag.contains(NBT_CAST_X, Tag.TAG_DOUBLE.toInt())) {
-            Vec3(tag.getDouble(NBT_CAST_X), tag.getDouble(NBT_CAST_Y), tag.getDouble(NBT_CAST_Z))
-        } else position()
-        power = if (tag.contains(NBT_POWER, Tag.TAG_FLOAT.toInt())) tag.getFloat(NBT_POWER) else 1f
-        surfaceFire = !tag.contains(NBT_SURFACE_FIRE) || tag.getBoolean(NBT_SURFACE_FIRE)
+        castPoint = Vec3(tag.getDouble(NBT_CAST_X), tag.getDouble(NBT_CAST_Y), tag.getDouble(NBT_CAST_Z))
+        power = tag.getFloat(NBT_POWER)
+        surfaceFire = tag.getBoolean(NBT_SURFACE_FIRE)
     }
 
     companion object {

@@ -172,16 +172,6 @@ object ScalesManager {
         level.shipObjectWorld.teleportShip(ship, data)
     }
 
-    /** Legacy by-id entrypoint kept for symmetry; not used by the live
-     *  stream anymore. */
-    fun commitScale(player: ServerPlayer, shipId: Long, requestedScale: Double): Boolean {
-        val ship = player.level().shipObjectWorld.allShips.getById(shipId) as? LoadedServerShip
-        if (ship == null) {
-            return false
-        }
-        return commitScaleOnShip(player, ship, requestedScale)
-    }
-
     // --- Body (non-ship VS body) variants ---
 
     /** Read the body's current uniform scale (X axis). */
