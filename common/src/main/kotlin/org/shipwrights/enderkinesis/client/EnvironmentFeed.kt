@@ -35,9 +35,7 @@ object EnvironmentFeed {
     private val wisps = ArrayList<Wisp>()
     private val glints = ArrayList<Glint>()
 
-    // Client thread only. Quintessence wisps wait until the scan shows no other element.
-    private val pendingFrom = ArrayList<Vec3>()
-    private val pendingHand = ArrayList<InteractionHand>()
+    // Client thread only.
     private val nonBlockSources = HashMap<Element, Float>()
 
     // Client thread only: the client game time when the server last reported a deed of the local player.
@@ -81,8 +79,6 @@ object EnvironmentFeed {
         val shipPoint = Vector3d()
         val random = level.random
         val r = ElementalEnvironment.RADIUS
-        pendingFrom.clear()
-        pendingHand.clear()
         nonBlockSources.clear()
         ElementalEnvironment.addPlaceSources(level, origin, nonBlockSources)
         ElementalEnvironment.addEntityState(level, player, nonBlockSources)
@@ -94,10 +90,10 @@ object EnvironmentFeed {
             if (weight <= 0.0) continue
             pos.set(origin.x + dx, origin.y + dy, origin.z + dz)
             val worldState = level.getBlockState(pos)
-            if (!othersPresent && ElementalEnvironment.givesOtherThanQuintessence(worldState)) othersPresent = true
+            if (!othersPresent && ElementalEnvironment.givesElement(worldState)) othersPresent = true
             for ((hand, elements) in held) for (element in elements) {
                 val chance = FEED_CHANCE * weight * ElementalEnvironment.share(worldState, element)
-                if (chance > 0.0 && random.nextDouble() < chance) feed(player, hand, element, onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random), othersPresent)
+                if (chance > 0.0 && random.nextDouble() < chance) spawn(player, hand, element, onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random))
             }
             // Ship blocks also feed it: map each world cell into shipyard space, then the wisp back to world.
             for (ship in ships) {
@@ -105,29 +101,20 @@ object EnvironmentFeed {
                 pos.set(shipPoint.x, shipPoint.y, shipPoint.z)
                 val state = level.getBlockState(pos)
                 if (state.isAir) continue
-                if (!othersPresent && ElementalEnvironment.givesOtherThanQuintessence(state)) othersPresent = true
+                if (!othersPresent && ElementalEnvironment.givesElement(state)) othersPresent = true
                 for ((hand, elements) in held) for (element in elements) {
                     val chance = FEED_CHANCE * weight * ElementalEnvironment.share(state, element)
                     if (chance <= 0.0 || random.nextDouble() >= chance) continue
                     val p = onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random)
                     ship.transform.shipToWorld.transformPosition(p.x, p.y, p.z, shipPoint)
-                    feed(player, hand, element, Vec3(shipPoint.x, shipPoint.y, shipPoint.z), othersPresent)
+                    spawn(player, hand, element, Vec3(shipPoint.x, shipPoint.y, shipPoint.z))
                 }
             }
         }
+        if (!othersPresent) ElementalEnvironment.addQuintessence(nonBlockSources)
         for ((hand, elements) in held) for (element in elements) {
             val value = nonBlockSources[element] ?: continue
-            if (random.nextDouble() < FEED_CHANCE * ElementalEnvironment.FULL * value) feed(player, hand, element, around(centre, random), othersPresent)
-        }
-        if (!othersPresent) for (i in pendingFrom.indices) spawn(player, pendingHand[i], Element.QUINTESSENCE, pendingFrom[i])
-    }
-
-    private fun feed(player: Player, hand: InteractionHand, element: Element, from: Vec3, othersPresent: Boolean) {
-        if (element != Element.QUINTESSENCE) {
-            spawn(player, hand, element, from)
-        } else if (!othersPresent) {
-            pendingFrom.add(from)
-            pendingHand.add(hand)
+            if (random.nextDouble() < FEED_CHANCE * ElementalEnvironment.FULL * value) spawn(player, hand, element, around(centre, random))
         }
     }
 

@@ -30,27 +30,6 @@
       "required": false
     },
     {
-      "id": "minecraft:torch",
-      "required": false
-    },
-    {
-      "id": "minecraft:wall_torch",
-      "required": false
-    },
-    {
-      "id": "minecraft:lantern",
-      "required": false
-    },
-    {
-      "id": "minecraft:jack_o_lantern",
-      "required": false
-    },
-    {
-      "id": "minecraft:redstone_lamp",
-      "required": false
-    },
-    "#minecraft:candles",
-    {
       "id": "minecraft:gold_block",
       "required": false
     },

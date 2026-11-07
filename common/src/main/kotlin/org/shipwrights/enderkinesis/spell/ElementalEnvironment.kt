@@ -50,7 +50,7 @@ object ElementalEnvironment {
     private const val RESAMPLE_TICKS = 10
 
     private val TAGS: Map<Element, TagKey<net.minecraft.world.level.block.Block>> =
-        Element.entries.filter { it != Element.SUNDERING }
+        Element.entries.filter { it != Element.SUNDERING && it != Element.QUINTESSENCE }
             .associateWith { TagKey.create(Registries.BLOCK, EnderkinesisMod.id("elemental_environment/${it.id}")) }
 
     private class Sample(val tick: Long, val values: Map<Element, Float>)
@@ -64,16 +64,16 @@ object ElementalEnvironment {
         if (byEntity.size > 512) byEntity.entries.removeIf { now - it.value.tick >= RESAMPLE_TICKS }
         val values = sample(level, entity.position().add(0.0, entity.bbHeight * 0.5, 0.0))
         addEntitySources(level, entity, values)
-        quintessenceAlone(values)
+        addQuintessence(values)
         byEntity[entity.id] = Sample(now, values)
         return values
     }
 
-    fun at(level: ServerLevel, centre: Vec3): Map<Element, Float> = sample(level, centre).also(::quintessenceAlone)
+    fun at(level: ServerLevel, centre: Vec3): Map<Element, Float> = sample(level, centre).also(::addQuintessence)
 
-    // Quintessence is the absence of the other elements.
-    private fun quintessenceAlone(values: HashMap<Element, Float>) {
-        if (values.size > 1) values.remove(Element.QUINTESSENCE)
+    /** Quintessence is the absence of all other elements, so call this after every other source. */
+    fun addQuintessence(values: MutableMap<Element, Float>) {
+        if (values.isEmpty()) values[Element.QUINTESSENCE] = SOURCE
     }
 
     private fun add(values: MutableMap<Element, Float>, element: Element, value: Float) {
@@ -174,28 +174,34 @@ object ElementalEnvironment {
     private const val SKY_DARKEN_RANGE = 11.0
     private const val DAY_SKY_DARKEN = 4
     private const val FREE_FALL = 3f
-    private const val DEED_TICKS = 200L
+    private const val DEED_TICKS = 40L
     private const val NEVER = Long.MIN_VALUE / 2
 
-    // Server thread only: entity id to the game time of its last deed for each element.
+    // Server thread only: entity id to the game time of its last deed, and of its last send, for each element.
     private val deeds = HashMap<Int, LongArray>()
+    private val sent = HashMap<Int, LongArray>()
 
     /** A deed of [entity] that gives [element] for a short time: a bone meal use, a teleport, a hit. */
     @JvmStatic
     fun deed(entity: Entity, element: Element) {
         val level = entity.level() as? ServerLevel ?: return
         val now = level.gameTime
-        if (deeds.size > MAX_TRACKED) deeds.values.removeIf { times -> times.all { now - it >= DEED_TICKS } }
-        val times = deeds.getOrPut(entity.id, ::noDeeds)
-        val last = times[element.ordinal]
-        times[element.ordinal] = now
-        if (entity is ServerPlayer && now - last >= RESEND_TICKS) sendDeed(entity, element)
+        if (deeds.size > MAX_TRACKED) {
+            deeds.values.removeIf { times -> times.all { now - it >= DEED_TICKS } }
+            sent.keys.retainAll(deeds.keys)
+        }
+        deeds.getOrPut(entity.id, ::noDeeds)[element.ordinal] = now
+        if (entity !is ServerPlayer) return
+        val sentTimes = sent.getOrPut(entity.id, ::noDeeds)
+        if (now - sentTimes[element.ordinal] < RESEND_TICKS) return
+        sentTimes[element.ordinal] = now
+        sendDeed(entity, element)
     }
 
     val S2C_DEED: ResourceLocation = EnderkinesisMod.id("elemental_deed")
 
     // The client then sees a deed at most this late, so its Quintessence check stays close to the server.
-    private const val RESEND_TICKS = 20L
+    private const val RESEND_TICKS = 10L
 
     private fun sendDeed(player: ServerPlayer, element: Element) {
         val buf = FriendlyByteBuf(Unpooled.buffer())
@@ -225,9 +231,9 @@ object ElementalEnvironment {
         return if (d > RADIUS + 0.5) 0.0 else 1.0 - d / (RADIUS + 1)
     }
 
-    fun givesOtherThanQuintessence(state: BlockState): Boolean {
+    fun givesElement(state: BlockState): Boolean {
         if (state.isAir) return false
-        for (element in TAGS.keys) if (element != Element.QUINTESSENCE && share(state, element) > 0.0) return true
+        for (element in TAGS.keys) if (share(state, element) > 0.0) return true
         return false
     }
 
@@ -299,5 +305,6 @@ object ElementalEnvironment {
     fun reset() {
         byEntity.clear()
         deeds.clear()
+        sent.clear()
     }
 }
