@@ -222,7 +222,6 @@
     "SectionStorageAccessor",
     "ServerLevelEntityManagerAccessor",
     "CompositeEntryBaseAccessor",
-    "EnchantmentTableSselithBookshelfMixin",
     "EnchantmentHelperSselithBookMixin",
     "EnchantmentMenuSselithBookMixin",
     "ItemStackSselithBookStackMixin",

@@ -247,6 +247,8 @@ object EnderkinesisModClient {
             EKBlocks.WILLFAER_WALL_TORCH.get(),
         )
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.GUARDIAN_SPIKE.get(), EKBlocks.GUARDIAN_SPIKE_OUTER.get())
+        // The model's render_type is read only by Forge.
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.CONSTRILIAR_PLATFORM.get())
 
 
         // Planar Anchor: the model's "chain" element relies on alpha-cut transparency. Without
