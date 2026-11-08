@@ -1,10 +1,13 @@
 package org.shipwrights.enderkinesis.item
 
+import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.PlayerEvent
+import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.EnderkinesisMod
@@ -35,8 +38,11 @@ object SilverpointNetwork {
 
     // A paper's picture must arrive within this time of its paper; the client bakes it in a few frames.
     private const val UPLOAD_TICKS = 1200L
-    private const val FETCH_WINDOW = 20L
-    private const val FETCHES_PER_WINDOW = 32
+    // Pictures go out in CHUNK parts through a per-player queue, at most this many bytes a tick (about 640 KB/s).
+    private const val SEND_BYTES_PER_TICK = 32 * 1024
+    // A picture sent to a player this recently is not sent again; the client asks again after 5 s.
+    private const val RESEND_TICKS = 80L
+    private const val MAX_QUEUED_PICTURES = 32
 
     private class Allowance(var count: Int, var expires: Long)
 
@@ -44,13 +50,19 @@ object SilverpointNetwork {
         var chunks: Array<ByteArray?>? = null
     }
 
-    private class Fetches(var windowStart: Long, var count: Int)
+    private class Part(val id: String, val index: Int, val total: Int, val bytes: ByteArray)
+
+    private class Outbox {
+        val parts = ArrayDeque<Part>()
+        val queued = HashSet<String>()
+        val sentAt = HashMap<String, Long>()
+    }
 
     // Server thread only.
     private val allowances = HashMap<UUID, Allowance>()
     private val uploads = HashMap<String, Upload>()
     private val waiting = HashMap<String, MutableSet<UUID>>()
-    private val fetches = HashMap<UUID, Fetches>()
+    private val outboxes = HashMap<UUID, Outbox>()
 
     fun init() {
         SilverpointPictureStore.init()
@@ -75,8 +87,10 @@ object SilverpointNetwork {
         }
         PlayerEvent.PLAYER_QUIT.register { player ->
             allowances.remove(player.uuid)
-            fetches.remove(player.uuid)
+            outboxes.remove(player.uuid)
         }
+        TickEvent.SERVER_POST.register { server -> drain(server) }
+        LifecycleEvent.SERVER_STOPPED.register { outboxes.clear() }
     }
 
     /** A viewfinder release on the server: the paper it begins may come in the next [ALLOW_TICKS]. */
@@ -134,7 +148,7 @@ object SilverpointNetwork {
         chunks[index] = bytes
         if (chunks.any { it == null }) return
         uploads.remove(id)
-        val packed = chunks.fold(ByteArray(0)) { all, chunk -> all + checkNotNull(chunk) }
+        val packed = join(chunks)
         if (SilverpointPicture.sideOf(packed) == null) return
         SilverpointPictureStore.put(id, packed)
         val players = player.server.playerList
@@ -143,13 +157,6 @@ object SilverpointNetwork {
 
     private fun fetch(player: ServerPlayer, id: String) {
         if (!SilverpointPicture.isId(id)) return
-        val now = player.serverLevel().gameTime
-        val count = fetches.getOrPut(player.uuid) { Fetches(now, 0) }
-        if (now - count.windowStart >= FETCH_WINDOW) {
-            count.windowStart = now
-            count.count = 0
-        }
-        if (++count.count > FETCHES_PER_WINDOW) return
         val packed = SilverpointPictureStore.get(id)
         when {
             packed != null -> sendData(player, id, packed)
@@ -157,13 +164,62 @@ object SilverpointNetwork {
         }
     }
 
+    /** Queues [packed] for [player] in parts, unless it is queued already or was sent within [RESEND_TICKS]. */
     private fun sendData(player: ServerPlayer, id: String, packed: ByteArray) {
-        val buf = FriendlyByteBuf(Unpooled.buffer())
-        buf.writeUtf(id, ID_LENGTH)
-        buf.writeByteArray(packed)
-        NetworkManager.sendToPlayer(player, DATA, buf)
+        val outbox = outboxes.getOrPut(player.uuid) { Outbox() }
+        val now = player.serverLevel().gameTime
+        outbox.sentAt.values.removeIf { now - it >= RESEND_TICKS }
+        if (id in outbox.queued || id in outbox.sentAt || outbox.queued.size >= MAX_QUEUED_PICTURES) return
+        outbox.queued.add(id)
+        val total = (packed.size + CHUNK - 1) / CHUNK
+        for (index in 0 until total) {
+            outbox.parts.addLast(Part(id, index, total, packed.copyOfRange(index * CHUNK, minOf(packed.size, (index + 1) * CHUNK))))
+        }
     }
 
-    /** Reads a [DATA] payload: the id and the picture. */
-    fun readData(buf: FriendlyByteBuf): Pair<String, ByteArray> = buf.readUtf(ID_LENGTH) to buf.readByteArray(MAX_BYTES)
+    /** Sends each player's queued parts, up to [SEND_BYTES_PER_TICK] (at least one part) a tick. */
+    private fun drain(server: MinecraftServer) {
+        if (outboxes.isEmpty()) return
+        for ((uuid, outbox) in outboxes) {
+            if (outbox.parts.isEmpty()) continue
+            val player = server.playerList.getPlayer(uuid) ?: continue
+            var budget = SEND_BYTES_PER_TICK
+            while (outbox.parts.isNotEmpty() && (budget == SEND_BYTES_PER_TICK || budget >= outbox.parts.first().bytes.size)) {
+                val part = outbox.parts.removeFirst()
+                budget -= part.bytes.size
+                val buf = FriendlyByteBuf(Unpooled.buffer())
+                buf.writeUtf(part.id, ID_LENGTH)
+                buf.writeVarInt(part.index)
+                buf.writeVarInt(part.total)
+                buf.writeByteArray(part.bytes)
+                NetworkManager.sendToPlayer(player, DATA, buf)
+                if (part.index == part.total - 1) {
+                    outbox.queued.remove(part.id)
+                    outbox.sentAt[part.id] = player.serverLevel().gameTime
+                }
+            }
+        }
+    }
+
+    class DataPart(val id: String, val index: Int, val total: Int, val bytes: ByteArray)
+
+    /** Reads one [DATA] part: the id, the part index and count, and the bytes. */
+    fun readData(buf: FriendlyByteBuf): DataPart? {
+        val id = buf.readUtf(ID_LENGTH)
+        val index = buf.readVarInt()
+        val total = buf.readVarInt()
+        val bytes = buf.readByteArray(CHUNK)
+        return if (total in 1..MAX_CHUNKS && index in 0 until total) DataPart(id, index, total, bytes) else null
+    }
+
+    /** Joins the parts of one picture, in index order. */
+    fun join(parts: Array<ByteArray?>): ByteArray {
+        val out = ByteArray(parts.sumOf { checkNotNull(it).size })
+        var at = 0
+        for (part in parts) {
+            checkNotNull(part).copyInto(out, at)
+            at += part.size
+        }
+        return out
+    }
 }

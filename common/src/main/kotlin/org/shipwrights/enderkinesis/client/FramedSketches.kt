@@ -23,7 +23,9 @@ import java.util.WeakHashMap
 /** Strike readouts in item frames: the paper fills the frame like a map, with the sketch on it. */
 object FramedSketches {
 
-    private const val CACHE_LIMIT = 16
+    // By bytes, not count: a count limit under the frames in view evicts a shown sketch at each bake, so they flicker.
+    private const val TEXTURE_BUDGET = 64L * 1024 * 1024
+    private const val INITIAL_CAPACITY = 16
     private const val BAKE_SCALE = 4
 
     // Map units: the frame face is 128 across.
@@ -38,19 +40,14 @@ object FramedSketches {
     private const val SHEET = 256f
     private val PAPER = ResourceLocation(EnderkinesisMod.MOD_ID, "textures/gui/strike_readout.png")
 
-    private class Baked(val location: ResourceLocation?)
+    private class Baked(val location: ResourceLocation?, val bytes: Long)
 
     // Render thread only. A bake during the level pass would flush the level's buffers into the sketch target.
     private val specs = WeakHashMap<CompoundTag, Optional<SketchSpec>>()
     private val pending = LinkedHashSet<SketchSpec>()
     private var nextId = 0
-    private val baked = object : LinkedHashMap<SketchSpec, Baked>(CACHE_LIMIT, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<SketchSpec, Baked>): Boolean {
-            if (size <= CACHE_LIMIT) return false
-            eldest.value.location?.let(Minecraft.getInstance().textureManager::release)
-            return true
-        }
-    }
+    private val baked = LinkedHashMap<SketchSpec, Baked>(INITIAL_CAPACITY, 0.75f, true)
+    private var bakedBytes = 0L
 
     fun init() {
         ClientTickEvent.CLIENT_POST.register { bakeNext() }
@@ -128,6 +125,14 @@ object FramedSketches {
             Minecraft.getInstance().textureManager.register(id, DynamicTexture(it))
             id
         }
-        baked[spec] = Baked(location)
+        val bytes = image?.let { it.width.toLong() * it.height * 4 } ?: 0L
+        baked[spec] = Baked(location, bytes)
+        bakedBytes += bytes
+        while (bakedBytes > TEXTURE_BUDGET && baked.size > 1) {
+            val eldest = baked.entries.first()
+            baked.remove(eldest.key)
+            bakedBytes -= eldest.value.bytes
+            eldest.value.location?.let(Minecraft.getInstance().textureManager::release)
+        }
     }
 }
