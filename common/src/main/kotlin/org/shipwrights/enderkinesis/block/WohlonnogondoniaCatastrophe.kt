@@ -42,6 +42,7 @@ import java.util.UUID
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.damageSource
 
 /**
  * Wipes Wohlon when the Mother Heart is forcibly removed. Hybrid live+marker design:
@@ -94,7 +95,7 @@ object WohlonnogondoniaCatastrophe {
 
         val wohlonLevel = server.getLevel(Wohlonnogondonia.LEVEL_KEY)
         if (wohlonLevel != null) {
-            val damageSource: DamageSource = wohlonLevel.damageSources().source(GODLY_INTERVENTION)
+            val damageSource: DamageSource = wohlonLevel.damageSource(GODLY_INTERVENTION)
             // Snapshot — hurt/disconnect mutate the live collection during iteration.
             val players = wohlonLevel.players().toList()
             for (player in players) {

@@ -28,6 +28,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry
 import org.shipwrights.enderkinesis.barnacle.YgannBarnacleLimbLimits
 import org.shipwrights.enderkinesis.dimension.YgannBarnacleSpreader
+import org.shipwrights.enderkinesis.util.damageSource
 
 /**
  * Growth state for the Ygann Barnacle: birth time + deterministic seed. Age derives from
@@ -167,7 +168,7 @@ class YgannBarnacleBlockEntity(pos: BlockPos, state: BlockState) :
             net.minecraft.world.phys.AABB(minX, minY, minZ, maxX, maxY, maxZ)
         }.inflate(DAMAGE_REACH)
 
-        val src = server.damageSources().source(DAMAGE_TYPE)
+        val src = server.damageSource(DAMAGE_TYPE)
         val c = org.joml.Vector3d()
         for (e in nearby) {
             if (!worldQuery.intersects(e.boundingBox)) continue

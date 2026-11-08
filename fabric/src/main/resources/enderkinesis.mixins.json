@@ -9,7 +9,8 @@
     "EnchantmentHelperBlessedRazorMixin",
     "EnchantmentHelperCrownMixin",
     "LivingEntitySelvesFabricMixin",
-    "LootTableFabricAccessor"
+    "LootTableFabricAccessor",
+    "BiomeFabricAccessor"
   ],
   "client": [
     "ModelBlockRendererFlatSselithFabricMixin",

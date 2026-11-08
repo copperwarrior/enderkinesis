@@ -29,6 +29,7 @@ import org.shipwrights.enderkinesis.mixin.BlockPropertiesAccessor
 import java.util.EnumMap
 import java.util.IdentityHashMap
 import java.util.Optional
+import org.shipwrights.enderkinesis.util.damageSource
 
 /** Shape, damage, offset and waterlogging shared by the corner-cluster and outer guardian spike blocks. */
 abstract class GuardianSpikeBase(props: Properties) : Block(props), SimpleWaterloggedBlock {
@@ -90,7 +91,7 @@ abstract class GuardianSpikeBase(props: Properties) : Block(props), SimpleWaterl
         if (level.isClientSide || entity !is LivingEntity) return
         val box = entity.boundingBox.move(-pos.x.toDouble(), -pos.y.toDouble(), -pos.z.toDouble())
         if (placed(state, pos).none { it.touches(box) }) return
-        entity.hurt(level.damageSources().source(DAMAGE_TYPE), DAMAGE)
+        entity.hurt(level.damageSource(DAMAGE_TYPE), DAMAGE)
     }
 
     protected fun scheduleWater(state: BlockState, level: LevelAccessor, pos: BlockPos) {

@@ -177,7 +177,7 @@ object ElementalEnvironment {
 
     // Vanilla oceans and rivers have an ordinary downfall of 0.5.
     private fun wet(biome: Holder<Biome>): Boolean =
-        biome.value().climateSettings.downfall() >= WET_DOWNFALL ||
+        BiomeClimate.downfall(biome.value()) >= WET_DOWNFALL ||
             biome.`is`(BiomeTags.IS_OCEAN) || biome.`is`(BiomeTags.IS_RIVER)
 
     private fun inVoid(level: Level, pos: BlockPos): Boolean =
