@@ -261,6 +261,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.block.WohlonRollingWaters.init()
         org.shipwrights.enderkinesis.block.WohlonReachingRoot.init()
         org.shipwrights.enderkinesis.util.ShipMoves.init()
+        org.shipwrights.enderkinesis.physics.WindGales.init()
         org.shipwrights.enderkinesis.worldgen.YgannAnchorShipifyProcessor.init()
         org.shipwrights.enderkinesis.worldgen.RoamingEndShipShipifyProcessor.init()
         org.shipwrights.enderkinesis.util.ServerTicks.init()

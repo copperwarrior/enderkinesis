@@ -7,17 +7,14 @@ import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
 import net.minecraft.world.entity.projectile.Projectile
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.compat.create.CreateWindmillWind
+import org.shipwrights.enderkinesis.physics.WindGales
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.core.api.ships.LoadedServerShip
-import org.valkyrienskies.mod.common.ValkyrienSkiesMod
-import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Incantation of Winds: hold right-click to blast a gale along a cone from the caster's view.
  *
- *  Ships and entities in the cone get a push along the ray from the eye through their contact point,
- *  weaker with distance; on ships it is applied at that point. The wind also turns fireballs, blows smoke off
+ *  Ships feel a [WindGales] wind through VS2 drag. Entities in the cone get a push along the ray from the eye
+ *  through their contact point, weaker with distance. The wind also turns fireballs, blows smoke off
  *  fire (and sometimes puts it out), puts out candles, strips snow ([WindBlockEffects]) and speeds up Create windmills. The stream visuals are client-side, in
  *  [org.shipwrights.enderkinesis.client.IncantationOfWindsClient]. */
 @OptIn(GameTickOnly::class)
@@ -34,32 +31,9 @@ class IncantationOfWindsItem(properties: Properties) : IncantationItem(
         val eye = player.eyePosition
         val radius = RANGE * TAN_HALF_ANGLE
         val bounds = AABB(eye, eye.add(look.scale(RANGE))).inflate(radius)
-        pushShips(level, bounds, eye, look)
+        WindGales.cast(level, player.uuid, eye, look, RANGE, TAN_HALF_ANGLE, CONE_APEX_RADIUS)
         pushEntities(level, player, bounds, eye, look)
         WindBlockEffects.blow(level, player, eye, look)
-    }
-
-    private fun pushShips(
-        level: ServerLevel,
-        bounds: AABB,
-        eye: net.minecraft.world.phys.Vec3,
-        look: net.minecraft.world.phys.Vec3,
-    ) {
-        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
-        val dim = level.dimensionId
-        for (ship in level.shipObjectWorld.loadedShips) {
-            val srv = ship as? LoadedServerShip ?: continue
-            if (srv.chunkClaimDimension != dim) continue
-            val sa = srv.worldAABB
-            if (sa.maxX() < bounds.minX || sa.minX() > bounds.maxX) continue
-            if (sa.maxY() < bounds.minY || sa.minY() > bounds.maxY) continue
-            if (sa.maxZ() < bounds.minZ || sa.minZ() > bounds.maxZ) continue
-            val contact = coneContact(eye, look, sa.minX(), sa.minY(), sa.minZ(), sa.maxX(), sa.maxY(), sa.maxZ())
-                ?: continue
-            val wind = windAt(eye, look, contact)
-            val mag = (PUSH_FORCE_PER_MASS * srv.inertiaData.mass.coerceAtLeast(1.0)).coerceAtLeast(PUSH_MIN_FORCE)
-            gtpa.applyWorldForce(srv.id, wind.mul(mag), contact)
-        }
     }
 
     private fun pushEntities(
@@ -165,14 +139,6 @@ class IncantationOfWindsItem(properties: Properties) : IncantationItem(
 
         /** Blocks/tick of acceleration for entities caught in the wind, before the distance falloff. */
         private const val ENTITY_PUSH_SPEED = 0.06
-
-        /** N per kg of ship mass — mass-relative so every ship feels the
-         *  same shove (~0.8 m/s² of acceleration while held). Same scale
-         *  family as the Aegis ship push (6 N/kg). */
-        private const val PUSH_FORCE_PER_MASS = 8.0
-
-        /** Floor so near-massless ships still visibly move. */
-        private const val PUSH_MIN_FORCE = 1_000.0
 
         /** Share of the full force left at [RANGE]; the force falls off linearly from the apex. */
         private const val FAR_FORCE_FRACTION = 0.25
