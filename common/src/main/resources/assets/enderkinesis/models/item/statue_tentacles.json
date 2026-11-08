@@ -2,7 +2,7 @@
   "parent": "builtin/entity",
   "gui_light": "front",
   "textures": {
-    "particle": "enderkinesis:entity/statue/statue_tentacles"
+    "particle": "minecraft:block/deepslate"
   },
   "display": {
     "gui":   { "rotation": [30, 315, 0], "translation": [0, -2, 0], "scale": [0.5, 0.5, 0.5] },

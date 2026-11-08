@@ -1,7 +1,5 @@
 {
   "variants": {
-    "fractal_type=0": { "model": "enderkinesis:block/fractal_projector" },
-    "fractal_type=1": { "model": "enderkinesis:block/fractal_projector" },
-    "fractal_type=2": { "model": "enderkinesis:block/fractal_projector" }
+    "": { "model": "enderkinesis:block/fractal_projector" }
   }
 }

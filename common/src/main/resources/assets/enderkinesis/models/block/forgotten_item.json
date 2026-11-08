@@ -1,6 +1,6 @@
 {
   "ambientocclusion": false,
   "textures": {
-    "particle": "minecraft:block/barrier"
+    "particle": "minecraft:item/barrier"
   }
 }
