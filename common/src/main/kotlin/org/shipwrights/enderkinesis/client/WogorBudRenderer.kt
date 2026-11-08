@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.Minecraft
@@ -13,12 +14,16 @@ import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.Mth
 import net.minecraft.world.inventory.InventoryMenu
+import org.joml.FrustumIntersection
 import org.joml.Matrix3f
 import org.joml.Matrix4f
 import org.joml.Quaternionf
 import org.joml.Vector3d
+import org.joml.Vector3f
+import org.joml.Vector4f
 import org.shipwrights.enderkinesis.block.WogorBudBlock
 import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.getShipManagingPos
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -49,11 +54,15 @@ object WogorBudRenderer {
     private val pos = BlockPos.MutableBlockPos()
     private val shipOrigin = Vector3d()
     private val emit = Emitter()
+    private val viewProj = Matrix4f()
+    private val frustum = FrustumIntersection()
 
     private var rankedSprite: TextureAtlasSprite? = null
     private var rootRank = FloatArray(0)
     private var rootOpaque = BooleanArray(0)
 
+    // The render thread reads the client ship's render transform, not physics state; as in YgannBarnacleDeathRenderer.
+    @OptIn(GameTickOnly::class)
     fun renderAll(
         poseStack: PoseStack, buffers: MultiBufferSource,
         cameraX: Double, cameraY: Double, cameraZ: Double, partialTicks: Float,
@@ -71,6 +80,8 @@ object WogorBudRenderer {
         val maxDistSq = maxDist * maxDist
         val solid = buffers.getBuffer(SOLID_TYPE)
         var rootBuffer: VertexConsumer? = null
+        // The same projection and camera rotation that vanilla's cull frustum is built from.
+        frustum.set(viewProj.set(RenderSystem.getProjectionMatrix()).mul(poseStack.last().pose()))
 
         for (bud in tracker.buds.values) {
             if (bud.faces == 0) continue
@@ -79,7 +90,12 @@ object WogorBudRenderer {
             if (ship == null) {
                 val dx = pos.x - cameraX; val dy = pos.y - cameraY; val dz = pos.z - cameraZ
                 if (dx * dx + dy * dy + dz * dz > maxDistSq) continue
-                emit.begin(poseStack.last(), dx.toFloat(), dy.toFloat(), dz.toFloat())
+                val x0 = dx.toFloat(); val y0 = dy.toFloat(); val z0 = dz.toFloat()
+                val inView = frustum.testAab(
+                    x0 - CULL_PAD, y0 - CULL_PAD, z0 - CULL_PAD, x0 + 1f + CULL_PAD, y0 + 1f + CULL_PAD, z0 + 1f + CULL_PAD,
+                )
+                if (!inView) continue
+                emit.begin(poseStack.last(), x0, y0, z0)
             } else {
                 // Big world offset in double, only the ship rotation in the float pose (precision; see YgannBarnacleDeathRenderer).
                 poseStack.pushPose()
@@ -164,7 +180,7 @@ object WogorBudRenderer {
 
     /** Two diagonal planes as a vanilla cross, texture row 0 on the support face, [heightPx] of the strands shown. */
     private fun drawRoots(dir: Direction, heightPx: Double, gone: Float) {
-        val sprite = emit.sprite ?: return
+        val sprite = emit.sprite
         val w = sprite.contents().width()
         val h = sprite.contents().height()
         val texelX = CROSS_WIDTH_PX / w
@@ -228,30 +244,32 @@ object WogorBudRenderer {
 
     /** Maps face-frame px to block-local units for the current support face and writes one vertex. */
     private class Emitter {
-        var consumer: VertexConsumer? = null
-        var sprite: TextureAtlasSprite? = null
+        lateinit var consumer: VertexConsumer
+        lateinit var sprite: TextureAtlasSprite
         var face: Direction = Direction.DOWN
         var light = 0
-        private var matrix: Matrix4f? = null
-        private var normalMatrix: Matrix3f? = null
+        private lateinit var matrix: Matrix4f
+        private lateinit var normalMatrix: Matrix3f
         private var ox = 0f; private var oy = 0f; private var oz = 0f
-        private var nx = 0f; private var ny = 0f; private var nz = 0f
+        private val position = Vector4f()
+        private val normal = Vector3f()
 
         fun begin(pose: PoseStack.Pose, ox: Float, oy: Float, oz: Float) {
             matrix = pose.pose(); normalMatrix = pose.normal()
             this.ox = ox; this.oy = oy; this.oz = oz
         }
 
-        /** Face-frame normal; rotated into block space the same way as the positions. */
+        /** Face-frame normal; rotated into block space the same way as the positions, then by the pose one time. */
         fun normal(x: Float, y: Float, z: Float) {
             when (face) {
-                Direction.DOWN -> { nx = x; ny = y; nz = z }
-                Direction.UP -> { nx = x; ny = -y; nz = -z }
-                Direction.NORTH -> { nx = x; ny = -z; nz = y }
-                Direction.SOUTH -> { nx = x; ny = z; nz = -y }
-                Direction.WEST -> { nx = y; ny = -x; nz = z }
-                Direction.EAST -> { nx = -y; ny = x; nz = z }
+                Direction.DOWN -> normal.set(x, y, z)
+                Direction.UP -> normal.set(x, -y, -z)
+                Direction.NORTH -> normal.set(x, -z, y)
+                Direction.SOUTH -> normal.set(x, z, -y)
+                Direction.WEST -> normal.set(y, -x, z)
+                Direction.EAST -> normal.set(-y, x, z)
             }
+            normalMatrix.transform(normal)
         }
 
         fun vtx(x: Double, y: Double, z: Double, u: Double, v: Double) {
@@ -264,21 +282,24 @@ object WogorBudRenderer {
                 Direction.WEST -> { bx = y; by = FULL_PX - x; bz = z }
                 Direction.EAST -> { bx = FULL_PX - y; by = x; bz = z }
             }
-            val s = sprite!!
+            val s = sprite
+            // As VertexConsumer.vertex(Matrix4f, ...); the one-call form lets BufferBuilder write NEW_ENTITY directly.
+            position.set(ox + (bx / FULL_PX).toFloat(), oy + (by / FULL_PX).toFloat(), oz + (bz / FULL_PX).toFloat(), 1f)
+            matrix.transform(position)
             // Clamp: an inset box reaches past 0..16 px, and the UV must not bleed into the next atlas sprite.
-            consumer!!.vertex(matrix!!, ox + (bx / FULL_PX).toFloat(), oy + (by / FULL_PX).toFloat(), oz + (bz / FULL_PX).toFloat())
-                .color(WHITE, WHITE, WHITE, WHITE)
-                .uv(s.getU(u.coerceIn(0.0, FULL_PX)), s.getV(v.coerceIn(0.0, FULL_PX)))
-                .overlayCoords(OverlayTexture.NO_OVERLAY)
-                .uv2(light)
-                .normal(normalMatrix!!, nx, ny, nz)
-                .endVertex()
+            consumer.vertex(
+                position.x, position.y, position.z, WHITE, WHITE, WHITE, WHITE,
+                s.getU(u.coerceIn(0.0, FULL_PX)), s.getV(v.coerceIn(0.0, FULL_PX)),
+                OverlayTexture.NO_OVERLAY, light, normal.x, normal.y, normal.z,
+            )
         }
     }
 
     private const val FULL_PX = 16.0
     private const val CENTRE = 8.0
-    private const val WHITE = 255
+    private const val WHITE = 1f
+    // The root cross reaches ~2.2 px past the block on each side; boxes stay within 1 px.
+    private const val CULL_PAD = 0.25f
     private const val BLOCKS_PER_CHUNK = 16.0
     private const val MIN_DRAW_PX = 0.05
     private const val MIN_KNOT_PX = 0.5
