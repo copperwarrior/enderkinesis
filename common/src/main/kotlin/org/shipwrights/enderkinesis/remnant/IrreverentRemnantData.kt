@@ -79,6 +79,20 @@ class IrreverentRemnantBlob(
     @JvmField
     var evicted: Boolean = false
 
+    /** The radius byte, mass, parent field and velocity bytes last synced, so a resting particle that has not changed is not
+     *  sent each tick. Transient. */
+    @JvmField
+    var syncedRadius: Int = -1
+
+    @JvmField
+    var syncedMass: Int = -1
+
+    @JvmField
+    var syncedParent: Int = -1
+
+    @JvmField
+    var syncedVelocity: Int = -1
+
     /** Neighbours counted last pass — parents are chosen upward in density,
      *  so a drip links back to the body rather than to its fellow drips. */
     @JvmField

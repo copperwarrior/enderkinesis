@@ -362,7 +362,7 @@ object IrreverentRemnantManager {
         damagePlayers(tickLevel, players)
         // Push blob state to nearby clients — the remnant has no entity to ride vanilla's tracking.
         if (tickLevel.gameTime % SYNC_INTERVAL == 0L) {
-            IrreverentRemnantNetwork.broadcast(players, playerParallels, blobs)
+            IrreverentRemnantNetwork.broadcast(players, playerParallels, blobs, tickLevel.gameTime)
         }
         store.setDirty()
     }

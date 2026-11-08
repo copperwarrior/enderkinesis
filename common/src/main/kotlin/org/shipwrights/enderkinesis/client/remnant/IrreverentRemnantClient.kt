@@ -1094,7 +1094,8 @@ object IrreverentRemnantClient {
     /** Syncs a blob may be absent from before it is retired: about half a second at one sync a tick. */
     private const val UNSEEN_GRACE_SYNCS = 10
 
-    /** Ticks without any sync before every cube is dropped. The server syncs every tick while it has any. */
+    /** Ticks without any sync before every cube is dropped. The server sends at least each RESTING_RESEND_TICKS (5)
+     *  while any cube is in range, and resends a resting cube at that interval, so keep this and the grace above 5. */
     private const val SYNC_TIMEOUT_TICKS = 10
 
     /** Position, velocity, radius and normal, per blob, in one sync. */
