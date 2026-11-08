@@ -1,28 +1,13 @@
 {
   "variants": {
-    "type=bottom": [
-      {
-        "model": "enderkinesis:block/wogor_slab"
-      },
-      {
-        "model": "enderkinesis:block/wogor_slab_alt"
-      }
-    ],
-    "type=double": [
-      {
-        "model": "enderkinesis:block/wogor_planks"
-      },
-      {
-        "model": "enderkinesis:block/wogor_planks_alt"
-      }
-    ],
-    "type=top": [
-      {
-        "model": "enderkinesis:block/wogor_slab_top"
-      },
-      {
-        "model": "enderkinesis:block/wogor_slab_top_alt"
-      }
-    ]
+    "type=bottom": {
+      "model": "enderkinesis:block/wogor_slab"
+    },
+    "type=double": {
+      "model": "enderkinesis:block/wogor_planks"
+    },
+    "type=top": {
+      "model": "enderkinesis:block/wogor_slab_top"
+    }
   }
 }
