@@ -31,17 +31,16 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
-import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
-import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.ritual.SunErasure
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.valkyrienskies.mod.common.BlockStateInfo
-import org.valkyrienskies.mod.common.getShipsIntersecting
+import org.valkyrienskies.mod.common.shipAwareCanSeeSky
 import java.util.Locale
 import kotlin.math.sqrt
 
@@ -107,10 +106,7 @@ object ElementalEnvironment {
 
     private fun sample(level: ServerLevel, centre: Vec3, why: ElementReasons? = null): HashMap<Element, Float> {
         val sums = DoubleArray(Element.entries.size)
-        val ships = level.getShipsIntersecting(AABB(centre, centre).inflate(RADIUS + 1.0)).toList()
-        val origin = BlockPos.containing(centre)
-        val pos = BlockPos.MutableBlockPos()
-        val shipPoint = Vector3d()
+        val blocks = CrossFrameBlocks(level, centre, RADIUS.toDouble())
         val byBlock = if (why == null) null else HashMap<Element, HashMap<Block, Double>>()
         fun count(state: BlockState, weight: Double) {
             if (state.isAir) return
@@ -125,21 +121,15 @@ object ElementalEnvironment {
         for (dx in -RADIUS..RADIUS) for (dy in -RADIUS..RADIUS) for (dz in -RADIUS..RADIUS) {
             val weight = weight(dx, dy, dz)
             if (weight <= 0.0) continue
-            pos.set(origin.x + dx, origin.y + dy, origin.z + dz)
-            count(level.getBlockState(pos), weight)
-            for (ship in ships) {
-                ship.transform.worldToShip.transformPosition(origin.x + dx + 0.5, origin.y + dy + 0.5, origin.z + dz + 0.5, shipPoint)
-                pos.set(shipPoint.x, shipPoint.y, shipPoint.z)
-                count(level.getBlockState(pos), weight)
-            }
+            blocks.forEachAt(dx, dy, dz) { pos, _ -> count(level.getBlockState(pos), weight) }
         }
         val out = HashMap<Element, Float>()
         for (element in TAGS.keys) {
             val value = (sums[element.ordinal] / FULL).coerceAtMost(1.0).toFloat()
             if (value > 0f) out[element] = value
         }
-        byBlock?.forEach { (element, blocks) -> why?.put(element, mutableListOf(blockReason(blocks))) }
-        addPlaceSources(level, origin, out, why)
+        byBlock?.forEach { (element, parts) -> why?.put(element, mutableListOf(blockReason(parts))) }
+        addPlaceSources(level, blocks.origin, out, why)
         return out
     }
 
@@ -148,7 +138,10 @@ object ElementalEnvironment {
             "%s %.2f".format(Locale.ROOT, BuiltInRegistries.BLOCK.getKey(block).path, part / FULL)
         }
 
-    /** The sources at [origin] that are not blocks. Both sides can read them. */
+    /**
+     * The sources at [origin] that are not blocks. Both sides can read them.
+     * [origin] must be a WORLD pos, because biome and sky reads in the shipyard are incorrect.
+     */
     fun addPlaceSources(level: Level, origin: BlockPos, out: MutableMap<Element, Float>, why: ElementReasons? = null) {
         val sun = sunlight(level, origin.above())
         if (sun > 0f) add(out, Element.SUNFIRE, SUN_SKY * sun, why, "daylight or Sselith light")
@@ -159,7 +152,7 @@ object ElementalEnvironment {
 
     // 0 to 1: the sine of the sun's height, so 1 at noon and 0 at the horizon.
     private fun sunlight(level: Level, pos: BlockPos): Float {
-        if (level.isRaining || level.isThundering || !level.canSeeSky(pos)) return 0f
+        if (level.isRaining || level.isThundering || !shipAwareCanSeeSky(level, pos)) return 0f
         // Sselith has a fixed time and a constant light, so isDay is always false there.
         if (level.dimension() == SselithRepertory.LEVEL_KEY) return 1f
         if (!isDay(level) || SunErasure.erased(level)) return 0f
