@@ -137,7 +137,7 @@ internal class FusionSummon {
         val part = index?.let { parts.firstOrNull { !it.lone && isValid(level, current, it, isHead) } }
             ?: index?.let { parts.firstOrNull { isValid(level, current, it, isHead) } }
         val to = index?.let { BlockPos.of(current.cells[it]) }
-        if (part == null || to == null || !FusionGeometry.isFreeCell(level, current.anchor, to)) {
+        if (part == null || to == null || !current.anchor.isFreeCell(level, to)) {
             abandon(now)
             return null
         }
@@ -174,10 +174,10 @@ internal class FusionSummon {
         level: ServerLevel, lifted: List<Lifted>, anchor: LoadedServerShip,
     ): List<Pair<MutableList<Part>, MutableList<Part>>> {
         val parts = Recipe.entries.map { Pair(ArrayList<Part>(), ArrayList<Part>()) }
-        val scale = FusionGeometry.uniformScale(anchor)
+        val scale = anchor.uniformScale()
         for (entry in lifted) {
             val lone = entry.ship !== anchor && scale != null && !FusionManager.isJointed(level, entry.ship) &&
-                FusionGeometry.uniformScale(entry.ship)?.let { FusionGeometry.sameScale(it, scale) } == true
+                entry.ship.uniformScale()?.let { FusionGeometry.sameScale(it, scale) } == true
             var loneChecked: Boolean? = null
             for (i in entry.inside) {
                 val packed = entry.blocks.packed[i]
@@ -187,7 +187,7 @@ internal class FusionSummon {
                     val isBase = recipe.isBase(state)
                     if (!isBase && !recipe.isHead(state)) continue
                     // A scan of the ship, so only for a ship that holds a part.
-                    val isLone = loneChecked ?: (lone && FusionGeometry.countUpTo(level, entry.ship, 2) == 1)
+                    val isLone = loneChecked ?: (lone && entry.ship.countUpTo(level, 2) == 1)
                     loneChecked = isLone
                     val (bases, heads) = parts[recipe.ordinal]
                     (if (isBase) bases else heads).add(Part(entry.ship, packed, isLone))
@@ -226,7 +226,7 @@ internal class FusionSummon {
     private fun fits(level: ServerLevel, ship: LoadedServerShip, bottom: Long, across: Direction, reuse: Boolean): Boolean {
         for (up in 0..2) for (side in -1..1) {
             if (reuse && up == 0 && side == 0) continue
-            if (!FusionGeometry.isFreeCell(level, ship, scratch.set(cell(bottom, across, side, up)))) return false
+            if (!ship.isFreeCell(level, scratch.set(cell(bottom, across, side, up)))) return false
         }
         return true
     }
@@ -252,7 +252,7 @@ internal class FusionSummon {
             val cell = BlockPos.of(plan.cells[index])
             slots.put(part.ship.id, Slot(
                 plan.anchor, part.ship, BlockPos.of(part.pos), cell, BlockPos.of(parent(plan, index)), isHead,
-                isOpen(level, plan, index) && FusionGeometry.isFreeCell(level, plan.anchor, cell),
+                isOpen(level, plan, index) && plan.anchor.isFreeCell(level, cell),
             ))
         }
         return true
@@ -322,7 +322,7 @@ internal class FusionSummon {
 
     /** An empty ship crashes the physics thread, so it goes in the same call. */
     private fun deleteIfEmpty(level: ServerLevel, ship: LoadedServerShip): Boolean {
-        if (FusionGeometry.countUpTo(level, ship, 1) != 0) return false
+        if (ship.countUpTo(level, 1) != 0) return false
         ShipAssembler.deleteShip(level, ship, false, false)
         return true
     }

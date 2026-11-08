@@ -254,10 +254,10 @@ object FusionManager {
     /** VS2 cannot weld ships of different or non-uniform scale. Such a ship is left free, so the
      *  pull does not drag it forever. */
     private fun fusable(lifted: List<Lifted>): List<Lifted> {
-        val uniform = lifted.filter { FusionGeometry.uniformScale(it.ship) != null }
+        val uniform = lifted.filter { it.ship.uniformScale() != null }
         return uniform.filter { a ->
-            val scale = FusionGeometry.uniformScale(a.ship)!!
-            uniform.any { b -> b !== a && FusionGeometry.sameScale(FusionGeometry.uniformScale(b.ship)!!, scale) }
+            val scale = a.ship.uniformScale()!!
+            uniform.any { b -> b !== a && FusionGeometry.sameScale(b.ship.uniformScale()!!, scale) }
         }
     }
 
@@ -322,8 +322,8 @@ object FusionManager {
         for (i in lifted.indices) for (j in i + 1 until lifted.size) {
             val a = lifted[i]
             val b = lifted[j]
-            if (!FusionGeometry.sameScale(FusionGeometry.uniformScale(a.ship)!!, FusionGeometry.uniformScale(b.ship)!!)) continue
-            pairs.add(Triple(a, b, FusionGeometry.aabbGapSq(a.ship, b.ship)))
+            if (!FusionGeometry.sameScale(a.ship.uniformScale()!!, b.ship.uniformScale()!!)) continue
+            pairs.add(Triple(a, b, a.ship.aabbGapSq(b.ship)))
         }
         pairs.sortBy { it.third }
         for ((a, b, gapSq) in pairs) {
@@ -351,8 +351,8 @@ object FusionManager {
             for (i in lifted.indices) for (j in i + 1 until lifted.size) {
                 val a = lifted[i].ship
                 val b = lifted[j].ship
-                if (!FusionGeometry.sameScale(FusionGeometry.uniformScale(a)!!, FusionGeometry.uniformScale(b)!!)) continue
-                if (!FusionGeometry.aabbsTouch(a, b)) continue
+                if (!FusionGeometry.sameScale(a.uniformScale()!!, b.uniformScale()!!)) continue
+                if (!a.aabbsTouch(b)) continue
                 if (bubble.welded.contains(a.id) || bubble.welded.contains(b.id)) continue
                 // During a summon, the only weld is a lone part ship into its cell on the anchor.
                 val slot = bubble.summon.slotFor(a.id, b.id)

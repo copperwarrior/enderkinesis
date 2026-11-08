@@ -9,8 +9,8 @@ import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.spell.BeamGeometry
-import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.util.EntitylessClip
+import org.shipwrights.enderkinesis.util.loadedRayRange
 
 /** One straight-line piece of a Sundering beam. The beam is a polyline of
  *  these segments — first segment from staff tip to the first shield hit
@@ -122,7 +122,7 @@ object SunderingBeamTrace {
             if (remaining <= 0.0) break
             // A server `clip` loads or generates each chunk on its line. The range has no cap
             // (Infinity), so the beam ends at the edge of the loaded area.
-            if (level is ServerLevel) remaining = LoadedRay.range(level, curOrigin, curDir, remaining)
+            if (level is ServerLevel) remaining = level.loadedRayRange(curOrigin, curDir, remaining)
             if (remaining <= 0.0) break
             val rangeEnd = curOrigin.add(curDir.scale(remaining))
 

@@ -31,7 +31,6 @@ import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKEntities
-import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
@@ -41,6 +40,8 @@ import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 import org.valkyrienskies.mod.common.dimensionId
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.solidAnchor
+import org.shipwrights.enderkinesis.util.blockLoaded
 
 /**
  * Lodestar Dart — homing projectile fired by the Lodestar Launcher block. Locks onto
@@ -241,22 +242,24 @@ class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level)
                 lastLockedTargetPos = null
                 null
             }
+            // A local copy, so the compiler can smart-cast the mutable property.
+            val aimPoint = targetPos
             val targetCentre: Vec3? = if (lockedEntity != null) {
                 lockedEntity.position().add(0.0, lockedEntity.bbHeight * 0.5, 0.0)
-            } else if (targetPos != null && detonateAtPoint) {
+            } else if (aimPoint != null && detonateAtPoint) {
                 // Air-point order: no block backing required; proximity-fuzed below.
-                targetPos
-            } else if (targetPos != null && !isPointTargetGone(
+                aimPoint
+            } else if (aimPoint != null && !isPointTargetGone(
                     // Prefer the recorded raycast blockPos — for ship blocks that's in
                     // shipyard space, which `level.getBlockState` correctly routes through
                     // VS2's ship chunks. Falling back to `BlockPos.containing(targetPos)`
                     // only when the missile came in via NBT load without a stored blockPos.
-                    targetBlockPos ?: BlockPos.containing(targetPos)
+                    targetBlockPos ?: BlockPos.containing(aimPoint)
                 )) {
                 // Staff-aimed point. Treat the aim as invalid when the block at that
                 // position is air — the wall/floor the staff was pointed at is gone now
                 // (mined, exploded, etc.), so the missile has nothing left to hit there.
-                targetPos
+                aimPoint
             } else {
                 // Reaching here with a non-null targetPos means the point target just
                 // INVALIDATED (anchor block destroyed) — drop it so it can't linger.
@@ -449,7 +452,7 @@ class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level)
      *  explosion, no damage. Server-only because the client never executes detonate either. */
     /** An unloaded anchor is not read: the read loads the chunk. */
     private fun isPointTargetGone(pos: BlockPos): Boolean =
-        LoadedRay.blockLoaded(level(), pos) && level().getBlockState(pos).isAir
+        level().blockLoaded(pos) && level().getBlockState(pos).isAir
 
     private fun fizzle() {
         if (level().isClientSide) return
@@ -735,7 +738,7 @@ class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level)
             }
         }
         val ship = best ?: return
-        val anchor = org.shipwrights.enderkinesis.util.ShipTargeting.solidShipAnchor(server, ship) ?: return
+        val anchor = ship.solidAnchor(server) ?: return
         val v = ship.shipToWorld.transformPosition(
             org.joml.Vector3d(anchor.x + 0.5, anchor.y + 0.5, anchor.z + 0.5),
         )

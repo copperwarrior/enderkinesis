@@ -20,13 +20,13 @@ import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.registry.EKBlocks
-import org.shipwrights.enderkinesis.util.LoadedRay
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getShipsIntersecting
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.world.clipIncludeShips
 import java.util.PriorityQueue
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.blockLoaded
 
 /**
  * Any-surface A* for the ship-bodied Constriliar (Spiders-2.0-style directional nodes,
@@ -1829,7 +1829,7 @@ class ConstriliarSurfaceNavigator {
     }
 
     private fun sideShape(level: Level, pos: BlockPos): VoxelShape {
-        if (!LoadedRay.blockLoaded(level, pos)) return Shapes.block()
+        if (!level.blockLoaded(pos)) return Shapes.block()
         if (!cacheActive) return ConstriliarCollision.shipShape(level, pos, level.getBlockState(pos))
         val key = pos.asLong()
         sideShapeCache.get(key)?.let { return it }
@@ -2013,7 +2013,7 @@ class ConstriliarSurfaceNavigator {
     private fun computeTerrainFlags(level: Level, pos: BlockPos): Int {
         // Unloaded chunks are a hard fence: getBlockState there forces a synchronous
         // chunk load on the server. Not-free AND not-solid means no nodes across it.
-        if (!LoadedRay.blockLoaded(level, pos)) return COMPUTED or BLOCKS_GROUND or BLOCKS_OTHER
+        if (!level.blockLoaded(pos)) return COMPUTED or BLOCKS_GROUND or BLOCKS_OTHER
         val state = level.getBlockState(pos)
         // The shape the ship body meets, not the player's: a cobweb blocks a walker.
         val shape = ConstriliarCollision.shipShape(level, pos, state)

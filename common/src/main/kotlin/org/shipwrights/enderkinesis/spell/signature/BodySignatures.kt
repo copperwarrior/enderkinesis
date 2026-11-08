@@ -70,8 +70,8 @@ object BodySignatures {
         val hit = level.clipIncludeShips(ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, e))
         val blockHit = hit.takeIf { it.type == HitResult.Type.BLOCK }
         val end = blockHit?.location ?: b
-        val creature = SignatureKit.creaturesAlong(e, a, end, width).minByOrNull { SignatureKit.middle(it).distanceToSqr(a) }
-        if (creature != null) return Strike(nearestOn(a, end, SignatureKit.middle(creature)), creature, null, null, null)
+        val creature = e.creaturesAlong(a, end, width).minByOrNull { it.middle().distanceToSqr(a) }
+        if (creature != null) return Strike(nearestOn(a, end, creature.middle()), creature, null, null, null)
         if (blockHit == null) return null
         val ship = SignatureShips.blockAt(level, end.add(span.normalize().scale(0.05)))
         return if (ship != null) Strike(end, null, ship, null, null) else Strike(end, null, null, blockHit.blockPos, blockHit.direction)
@@ -103,7 +103,7 @@ object BodySignatures {
         var lit = 0
         for (pos in spots) {
             if (lit >= count) break
-            if (SignatureKit.setBlock(e, pos, BaseFireBlock.getState(level, pos))) lit++
+            if (e.setBlock(pos, BaseFireBlock.getState(level, pos))) lit++
         }
     }
 
@@ -123,9 +123,9 @@ object BodySignatures {
     }
 
     private fun knockAway(target: Entity, centre: Vec3, strength: Double, lift: Double) {
-        val away = SignatureKit.middle(target).subtract(centre).let { Vec3(it.x, 0.0, it.z) }
+        val away = target.middle().subtract(centre).let { Vec3(it.x, 0.0, it.z) }
         val flat = if (away.lengthSqr() < 1.0e-6) Vec3.ZERO else away.normalize().scale(strength)
-        SignatureKit.push(target, flat.add(0.0, lift, 0.0))
+        target.spellPush(flat.add(0.0, lift, 0.0))
     }
 
     private fun smooth(x: Double): Double { val t = x.coerceIn(0.0, 1.0); return t * t * (3 - 2 * t) }
@@ -178,9 +178,9 @@ object BodySignatures {
 
         override fun start(cast: SignatureCast): SignatureEntity {
             val aimed = cast.aimed(RANGE + RANGE_PER_POWER * cast.power).point
-            val mark = Vec3(aimed.x, SignatureKit.groundNear(cast.level, aimed) ?: aimed.y, aimed.z)
+            val mark = Vec3(aimed.x, cast.level.groundNear(aimed) ?: aimed.y, aimed.z)
             val n = count(cast.power)
-            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_STARFALL_CAST.get(), 1.4f)
+            cast.level.sound(cast.origin, EKSounds.SIGNATURE_STARFALL_CAST.get(), 1.4f)
             return spawn(cast, mark, startOf(n - 1) + FALL + OVERRUN + 4) { point = mark }
         }
 
@@ -211,16 +211,16 @@ object BodySignatures {
         /** The entity can also reach its life before every meteor lands. */
         override fun end(e: SignatureEntity) = settle(e)
 
-        private fun settle(e: SignatureEntity) = SignatureKit.sound(e.level() as ServerLevel, e.point, EKSounds.SIGNATURE_STARFALL_SETTLE.get(), 2f)
+        private fun settle(e: SignatureEntity) = (e.level() as ServerLevel).sound(e.point, EKSounds.SIGNATURE_STARFALL_SETTLE.get(), 2f)
 
         private fun land(e: SignatureEntity, k: Int, hit: Strike, motion: Vec3) {
             val level = e.level() as ServerLevel
             e.data = e.data or (1 shl k)
             val at = hit.at
-            for (target in SignatureKit.creatures(e, at, BLAST)) {
-                val near = 1 - 0.5 * SignatureKit.middle(target).distanceTo(at) / BLAST
+            for (target in e.creatures(at, BLAST)) {
+                val near = 1 - 0.5 * target.middle().distanceTo(at) / BLAST
                 // hurtThrough skips i-frames, so a creature under several meteors takes each blow.
-                SignatureKit.hurtThrough(e, target, EKDamageSources.PYRE_KEY, (DAMAGE * (0.6 + 0.4 * e.power) * near).toFloat())
+                e.hurtTargetThrough(target, EKDamageSources.PYRE_KEY, (DAMAGE * (0.6 + 0.4 * e.power) * near).toFloat())
                 target.setSecondsOnFire(BURN_SECONDS)
                 knockAway(target, at, KNOCK * near, LIFT * near)
             }
@@ -230,13 +230,13 @@ object BodySignatures {
             }
             if (hit.block != null && hit.face == Direction.UP) crater(e, hit.block)
             if (level.random.nextFloat() < FIRE_CHANCE) ignite(e, at, 2.5, 1)
-            SignatureKit.particles(level, ParticleTypes.EXPLOSION_EMITTER, at, 1, 0.0)
-            SignatureKit.particles(level, ParticleTypes.EXPLOSION, at, 4, 1.2)
-            SignatureKit.particles(level, ParticleTypes.LAVA, at.add(0.0, 0.3, 0.0), 30, 0.8)
-            SignatureKit.particles(level, ParticleTypes.FLAME, at.add(0.0, 0.3, 0.0), 60, 1.0, 0.25)
-            SignatureKit.particles(level, ParticleTypes.LARGE_SMOKE, at.add(0.0, 0.5, 0.0), 30, 1.2, 0.08)
+            level.particles(ParticleTypes.EXPLOSION_EMITTER, at, 1, 0.0)
+            level.particles(ParticleTypes.EXPLOSION, at, 4, 1.2)
+            level.particles(ParticleTypes.LAVA, at.add(0.0, 0.3, 0.0), 30, 0.8)
+            level.particles(ParticleTypes.FLAME, at.add(0.0, 0.3, 0.0), 60, 1.0, 0.25)
+            level.particles(ParticleTypes.LARGE_SMOKE, at.add(0.0, 0.5, 0.0), 30, 1.2, 0.08)
             level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, Blocks.MAGMA_BLOCK.defaultBlockState()), at.x, at.y + 0.3, at.z, 40, 0.8, 0.4, 0.8, 0.3)
-            SignatureKit.sound(level, at, EKSounds.SIGNATURE_STARFALL_LAND.get(), 2.5f)
+            level.sound(at, EKSounds.SIGNATURE_STARFALL_LAND.get(), 2.5f)
         }
 
         private fun crater(e: SignatureEntity, struck: BlockPos) {
@@ -248,13 +248,13 @@ object BodySignatures {
                 val state = level.getBlockState(pos)
                 if (ring <= 1) {
                     if (!diggable(level, pos, state) || !level.getBlockState(pos.above()).canBeReplaced()) continue
-                    SignatureKit.setBlock(e, pos, Blocks.AIR.defaultBlockState())
+                    e.setBlock(pos, Blocks.AIR.defaultBlockState())
                     val floor = pos.below()
                     val floorState = level.getBlockState(floor)
                     if (!diggable(level, floor, floorState)) continue
-                    if (ring == 0) SignatureKit.setBlock(e, floor, Blocks.MAGMA_BLOCK.defaultBlockState())
-                    else scorched(floorState)?.let { SignatureKit.setBlock(e, floor, it) }
-                } else if (level.random.nextBoolean()) scorched(state)?.let { SignatureKit.setBlock(e, pos, it) }
+                    if (ring == 0) e.setBlock(floor, Blocks.MAGMA_BLOCK.defaultBlockState())
+                    else scorched(floorState)?.let { e.setBlock(floor, it) }
+                } else if (level.random.nextBoolean()) scorched(state)?.let { e.setBlock(pos, it) }
             }
         }
 
@@ -338,7 +338,7 @@ object BodySignatures {
 
         override fun start(cast: SignatureCast): SignatureEntity {
             val aim = cast.aim
-            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_NORTH_STAR_CAST.get(), 1.4f)
+            cast.level.sound(cast.origin, EKSounds.SIGNATURE_NORTH_STAR_CAST.get(), 1.4f)
             return spawn(cast, cast.origin, ((RANGE + RANGE_PER_POWER) / SPEED).toInt() + HOLD + 2) {
                 deltaMovement = aim.scale(SPEED)
                 state = Orbit(range(cast.power))
@@ -362,14 +362,14 @@ object BodySignatures {
                 e.point = e.position()
                 e.targetId = -1
             }
-            val area = host?.let { circling(SignatureKit.middle(it), it.bbWidth, e.point, since) }
+            val area = host?.let { circling(it.middle(), it.bbWidth, e.point, since) }
                 ?: o.ship?.let { SignatureShips.toWorld(it, o.local) }
                 ?: e.point
             val core = hovering(area, hover(e), since)
             e.deltaMovement = Vec3.ZERO
             e.setPos(core)
             o.ship?.let { SignatureShips.push(it, area, Vec3(0.0, -SHIP_PULL, 0.0)) }
-            if (since > GROW / 3 && e.tickCount % GRIND_EVERY == 0) for (target in SignatureKit.creatures(e, area, GRIND)) grind(e, o, target)
+            if (since > GROW / 3 && e.tickCount % GRIND_EVERY == 0) for (target in e.creatures(area, GRIND)) grind(e, o, target)
             if (e.tickCount % WATER_EVERY == 0) freezeWater(e, o, area)
         }
 
@@ -383,18 +383,18 @@ object BodySignatures {
             e.setPos(at)
             e.life = e.tickCount + HOLD
             if (host != null) {
-                e.point = at.subtract(SignatureKit.middle(host))
+                e.point = at.subtract(host.middle())
                 e.targetId = host.id
-                SignatureKit.hurtThrough(e, host, EKDamageSources.WINTER_KEY, IMPACT_DAMAGE * (0.6f + 0.4f * e.power))
+                e.hurtTargetThrough(host, EKDamageSources.WINTER_KEY, IMPACT_DAMAGE * (0.6f + 0.4f * e.power))
                 host.ticksFrozen = minOf(host.ticksFrozen + FREEZE_DOSE * 2, FrozenEffect.THRESHOLD + 200)
             } else e.point = at
             hit.ship?.let { o.ship = it.ship; o.local = toShip(it.ship, at) }
             val hover = if (host == null && (hit.block != null || hit.ship != null)) headroom(e, at, b.subtract(a)) else 0.0
             val hoverBits = (hover * HOVER_STEPS).toInt().coerceIn(0, 0xFF) shl HOVER_SHIFT
             e.data = e.tickCount.coerceIn(1, 0xFFFF) or (if (hit.ship != null) SHIP_BIT else 0) or hoverBits
-            SignatureKit.sound(level, at, EKSounds.SIGNATURE_NORTH_STAR_STICK.get(), 1.5f)
+            level.sound(at, EKSounds.SIGNATURE_NORTH_STAR_STICK.get(), 1.5f)
             level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, Blocks.PACKED_ICE.defaultBlockState()), at.x, at.y, at.z, 30, 0.3, 0.3, 0.3, 0.15)
-            SignatureKit.particles(level, ParticleTypes.SNOWFLAKE, at, 30, 0.5, 0.1)
+            level.particles(ParticleTypes.SNOWFLAKE, at, 30, 0.5, 0.1)
         }
 
         private fun headroom(e: SignatureEntity, at: Vec3, heading: Vec3): Double {
@@ -406,11 +406,11 @@ object BodySignatures {
         }
 
         private fun grind(e: SignatureEntity, o: Orbit, target: LivingEntity) {
-            SignatureKit.hurtThrough(e, target, EKDamageSources.WINTER_KEY, GRIND_DAMAGE)
+            e.hurtTargetThrough(target, EKDamageSources.WINTER_KEY, GRIND_DAMAGE)
             val last = o.grindSounds.get(target.id)
             if (last == NEVER || e.tickCount - last >= SOUND_EVERY) {
                 o.grindSounds.put(target.id, e.tickCount)
-                SignatureKit.sound(e.level() as ServerLevel, SignatureKit.middle(target), EKSounds.SIGNATURE_NORTH_STAR_GRIND.get())
+                (e.level() as ServerLevel).sound(target.middle(), EKSounds.SIGNATURE_NORTH_STAR_GRIND.get())
             }
             target.addEffect(MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 60, SLOW_LEVEL), e.caster)
             target.ticksFrozen = minOf(target.ticksFrozen + FREEZE_DOSE, FrozenEffect.THRESHOLD + 200)
@@ -425,12 +425,12 @@ object BodySignatures {
             var froze = false
             for (pos in BlockPos.betweenClosed(centre.offset(-r, -r, -r), centre.offset(r, r, r))) {
                 if (Vec3.atCenterOf(pos).distanceTo(core) > WATER_REACH) continue
-                FluidFreezing.frozen(level.getBlockState(pos))?.let { if (SignatureKit.setBlock(e, pos.immutable(), it)) froze = true }
+                FluidFreezing.frozen(level.getBlockState(pos))?.let { if (e.setBlock(pos.immutable(), it)) froze = true }
             }
-            for (block in SignatureShips.blocksNear(level, core, WATER_REACH)) FluidFreezing.frozen(block.state)?.let { if (SignatureKit.setBlock(e, block.pos, it)) froze = true }
+            for (block in SignatureShips.blocksNear(level, core, WATER_REACH)) FluidFreezing.frozen(block.state)?.let { if (e.setBlock(block.pos, it)) froze = true }
             if (froze && (o.freezeSound == NEVER || e.tickCount - o.freezeSound >= SOUND_EVERY)) {
                 o.freezeSound = e.tickCount
-                SignatureKit.sound(level, core, EKSounds.SIGNATURE_NORTH_STAR_FREEZE.get())
+                level.sound(core, EKSounds.SIGNATURE_NORTH_STAR_FREEZE.get())
             }
         }
 
@@ -438,7 +438,7 @@ object BodySignatures {
             val level = e.level() as ServerLevel
             val at = e.position()
             level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, Blocks.ICE.defaultBlockState()), at.x, at.y, at.z, 160, ORBIT * 0.6, 0.5, ORBIT * 0.6, 0.15)
-            SignatureKit.sound(level, at, EKSounds.SIGNATURE_NORTH_STAR_FADE.get(), 1.5f)
+            level.sound(at, EKSounds.SIGNATURE_NORTH_STAR_FADE.get(), 1.5f)
         }
     }
 
@@ -493,7 +493,7 @@ object BodySignatures {
 
         override fun start(cast: SignatureCast): SignatureEntity {
             val drift = cast.aim.scale(SPEED + SPEED_PER_POWER * cast.power)
-            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_HUNGERING_MAW_OPEN.get(), 1.6f)
+            cast.level.sound(cast.origin, EKSounds.SIGNATURE_HUNGERING_MAW_OPEN.get(), 1.6f)
             return spawn(cast, cast.origin.add(cast.aim.scale(SPHERE + 0.6)), LIFE + (LIFE_PER_POWER * cast.power).toInt()) { state = Horizon(drift) }
         }
 
@@ -505,11 +505,11 @@ object BodySignatures {
             e.deltaMovement = if (n >= e.life - CLOSE) Vec3.ZERO else rebound(level, h, core).scale(minOf(1.0, n.toDouble() / GROW))
             for (entity in level.getEntities(e, AABB(core, core).inflate(REACH))) {
                 if (entity === e.caster || entity.isSpectator || !entity.isAlive) continue
-                val d = SignatureKit.middle(entity).distanceTo(core)
+                val d = entity.middle().distanceTo(core)
                 if (d > REACH) continue
                 when (entity) {
                     is LivingEntity -> catch(e, entity, core, d)
-                    is ItemEntity, is Projectile -> if (d <= SWALLOW) swallow(e, h, entity) else SignatureKit.pull(entity, core, ITEM_PULL + ITEM_PULL_NEAR * (1 - d / REACH))
+                    is ItemEntity, is Projectile -> if (d <= SWALLOW) swallow(e, h, entity) else entity.pull(core, ITEM_PULL + ITEM_PULL_NEAR * (1 - d / REACH))
                 }
             }
             if (n % SHIP_EVERY == 0) for (block in SignatureShips.nearestBlocks(level, core, REACH)) {
@@ -517,25 +517,25 @@ object BodySignatures {
                 if (to.lengthSqr() > 1.0e-6) SignatureShips.push(block.ship, block.world, to.normalize().scale(SHIP_PULL))
             }
             if (n % TEAR_EVERY == 0 && n >= GROW && n < e.life - CLOSE) tear(e, h, level, core)
-            if (n == e.life - CLOSE) SignatureKit.sound(level, core, EKSounds.SIGNATURE_HUNGERING_MAW_CLOSE.get(), 1.2f)
+            if (n == e.life - CLOSE) level.sound(core, EKSounds.SIGNATURE_HUNGERING_MAW_CLOSE.get(), 1.2f)
         }
 
         private fun catch(e: SignatureEntity, target: LivingEntity, core: Vec3, d: Double) {
             if (target is ArmorStand || Absence.isAbsent(target)) return
             if (d <= BITE + target.bbWidth * 0.5 && e.tickCount % BITE_EVERY == 0) {
-                SignatureKit.hurtThrough(e, target, EKDamageSources.VOID_KEY, (BITE_DAMAGE * (1 - 0.5 * minOf(1.0, d / BITE))).toFloat())
+                e.hurtTargetThrough(target, EKDamageSources.VOID_KEY, (BITE_DAMAGE * (1 - 0.5 * minOf(1.0, d / BITE))).toFloat())
             }
-            if (!SignatureKit.movable(target)) return
+            if (!target.movable()) return
             val small = target !is Player && target.bbWidth <= SMALL_WIDTH && target.bbHeight <= SMALL_HEIGHT
             when {
                 small && d <= SWALLOW + target.bbWidth * 0.5 -> {
                     target.addEffect(MobEffectInstance(EKEffects.ABSENT.get(), ABSENT_TICKS), e.caster)
-                    SignatureKit.sound(e.level() as ServerLevel, core, EKSounds.SIGNATURE_HUNGERING_MAW_SWALLOW.get(), 1.2f)
+                    (e.level() as ServerLevel).sound(core, EKSounds.SIGNATURE_HUNGERING_MAW_SWALLOW.get(), 1.2f)
                 }
                 !small && d <= EDGE + target.bbWidth * 0.5 -> {
-                    val out = SignatureKit.middle(target).subtract(core).let { if (it.lengthSqr() < 1.0e-6) Vec3(1.0, 0.0, 0.0) else it.normalize() }
+                    val out = target.middle().subtract(core).let { if (it.lengthSqr() < 1.0e-6) Vec3(1.0, 0.0, 0.0) else it.normalize() }
                     val spot = core.add(out.scale(EDGE + target.bbWidth * 0.5))
-                    target.deltaMovement = spot.subtract(SignatureKit.middle(target)).scale(HOLD_PULL)
+                    target.deltaMovement = spot.subtract(target.middle()).scale(HOLD_PULL)
                     target.hurtMarked = true
                     target.fallDistance = 0f
                 }
@@ -544,7 +544,7 @@ object BodySignatures {
         }
 
         private fun drag(target: LivingEntity, core: Vec3, d: Double) {
-            val to = core.subtract(SignatureKit.middle(target))
+            val to = core.subtract(target.middle())
             if (to.lengthSqr() < 1.0e-6) return
             val want = to.normalize().scale(DRAG_EDGE + (DRAG_MIDDLE - DRAG_EDGE) * (1 - d / REACH))
             var v = target.deltaMovement.lerp(want, DRAG_GRIP)
@@ -625,7 +625,7 @@ object BodySignatures {
                 if (!ctx.mayChange(pos, air) || !level.setBlock(pos, air, 3)) continue
                 if (e.tickCount - h.chewed >= CHEW_EVERY) {
                     h.chewed = e.tickCount
-                    SignatureKit.sound(level, Vec3.atCenterOf(pos), EKSounds.SIGNATURE_HUNGERING_MAW_CHEW.get(), 0.8f)
+                    level.sound(Vec3.atCenterOf(pos), EKSounds.SIGNATURE_HUNGERING_MAW_CHEW.get(), 0.8f)
                 }
             }
         }
@@ -635,11 +635,11 @@ object BodySignatures {
             val keep = entity is ItemEntity || entity is ThrownTrident || (entity is AbstractArrow && entity.pickup == AbstractArrow.Pickup.ALLOWED)
             if (keep) entity.type.create(level)?.let { copy -> copy.restoreFrom(entity); h.kept += copy }
             entity.discard()
-            SignatureKit.particles(level, ParticleTypes.REVERSE_PORTAL, e.position(), 16, 0.4, 0.05)
+            level.particles(ParticleTypes.REVERSE_PORTAL, e.position(), 16, 0.4, 0.05)
             // A dropped stack of items can arrive in one tick.
             if (e.tickCount - h.swallowed >= SWALLOW_SOUND_EVERY) {
                 h.swallowed = e.tickCount
-                SignatureKit.sound(level, e.position(), EKSounds.SIGNATURE_HUNGERING_MAW_SWALLOW.get(), 1.2f)
+                level.sound(e.position(), EKSounds.SIGNATURE_HUNGERING_MAW_SWALLOW.get(), 1.2f)
             }
         }
 
@@ -652,8 +652,8 @@ object BodySignatures {
                 copy.deltaMovement = Vec3((level.random.nextDouble() - 0.5) * 0.2, 0.15, (level.random.nextDouble() - 0.5) * 0.2)
                 level.addFreshEntity(copy)
             }
-            SignatureKit.particles(level, ParticleTypes.REVERSE_PORTAL, core, 120, 1.2, 0.3)
-            if (h.kept.isNotEmpty()) SignatureKit.sound(level, core, EKSounds.SIGNATURE_HUNGERING_MAW_SPIT.get(), 2f)
+            level.particles(ParticleTypes.REVERSE_PORTAL, core, 120, 1.2, 0.3)
+            if (h.kept.isNotEmpty()) level.sound(core, EKSounds.SIGNATURE_HUNGERING_MAW_SPIT.get(), 2f)
         }
     }
 
@@ -737,10 +737,10 @@ object BodySignatures {
             }
             val struck = ArrayList<LivingEntity>()
             repeat(MAX_LINKS) {
-                val next = near.filter { it !in struck && SignatureKit.middle(it).distanceTo(from) <= CHAIN_REACH }
-                    .minByOrNull { SignatureKit.middle(it).distanceToSqr(from) } ?: return done(orb, points, struck)
+                val next = near.filter { it !in struck && it.middle().distanceTo(from) <= CHAIN_REACH }
+                    .minByOrNull { it.middle().distanceToSqr(from) } ?: return done(orb, points, struck)
                 struck += next
-                from = SignatureKit.middle(next)
+                from = next.middle()
                 points += from
             }
             return done(orb, points, struck)
@@ -752,7 +752,7 @@ object BodySignatures {
         private class Volley { var fired = 0 }
 
         override fun start(cast: SignatureCast): SignatureEntity {
-            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_FAESPARK_HAND_START.get(), 0.6f)
+            cast.level.sound(cast.origin, EKSounds.SIGNATURE_FAESPARK_HAND_START.get(), 0.6f)
             return spawn(cast, cast.origin, HOLD_SLACK) {
                 data = HAND_BIT
                 state = Volley()
@@ -773,7 +773,7 @@ object BodySignatures {
                 state = Chase()
                 deltaMovement = aim.yRot(lane(this).yaw.toFloat()).scale(SPEED)
             }
-            SignatureKit.sound(cast.level, origin, EKSounds.SIGNATURE_FAESPARK_LOOSE.get(), 1.2f, 1f + 0.03f * k)
+            cast.level.sound(origin, EKSounds.SIGNATURE_FAESPARK_LOOSE.get(), 1.2f, 1f + 0.03f * k)
         }
 
         override fun released(e: SignatureEntity, cast: SignatureCast, held: Int) {
@@ -782,7 +782,7 @@ object BodySignatures {
         }
 
         private fun handStop(e: SignatureEntity) =
-            SignatureKit.sound(e.level() as ServerLevel, e.position(), EKSounds.SIGNATURE_FAESPARK_HAND_STOP.get(), 0.6f)
+            (e.level() as ServerLevel).sound(e.position(), EKSounds.SIGNATURE_FAESPARK_HAND_STOP.get(), 0.6f)
 
         override fun tick(e: SignatureEntity) {
             if (isHand(e)) return
@@ -792,18 +792,18 @@ object BodySignatures {
             val lane = lane(e)
             val a = lane.angle + e.tickCount * CIRCLE_SPIN
             val side = Vec3(cos(a) * lane.radius, HOVER + lane.lift * 0.5, sin(a) * lane.radius)
-            val ground = SignatureKit.ground(level, here.x, here.z, here.y + 0.5, GROUND_SEARCH)
+            val ground = level.ground(here.x, here.z, here.y + 0.5, GROUND_SEARCH)
             val floor = ground?.plus(RIDE + lane.lift)
             var chased = (e.target() as? LivingEntity)?.takeIf { it.isAlive }
             if (chased != null) {
-                val at = SignatureKit.middle(chased).add(side)
+                val at = chased.middle().add(side)
                 if (stuck(e, level, here, chased, at.distanceTo(here))) {
                     retarget(e, level, here)
                     chased = (e.target() as? LivingEntity)?.takeIf { it.isAlive }
                 }
             }
             val metal = if (drawnToMetal(e)) e.point else null
-            val goal = (chased?.let { SignatureKit.middle(it).add(side) }
+            val goal = (chased?.let { it.middle().add(side) }
                 ?: metal?.add(cos(a) * lane.radius * 0.5, METAL_HOVER + lane.lift * 0.5, sin(a) * lane.radius * 0.5))
                 ?.let { if (floor != null && it.y < floor) Vec3(it.x, floor, it.z) else it }
             var v = e.deltaMovement
@@ -828,7 +828,7 @@ object BodySignatures {
             if (chainsNow(e)) {
                 val c = chain(level, here, chainMetal(e), e.caster)
                 for (target in c.struck) {
-                    SignatureKit.hurtThrough(e, target, EKDamageSources.CHAOS_KEY, DAMAGE)
+                    e.hurtTargetThrough(target, EKDamageSources.CHAOS_KEY, DAMAGE)
                     target.setSecondsOnFire(BURN_SECONDS)
                 }
             }
@@ -854,7 +854,7 @@ object BodySignatures {
             if (metal != null) e.point = metal
             e.data = index(e) or (if (metal != null) METAL_BIT else 0)
             val chase = e.state as? Chase
-            val next = SignatureKit.creatures(e, here, SEEK)
+            val next = e.creatures(here, SEEK)
                 .filter { chase?.ignored(it.id, e.tickCount) != true && reachable(level, here, it) }
                 .minByOrNull { it.distanceToSqr(here) }
             if (next?.id != e.targetId) chase?.begin(next?.id ?: -1)
@@ -862,8 +862,8 @@ object BodySignatures {
         }
 
         private fun reachable(level: ServerLevel, here: Vec3, target: LivingEntity): Boolean {
-            val to = SignatureKit.middle(target)
-            val ride = (SignatureKit.ground(level, here.x, here.z, here.y + 0.5, GROUND_SEARCH) ?: (here.y - RIDE)) + RIDE
+            val to = target.middle()
+            val ride = (level.ground(here.x, here.z, here.y + 0.5, GROUND_SEARCH) ?: (here.y - RIDE)) + RIDE
             if (Math.abs(to.y + HOVER - ride) > CLIMB) return false
             return level.clipIncludeShips(ClipContext(here, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, target)).type == HitResult.Type.MISS
         }
@@ -924,9 +924,9 @@ object BodySignatures {
         override fun end(e: SignatureEntity) {
             if (isHand(e)) { handStop(e); return }
             val level = e.level() as ServerLevel
-            SignatureKit.particles(level, ParticleTypes.ELECTRIC_SPARK, e.position(), 40, 0.5, 0.4)
-            SignatureKit.particles(level, ParticleTypes.FLASH, e.position(), 1, 0.0)
-            SignatureKit.sound(level, e.position(), EKSounds.SIGNATURE_FAESPARK_FIZZLE.get(), 1.4f)
+            level.particles(ParticleTypes.ELECTRIC_SPARK, e.position(), 40, 0.5, 0.4)
+            level.particles(ParticleTypes.FLASH, e.position(), 1, 0.0)
+            level.sound(e.position(), EKSounds.SIGNATURE_FAESPARK_FIZZLE.get(), 1.4f)
         }
     }
 
@@ -971,8 +971,8 @@ object BodySignatures {
 
         override fun start(cast: SignatureCast): SignatureEntity {
             val aimed = cast.aimed(RANGE)
-            val first = aimed.entity ?: SignatureKit.creatures(cast.level, aimed.point, SEEK, cast.caster).minByOrNull { it.distanceToSqr(aimed.point) }
-            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_ROTDANCE_CAST.get(), 1.5f)
+            val first = aimed.entity ?: cast.level.creatures(aimed.point, SEEK, cast.caster).minByOrNull { it.distanceToSqr(aimed.point) }
+            cast.level.sound(cast.origin, EKSounds.SIGNATURE_ROTDANCE_CAST.get(), 1.5f)
             return spawn(cast, cast.origin, LIFE) {
                 point = aimed.point
                 targetId = first?.id ?: -1
@@ -986,20 +986,20 @@ object BodySignatures {
             val here = e.position()
             s.on?.let { host ->
                 if (host.isAlive && --s.stay > 0) {
-                    e.deltaMovement = SignatureKit.middle(host).subtract(here)
+                    e.deltaMovement = host.middle().subtract(here)
                     if (s.stay % PULSE_EVERY == 0) pulse(e, s, host)
                     return
                 }
                 s.on = null
-                val next = if (s.hopsLeft > 0) nextHost(e, s, SignatureKit.middle(host)) else null
+                val next = if (s.hopsLeft > 0) nextHost(e, s, host.middle()) else null
                 if (next == null) { fade(e); return }
-                SignatureKit.sound(e.level() as ServerLevel, SignatureKit.middle(host), EKSounds.SIGNATURE_ROTDANCE_HOP.get(), 1.2f)
+                (e.level() as ServerLevel).sound(host.middle(), EKSounds.SIGNATURE_ROTDANCE_HOP.get(), 1.2f)
                 e.targetId = next.id
-                e.point = SignatureKit.middle(next)
+                e.point = next.middle()
                 e.data = MOVING
             }
             val target = (e.target() as? LivingEntity)?.takeIf { it.isAlive && it.id !in s.visited }
-            val goal = target?.let { SignatureKit.middle(it) } ?: e.point
+            val goal = target?.let { it.middle() } ?: e.point
             val to = goal.subtract(here)
             val speed = if (s.legs == 0) FIRST_SPEED else SPEED
             if (to.length() > speed + 0.2) {
@@ -1011,7 +1011,7 @@ object BodySignatures {
                 val near = nextHost(e, s, here)
                 if (near == null) { fade(e); return }
                 e.targetId = near.id
-                e.point = SignatureKit.middle(near)
+                e.point = near.middle()
                 return
             }
             settle(e, s, target)
@@ -1028,29 +1028,29 @@ object BodySignatures {
             host.addEffect(MobEffectInstance(MobEffects.POISON, POISON_TICKS, POISON_LEVEL), e.caster)
             host.addEffect(MobEffectInstance(MobEffects.WEAKNESS, WEAK_TICKS, 1), e.caster)
             host.addEffect(MobEffectInstance(EKEffects.ROT.get(), ROT_TICKS), e.caster)
-            SignatureKit.hurtThrough(e, host, EKDamageSources.ROT_KEY, DAMAGE)
-            val at = SignatureKit.middle(host)
-            SignatureKit.particles(level, SPORE, at, 40, host.bbWidth * 0.7, 0.04)
-            SignatureKit.particles(level, SPARK, at, 16, host.bbWidth * 0.7, 0.08)
-            SignatureKit.particles(level, ParticleTypes.SNEEZE, at, 10, host.bbWidth * 0.5, 0.05)
-            SignatureKit.sound(level, at, EKSounds.SIGNATURE_ROTDANCE_SETTLE.get(), 1.4f)
+            e.hurtTargetThrough(host, EKDamageSources.ROT_KEY, DAMAGE)
+            val at = host.middle()
+            level.particles(SPORE, at, 40, host.bbWidth * 0.7, 0.04)
+            level.particles(SPARK, at, 16, host.bbWidth * 0.7, 0.08)
+            level.particles(ParticleTypes.SNEEZE, at, 10, host.bbWidth * 0.5, 0.05)
+            level.sound(at, EKSounds.SIGNATURE_ROTDANCE_SETTLE.get(), 1.4f)
         }
 
         private fun pulse(e: SignatureEntity, s: Swarm, host: LivingEntity) {
             val level = e.level() as ServerLevel
-            val at = SignatureKit.middle(host)
-            SignatureKit.hurtThrough(e, host, EKDamageSources.ROT_KEY, PULSE_DAMAGE)
-            for (near in SignatureKit.creatures(e, at, SPILL + host.bbWidth * 0.5)) {
+            val at = host.middle()
+            e.hurtTargetThrough(host, EKDamageSources.ROT_KEY, PULSE_DAMAGE)
+            for (near in e.creatures(at, SPILL + host.bbWidth * 0.5)) {
                 if (near === host) continue
-                SignatureKit.hurtThrough(e, near, EKDamageSources.ROT_KEY, SPILL_DAMAGE)
+                e.hurtTargetThrough(near, EKDamageSources.ROT_KEY, SPILL_DAMAGE)
                 near.addEffect(MobEffectInstance(MobEffects.POISON, POISON_TICKS / 2, 1), e.caster)
             }
-            SignatureKit.particles(level, SPORE, at, 20, SPILL * 0.5, 0.03)
-            if (s.stay % 20 == 0) SignatureKit.sound(level, at, EKSounds.SIGNATURE_ROTDANCE_FEED.get())
+            level.particles(SPORE, at, 20, SPILL * 0.5, 0.03)
+            if (s.stay % 20 == 0) level.sound(at, EKSounds.SIGNATURE_ROTDANCE_FEED.get())
         }
 
         private fun nextHost(e: SignatureEntity, s: Swarm, from: Vec3): LivingEntity? =
-            SignatureKit.creatures(e, from, HOP_RANGE).filter { it.id !in s.visited }.minByOrNull { SignatureKit.middle(it).distanceToSqr(from) }
+            e.creatures(from, HOP_RANGE).filter { it.id !in s.visited }.minByOrNull { it.middle().distanceToSqr(from) }
 
         private fun fade(e: SignatureEntity) {
             e.data = FADING
@@ -1068,18 +1068,18 @@ object BodySignatures {
             val level = e.level() as ServerLevel
             val at = e.position()
             val strength = 0.6 + 0.4 * e.power
-            for (target in SignatureKit.creatures(e, at, BURST)) {
-                val near = 1 - 0.5 * SignatureKit.middle(target).distanceTo(at) / BURST
-                SignatureKit.hurtThrough(e, target, EKDamageSources.ROT_KEY, (BURST_DAMAGE * strength * near).toFloat())
+            for (target in e.creatures(at, BURST)) {
+                val near = 1 - 0.5 * target.middle().distanceTo(at) / BURST
+                e.hurtTargetThrough(target, EKDamageSources.ROT_KEY, (BURST_DAMAGE * strength * near).toFloat())
                 target.addEffect(MobEffectInstance(MobEffects.POISON, POISON_TICKS, POISON_LEVEL), e.caster)
                 target.addEffect(MobEffectInstance(EKEffects.ROT.get(), ROT_TICKS), e.caster)
             }
             GasField.addBurst(level, at, BURST + 1, BURST_GAS)
-            SignatureKit.particles(level, SPORE, at, 160, BURST * 0.5, 0.1)
-            SignatureKit.particles(level, SPARK, at, 40, BURST * 0.4, 0.1)
-            SignatureKit.particles(level, ParticleTypes.SNEEZE, at, 60, BURST * 0.4, 0.08)
-            SignatureKit.particles(level, ParticleTypes.EXPLOSION, at, 2, 0.6)
-            SignatureKit.sound(level, at, EKSounds.SIGNATURE_ROTDANCE_BURST.get(), 2f)
+            level.particles(SPORE, at, 160, BURST * 0.5, 0.1)
+            level.particles(SPARK, at, 40, BURST * 0.4, 0.1)
+            level.particles(ParticleTypes.SNEEZE, at, 60, BURST * 0.4, 0.08)
+            level.particles(ParticleTypes.EXPLOSION, at, 2, 0.6)
+            level.sound(at, EKSounds.SIGNATURE_ROTDANCE_BURST.get(), 2f)
         }
     }
 
@@ -1133,10 +1133,10 @@ object BodySignatures {
         /** Both sides call this. */
         fun rayTargets(level: Level, core: Vec3, owner: Entity?): List<LivingEntity> =
             level.getEntitiesOfClass(LivingEntity::class.java, AABB(core, core).inflate(RAY_REACH)) {
-                it.isAlive && !it.isSpectator && it !== owner && it !is ArmorStand && SignatureKit.middle(it).distanceTo(core) <= RAY_REACH
+                it.isAlive && !it.isSpectator && it !== owner && it !is ArmorStand && it.middle().distanceTo(core) <= RAY_REACH
             }.filter {
-                level.clip(ClipContext(core, SignatureKit.middle(it), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, it)).type == HitResult.Type.MISS
-            }.sortedBy { SignatureKit.middle(it).distanceToSqr(core) }.take(MAX_RAYS)
+                level.clip(ClipContext(core, it.middle(), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, it)).type == HitResult.Type.MISS
+            }.sortedBy { it.middle().distanceToSqr(core) }.take(MAX_RAYS)
 
         private fun stab(e: SignatureEntity) {
             if (!stabsNow(e)) return
@@ -1144,7 +1144,7 @@ object BodySignatures {
             val core = e.position()
             val strength = 0.6f + 0.4f * charge(e)
             for (target in rayTargets(level, core, e.caster)) {
-                SignatureKit.hurtThrough(e, target, EKDamageSources.SUNFIRE_KEY, RAY_DAMAGE * strength)
+                e.hurtTargetThrough(target, EKDamageSources.SUNFIRE_KEY, RAY_DAMAGE * strength)
                 target.setSecondsOnFire(2)
             }
         }
@@ -1171,7 +1171,7 @@ object BodySignatures {
             e.state = Flight(to)
             e.deltaMovement = span.normalize().scale(SPEED)
             e.life = e.tickCount + (span.length() / SPEED).toInt() + 5
-            SignatureKit.sound(cast.level, cast.origin, EKSounds.SIGNATURE_SUPERNOVA_LOOSE.get(), 1.5f)
+            cast.level.sound(cast.origin, EKSounds.SIGNATURE_SUPERNOVA_LOOSE.get(), 1.5f)
         }
 
         override fun tick(e: SignatureEntity) {
@@ -1200,45 +1200,45 @@ object BodySignatures {
             e.data = (BURST shl 8) or (e.data and 0xFF)
             e.life = e.tickCount + BURST_TICKS
             val knock = KNOCK + KNOCK_PER_CHARGE * c
-            for (target in SignatureKit.creatures(e, at, r)) {
-                val near = 1 - SignatureKit.middle(target).distanceTo(at) / r
-                SignatureKit.hurtThrough(e, target, EKDamageSources.SUNFIRE_KEY, ((DAMAGE_MIN + (DAMAGE_MAX - DAMAGE_MIN) * c) * (0.4 + 0.6 * near)).toFloat())
+            for (target in e.creatures(at, r)) {
+                val near = 1 - target.middle().distanceTo(at) / r
+                e.hurtTargetThrough(target, EKDamageSources.SUNFIRE_KEY, ((DAMAGE_MIN + (DAMAGE_MAX - DAMAGE_MIN) * c) * (0.4 + 0.6 * near)).toFloat())
                 target.setSecondsOnFire(4 + (6 * c).toInt())
                 target.addEffect(MobEffectInstance(MobEffects.BLINDNESS, BLIND_TICKS + (BLIND_PER_CHARGE * c).toInt()), e.caster)
-                val away = SignatureKit.middle(target).subtract(at)
-                if (away.lengthSqr() > 1.0e-6) SignatureKit.push(target, away.normalize().scale(knock * near).add(0.0, 0.35 * knock * near, 0.0))
+                val away = target.middle().subtract(at)
+                if (away.lengthSqr() > 1.0e-6) target.spellPush(away.normalize().scale(knock * near).add(0.0, 0.35 * knock * near, 0.0))
             }
             blastShips(level, at, r, SHIP_IMPULSE * (0.3 + 0.7 * c))
             ignite(e, at, maxOf(1.5, r * 0.6), FIRES)
-            SignatureKit.particles(level, ParticleTypes.FLASH, at, 1, 0.0)
-            SignatureKit.particles(level, ParticleTypes.EXPLOSION_EMITTER, at, 1, 0.0)
-            SignatureKit.particles(level, ParticleTypes.EXPLOSION, at, 3 + (6 * c).toInt(), r * 0.35)
+            level.particles(ParticleTypes.FLASH, at, 1, 0.0)
+            level.particles(ParticleTypes.EXPLOSION_EMITTER, at, 1, 0.0)
+            level.particles(ParticleTypes.EXPLOSION, at, 3 + (6 * c).toInt(), r * 0.35)
             level.sendParticles(ParticleTypes.END_ROD, at.x, at.y, at.z, 60 + (80 * c).toInt(), 0.3, 0.3, 0.3, 0.4 + 0.3 * c)
-            SignatureKit.particles(level, ParticleTypes.FLAME, at, 60, 0.8, 0.35)
-            SignatureKit.sound(level, at, EKSounds.SIGNATURE_SUPERNOVA_NOVA.get(), 2.5f + 2f * c)
+            level.particles(ParticleTypes.FLAME, at, 60, 0.8, 0.35)
+            level.sound(at, EKSounds.SIGNATURE_SUPERNOVA_NOVA.get(), 2.5f + 2f * c)
         }
 
         private fun aftermath(e: SignatureEntity) {
             val level = e.level() as ServerLevel
             val since = sinceBurst(e, e.tickCount.toFloat()).toInt()
-            if (e.tickCount == e.life - FADE_BEFORE) SignatureKit.sound(level, e.position(), EKSounds.SIGNATURE_SUPERNOVA_FADE.get(), 1.5f)
+            if (e.tickCount == e.life - FADE_BEFORE) level.sound(e.position(), EKSounds.SIGNATURE_SUPERNOVA_FADE.get(), 1.5f)
             if (since <= 0 || e.tickCount >= e.life - 4) return
             val c = charge(e)
             val r = blastRadius(c)
             val at = e.position()
             val shock = since % SHOCK_EVERY == 0
-            if (since % PULSE_EVERY == 0 || shock) for (target in SignatureKit.creatures(e, at, r)) {
-                val near = 1 - SignatureKit.middle(target).distanceTo(at) / r
+            if (since % PULSE_EVERY == 0 || shock) for (target in e.creatures(at, r)) {
+                val near = 1 - target.middle().distanceTo(at) / r
                 if (since % PULSE_EVERY == 0) {
-                    SignatureKit.hurtThrough(e, target, EKDamageSources.SUNFIRE_KEY, ((PULSE_DAMAGE + PULSE_PER_CHARGE * c) * (0.5 + 0.5 * near)).toFloat())
+                    e.hurtTargetThrough(target, EKDamageSources.SUNFIRE_KEY, ((PULSE_DAMAGE + PULSE_PER_CHARGE * c) * (0.5 + 0.5 * near)).toFloat())
                     target.setSecondsOnFire(3)
                 }
                 if (shock) knockAway(target, at, (SHOCK_KNOCK + SHOCK_KNOCK * c) * (0.3 + 0.7 * near), 0.15 * near)
             }
             if (shock) {
                 blastShips(level, at, r, SHOCK_SHIP * (0.3 + 0.7 * c))
-                SignatureKit.particles(level, ParticleTypes.EXPLOSION, at, 2 + (3 * c).toInt(), r * 0.3)
-                SignatureKit.sound(level, at, EKSounds.SIGNATURE_SUPERNOVA_SHOCK.get(), 1.5f + c)
+                level.particles(ParticleTypes.EXPLOSION, at, 2 + (3 * c).toInt(), r * 0.3)
+                level.sound(at, EKSounds.SIGNATURE_SUPERNOVA_SHOCK.get(), 1.5f + c)
             }
         }
     }

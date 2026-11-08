@@ -29,78 +29,77 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
 import org.valkyrienskies.core.api.util.GameTickOnly
 
-object SignatureKit {
-    fun creatures(e: SignatureEntity, centre: Vec3, r: Double): List<LivingEntity> =
-        creatures(e.level() as ServerLevel, centre, r, e.caster)
+fun SignatureEntity.creatures(centre: Vec3, r: Double): List<LivingEntity> =
+    (level() as ServerLevel).creatures(centre, r, caster)
 
-    fun creatures(level: ServerLevel, centre: Vec3, r: Double, except: Entity?): List<LivingEntity> =
-        level.getEntitiesOfClass(LivingEntity::class.java, AABB(centre, centre).inflate(r + 2.0)) {
-            it.isAlive && !it.isSpectator && it !== except && it !is ArmorStand && middle(it).distanceTo(centre) <= r
-        }
-
-    fun creaturesAlong(e: SignatureEntity, a: Vec3, b: Vec3, halfWidth: Double): List<LivingEntity> =
-        (e.level() as ServerLevel).getEntitiesOfClass(LivingEntity::class.java, AABB(a, b).inflate(halfWidth + 1.0)) {
-            if (!it.isAlive || it.isSpectator || it === e.caster || it is ArmorStand) return@getEntitiesOfClass false
-            val box = it.boundingBox.inflate(halfWidth)
-            box.contains(a) || box.clip(a, b).isPresent
-        }
-
-    fun middle(entity: Entity): Vec3 = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0)
-
-    fun hurt(e: SignatureEntity, target: Entity, type: ResourceKey<DamageType>, amount: Float): Boolean {
-        val ctx = e.ctx ?: return false
-        return target.hurt(ctx.damage(type), amount)
+fun ServerLevel.creatures(centre: Vec3, r: Double, except: Entity?): List<LivingEntity> =
+    getEntitiesOfClass(LivingEntity::class.java, AABB(centre, centre).inflate(r + 2.0)) {
+        it.isAlive && !it.isSpectator && it !== except && it !is ArmorStand && it.middle().distanceTo(centre) <= r
     }
 
-    /** For damage that ticks faster than i-frames allow. */
-    fun hurtThrough(e: SignatureEntity, target: Entity, type: ResourceKey<DamageType>, amount: Float): Boolean {
-        val living = target as? LivingEntity ?: return hurt(e, target, type, amount)
-        val frames = living.invulnerableTime
-        living.invulnerableTime = 0
-        val hit = hurt(e, living, type, amount)
-        living.invulnerableTime = frames
-        return hit
+fun SignatureEntity.creaturesAlong(a: Vec3, b: Vec3, halfWidth: Double): List<LivingEntity> =
+    (level() as ServerLevel).getEntitiesOfClass(LivingEntity::class.java, AABB(a, b).inflate(halfWidth + 1.0)) {
+        if (!it.isAlive || it.isSpectator || it === caster || it is ArmorStand) return@getEntitiesOfClass false
+        val box = it.boundingBox.inflate(halfWidth)
+        box.contains(a) || box.clip(a, b).isPresent
     }
 
-    fun movable(entity: Entity): Boolean = !SpellContext.isBoss(entity) && !NamedEffects.anchored(entity)
+fun Entity.middle(): Vec3 = position().add(0.0, bbHeight * 0.5, 0.0)
 
-    fun push(entity: Entity, v: Vec3) {
-        if (!movable(entity)) return
-        entity.deltaMovement = entity.deltaMovement.add(v)
-        entity.hurtMarked = true
-    }
-
-    fun pull(entity: Entity, point: Vec3, strength: Double) {
-        val to = point.subtract(middle(entity))
-        val d = to.length()
-        if (d < 1.0e-3) return
-        push(entity, to.scale(strength / d))
-    }
-
-    /** Searches [depth] + 1 blocks down from [fromY]; null when no block has collision. */
-    fun ground(level: ServerLevel, x: Double, z: Double, fromY: Double, depth: Int = 8): Double? {
-        val pos = BlockPos.MutableBlockPos(Math.floor(x).toInt(), Math.floor(fromY).toInt(), Math.floor(z).toInt())
-        repeat(depth + 1) {
-            val state = level.getBlockState(pos)
-            if (!state.getCollisionShape(level, pos).isEmpty) return pos.y + state.getCollisionShape(level, pos).max(net.minecraft.core.Direction.Axis.Y)
-            pos.move(0, -1, 0)
-        }
-        return null
-    }
-
-    fun groundNear(level: ServerLevel, p: Vec3, up: Int = 3, depth: Int = 8): Double? = ground(level, p.x, p.z, p.y + up, depth + up)
-
-    fun sound(level: ServerLevel, at: Vec3, sound: SoundEvent, volume: Float = 1f, pitch: Float = 1f) {
-        level.playSound(null, at.x, at.y, at.z, sound, SoundSource.PLAYERS, volume, pitch)
-    }
-
-    fun particles(level: ServerLevel, type: ParticleOptions, at: Vec3, count: Int, spread: Double, speed: Double = 0.0) {
-        level.sendParticles(type, at.x, at.y, at.z, count, spread, spread, spread, speed)
-    }
-
-    /** Obeys the caster's build permissions. The cast origin is not where a signature acts, so the change has no direction. */
-    fun setBlock(e: SignatureEntity, pos: BlockPos, state: BlockState): Boolean = e.ctx?.setBlock(pos, state, directed = false) ?: false
+fun SignatureEntity.hurtTarget(target: Entity, type: ResourceKey<DamageType>, amount: Float): Boolean {
+    val context = ctx ?: return false
+    return target.hurt(context.damage(type), amount)
 }
+
+/** For damage that ticks faster than i-frames allow. */
+fun SignatureEntity.hurtTargetThrough(target: Entity, type: ResourceKey<DamageType>, amount: Float): Boolean {
+    val living = target as? LivingEntity ?: return hurtTarget(target, type, amount)
+    val frames = living.invulnerableTime
+    living.invulnerableTime = 0
+    val hit = hurtTarget(living, type, amount)
+    living.invulnerableTime = frames
+    return hit
+}
+
+fun Entity.movable(): Boolean = !SpellContext.isBoss(this) && !NamedEffects.anchored(this)
+
+// Not `push`: Entity has push members, and a member always wins over an extension.
+fun Entity.spellPush(v: Vec3) {
+    if (!movable()) return
+    deltaMovement = deltaMovement.add(v)
+    hurtMarked = true
+}
+
+fun Entity.pull(point: Vec3, strength: Double) {
+    val to = point.subtract(middle())
+    val d = to.length()
+    if (d < 1.0e-3) return
+    spellPush(to.scale(strength / d))
+}
+
+/** Searches [depth] + 1 blocks down from [fromY]; null when no block has collision. */
+fun ServerLevel.ground(x: Double, z: Double, fromY: Double, depth: Int = 8): Double? {
+    val pos = BlockPos.MutableBlockPos(Math.floor(x).toInt(), Math.floor(fromY).toInt(), Math.floor(z).toInt())
+    repeat(depth + 1) {
+        val state = getBlockState(pos)
+        if (!state.getCollisionShape(this, pos).isEmpty) return pos.y + state.getCollisionShape(this, pos).max(net.minecraft.core.Direction.Axis.Y)
+        pos.move(0, -1, 0)
+    }
+    return null
+}
+
+fun ServerLevel.groundNear(p: Vec3, up: Int = 3, depth: Int = 8): Double? = ground(p.x, p.z, p.y + up, depth + up)
+
+fun ServerLevel.sound(at: Vec3, sound: SoundEvent, volume: Float = 1f, pitch: Float = 1f) {
+    playSound(null, at.x, at.y, at.z, sound, SoundSource.PLAYERS, volume, pitch)
+}
+
+fun ServerLevel.particles(type: ParticleOptions, at: Vec3, count: Int, spread: Double, speed: Double = 0.0) {
+    sendParticles(type, at.x, at.y, at.z, count, spread, spread, spread, speed)
+}
+
+/** Obeys the caster's build permissions. The cast origin is not where a signature acts, so the change has no direction. */
+fun SignatureEntity.setBlock(pos: BlockPos, state: BlockState): Boolean = ctx?.setBlock(pos, state, directed = false) ?: false
 
 /** Push the touched blocks at their points, never the ship as a whole, so the effect scales with mass. */
 @OptIn(GameTickOnly::class)

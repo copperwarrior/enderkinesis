@@ -36,7 +36,6 @@ import org.shipwrights.enderkinesis.item.OldPaperItem
 import org.shipwrights.enderkinesis.item.StaffOfCommandItem
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.shipwrights.enderkinesis.worldgen.ShipyardCrew
@@ -45,6 +44,8 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.solidAnchor
+import org.shipwrights.enderkinesis.util.blockLoaded
 
 /**
  * Shulkonaut — a shulker-like gunnery officer. Sits where placed, holds a list of
@@ -471,7 +472,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         val hit = net.minecraft.world.level.BlockGetter.traverseBlocks(
             from, to, ctx,
             { c, pos ->
-                if (!LoadedRay.blockLoaded(server, pos)) {
+                if (!server.blockLoaded(pos)) {
                     // Unverifiable terrain = occluded; never a sync chunk load.
                     net.minecraft.world.phys.BlockHitResult(
                         net.minecraft.world.phys.Vec3.atCenterOf(pos),
@@ -582,7 +583,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
             val pos = applyOrderVerb(server, order, base, net.minecraft.world.phys.Vec3.ZERO)
             // The block anchors TO-shots only while it EXISTS — a literal position in
             // the air (or a since-mined block) fires airburst point shots instead.
-            val anchor = if (order.verb == VERB_TO && LoadedRay.blockLoaded(server, bt) &&
+            val anchor = if (order.verb == VERB_TO && server.blockLoaded(bt) &&
                 !server.getBlockState(bt).isAir
             ) bt else null
             return Aim(null, pos, anchor)
@@ -680,7 +681,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         server: ServerLevel,
         ship: org.valkyrienskies.core.api.ships.Ship,
     ): net.minecraft.core.BlockPos? =
-        org.shipwrights.enderkinesis.util.ShipTargeting.solidShipAnchor(server, ship)
+        ship.solidAnchor(server)
 
     private fun currentTarget(server: ServerLevel, order: StandingOrder): Entity? {
         if (order.targetId < 0) return null
@@ -710,9 +711,9 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
 
     private fun commandNextBlock(server: ServerLevel) {
         val dim = server.dimension().location()
-        commanded.removeAll { it.dim == dim && LoadedRay.blockLoaded(server, it.pos) && isDeviceGone(server, it) }
+        commanded.removeAll { it.dim == dim && server.blockLoaded(it.pos) && isDeviceGone(server, it) }
         val blocks = commanded.filter {
-            it.dim == dim && LoadedRay.blockLoaded(server, it.pos) &&
+            it.dim == dim && server.blockLoaded(it.pos) &&
                 orderForKey(it.blockId.toString())?.hasTarget() == true
         }
         // An entity that does not resolve can be in an unloaded chunk, so it stays in the list.

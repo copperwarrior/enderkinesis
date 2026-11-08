@@ -25,6 +25,7 @@ import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.shipwrights.enderkinesis.util.hasChunkAtPos
+import org.shipwrights.enderkinesis.util.loadedRayRange
 
 /** Staff of Command — right-click a [Commandable] block to add it to this stack's command
  *  list (re-click to remove); right-click open air to fire every listed block's command in
@@ -441,7 +442,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             val eye = player.getEyePosition(1f)
             val look = player.getViewVector(1f)
             // The gaze ends at the edge of the loaded area; a server clip loads chunks.
-            val reach = org.shipwrights.enderkinesis.util.LoadedRay.range(serverLevel, eye, look, BEAM_GAZE_REACH)
+            val reach = serverLevel.loadedRayRange(eye, look, BEAM_GAZE_REACH)
             val end = eye.add(look.scale(reach))
             val hit = serverLevel.clip(
                 net.minecraft.world.level.ClipContext(
@@ -473,7 +474,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
         private fun gazeLiving(serverLevel: ServerLevel, player: Player): net.minecraft.world.entity.LivingEntity? {
             val eye = player.getEyePosition(1f)
             val look = player.getViewVector(1f)
-            val reach = org.shipwrights.enderkinesis.util.LoadedRay.range(serverLevel, eye, look, BEAM_GAZE_REACH)
+            val reach = serverLevel.loadedRayRange(eye, look, BEAM_GAZE_REACH)
             val wall = serverLevel.clip(
                 net.minecraft.world.level.ClipContext(
                     eye, eye.add(look.scale(reach)),
@@ -604,7 +605,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
         private fun spawnGazeBeam(serverLevel: ServerLevel, player: Player) {
             val eye = player.getEyePosition(1f)
             val look = player.getViewVector(1f)
-            val reach = org.shipwrights.enderkinesis.util.LoadedRay.range(serverLevel, eye, look, BEAM_GAZE_REACH)
+            val reach = serverLevel.loadedRayRange(eye, look, BEAM_GAZE_REACH)
             val end = eye.add(look.scale(reach))
             val hit = serverLevel.clip(
                 net.minecraft.world.level.ClipContext(

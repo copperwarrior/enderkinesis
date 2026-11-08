@@ -32,10 +32,10 @@ import org.shipwrights.enderkinesis.block.LodestarLauncherBlock
 import org.shipwrights.enderkinesis.entity.LodestarDartEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKItems
-import org.shipwrights.enderkinesis.util.LoadedRay
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.loadedRayRange
 
 /**
  * Lodestar Launcher block entity — 16-slot inventory (a 4×4 grid on the front face)
@@ -336,7 +336,7 @@ class LodestarLauncherBlockEntity(pos: BlockPos, state: BlockState) :
         if (firingCooldown > 0) return
         val eye = player.getEyePosition(1f)
         val look = player.getViewVector(1f)
-        val end = eye.add(look.scale(LoadedRay.range(server, eye, look, STAFF_GAZE_REACH)))
+        val end = eye.add(look.scale(server.loadedRayRange(eye, look, STAFF_GAZE_REACH)))
         val blockHit = server.clip(
             ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player),
         )

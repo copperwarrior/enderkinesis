@@ -28,7 +28,6 @@ internal object FusionGeometry {
     /** Two touching unit cubes are this close; the margin absorbs physics penetration slop. */
     private const val CONTACT_MARGIN: Double = 0.05
     const val HALF: Double = 0.5 + CONTACT_MARGIN
-    private const val SCALE_EPSILON: Double = 1e-6
     private val DIRECTIONS: Array<Direction> = Direction.values()
 
     /** The 24 rotations that map the block grid onto itself. */
@@ -76,13 +75,7 @@ internal object FusionGeometry {
      *  world rotation for it; [error] is the turn left, in radians. */
     class Alignment(val goal: Quaterniond, val relative: Quaterniond, val error: Double)
 
-    fun uniformScale(ship: LoadedServerShip): Double? {
-        val s = ship.transform.shipToWorldScaling
-        if (abs(s.x() - s.y()) > SCALE_EPSILON || abs(s.x() - s.z()) > SCALE_EPSILON) return null
-        return s.x()
-    }
-
-    fun sameScale(a: Double, b: Double): Boolean = abs(a - b) <= SCALE_EPSILON
+    fun sameScale(a: Double, b: Double): Boolean = abs(a - b) <= FUSION_SCALE_EPSILON
 
     /** The blocks of [ship] within [worldRadius] of [worldCenter]. The work is bounded by the
      *  sphere, not by the size of the ship. */
@@ -124,55 +117,6 @@ internal object FusionGeometry {
         }
         return ShipBlocks(packed.toLongArray(), masses.toDoubleArray(), minX, minY, minZ, maxX, maxY, maxZ)
     }
-
-    /** Every non-air block of [ship], packed. Null while a chunk of it is not loaded. */
-    fun allBlocks(level: ServerLevel, ship: LoadedServerShip): LongArray? {
-        val packed = LongArrayList()
-        var missing = false
-        ship.activeChunksSet.forEach { cx, cz ->
-            val chunk = level.chunkSource.getChunkNow(cx, cz)
-            if (chunk == null) {
-                missing = true
-                return@forEach
-            }
-            for (index in chunk.sections.indices) {
-                val section = chunk.sections[index]
-                if (section.hasOnlyAir()) continue
-                val baseY = chunk.getSectionYFromSectionIndex(index) shl 4
-                for (x in 0..15) for (y in 0..15) for (z in 0..15) {
-                    if (!section.getBlockState(x, y, z).isAir) packed.add(BlockPos.asLong((cx shl 4) + x, baseY + y, (cz shl 4) + z))
-                }
-            }
-        }
-        return if (missing) null else packed.toLongArray()
-    }
-
-    /** The non-air blocks of [ship], counted up to [limit]. Null while a chunk of it is not loaded,
-     *  unless [limit] is reached first: then a full count is at least [limit] too. */
-    fun countUpTo(level: ServerLevel, ship: LoadedServerShip, limit: Int): Int? {
-        require(limit > 0) { "limit must be positive" }
-        var count = 0
-        var missing = false
-        ship.activeChunksSet.forEach { cx, cz ->
-            if (count >= limit) return@forEach
-            val chunk = level.chunkSource.getChunkNow(cx, cz)
-            if (chunk == null) {
-                missing = true
-                return@forEach
-            }
-            for (section in chunk.sections) {
-                if (section.hasOnlyAir()) continue
-                for (x in 0..15) for (y in 0..15) for (z in 0..15) {
-                    if (section.getBlockState(x, y, z).isAir) continue
-                    if (++count >= limit) return@forEach
-                }
-            }
-        }
-        return if (count >= limit) limit else if (missing) null else count
-    }
-
-    fun isFreeCell(level: ServerLevel, ship: LoadedServerShip, pos: BlockPos): Boolean =
-        ship.chunkClaim.contains(pos.x shr 4, pos.z shr 4) && !level.isOutsideBuildHeight(pos) && level.getBlockState(pos).isAir
 
     /** Only the blocks inside the bubble are pulled. Null when none are inside. */
     fun lifted(ship: LoadedServerShip, blocks: ShipBlocks, worldCenter: Vector3dc, worldRadius: Double): Lifted? {
@@ -233,25 +177,6 @@ internal object FusionGeometry {
         }
         if (bestDistSq == Double.MAX_VALUE) return null
         return Vector3d(BlockPos.getX(best) + 0.5, BlockPos.getY(best) + 0.5, BlockPos.getZ(best) + 0.5)
-    }
-
-    /** Squared gap between the world bounding boxes: a lower bound on any block-center distance. */
-    fun aabbGapSq(a: LoadedServerShip, b: LoadedServerShip): Double {
-        val p = a.worldAABB
-        val q = b.worldAABB
-        val dx = maxOf(q.minX() - p.maxX(), 0.0, p.minX() - q.maxX())
-        val dy = maxOf(q.minY() - p.maxY(), 0.0, p.minY() - q.maxY())
-        val dz = maxOf(q.minZ() - p.maxZ(), 0.0, p.minZ() - q.maxZ())
-        return dx * dx + dy * dy + dz * dz
-    }
-
-    fun aabbsTouch(a: LoadedServerShip, b: LoadedServerShip): Boolean {
-        val p = a.worldAABB
-        val q = b.worldAABB
-        val m = 2.0 * HALF
-        return p.minX() - m <= q.maxX() && q.minX() - m <= p.maxX() &&
-            p.minY() - m <= q.maxY() && q.minY() - m <= p.maxY() &&
-            p.minZ() - m <= q.maxZ() && q.minZ() - m <= p.maxZ()
     }
 
     /** Of the block pairs whose unit cubes touch, the pair that the weld moves least. The caller
@@ -409,4 +334,86 @@ internal object FusionGeometry {
         Quaterniond(relative).conjugate().transform(v)
         return Direction.getNearest(v.x, v.y, v.z)
     }
+}
+
+private const val FUSION_SCALE_EPSILON: Double = 1e-6
+
+@OptIn(GameTickOnly::class)
+internal fun LoadedServerShip.uniformScale(): Double? {
+    val s = transform.shipToWorldScaling
+    if (abs(s.x() - s.y()) > FUSION_SCALE_EPSILON || abs(s.x() - s.z()) > FUSION_SCALE_EPSILON) return null
+    return s.x()
+}
+
+/** Every non-air block of this ship, packed. Null while a chunk of it is not loaded. */
+@OptIn(GameTickOnly::class)
+internal fun LoadedServerShip.allBlocks(level: ServerLevel): LongArray? {
+    val packed = LongArrayList()
+    var missing = false
+    activeChunksSet.forEach { cx, cz ->
+        val chunk = level.chunkSource.getChunkNow(cx, cz)
+        if (chunk == null) {
+            missing = true
+            return@forEach
+        }
+        for (index in chunk.sections.indices) {
+            val section = chunk.sections[index]
+            if (section.hasOnlyAir()) continue
+            val baseY = chunk.getSectionYFromSectionIndex(index) shl 4
+            for (x in 0..15) for (y in 0..15) for (z in 0..15) {
+                if (!section.getBlockState(x, y, z).isAir) packed.add(BlockPos.asLong((cx shl 4) + x, baseY + y, (cz shl 4) + z))
+            }
+        }
+    }
+    return if (missing) null else packed.toLongArray()
+}
+
+/** The non-air blocks of this ship, counted up to [limit]. Null while a chunk of it is not loaded,
+ *  unless [limit] is reached first: then a full count is at least [limit] too. */
+@OptIn(GameTickOnly::class)
+internal fun LoadedServerShip.countUpTo(level: ServerLevel, limit: Int): Int? {
+    require(limit > 0) { "limit must be positive" }
+    var count = 0
+    var missing = false
+    activeChunksSet.forEach { cx, cz ->
+        if (count >= limit) return@forEach
+        val chunk = level.chunkSource.getChunkNow(cx, cz)
+        if (chunk == null) {
+            missing = true
+            return@forEach
+        }
+        for (section in chunk.sections) {
+            if (section.hasOnlyAir()) continue
+            for (x in 0..15) for (y in 0..15) for (z in 0..15) {
+                if (section.getBlockState(x, y, z).isAir) continue
+                if (++count >= limit) return@forEach
+            }
+        }
+    }
+    return if (count >= limit) limit else if (missing) null else count
+}
+
+@OptIn(GameTickOnly::class)
+internal fun LoadedServerShip.isFreeCell(level: ServerLevel, pos: BlockPos): Boolean =
+    chunkClaim.contains(pos.x shr 4, pos.z shr 4) && !level.isOutsideBuildHeight(pos) && level.getBlockState(pos).isAir
+
+/** Squared gap between the world bounding boxes: a lower bound on any block-center distance. */
+@OptIn(GameTickOnly::class)
+internal fun LoadedServerShip.aabbGapSq(b: LoadedServerShip): Double {
+    val p = worldAABB
+    val q = b.worldAABB
+    val dx = maxOf(q.minX() - p.maxX(), 0.0, p.minX() - q.maxX())
+    val dy = maxOf(q.minY() - p.maxY(), 0.0, p.minY() - q.maxY())
+    val dz = maxOf(q.minZ() - p.maxZ(), 0.0, p.minZ() - q.maxZ())
+    return dx * dx + dy * dy + dz * dz
+}
+
+@OptIn(GameTickOnly::class)
+internal fun LoadedServerShip.aabbsTouch(b: LoadedServerShip): Boolean {
+    val p = worldAABB
+    val q = b.worldAABB
+    val m = 2.0 * FusionGeometry.HALF
+    return p.minX() - m <= q.maxX() && q.minX() - m <= p.maxX() &&
+        p.minY() - m <= q.maxY() && q.minY() - m <= p.maxY() &&
+        p.minZ() - m <= q.maxZ() && q.minZ() - m <= p.maxZ()
 }

@@ -25,7 +25,6 @@ import org.joml.Quaterniondc
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.shipwrights.enderkinesis.util.LoadedRay
 import org.shipwrights.enderkinesis.util.ShipBlockMove
 import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.core.api.VsBeta
@@ -40,6 +39,7 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.loadedRayRange
 
 /**
  * Two modes: static yaw (empty-hand right-click captures `player.lookAngle`) and compass-pinned
@@ -218,7 +218,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
         // blocks, but .location is always world coords — that's what we latch.
         val eye = player.getEyePosition(1f)
         val look = player.getViewVector(1f)
-        val end = eye.add(look.scale(LoadedRay.range(serverLevel, eye, look, 256.0)))
+        val end = eye.add(look.scale(serverLevel.loadedRayRange(eye, look, 256.0)))
         val hit = serverLevel.clip(
             ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player),
         )

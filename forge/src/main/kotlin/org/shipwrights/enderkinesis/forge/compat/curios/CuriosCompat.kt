@@ -40,7 +40,7 @@ object CuriosCompat {
     }
 
     private fun gatherEquippedCurios(wearer: LivingEntity): List<ItemStack> {
-        val handler = CuriosApi.getCuriosInventory(wearer).orElse(null) ?: return emptyList()
+        val handler = CuriosApi.getCuriosInventory(wearer).resolve().orElse(null) ?: return emptyList()
         val items = handler.equippedCurios ?: return emptyList()
         val slots = items.slots
         if (slots == 0) return emptyList()

@@ -53,10 +53,10 @@ internal class FusionTeleport {
         if (level.random.nextFloat() >= CHANCE) return null
         if (summon.active) return summon.teleport(level, now)
         val target = FusionManager.keptShip(level, lifted) ?: return null
-        val scale = FusionGeometry.uniformScale(target) ?: return null
+        val scale = target.uniformScale() ?: return null
         val sources = lifted.filter { entry ->
             entry.ship !== target && !refused.contains(entry.ship.id) && !FusionManager.isJointed(level, entry.ship) &&
-                FusionGeometry.uniformScale(entry.ship)?.let { FusionGeometry.sameScale(it, scale) } == true
+                entry.ship.uniformScale()?.let { FusionGeometry.sameScale(it, scale) } == true
         }
         if (sources.isEmpty()) return null
         if (target.id != targetId || surface == null) {
@@ -109,7 +109,7 @@ internal class FusionTeleport {
         val point = target.shipToWorld.transformPosition(Vector3d(to.x + 0.5, to.y + 0.5, to.z + 0.5))
         sourceCells.get(source.id)?.removeAt(index)
         // The cell cache can be stale, so the empty test reads the ship.
-        if (FusionGeometry.countUpTo(level, source, 1) != 0) return Move(point, state, false)
+        if (source.countUpTo(level, 1) != 0) return Move(point, state, false)
         sourceCells.remove(source.id)
         // An empty ship crashes the physics thread, so it goes in the same call.
         ShipAssembler.deleteShip(level, source, false, false)
@@ -124,7 +124,7 @@ internal class FusionTeleport {
 
     /** Null while a chunk of the ship is not loaded, or when the ship has no blocks. */
     private fun rescan(level: ServerLevel, source: LoadedServerShip, now: Int): SourceCells? {
-        val blocks = FusionGeometry.allBlocks(level, source)
+        val blocks = source.allBlocks(level)
         if (blocks == null || blocks.isEmpty()) {
             sourceCells.remove(source.id)
             return null
@@ -140,7 +140,7 @@ internal class FusionTeleport {
     /** The target's free spots: empty cells next to a sturdy face of one of its blocks. Read once a
      *  stall; null while a chunk is not loaded. */
     private fun buildSurface(level: ServerLevel, target: LoadedServerShip): Surface? {
-        val blocks = FusionGeometry.allBlocks(level, target) ?: return null
+        val blocks = target.allBlocks(level) ?: return null
         val solid = LongOpenHashSet(blocks)
         val surface = Surface()
         var visited = 0
@@ -176,7 +176,7 @@ internal class FusionTeleport {
     }
 
     private fun isFreeSpot(level: ServerLevel, target: LoadedServerShip, spot: Long): Boolean =
-        FusionGeometry.isFreeCell(level, target, blockPos.set(spot))
+        target.isFreeCell(level, blockPos.set(spot))
 
     private fun touchesSturdyFace(level: ServerLevel, spot: Long): Boolean {
         val pos = BlockPos.MutableBlockPos()
