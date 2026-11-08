@@ -60,16 +60,20 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =
         AncriteEyeBlockEntity(pos, state)
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun isSignalSource(state: BlockState): Boolean = true
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getSignal(state: BlockState, level: BlockGetter, pos: BlockPos, side: Direction): Int =
         state.getValue(POWER)
 
     /** Strong-power flows only out the side the eye attaches *toward*. That's how
      *  vanilla levers/buttons power blocks past the wall they're mounted on. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getDirectSignal(state: BlockState, level: BlockGetter, pos: BlockPos, side: Direction): Int =
         if (side == getConnectedDirection(state)) state.getValue(POWER) else 0
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = when (state.getValue(FACE)) {
@@ -84,7 +88,7 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -106,7 +110,7 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
 
     // Mirrors vanilla `ButtonBlock`: a stuck arrow gets no more `entityInside` calls,
     // so [tick] polls the shape to hold the press.
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         if (level.isClientSide || entity !is AbstractArrow) return
         if (!hasArrowInside(state, level, pos)) return
@@ -118,7 +122,7 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
         level.getEntitiesOfClass(AbstractArrow::class.java, state.getShape(level, pos).bounds().move(pos))
             .isNotEmpty()
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         val be = level.getBlockEntity(pos) as? AncriteEyeBlockEntity ?: return
         if (be.savedPower < 0) return
@@ -154,14 +158,11 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
         level.addParticle(dust, px, py, pz, 0.0, 0.0, 0.0)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes onRemove through this override.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
-        if (!moved && !state.`is`(newState.block)) {
-            // Mirror LeverBlock: poke the neighbour update through the supporting block so
-            // a powered eye that's broken doesn't strand signal in adjacent redstone.
-            if (state.getValue(POWER) > 0) updateNeighbours(state, level, pos)
-            super.onRemove(state, level, pos, newState, moved)
-        }
+        // Like LeverBlock: a broken powered eye must not leave signal in the redstone next to it.
+        if (!state.`is`(newState.block) && state.getValue(POWER) > 0) updateNeighbours(state, level, pos)
+        super.onRemove(state, level, pos, newState, moved)
     }
 
     companion object {

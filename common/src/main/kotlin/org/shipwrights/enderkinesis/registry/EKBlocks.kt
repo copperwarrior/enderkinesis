@@ -290,6 +290,7 @@ object EKBlocks {
     val ANCRITE_EYE: RegistrySupplier<Block> = BLOCKS.register("analog_eye") {
         org.shipwrights.enderkinesis.block.AncriteEyeBlock(
             BlockBehaviour.Properties.copy(Blocks.LEVER).sound(EKSounds.ANCRITE_EYE_SOUND_TYPE).noOcclusion()
+                .pushReaction(net.minecraft.world.level.material.PushReaction.DESTROY)
         )
     }
 
