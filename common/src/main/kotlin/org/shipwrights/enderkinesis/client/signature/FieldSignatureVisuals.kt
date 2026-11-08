@@ -49,7 +49,9 @@ import kotlin.math.floor
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object FieldSignatureVisuals {
     val ALL: Map<Signature, SignatureVisual> = mapOf(
         Signature.STILLPOINT to StillpointVisual,

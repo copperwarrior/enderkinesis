@@ -29,7 +29,6 @@ object SpellLayers {
     private const val ICE_SHELL = 0.06
     private const val WEIGHT_FRAMES = 3
 
-    @JvmStatic
     fun render(entity: LivingEntity, partialTick: Float, pose: PoseStack, buffers: MultiBufferSource, light: Int) {
         if (entity.deathTime > 0 && SpellDeaths.of(entity) == Element.GENESIS) return buried(entity, partialTick, pose, buffers, light)
         val bits = SpellNetworkClient.visuals(entity.id)

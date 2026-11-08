@@ -83,7 +83,6 @@ class HeartOfTheWildModel(private val bakedRoot: ModelPart) : HierarchicalModel<
 
         /** Converted from `heart.bbmodel`; part names match its bones so the keyframes resolve. */
         @Suppress("LongMethod") // verbatim Blockbench geometry
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

@@ -71,7 +71,6 @@ class StaffOfDensityItem(properties: Properties) : Item(properties) {
          *  VS2's `level.clip` mixin (shipyard-mapped `blockPos`) so a ship block
          *  resolves to the ship that owns it. Server re-validates the target via
          *  [DensityManager.commitMultiplier]. */
-        @JvmStatic
         fun clientRaycastShip(level: Level, player: Player): Long? {
             val eye = player.getEyePosition(1f)
             val end = eye.add(player.getViewVector(1f).scale(REACH))

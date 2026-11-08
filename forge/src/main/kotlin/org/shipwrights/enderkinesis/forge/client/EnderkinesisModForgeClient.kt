@@ -4,7 +4,6 @@ import net.minecraft.network.chat.Component
 import net.minecraft.server.packs.PackType
 import net.minecraft.server.packs.repository.Pack
 import net.minecraft.server.packs.repository.PackSource
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.client.Minecraft
 import net.minecraftforge.client.event.EntityRenderersEvent
 import net.minecraftforge.client.event.ModelEvent
@@ -55,14 +54,12 @@ import org.shipwrights.enderkinesis.client.model.StatueYellowTowerModel
  */
 class EnderkinesisModForgeClient {
     companion object {
-        @JvmStatic
         fun clientInit(event: FMLClientSetupEvent) {
             // The event runs on a worker thread; the registrations are for the main thread.
             event.enqueueWork { EnderkinesisModClient.initClient() }
             org.shipwrights.enderkinesis.forge.compat.curios.CuriosClientCompat.init()
         }
 
-        @JvmStatic
         fun registerParticleProviders(event: net.minecraftforge.client.event.RegisterParticleProvidersEvent) {
             EnderkinesisModClient.registerParticleProviders(object : EnderkinesisModClient.ParticleRegistrar {
                 override fun <T : net.minecraft.core.particles.ParticleOptions> register(
@@ -74,7 +71,6 @@ class EnderkinesisModForgeClient {
             })
         }
 
-        @JvmStatic
         fun registerLayerDefinitions(event: EntityRenderersEvent.RegisterLayerDefinitions) {
             event.registerLayerDefinition(CatalogerModel.LAYER_LOCATION, CatalogerModel::createBodyLayer)
             event.registerLayerDefinition(
@@ -132,7 +128,6 @@ class EnderkinesisModForgeClient {
          *  they'd never be loaded and [WyllandTomeBEWLR]'s
          *  ModelManager lookups would return the missing-model
          *  placeholder. */
-        @JvmStatic
         fun registerAdditionalModels(event: ModelEvent.RegisterAdditional) {
             event.register(WyllandTomeBEWLR.ICON_MODEL_LOC)
             event.register(WyllandTomeBEWLR.SPINE_MODEL_LOC)
@@ -152,12 +147,11 @@ class EnderkinesisModForgeClient {
          *  is keyed by the same `ResourceLocation`s we registered with
          *  [registerAdditionalModels], so direct lookup works. */
         /** Load the Moth Cloth glint overlay core shader once per resource reload. */
-        @JvmStatic
         fun registerShaders(event: RegisterShadersEvent) {
             event.registerShader(
                 net.minecraft.client.renderer.ShaderInstance(
                     event.resourceProvider,
-                    ResourceLocation("enderkinesis", "moth_cloth"),
+                    EnderkinesisMod.id("moth_cloth"),
                     DefaultVertexFormat.BLOCK,
                 ),
             ) { instance ->
@@ -166,7 +160,7 @@ class EnderkinesisModForgeClient {
             event.registerShader(
                 net.minecraft.client.renderer.ShaderInstance(
                     event.resourceProvider,
-                    ResourceLocation("enderkinesis", "moth_camo"),
+                    EnderkinesisMod.id("moth_camo"),
                     DefaultVertexFormat.NEW_ENTITY,
                 ),
             ) { instance ->
@@ -175,7 +169,7 @@ class EnderkinesisModForgeClient {
             event.registerShader(
                 net.minecraft.client.renderer.ShaderInstance(
                     event.resourceProvider,
-                    ResourceLocation("enderkinesis", "owl_sight"),
+                    EnderkinesisMod.id("owl_sight"),
                     DefaultVertexFormat.POSITION,
                 ),
             ) { instance ->
@@ -184,7 +178,7 @@ class EnderkinesisModForgeClient {
             event.registerShader(
                 net.minecraft.client.renderer.ShaderInstance(
                     event.resourceProvider,
-                    ResourceLocation("enderkinesis", "strike_sketch"),
+                    EnderkinesisMod.id("strike_sketch"),
                     DefaultVertexFormat.POSITION_TEX,
                 ),
             ) { instance ->
@@ -193,7 +187,7 @@ class EnderkinesisModForgeClient {
             event.registerShader(
                 net.minecraft.client.renderer.ShaderInstance(
                     event.resourceProvider,
-                    ResourceLocation("enderkinesis", "strike_normals"),
+                    EnderkinesisMod.id("strike_normals"),
                     DefaultVertexFormat.NEW_ENTITY,
                 ),
             ) { instance ->
@@ -201,7 +195,6 @@ class EnderkinesisModForgeClient {
             }
         }
 
-        @JvmStatic
         fun captureWyllandTomeBakes(event: ModelEvent.ModifyBakingResult) {
             val models = event.models
             WyllandTomeBEWLR.iconModel = models[WyllandTomeBEWLR.ICON_MODEL_LOC]
@@ -222,7 +215,6 @@ class EnderkinesisModForgeClient {
                 models[org.shipwrights.enderkinesis.client.VoidHookRenderer.CRYSTAL_MODEL_LOCATION]
         }
 
-        @JvmStatic
         fun onAddPackFinders(event: AddPackFindersEvent) {
             if (event.packType != PackType.CLIENT_RESOURCES) return
             val modFile = ModList.get()
@@ -248,7 +240,6 @@ class EnderkinesisModForgeClient {
          *  `CatalogerRenderer` so the book stays visible whenever the
          *  level is being drawn — the cataloger's own frustum culling
          *  doesn't matter. */
-        @JvmStatic
         fun onRenderLevelStage(event: RenderLevelStageEvent) {
             val cameraPos = event.camera.position
             val bufferSource = Minecraft.getInstance().renderBuffers().bufferSource()
@@ -322,7 +313,6 @@ class EnderkinesisModForgeClient {
 
         // `ForgeGui.render` replaces `Gui.render` with no super call, so `GuiScryingMixin`
         // never runs on Forge. These two listeners do its work.
-        @JvmStatic
         fun onRenderGuiPre(event: RenderGuiEvent.Pre) {
             val graphics = event.guiGraphics
             ScryingClient.renderFadeOverlay(graphics)
@@ -336,13 +326,11 @@ class EnderkinesisModForgeClient {
             event.isCanceled = true
         }
 
-        @JvmStatic
         fun onRenderGuiPost(event: RenderGuiEvent.Post) {
             ScryingClient.renderForeground(event.guiGraphics, event.partialTick)
             TomeSummonOverlay.renderForeground(event.guiGraphics, event.partialTick)
         }
 
-        @JvmStatic
         fun registerDimensionEffects(event: RegisterDimensionSpecialEffectsEvent) {
             // Register the custom Sselith DimensionSpecialEffects. The dimension_type JSON
             // declares `effects: enderkinesis:sselith_repertory`; this is what resolves that

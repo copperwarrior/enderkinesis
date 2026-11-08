@@ -5,7 +5,6 @@ import com.mojang.blaze3d.vertex.VertexFormat
 import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.ShaderInstance
-import net.minecraft.client.renderer.texture.TextureAtlas
 import java.util.function.Supplier
 
 /**
@@ -23,7 +22,6 @@ object MothClothRenderType {
     @Volatile
     private var loggedNullShader: Boolean = false
 
-    @JvmStatic
     val SHADER_SUPPLIER: Supplier<ShaderInstance> = Supplier {
         val current = shader
         if (current == null && !loggedNullShader) {
@@ -47,7 +45,7 @@ object MothClothRenderType {
             .setShaderState(RenderStateShard.ShaderStateShard(SHADER_SUPPLIER))
             .setTextureState(
                 RenderStateShard.TextureStateShard(
-                    TextureAtlas.LOCATION_BLOCKS, false, true,
+                    BLOCK_ATLAS, false, true,
                 ),
             )
             // Additive over the solid pass — glint colour adds to the wool.

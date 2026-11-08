@@ -28,19 +28,19 @@ class DreamSandLayerBlock(properties: BlockBehaviour.Properties) : Block(propert
         builder.add(LAYERS, WATERLOGGED)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext,
     ): VoxelShape = SHAPES[state.getValue(LAYERS)]
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun useShapeForLightOcclusion(state: BlockState): Boolean = true
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getFluidState(state: BlockState): FluidState =
         if (state.getValue(WATERLOGGED)) Fluids.WATER.getSource(false) else super.getFluidState(state)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,

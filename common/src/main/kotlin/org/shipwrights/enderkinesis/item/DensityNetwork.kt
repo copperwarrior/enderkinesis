@@ -5,6 +5,7 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Network packets for the Staff of Density.
  *
@@ -13,6 +14,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
  *    responds with a [STATE] back to that single player.
  *  - [STATE] (S2C): the ship's current multiplier (validated server-side).
  *  - [COMMIT] (C2S): on right-click release, apply the chosen multiplier. */
+@OptIn(GameTickOnly::class)
 object DensityNetwork {
 
     val BEGIN: ResourceLocation = EnderkinesisMod.id("staff_of_density/begin")

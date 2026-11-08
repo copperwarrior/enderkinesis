@@ -7,6 +7,8 @@ import org.joml.Vector3dc
 import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.mod.common.dimensionId
 import java.util.concurrent.ConcurrentHashMap
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.util.PhysTickOnly
 
 /**
  * Server-side registry of orb body IDs + each body's anchor world
@@ -75,7 +77,6 @@ object OrbBodyRegistry {
     private val NO_IDS = LongArray(0)
 
     /** True when no dimension has an orb. For the per-move fast exit; any thread. */
-    @JvmStatic
     fun hasNone(): Boolean {
         for (orbs in byDimension.values) if (orbs.isNotEmpty()) return false
         return true
@@ -145,6 +146,8 @@ object OrbGravityCanceller {
      *  time at most (10 frames: about 0.14 m), then the anchor spring returns it. */
     private const val RESCAN_FRAMES = 10
 
+    // Subscribes on the game thread; the callback runs on the physics thread.
+    @OptIn(PhysTickOnly::class, VsBeta::class)
     fun register() {
         if (registered) return
         registered = true

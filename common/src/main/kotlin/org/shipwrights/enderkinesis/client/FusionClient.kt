@@ -32,7 +32,9 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object FusionClient {
 
     private const val COLOR: Int = 0x7B0AFB
@@ -397,7 +399,6 @@ object FusionClient {
     private fun isWielding(entity: Entity?): Boolean =
         entity is Player && entity.isUsingItem && entity.useItem.item == EKItems.STAFF_OF_FUSION.get()
 
-    @JvmStatic
     fun renderAll(pose: PoseStack, consumers: MultiBufferSource, camX: Double, camY: Double, camZ: Double, tickDelta: Float) {
         if (views.isEmpty()) return
         val level = Minecraft.getInstance().level ?: return

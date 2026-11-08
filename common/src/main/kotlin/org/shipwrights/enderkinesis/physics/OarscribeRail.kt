@@ -10,12 +10,15 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.atan2
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Holds a ship on the line its writing Oarscribes draw: it drives the ship to a speed along the line, pulls it
  * back onto the line, holds the heading the ship had when the writing started, and carries its weight.
  * One per ship, so two Oarscribes on one ship do not carry the weight twice.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class OarscribeRail : ShipPhysicsListener {
 
     private class Drive(val right: Vector3dc, val power: Int, val expiresAtNanos: Long)
@@ -130,7 +133,7 @@ class OarscribeRail : ShipPhysicsListener {
             .add(0.0, support, 0.0)
             .mul(mass)
         val applied = clamp(force, maxForce)
-        physShip.applyInvariantForce(applied)
+        physShip.applyWorldForceToBodyPos(applied)
         return applied.length()
     }
 

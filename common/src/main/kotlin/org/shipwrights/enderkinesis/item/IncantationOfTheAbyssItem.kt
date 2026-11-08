@@ -17,9 +17,11 @@ import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Incantation of the Abyss: hold right-click to open a sphere of deep-sea pressure where the caster looks.
  *  Mobs in it drown and get Slowness and Darkness. Ships in it sink at a steady speed. */
+@OptIn(GameTickOnly::class)
 class IncantationOfTheAbyssItem(properties: Properties) : IncantationItem(
     properties,
     HAND_COLOUR,

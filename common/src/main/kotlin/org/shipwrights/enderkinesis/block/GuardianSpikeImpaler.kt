@@ -27,6 +27,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Predicate
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
 /**
  * Pins a body to each guardian spike that runs into one of its blocks: a world spike into a ship, a ship's
@@ -83,6 +87,8 @@ object GuardianSpikeImpaler {
     private val IS_SPIKE = Predicate<BlockState> { it.block is GuardianSpikeBase }
     private val IDENTITY: Quaterniondc = Quaterniond()
 
+    // Subscribes on the game thread; the physTickEvent callback runs on the physics thread.
+    @OptIn(PhysTickOnly::class, VsBeta::class)
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tick)
         LifecycleEvent.SERVER_STOPPED.register {
@@ -96,6 +102,7 @@ object GuardianSpikeImpaler {
         }
     }
 
+    @OptIn(GameTickOnly::class)
     private fun tick(level: ServerLevel) {
         if (level.gameTime % SCAN_INTERVAL != 0L) return
         val dimId = level.dimensionId
@@ -110,6 +117,7 @@ object GuardianSpikeImpaler {
     }
 
     /** World spikes inside [ship]'s world AABB, against [ship]. */
+    @OptIn(GameTickOnly::class)
     private fun scanWorldSpikes(level: ServerLevel, ship: LoadedServerShip, map: HashMap<Key, Impale>, now: Long) {
         var welds = 0
         val box = ship.worldAABB
@@ -120,6 +128,7 @@ object GuardianSpikeImpaler {
     }
 
     /** Spikes built on [ship], against the world and every other ship they reach. */
+    @OptIn(GameTickOnly::class)
     private fun scanShipSpikes(level: ServerLevel, ship: LoadedServerShip, map: HashMap<Key, Impale>, now: Long, dimId: String) {
         val box = ship.shipAABB ?: return
         var welds = 0
@@ -170,6 +179,7 @@ object GuardianSpikeImpaler {
         }
     }
 
+    @OptIn(GameTickOnly::class)
     private fun consider(
         level: ServerLevel, map: HashMap<Key, Impale>, key: Key, hit: Hit,
         spikeShip: LoadedServerShip?, targetShip: LoadedServerShip?, now: Long, count: Int,
@@ -215,6 +225,7 @@ object GuardianSpikeImpaler {
     }
 
     /** Mass for the relative motion of the two bodies; the world and static ships do not move. Null if neither moves. */
+    @OptIn(GameTickOnly::class)
     private fun reducedMass(a: LoadedServerShip?, b: LoadedServerShip?): Double? {
         val ma = a?.takeUnless { it.isStatic }?.let { Math.max(it.inertiaData.mass, MIN_MASS) }
         val mb = b?.takeUnless { it.isStatic }?.let { Math.max(it.inertiaData.mass, MIN_MASS) }
@@ -244,6 +255,7 @@ object GuardianSpikeImpaler {
      * Physics thread. Poses the joint from the live transforms: a pose taken on the server thread is a tick or
      * more old, and the joint snaps the bodies back to it. Crossed spikes then fight and throw the ship.
      */
+    @OptIn(PhysTickOnly::class, VsBeta::class, UnavailableInKrunch::class)
     private fun attach(physLevel: VsiPhysLevel, impale: Impale) {
         if (impale.state.get() != PENDING) return
         val spikeShip = if (impale.spikeBody == WORLD) null else physLevel.getShipById(impale.spikeBody)
@@ -278,6 +290,7 @@ object GuardianSpikeImpaler {
      * Moves the limit spring after a target that went deeper, so a push meets drag and a pull meets the spring.
      * Tears the weld when the stretch shows a load over [HOLD_G] weights: stiffness and compliance scale with mass.
      */
+    @OptIn(VsBeta::class, UnavailableInKrunch::class)
     private fun track(level: ServerLevel, impale: Impale, spikeShip: Ship?, targetShip: Ship?) {
         val id = impale.state.get()
         if (id < 0) return
@@ -305,6 +318,7 @@ object GuardianSpikeImpaler {
     }
 
     /** Zero-width soft limit: a spring-damper at [Impale.centre]. Limits are world distances. */
+    @OptIn(VsBeta::class, UnavailableInKrunch::class)
     private fun Impale.limit() = VSD6Joint.LinearLimitPair(
         lowerLimit = centre.toFloat(),
         upperLimit = centre.toFloat(),
@@ -313,6 +327,7 @@ object GuardianSpikeImpaler {
     )
 
     /** Releases every weld whose target no longer touches its spike, or whose spike or body is gone. */
+    @OptIn(GameTickOnly::class)
     private fun sweep(level: ServerLevel, map: HashMap<Key, Impale>, now: Long) {
         if (map.isEmpty()) return
         val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)

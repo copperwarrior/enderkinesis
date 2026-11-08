@@ -770,15 +770,13 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     )
 
     companion object {
-        /** Joints name ship IDs, so every joint through an orb that VS2 is about to move is
-         *  released while the block entities still exist. The sender holds each joint. */
-        @JvmStatic
         /** The orb at [pos], or null when its chunk is not loaded. `Level.getBlockEntity` on the
          *  server loads the chunk, so a per-tick peer read kept each peer chunk loaded. */
         fun loadedAt(level: ServerLevel, pos: BlockPos): OrbOfLinkingBlockEntity? =
             level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4)?.getBlockEntity(pos) as? OrbOfLinkingBlockEntity
 
-        @JvmStatic
+        /** Joints name ship IDs, so every joint through an orb that VS2 is about to move is
+         *  released while the block entities still exist. The sender holds each joint. */
         fun releaseJointsBeforeMove(level: ServerLevel, positions: Collection<BlockPos>) {
             for (pos in positions) {
                 val orb = level.getBlockEntity(pos) as? OrbOfLinkingBlockEntity ?: continue

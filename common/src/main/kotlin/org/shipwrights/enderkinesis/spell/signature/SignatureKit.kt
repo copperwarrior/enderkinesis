@@ -27,6 +27,7 @@ import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 object SignatureKit {
     fun creatures(e: SignatureEntity, centre: Vec3, r: Double): List<LivingEntity> =
@@ -102,6 +103,7 @@ object SignatureKit {
 }
 
 /** Push the touched blocks at their points, never the ship as a whole, so the effect scales with mass. */
+@OptIn(GameTickOnly::class)
 object SignatureShips {
     /** VS2 mass of an ordinary block, in kg. */
     const val BLOCK_KG = 1000.0

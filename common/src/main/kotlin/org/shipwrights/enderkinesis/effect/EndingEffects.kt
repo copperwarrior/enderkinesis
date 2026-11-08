@@ -18,7 +18,6 @@ object EndingEffects {
     @JvmStatic
     fun end() = ending.remove()
 
-    @JvmStatic
     fun stillHas(entity: LivingEntity, effect: MobEffect): Boolean {
         if (!entity.hasEffect(effect)) return false
         val e = ending.get() ?: return true

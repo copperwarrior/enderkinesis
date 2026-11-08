@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Camera;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -15,7 +17,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.Slice;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -41,18 +42,19 @@ public class LevelRendererWohlonBiomeSkyMixin {
         if (level != null && WohlonBiomeSkyState.shouldRenderWohlonSky()) WohlonSkyBand.render(poseStack, level, partialTick);
     }
 
-    @Redirect(
+    @WrapOperation(
         method = "renderSky",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/client/renderer/DimensionSpecialEffects;getSunriseColor(FF)[F"
         )
     )
-    private float[] enderkinesis$wohlonSunsetColor(DimensionSpecialEffects effects, float timeOfDay, float partialTick) {
+    private float[] enderkinesis$wohlonSunsetColor(DimensionSpecialEffects effects, float timeOfDay, float partialTick,
+                                                   Operation<float[]> original) {
         float blend = WohlonBiomeSkyState.getCurrentBlend();
-        if (blend <= 0f) return effects.getSunriseColor(timeOfDay, partialTick);
+        if (blend <= 0f) return original.call(effects, timeOfDay, partialTick);
         if (blend >= 0.5f) return null;
-        float[] orig = effects.getSunriseColor(timeOfDay, partialTick);
+        float[] orig = original.call(effects, timeOfDay, partialTick);
         if (orig == null) return null;
         return new float[] {
             orig[0], orig[1], orig[2],

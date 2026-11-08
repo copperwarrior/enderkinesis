@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.body.ClientOrbRegistry
 import org.valkyrienskies.core.api.bodies.ClientVsBody
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Client-side renderer for Orb of Potential VS Bodies.
@@ -41,6 +42,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *  Replaces the legacy BER (`FractalProjectorRenderer`) which is now
  *  unregistered; the block has no visible component of its own.
  */
+@OptIn(GameTickOnly::class)
 object OrbOfPotentialRenderer {
 
     private const val SECONDS_WRAP_MS: Long = 100_000_000L

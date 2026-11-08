@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LevelRenderer;
@@ -13,7 +14,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Constant;
 import org.spongepowered.asm.mixin.injection.ModifyConstant;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.Slice;
 
 /**
@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.Slice;
  *
  * <p>Vanilla binds the sun/moon textures via two
  * {@code RenderSystem.setShaderTexture(int, ResourceLocation)} calls inside
- * {@code renderSky}; this mixin {@link Redirect}s every such call from that
+ * {@code renderSky}; this mixin wraps every such call from that
  * method, lets non-sun/moon textures (e.g. {@code WHITE_LOCATION} that
  * vanilla also binds in the same method) pass through untouched, and rewrites
  * the sun + moon paths to our Wogor eye. {@code DimensionSpecialEffects} has
@@ -49,21 +49,21 @@ public abstract class LevelRendererWohlonSunMoonMixin {
     private static final ResourceLocation ENDERKINESIS$VANILLA_MOON =
         new ResourceLocation("textures/environment/moon_phases.png");
 
-    @Redirect(
+    @WrapOperation(
         method = "renderSky",
         at = @At(
             value = "INVOKE",
             target = "Lcom/mojang/blaze3d/systems/RenderSystem;setShaderTexture(ILnet/minecraft/resources/ResourceLocation;)V"
         )
     )
-    private void enderkinesis$swapWohlonSunMoon(int slot, ResourceLocation texture) {
+    private void enderkinesis$swapWohlonSunMoon(int slot, ResourceLocation texture, Operation<Void> original) {
         ClientLevel lvl = this.level;
         if (lvl != null && enderkinesis$wohlonSkyActive(lvl)
             && (texture.equals(ENDERKINESIS$VANILLA_SUN) || texture.equals(ENDERKINESIS$VANILLA_MOON))) {
-            RenderSystem.setShaderTexture(slot, ENDERKINESIS$WOGOR_EYE);
+            original.call(slot, ENDERKINESIS$WOGOR_EYE);
             return;
         }
-        RenderSystem.setShaderTexture(slot, texture);
+        original.call(slot, texture);
     }
 
     /**
@@ -74,18 +74,18 @@ public abstract class LevelRendererWohlonSunMoonMixin {
      * single-image `wogor_eye.png` is laid against once the divisors are
      * also rewritten (see below).
      */
-    @Redirect(
+    @WrapOperation(
         method = "renderSky",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/client/multiplayer/ClientLevel;getMoonPhase()I"
         )
     )
-    private int enderkinesis$wohlonMoonPhase(ClientLevel lvl) {
+    private int enderkinesis$wohlonMoonPhase(ClientLevel lvl, Operation<Integer> original) {
         if (enderkinesis$wohlonSkyActive(lvl)) {
             return 0;
         }
-        return lvl.getMoonPhase();
+        return original.call(lvl);
     }
 
     private boolean enderkinesis$wohlonSkyActive(ClientLevel lvl) {
@@ -131,11 +131,5 @@ public abstract class LevelRendererWohlonSunMoonMixin {
             return 1.0F;
         }
         return orig;
-    }
-
-    static {
-        // Keep WOGOR_EYE from being dropped — only the reflectively-invoked redirect path reads it.
-        @SuppressWarnings("unused")
-        ResourceLocation keep = ENDERKINESIS$WOGOR_EYE;
     }
 }

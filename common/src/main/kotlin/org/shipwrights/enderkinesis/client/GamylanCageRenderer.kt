@@ -11,6 +11,8 @@ import net.minecraft.util.Mth
 import org.joml.Matrix3f
 import org.joml.Matrix4f
 import org.joml.Quaternionf
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 
 /** Called from the LevelRenderer mixin once per frame after the
@@ -348,6 +350,8 @@ object GamylanCageRenderer {
      *  for the idle spin — mirrors the server-side discovery pass in
      *  [org.shipwrights.enderkinesis.body.GamylanCagePedestals] so both
      *  sides agree on which pedestal counts as home. */
+    // The render thread reads the client ship's transform, not physics state; as in WogorBudRenderer.
+    @OptIn(GameTickOnly::class)
     private fun isOnPedestal(mc: Minecraft, livePos: org.joml.Vector3d): Boolean {
         val level = mc.level ?: return false
         if (columnHitsPedestal(level, livePos, livePos)) return true
@@ -355,7 +359,7 @@ object GamylanCageRenderer {
             livePos.x - 1.0, livePos.y - PEDESTAL_SCAN_MAX_DROP.toDouble() - 1.0, livePos.z - 1.0,
             livePos.x + 1.0, livePos.y,                                            livePos.z + 1.0,
         )
-        for (ship in level.shipObjectWorld.allShips.getIntersecting(scan)) {
+        for (ship in level.shipObjectWorld.allShips.getIntersecting(scan, level.dimensionId)) {
             val shipyard = org.joml.Vector3d(livePos)
             ship.transform.worldToShip.transformPosition(shipyard)
             if (columnHitsPedestal(level, livePos, shipyard)) return true

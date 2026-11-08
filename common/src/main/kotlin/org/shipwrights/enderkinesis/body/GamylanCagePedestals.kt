@@ -12,6 +12,7 @@ import org.joml.Vector3d
 import org.joml.primitives.AABBd
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.valkyrienskies.core.api.ships.Ship
+import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.internal.joints.VSFixedJoint
 import org.valkyrienskies.core.internal.joints.VSJoint
 import org.valkyrienskies.core.internal.joints.VSJointPose
@@ -122,6 +123,8 @@ object GamylanCagePedestals {
         }
     }
 
+    // Server level tick (GamylanCagePedestals.tick), on the server thread.
+    @OptIn(GameTickOnly::class)
     private fun tickHomes(level: ServerLevel, cages: Collection<GamylanCageData>): Boolean {
         var dirty = false
         for (data in cages) {
@@ -207,6 +210,8 @@ object GamylanCagePedestals {
      *  frame. Iterates ships intersecting a thin vertical AABB around
      *  the crystal and the world column, ranks by distance-to-crystal
      *  in world coords, returns the nearest hit. */
+    // Server level tick (GamylanCagePedestals.tick), on the server thread.
+    @OptIn(GameTickOnly::class)
     private fun findPedestalHome(level: ServerLevel, livePos: Vector3d): Home? {
         val scanAabb = AABBd(
             livePos.x - HOME_XZ_TOLERANCE,
@@ -228,10 +233,7 @@ object GamylanCagePedestals {
         }
 
         // Every ship whose bbox overlaps the search AABB.
-        val dimId = level.dimensionId
-        for (ship in level.shipObjectWorld.allShips.getIntersecting(scanAabb)) {
-            // `allShips` holds the ships of each dimension.
-            if (ship.chunkClaimDimension != dimId) continue
+        for (ship in level.shipObjectWorld.allShips.getIntersecting(scanAabb, level.dimensionId)) {
             val shipyardPos = Vector3d(livePos)
             ship.transform.worldToShip.transformPosition(shipyardPos)
             pickHomeInFrame(level, livePos, shipyardPos, ship, pedestalBlock)?.let { candidate ->
@@ -305,6 +307,8 @@ object GamylanCagePedestals {
      *  ship's live transform (or leave world-frame values as-is when no
      *  ship). Returns false if the host ship has despawned since the
      *  home was recorded — the caller drops the home in that case. */
+    // Server level tick (GamylanCagePedestals.tick), on the server thread.
+    @OptIn(GameTickOnly::class)
     private fun refreshHomeTargets(level: ServerLevel, data: GamylanCageData, found: Home): Boolean {
         val shipyardHover = pedestalHoverShipyard(found.pedestalPos, data.shapeDims)
         val shipId = found.shipId

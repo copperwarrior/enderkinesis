@@ -11,11 +11,13 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Finds a "suitably open" landing spot in a target dimension and moves entities there, giving up
  * after a handful of tries (as requested in the design).
  */
+@OptIn(GameTickOnly::class)
 object SafeTeleporter {
 
     private const val MAX_TRIES = 8

@@ -5,6 +5,7 @@ import com.seibel.distanthorizons.api.DhApi
 import com.seibel.distanthorizons.api.enums.rendering.EDhApiFogFalloff
 import com.seibel.distanthorizons.api.methods.events.abstractEvents.DhApiBeforeFogRenderEvent
 import com.seibel.distanthorizons.api.methods.events.sharedParameterObjects.DhApiCancelableEventParam
+import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
 import org.shipwrights.enderkinesis.client.IchaericInkVisuals
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
@@ -14,24 +15,23 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.dimension.YgannAbyss
 import java.awt.Color
 
-// Loads DH API classes, so only DistantHorizonsCompat may reach it, after its isModLoaded check.
+// Client only, and loads DH API classes: only DistantHorizonsCompat.initClient may reach it, after its isModLoaded check.
 internal object DhApiAccess {
 
-    fun isDhThread(): Boolean = DhApi.isDhThread()
-
-    fun registerFogMatch() {
+    fun initClient() {
         DhApi.events.bind(DhApiBeforeFogRenderEvent::class.java, LodFogMatch())
+        ClientTickEvent.CLIENT_POST.register { _ -> updateRenderGate() }
     }
 
     /**
      * Cancelling DH's render events skips the LODs but not its vanilla fade, which then fades far chunks
      * into an empty LOD buffer. The API override sets rendererMode DISABLED, which gates both, and is not saved.
      */
-    fun updateRenderGate() {
+    private fun updateRenderGate() {
         val configs = DhApi.Delayed.configs ?: return
         val enabled = configs.graphics().renderingEnabled()
         if (suppressLods()) {
-            if (enabled.apiValue != false) enabled.setValue(false)
+            if (enabled.apiValue != false) enabled.setValue(false, API_CALLER)
         } else if (enabled.apiValue != null) {
             enabled.clearValue()
         }
@@ -72,5 +72,8 @@ internal object DhApiAccess {
     }
 
     private const val PUSHED_OUT_FOG = 1.0e6f
+
+    // DH shows this name to players as the mod that changed the setting.
+    private const val API_CALLER = "Enderkinesis"
     private const val BLOCKS_PER_CHUNK = 16
 }

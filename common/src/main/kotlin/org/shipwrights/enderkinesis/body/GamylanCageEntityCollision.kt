@@ -11,11 +11,13 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Entity-vs-cage collision for Wand-of-Ga'Mylan cages. A crystal collides as its exact convex
  * hull ([GamylanCageShape.Hull]). A soder bottle collides as its compound of primitives.
  */
+@OptIn(VsBeta::class)
 object GamylanCageEntityCollision {
 
     private const val COLLISION_EPSILON: Double = 1.0e-12

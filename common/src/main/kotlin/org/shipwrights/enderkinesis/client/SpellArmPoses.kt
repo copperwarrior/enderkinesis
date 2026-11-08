@@ -160,7 +160,6 @@ object SpellArmPoses {
 
     private fun armOf(player: Player, hand: InteractionHand) = if (hand == InteractionHand.MAIN_HAND) player.mainArm else player.mainArm.opposite
 
-    @JvmStatic
     fun started(player: Player, use: SpellHand.Use, hand: InteractionHand) {
         val st = states.getOrPut(player) { State() }
         val now = player.tickCount.toDouble()
@@ -169,7 +168,6 @@ object SpellArmPoses {
         st.using = Using(use, now, armOf(player, hand))
     }
 
-    @JvmStatic
     fun released(player: Player) {
         states.getOrPut(player) { State() }.released = player.tickCount.toDouble()
     }

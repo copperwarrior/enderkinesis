@@ -30,6 +30,7 @@ class GuardianSpikeOuterBlock(props: Properties) : GuardianSpikeBase(props) {
 
     override fun spikes(state: BlockState): List<SpikeAttachment> = listOf(state.getValue(ATTACH))
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
         val attach = state.getValue(ATTACH)
         val support = pos.offset(attach.dx, attach.dy, attach.dz)
@@ -38,6 +39,7 @@ class GuardianSpikeOuterBlock(props: Properties) : GuardianSpikeBase(props) {
     }
 
     // The support is not a face neighbour; any face update is just a cheap chance to re-check it.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, dir: Direction, neighbor: BlockState, level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
     ): BlockState {
@@ -45,6 +47,7 @@ class GuardianSpikeOuterBlock(props: Properties) : GuardianSpikeBase(props) {
         return if (state.canSurvive(level, pos)) state else Blocks.AIR.defaultBlockState()
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         if (!state.canSurvive(level, pos)) level.destroyBlock(pos, true)
     }
@@ -52,6 +55,7 @@ class GuardianSpikeOuterBlock(props: Properties) : GuardianSpikeBase(props) {
     override fun isRandomlyTicking(state: BlockState): Boolean = true
 
     // Fallback for supports removed without a break event (explosions, pistons).
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun randomTick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         tick(state, level, pos, random)
     }

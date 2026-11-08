@@ -18,6 +18,7 @@ import org.valkyrienskies.core.internal.joints.VSRevoluteJoint.VSRevoluteDriveVe
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
 /**
  * Tome of Hinging behavior — builds a [VSRevoluteJoint] (1-DOF hinge) between the bodies
@@ -114,6 +115,8 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
 
     // -----------------------------------------------------------------------------------------
 
+    // Konstant is the only target backend.
+    @OptIn(UnavailableInKrunch::class)
     private fun tryBindHinge(
         level: ServerLevel,
         sendBe: OrbOfLinkingBlockEntity,

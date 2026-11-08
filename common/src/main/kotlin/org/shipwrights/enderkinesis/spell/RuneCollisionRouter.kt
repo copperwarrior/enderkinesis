@@ -11,6 +11,8 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.vsApi
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
 // VS2 reports contacts on the physics thread; the game thread drains them (see [RuneTriggers]).
 @OptIn(VsBeta::class)
@@ -22,6 +24,8 @@ object RuneCollisionRouter {
 
     @Volatile private var registered = false
 
+    // Subscribes on the game thread; the callback runs on the physics thread.
+    @OptIn(PhysTickOnly::class, UnavailableInKrunch::class)
     fun register() {
         if (registered) return
         registered = true
@@ -47,6 +51,7 @@ object RuneCollisionRouter {
         }
     }
 
+    @OptIn(PhysTickOnly::class)
     private fun handle(event: CollisionEvent) {
         val byHost = runes[event.dimensionId] ?: return
         if (byHost.isEmpty()) return
@@ -62,6 +67,7 @@ object RuneCollisionRouter {
         }
     }
 
+    @OptIn(PhysTickOnly::class)
     private fun check(
         dimension: DimensionId, byHost: Map<BlockPos, Set<Direction>>, contact: ContactPoint, worldToShip: Matrix4dc?,
     ) {

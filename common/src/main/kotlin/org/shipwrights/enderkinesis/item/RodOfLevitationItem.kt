@@ -19,6 +19,7 @@ import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.level.material.Fluids
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.isBlockInShipyard
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Rod of Levitation. Three behaviours, split across vanilla's interaction hooks:
@@ -33,6 +34,7 @@ import org.valkyrienskies.mod.common.isBlockInShipyard
  *   Architectury's `InteractionEvent.LEFT_CLICK_BLOCK`, since vanilla `Item` has no
  *   left-click hook.
  */
+@OptIn(GameTickOnly::class)
 class RodOfLevitationItem(properties: Properties) : Item(properties) {
 
     override fun interactLivingEntity(

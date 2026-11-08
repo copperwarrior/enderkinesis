@@ -23,6 +23,7 @@ import org.shipwrights.enderkinesis.registry.EKParticles
 class MothClothBlock(val color: DyeColor, properties: BlockBehaviour.Properties) :
     Block(properties) {
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(
         state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, isMoving: Boolean,
     ) {
@@ -32,7 +33,7 @@ class MothClothBlock(val color: DyeColor, properties: BlockBehaviour.Properties)
         MothClothShipRegistry.add(level as net.minecraft.server.level.ServerLevel, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

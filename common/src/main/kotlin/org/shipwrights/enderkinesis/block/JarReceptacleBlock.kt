@@ -41,7 +41,7 @@ class JarReceptacleBlock(properties: Properties) : HorizontalDirectionalBlock(pr
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState =
         defaultBlockState().setValue(FACING, context.horizontalDirection.opposite)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -91,19 +91,19 @@ class JarReceptacleBlock(properties: Properties) : HorizontalDirectionalBlock(pr
         )
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, moved: Boolean) {
         scheduleFeed(state, level, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos, block: Block, fromPos: BlockPos, moved: Boolean,
     ) {
         scheduleFeed(state, level, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         var bottles = state.getValue(BOTTLES)
         if (!state.getValue(JAR) || bottles == 0) return
@@ -128,7 +128,7 @@ class JarReceptacleBlock(properties: Properties) : HorizontalDirectionalBlock(pr
         if (!level.blockTicks.hasScheduledTick(pos, this)) level.scheduleTick(pos, this, FEED_INTERVAL_TICKS)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
         if (!state.`is`(newState.block) && state.getValue(JAR)) {
             Containers.dropItemStack(level, pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), jarItem(state))

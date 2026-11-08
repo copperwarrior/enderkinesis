@@ -52,7 +52,6 @@ class ParallelographItem(properties: Properties) : Item(properties) {
         private var lastUseHand: InteractionHand = InteractionHand.MAIN_HAND
 
         /** Damped yaw swing of the arm, in degrees, at [nowMillis]. Zero unless [stack] is the one [localPlayer] used. */
-        @JvmStatic
         fun armYawDegrees(stack: ItemStack, localPlayer: Player?, nowMillis: Long): Float {
             // Identity, not equality: equal stacks in other slots and other hands must stay still.
             if (localPlayer == null || localPlayer.getItemInHand(lastUseHand) !== stack) return 0f

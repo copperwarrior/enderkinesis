@@ -57,12 +57,10 @@ class VoidHookRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererPro
     }
 
     companion object {
-        @JvmStatic
         val CRYSTAL_MODEL_LOCATION: ResourceLocation = ResourceLocation("enderkinesis", "block/void_hook_crystal")
 
         /** Set by the platform bake hook. */
         @Volatile
-        @JvmStatic
         var crystalModel: BakedModel? = null
 
         // The darkest crystal texel, by the same rule as the staff gem halos.

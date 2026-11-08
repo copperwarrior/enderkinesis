@@ -13,7 +13,9 @@ import net.minecraft.world.phys.shapes.VoxelShape
  *  destroyed `ButtonBlock`. */
 class WogorButtonBlock(properties: Properties) : Block(properties) {
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape = SHAPE
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape = Shapes.empty()
 
     companion object {

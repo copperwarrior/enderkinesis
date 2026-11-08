@@ -1,7 +1,14 @@
 package org.shipwrights.enderkinesis.util
 
+import net.minecraft.core.BlockPos
+import net.minecraft.core.SectionPos
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
+
+/** Whether the chunk column at [pos] is in this side's chunk cache; positions above or below the world count. */
+fun Level.hasChunkAtPos(pos: BlockPos): Boolean =
+    chunkSource.hasChunk(SectionPos.blockToSectionCoord(pos.x), SectionPos.blockToSectionCoord(pos.z))
 
 /**
  * A server `Level.clip` loads or generates each chunk on its line. A long ray must end at
@@ -11,19 +18,18 @@ object LoadedRay {
 
     private const val CHUNK_EDGE_MARGIN: Double = 0.01
 
-    /** `hasChunkAt` is also true for a chunk that still generates, and a block read there
+    /** `hasChunkAtPos` is also true for a chunk that still generates, and a block read there
      *  stops the server thread until generation is complete. */
     @JvmStatic
-    fun blockLoaded(level: net.minecraft.world.level.Level, pos: net.minecraft.core.BlockPos): Boolean =
+    fun blockLoaded(level: Level, pos: BlockPos): Boolean =
         if (level is ServerLevel) {
             level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4) != null
         } else {
-            level.hasChunkAt(pos)
+            level.hasChunkAtPos(pos)
         }
 
     /** Length of the ray from [origin] along unit [dir], up to [range], that stays in loaded
      *  chunks. A grid walk over chunk columns; the step count is bounded by the range. */
-    @JvmStatic
     fun range(level: ServerLevel, origin: Vec3, dir: Vec3, range: Double): Double {
         val chunks = level.chunkSource
         var cx = Math.floor(origin.x / 16.0).toInt()

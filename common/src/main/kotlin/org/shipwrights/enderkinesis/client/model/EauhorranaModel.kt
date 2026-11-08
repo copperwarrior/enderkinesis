@@ -49,7 +49,6 @@ class EauhorranaModel(private val bakedRoot: ModelPart) : CachedHierarchicalMode
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id(EauhorranaEntity.ID_PATH), "main")
 
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

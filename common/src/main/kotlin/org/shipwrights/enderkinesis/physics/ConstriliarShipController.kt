@@ -11,6 +11,8 @@ import org.joml.Vector3dc
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * The Constriliar's body IS this ship; the entity is the brain riding it. One body
@@ -19,6 +21,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
  * stance feet, or the knees of an upset body. Swimming and the spawn intro keep the
  * hover, which applies the wrench to the body directly.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class ConstriliarShipController(
     /** Platform centre in shipyard coords. */
     @Transient var platformX: Double = 0.0,
@@ -248,7 +251,7 @@ class ConstriliarShipController(
         footLoad.fill(0.0)
         if (stance) applyStruts(physShip, c, physShip.mass, physShip.velocity)
         push(physShip, force)
-        physShip.applyInvariantTorque(torque)
+        physShip.applyWorldTorque(torque)
     }
 
     /** No brain drives the body (after a load the ship simulates before the entity
@@ -258,16 +261,16 @@ class ConstriliarShipController(
     private fun holdBrainless(physShip: PhysShip) {
         val mass = physShip.mass
         val v = physShip.velocity
-        physShip.applyInvariantForce(
+        physShip.applyWorldForceToBodyPos(
             Vector3d(-v.x() * HOLD_DAMPING, GRAVITY - v.y() * HOLD_DAMPING, -v.z() * HOLD_DAMPING).mul(mass),
         )
         val rotation = physShip.transform.shipToWorldRotation
-        val spin = tmp.set(physShip.omega).mul(-HOLD_DAMPING)
+        val spin = tmp.set(physShip.angularVelocity).mul(-HOLD_DAMPING)
         val torque = Vector3d()
         rotation.transformInverse(spin, torque)
         physShip.momentOfInertia.transform(torque)
         rotation.transform(torque)
-        physShip.applyInvariantTorque(torque)
+        physShip.applyWorldTorque(torque)
     }
 
     /** Outside force = m·a − what this controller applied − gravity. VS2 integrates the
@@ -306,7 +309,7 @@ class ConstriliarShipController(
         inertiaInverse.transform(alpha)
         rotation.transform(alpha)
         val r = shakeArm.set(physShip.transform.positionInWorld).sub(plateWorld)
-        val omega = physShip.omega
+        val omega = physShip.angularVelocity
         val spin = omega.cross(omega.cross(r, shakeSpin), shakeSpin)
         val accel = alpha.cross(r).add(spin)
         val max = SHAKE_PIVOT_MAX_ACCEL
@@ -321,7 +324,7 @@ class ConstriliarShipController(
 
     private fun push(physShip: PhysShip, f: Vector3d) {
         applied.add(f)
-        physShip.applyInvariantForce(f)
+        physShip.applyWorldForceToBodyPos(f)
     }
 
     private fun pushAt(physShip: PhysShip, f: Vector3d, pos: Vector3d) {
@@ -355,7 +358,7 @@ class ConstriliarShipController(
     private fun airTurn(physShip: PhysShip, c: Command, torque: Vector3d) {
         val cap = LEG_TORQUE * AIR_TORQUE_SHARE * c.strengthScale
         val mag = torque.length()
-        physShip.applyInvariantTorque(Vector3d(torque).mul(if (mag > cap) cap / mag else 1.0))
+        physShip.applyWorldTorque(Vector3d(torque).mul(if (mag > cap) cap / mag else 1.0))
     }
 
     /** Upset: the knees that touch a surface push it away, through the same solver as
@@ -448,7 +451,7 @@ class ConstriliarShipController(
         // A fall shake swings faster than the walking spring can follow (under 1 Hz): it
         // stiffens for it, the damping kept in proportion.
         val gain = if (c.shaking) SHAKE_STIFFNESS_GAIN else 1.0
-        rotDiffVector.mul(ROTATION_STIFFNESS * gain).sub(tmp.set(physShip.omega).mul(ROTATION_DAMPING * Math.sqrt(gain)))
+        rotDiffVector.mul(ROTATION_STIFFNESS * gain).sub(tmp.set(physShip.angularVelocity).mul(ROTATION_DAMPING * Math.sqrt(gain)))
 
         val torque = Vector3d()
         rotation.transformInverse(rotDiffVector, torque)
@@ -503,7 +506,7 @@ class ConstriliarShipController(
         if (c.legOnly && mag > cap) overLimit = true
         val held = if (c.legOnly) cap * boost else cap
         if (mag > held) residual.mul(held / mag)
-        if (held > 0.0) physShip.applyInvariantTorque(Vector3d(residual))
+        if (held > 0.0) physShip.applyWorldTorque(Vector3d(residual))
         spendExertion(c, dt)
     }
 
@@ -573,7 +576,7 @@ class ConstriliarShipController(
             if (!c.strutStance[i]) continue
             shipToWorld.transformPosition(hipWorld.set(c.strutHipX[i], c.strutHipY[i], c.strutHipZ[i]))
             val r = hipArm.set(hipWorld).sub(comWorld)
-            velHip.set(physShip.omega).cross(r).add(vel)
+            velHip.set(physShip.angularVelocity).cross(r).add(vel)
             val lenUp = tmp.set(hipWorld)
                 .sub(c.strutAnchorX[i], c.strutAnchorY[i], c.strutAnchorZ[i])
                 .dot(up)

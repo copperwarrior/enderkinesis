@@ -13,7 +13,7 @@ import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.entity.PASSES_THROUGH_WOGOR_LEAVES
 
 class WogorLeavesBlock(properties: BlockBehaviour.Properties) : LeavesBlock(properties) {
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(
         state: BlockState,
         level: BlockGetter,

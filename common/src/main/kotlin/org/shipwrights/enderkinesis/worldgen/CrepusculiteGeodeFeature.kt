@@ -205,6 +205,7 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
         // main server thread. The level here is a WorldGenRegion during chunk gen but the
         // ServerLevel itself for `/place feature` — handle both.
         val placed = placedBlocks.get()
+        @Suppress("DEPRECATION") // WorldGenRegion.getLevel: the only path to the ServerLevel here in 1.20.1.
         val server: ServerLevel? = (level as? WorldGenRegion)?.level ?: (level as? ServerLevel)
         if (server == null || placed.isNullOrEmpty()) return true
         // A DH LOD chunk is never saved; assembling would force-load and shipify a far real chunk.

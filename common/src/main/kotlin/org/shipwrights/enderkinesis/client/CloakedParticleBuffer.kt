@@ -38,12 +38,10 @@ object CloakedParticleBuffer {
     private val captured: MutableMap<ParticleRenderType, MutableList<Particle>> = HashMap()
     private val builder: BufferBuilder = BufferBuilder(256 * 1024)
 
-    @JvmStatic
     fun capture(particle: Particle) {
         captured.computeIfAbsent(particle.renderType) { ArrayList() }.add(particle)
     }
 
-    @JvmStatic
     fun hasCaptured(): Boolean = captured.isNotEmpty()
 
     /** Replicates vanilla [net.minecraft.client.particle.ParticleEngine.render]

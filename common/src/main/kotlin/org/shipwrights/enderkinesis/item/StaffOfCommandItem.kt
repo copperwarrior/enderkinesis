@@ -24,6 +24,7 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.hasChunkAtPos
 
 /** Staff of Command — right-click a [Commandable] block to add it to this stack's command
  *  list (re-click to remove); right-click open air to fire every listed block's command in
@@ -269,7 +270,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             var changed = false
             val kept = ArrayList<Entry>(entries.size)
             for (e in entries) {
-                if (e.dim != dim || !level.hasChunkAt(e.pos)) {
+                if (e.dim != dim || !level.hasChunkAtPos(e.pos)) {
                     kept.add(e)
                     continue
                 }
@@ -577,8 +578,8 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 if (playerShip != null) return false  // wielder on a *different* ship
             }
             // VS2 ship blocks live in the level's chunk map at shipyard coords, so the
-            // same hasChunkAt call covers both world and ship targets.
-            return level.hasChunkAt(targetPos)
+            // same hasChunkAtPos call covers both world and ship targets.
+            return level.hasChunkAtPos(targetPos)
         }
 
         private val BEAM_COLOR = Vector3f(1.0f, 0.15f, 0.15f)

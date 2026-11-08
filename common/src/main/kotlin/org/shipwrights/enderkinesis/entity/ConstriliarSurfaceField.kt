@@ -15,6 +15,7 @@ import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.valkyrienskies.mod.common.getShipsIntersecting
 import java.util.Arrays
+import org.shipwrights.enderkinesis.util.hasChunkAtPos
 
 /**
  * Smoothed signed-distance field over nearby collision geometry (the Spiders 2.0
@@ -237,7 +238,7 @@ object ConstriliarSurfaceField {
             Mth.floor(area.minX), Mth.floor(area.minY), Mth.floor(area.minZ),
             Mth.floor(area.maxX), Mth.floor(area.maxY), Mth.floor(area.maxZ),
         )) {
-            if (!level.hasChunkAt(pos)) continue
+            if (!level.hasChunkAtPos(pos)) continue
             val state = level.getBlockState(pos)
             if (state.isAir || ConstriliarCollision.shipPassable(state)) continue
             val shape = state.getCollisionShape(level, pos, context)

@@ -5,6 +5,8 @@ import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Per-ship VS2 attachment letting a contraption-mounted Void Harness queue forces from the
@@ -17,6 +19,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
  * cleared on first read → contraption harness was ~1/3 the effective force of a resident
  * one. Stickiness matches the resident pattern.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class ContraptionHarnessForceProvider : ShipPhysicsListener {
 
     private val lock = Any()
@@ -94,7 +97,7 @@ class ContraptionHarnessForceProvider : ShipPhysicsListener {
         // applier for scale-invariant ship-feel.
         val s1 = physShip.transform.shipToWorldScaling.x()
         val s = s1 * s1 * s1
-        if (haveCom) physShip.applyInvariantForce(Vector3d(comX * s, comY * s, comZ * s))
+        if (haveCom) physShip.applyWorldForceToBodyPos(Vector3d(comX * s, comY * s, comZ * s))
         if (haveOff) {
             val com = physShip.kinematics.position
             val dx = offWx - com.x()

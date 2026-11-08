@@ -10,8 +10,10 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.WillfaerFlameBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Render thread only. */
+@OptIn(GameTickOnly::class)
 class WillfaerFlameBlockRenderer : BlockEntityRenderer<WillfaerFlameBlockEntity> {
     private val scratch = Vector3d()
 

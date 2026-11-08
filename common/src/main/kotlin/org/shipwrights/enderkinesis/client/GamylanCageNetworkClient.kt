@@ -216,6 +216,7 @@ object GamylanCageNetworkClient {
             if (type != com.mojang.authlib.minecraft.MinecraftProfileTexture.Type.SKIN) return@registerSkins
             val skinsDir = (skinManager as? org.shipwrights.enderkinesis.mixin.SkinManagerCageDirectoryAccessor)
                 ?.`enderkinesis$getSkinsDirectory`() ?: return@registerSkins
+            @Suppress("DEPRECATION") // Vanilla names skin cache files by SHA-1.
             val sha1 = com.google.common.hash.Hashing.sha1()
                 .hashUnencodedChars(texture.hash).toString()
             val cached = java.io.File(java.io.File(skinsDir, sha1.substring(0, 2)), sha1)

@@ -17,6 +17,7 @@ import org.joml.Vector3d
 import org.joml.Vector4f
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Renders each cloaked ship's bubble — an **ellipsoid circumscribed around the
  *  ship-local AABB** (the eight AABB corners lie on the ellipsoid surface; the entire
@@ -40,6 +41,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *
  *  Vertex color's red channel carries the **cloak progress** for that ship, so the
  *  single-pass post-shader reads per-pixel intensity from the mask. */
+@OptIn(GameTickOnly::class)
 object ConcealmentBubbleRenderer {
 
     /** Half-axis scale so the ellipsoid is circumscribed around the ship-local AABB —

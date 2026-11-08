@@ -11,6 +11,5 @@ object YgannSky {
     @JvmStatic
     fun absentView(): Boolean = Minecraft.getInstance().player?.hasEffect(EKEffects.ABSENT.get()) == true
 
-    @JvmStatic
     fun isShown(level: ClientLevel): Boolean = level.dimension() == YgannAbyss.LEVEL_KEY || absentView()
 }

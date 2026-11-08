@@ -48,7 +48,6 @@ object DensityClient {
 
     /** Wired during client init. Registers the S2C STATE receiver and the HUD
      *  overlay. The per-tick stream lives in [StaffOfDensityItem.onUseTick]. */
-    @JvmStatic
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, DensityNetwork.STATE) { buf, _ ->
             val shipId = buf.readLong()
@@ -58,7 +57,6 @@ object DensityClient {
         ClientGuiEvent.RENDER_HUD.register(::renderHud)
     }
 
-    @JvmStatic
     fun beginSession(shipId: Long) {
         activeShipId = shipId
         dragPixels = 0.0
@@ -69,7 +67,6 @@ object DensityClient {
         lastStreamedMultiplier = Double.NaN
     }
 
-    @JvmStatic
     fun endSession() {
         val shipId = activeShipId ?: return
         if (!anchorMultiplier.isNaN()) {
@@ -118,7 +115,6 @@ object DensityClient {
     /** Per-tick streaming hook called from [StaffOfDensityItem.onUseTick] on
      *  the client. Sends the current multiplier to the server when it has
      *  moved at all since the previous send. */
-    @JvmStatic
     fun streamTickIfActive() {
         val shipId = activeShipId ?: return
         if (!isActive()) return

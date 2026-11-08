@@ -8,7 +8,9 @@ import net.minecraft.util.Mth
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object GamylanCageAlignSounds {
 
     private const val MAX_VOLUME: Float = 1f

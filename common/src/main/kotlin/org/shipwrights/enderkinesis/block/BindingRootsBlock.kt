@@ -51,15 +51,18 @@ class BindingRootsBlock(properties: Properties) : Block(properties) {
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState =
         defaultBlockState().setValue(FACING, context.clickedFace)
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun rotate(state: BlockState, rotation: Rotation): BlockState =
         state.setValue(FACING, rotation.rotate(state.getValue(FACING)))
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun mirror(state: BlockState, mirror: Mirror): BlockState =
         state.rotate(mirror.getRotation(state.getValue(FACING)))
 
     /** Half-block slab on the face OPPOSITE the cross direction (i.e., the contact face the
      *  block was placed against). The cross volume is non-collidable but applies
      *  [entityInside]'s stuck-in-block effect. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(
         state: BlockState,
         level: BlockGetter,
@@ -71,6 +74,7 @@ class BindingRootsBlock(properties: Properties) : Block(properties) {
      *  cube), which VS2 picks up during ship voxelization — so the cross volume ends up in
      *  the ship's collision hull even though `getCollisionShape` doesn't include it. Mirror
      *  the slab shape here so VS2 only voxelizes the actual solid part. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState,
         level: BlockGetter,
@@ -87,6 +91,7 @@ class BindingRootsBlock(properties: Properties) : Block(properties) {
         Direction.WEST -> SHAPE_EAST
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         entity.makeStuckInBlock(state, STUCK_VECTOR)
         if (entity is LivingEntity) {
@@ -95,7 +100,7 @@ class BindingRootsBlock(properties: Properties) : Block(properties) {
     }
 
     // onPlace, not setPlacedBy: a root that arrives by a ship assembly or a merge must be watched too.
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(
         state: BlockState,
         level: Level,
@@ -109,6 +114,7 @@ class BindingRootsBlock(properties: Properties) : Block(properties) {
         }
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState,
         level: Level,

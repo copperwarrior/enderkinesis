@@ -15,8 +15,10 @@ import kotlin.math.ln
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Particles that converge on each powered harness. They show the shape of its pull. */
+@OptIn(GameTickOnly::class)
 object VoidHarnessParticles {
 
     private const val WORLD_MAX_PER_TICK: Int = 12

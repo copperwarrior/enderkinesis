@@ -12,7 +12,8 @@ import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
 import org.shipwrights.enderkinesis.client.model.ConstriliarModel
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
 import org.valkyrienskies.core.api.ships.ClientShip
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Draws the Constriliar's body + IK legs from the platform block, i.e. in ship space —
@@ -26,6 +27,7 @@ import org.valkyrienskies.mod.common.getShipObjectManagingPos
  * (clients have entities immediately; the ship gets the whole intro to load in), so
  * this renderer yields until the intro ends.
  */
+@OptIn(GameTickOnly::class)
 class ConstriliarPlatformRenderer(
     ctx: BlockEntityRendererProvider.Context,
 ) : BlockEntityRenderer<ConstriliarPlatformBlockEntity> {
@@ -47,7 +49,7 @@ class ConstriliarPlatformRenderer(
         val level = be.level ?: return
         val entity = level.getEntity(be.ownerEntityId) as? ConstriliarEntity ?: return
         if (entity.introActive()) return
-        val ship = level.getShipObjectManagingPos(be.blockPos) as? ClientShip ?: return
+        val ship = level.getLoadedShipManagingPos(be.blockPos) as? ClientShip ?: return
 
         val rt = ship.renderTransform
         val centre = Vector3d(be.blockPos.x + 0.5, be.blockPos.y + 0.5, be.blockPos.z + 0.5)

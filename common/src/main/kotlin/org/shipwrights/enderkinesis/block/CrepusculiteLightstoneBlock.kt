@@ -28,6 +28,7 @@ class CrepusculiteLightstoneBlock(properties: Properties) : FaceAttachedHorizont
         builder.add(FACING, FACE)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = shapeFor(state)

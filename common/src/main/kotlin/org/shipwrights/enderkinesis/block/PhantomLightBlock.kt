@@ -15,19 +15,19 @@ import net.minecraft.world.phys.shapes.VoxelShape
 
 class PhantomLightBlock(properties: Properties) : Block(properties) {
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.INVISIBLE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         Shapes.empty()
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, movedByPiston: Boolean) {
         level.scheduleTick(pos, this, LIFETIME_TICKS)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         level.removeBlock(pos, false)
     }

@@ -82,7 +82,6 @@ object WeheloPocket {
         y >= FLOOR_Y && y < FLOOR_Y + SIZE && Math.floorMod(x, SPACING) < SIZE && Math.floorMod(z, SPACING) < SIZE
 
     /** True for every block of the pocket grid outside the pockets. Those blocks never change after the shell is built. */
-    @JvmStatic
     fun isGuarded(pos: BlockPos): Boolean {
         if (shellBypass.get()) return false
         if (pos.x < -SPACING || pos.x >= COLUMNS * SPACING || pos.z < -SPACING || pos.z >= ROWS * SPACING) return false

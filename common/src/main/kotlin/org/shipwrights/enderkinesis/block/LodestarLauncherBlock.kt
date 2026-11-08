@@ -74,9 +74,11 @@ class LodestarLauncherBlock(properties: BlockBehaviour.Properties) :
             .setValue(POWERED, powered)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun rotate(state: BlockState, rotation: Rotation): BlockState =
         state.setValue(FACING, rotation.rotate(state.getValue(FACING)))
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun mirror(state: BlockState, mirror: Mirror): BlockState =
         state.rotate(mirror.getRotation(state.getValue(FACING)))
 
@@ -93,6 +95,7 @@ class LodestarLauncherBlock(properties: BlockBehaviour.Properties) :
         }
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -115,7 +118,7 @@ class LodestarLauncherBlock(properties: BlockBehaviour.Properties) :
         else InteractionResult.PASS
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, moving: Boolean,
@@ -127,7 +130,7 @@ class LodestarLauncherBlock(properties: BlockBehaviour.Properties) :
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
         if (!state.`is`(newState.block)) {
             val be = level.getBlockEntity(pos) as? LodestarLauncherBlockEntity
@@ -143,10 +146,10 @@ class LodestarLauncherBlock(properties: BlockBehaviour.Properties) :
     // Renderer reading inventory state directly, so there's nothing on the blockstate
     // that needs syncing from inventory NBT at place time.
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun hasAnalogOutputSignal(state: BlockState): Boolean = true
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getAnalogOutputSignal(state: BlockState, level: Level, pos: BlockPos): Int {
         val be = level.getBlockEntity(pos) as? LodestarLauncherBlockEntity ?: return 0
         var filled = 0
@@ -209,9 +212,9 @@ class LodestarLauncherBlock(properties: BlockBehaviour.Properties) :
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShadeBrightness(state: BlockState, level: BlockGetter, pos: BlockPos): Float = 1.0f
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getLightBlock(state: BlockState, level: BlockGetter, pos: BlockPos): Int = 0
 }

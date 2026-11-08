@@ -40,6 +40,7 @@ import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 import org.valkyrienskies.mod.common.dimensionId
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Lodestar Dart — homing projectile fired by the Lodestar Launcher block. Locks onto
@@ -54,6 +55,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet
  * reflect), [homeShipId] re-derives from that player's currently-dragging ship — so a deflected
  * missile now hunts whoever the *original* shooter was loyal to.
  */
+@OptIn(GameTickOnly::class)
 class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level) :
     Projectile(type, level), ShipMoveListener {
 
@@ -704,6 +706,7 @@ class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level)
         return Vec3(bx * bMag, by * bMag, bz * bMag)
     }
 
+    @Suppress("DEPRECATION") // BlockState.blocksMotion has no 1.20.1 replacement.
     private fun isBlocked(pos: Vec3): Boolean =
         level().getBlockState(BlockPos.containing(pos.x, pos.y, pos.z)).blocksMotion()
 

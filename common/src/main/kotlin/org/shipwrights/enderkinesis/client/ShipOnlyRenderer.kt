@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.client
 
 import org.valkyrienskies.mod.common.hooks.VSGameEvents
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Staff of Concealment — ship-only render redirection.
  *
@@ -18,6 +19,7 @@ import org.valkyrienskies.mod.common.hooks.VSGameEvents
  *  Net result: VS2 + vanilla render each cloaked ship to our side FB with byte-for-byte
  *  the same pipeline as a non-cloaked ship. No matrix duplication, no lighting wrapper,
  *  no chunk shader uniform plumbing, no Sodium parallel path. */
+@OptIn(GameTickOnly::class)
 object ShipOnlyRenderer {
 
     private var initialised = false
@@ -25,7 +27,6 @@ object ShipOnlyRenderer {
 
 
     /** Wire up the VS2 event listeners. Idempotent — safe to call multiple times. */
-    @JvmStatic
     fun init() {
         if (initialised) return
         initialised = true

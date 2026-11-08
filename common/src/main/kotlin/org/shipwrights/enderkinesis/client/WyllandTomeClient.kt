@@ -19,6 +19,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Client-side glue for the Wylland Tome.
@@ -37,6 +38,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * [org.shipwrights.enderkinesis.item.WyllandTomeManager]); the client
  * is purely an input + visual feedback layer.
  */
+@OptIn(GameTickOnly::class)
 object WyllandTomeClient {
 
     private var attackHeldLastTick = false

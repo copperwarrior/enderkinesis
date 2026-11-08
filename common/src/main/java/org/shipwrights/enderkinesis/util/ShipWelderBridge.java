@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.util;
 
 import com.mojang.logging.LogUtils;
 import java.lang.reflect.Method;
+import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -13,6 +14,7 @@ import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
+import org.shipwrights.enderkinesis.mixin.ShipWelderPlanAccessor;
 import org.slf4j.Logger;
 import org.valkyrienskies.core.api.ships.LoadedServerShip;
 import org.valkyrienskies.mod.common.assembly.ICopyableBlock;
@@ -85,6 +87,12 @@ public final class ShipWelderBridge {
             LOG.error("Could not weld ship {} into {}", source.getId(), target.getId(), e);
             return FAILED;
         }
+    }
+
+    /** VS2's WeldRotation is Kotlin-internal, so Kotlin reads a weld plan's grid axes (x, y, z) through here. */
+    public static List<Direction> weldAxes(Object plan) {
+        WeldRotation rotation = ((ShipWelderPlanAccessor) plan).enderkinesis$getRotation();
+        return List.of(rotation.getXAxis(), rotation.getYAxis(), rotation.getZAxis());
     }
 
     /**

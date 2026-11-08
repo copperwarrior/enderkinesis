@@ -65,7 +65,7 @@ object FireWhirlwind {
         if (whirls.isEmpty()) return
         val minecraft = Minecraft.getInstance()
         // The particle atlas is the texture manager's; Minecraft.getTextureAtlas only knows the model atlases.
-        val atlas = minecraft.textureManager.getTexture(TextureAtlas.LOCATION_PARTICLES) as? TextureAtlas ?: return
+        val atlas = minecraft.textureManager.getTexture(PARTICLE_ATLAS) as? TextureAtlas ?: return
         val sprite = atlas.getSprite(FLAME_SPRITE)
         val share = when (minecraft.options.particles().get()) {
             ParticleStatus.ALL -> 1f

@@ -33,7 +33,6 @@ class KekhekhModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<K
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id(KekhekhEntity.ID_PATH), "main")
 
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

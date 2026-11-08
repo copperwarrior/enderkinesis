@@ -14,9 +14,11 @@ import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.abs
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Lines where the shield faces cut the exposed faces of block collision boxes.
  *  All state is scratch for the render thread: call [collect], then the emit functions. */
+@OptIn(GameTickOnly::class)
 object AegisIntersectionGlow {
 
     private const val STRIP_WIDTH: Double = 0.3

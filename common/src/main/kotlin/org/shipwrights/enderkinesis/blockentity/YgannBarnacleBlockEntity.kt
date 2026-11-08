@@ -8,6 +8,7 @@ import net.minecraft.sounds.SoundSource
 import net.minecraft.world.level.Level
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
+import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.world.properties.DimensionId
@@ -33,7 +34,7 @@ import org.shipwrights.enderkinesis.dimension.YgannBarnacleSpreader
  * gameTime, and the tentacle layout is a pure function of (seed, hull geometry). The server
  * ticker ([tick]) gives tendril damage; the renderer draws the same layout.
  */
-@OptIn(PhysTickOnly::class, VsBeta::class)
+@OptIn(VsBeta::class)
 class YgannBarnacleBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.YGANN_BARNACLE.get(), pos, state),
     BlockEntityPhysicsListener {
@@ -103,6 +104,8 @@ class YgannBarnacleBlockEntity(pos: BlockPos, state: BlockState) :
      *  revealed tendril box take periodic damage (sharp encrusted spines). Works on
      *  ships too: the tendril boxes are in the barnacle's own (shipyard) frame, so
      *  entities are transformed into that frame before the box test. */
+    // Block entity ticker: runs on the server or client thread, never the physics thread.
+    @OptIn(GameTickOnly::class)
     fun tick(level: Level, pos: BlockPos) {
         if (bornTime < 0) {
             if (!level.isClientSide) initBorn(level)
@@ -239,6 +242,8 @@ class YgannBarnacleBlockEntity(pos: BlockPos, state: BlockState) :
      *  the barnacle's own mount point (so it bleeds the ship's drift AND resists spin),
      *  scaled by growth. Mass-relative — like the mod's other velocity dampers — so the
      *  per-barnacle deceleration rate is the same regardless of ship size. */
+    // VS2 calls this on the physics thread; it reads only the volatile growth cache and the immutable block pos.
+    @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         val ship = physShip ?: return
         val growth = cachedGrowthFactor

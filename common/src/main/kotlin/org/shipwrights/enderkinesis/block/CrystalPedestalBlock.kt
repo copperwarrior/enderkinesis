@@ -19,7 +19,8 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.body.GamylanCagePedestals
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.valkyrienskies.core.api.ships.ClientShip
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Home block for a Ga'Mylan cage crystal. When a crystal drifts above a
@@ -32,6 +33,7 @@ import org.valkyrienskies.mod.common.getShipObjectManagingPos
  * Placeholder model reuses vanilla `chiseled_stone_bricks` at the
  * blockstate + item level; no dedicated texture ships yet.
  */
+@OptIn(GameTickOnly::class)
 class CrystalPedestalBlock(properties: BlockBehaviour.Properties) : Block(properties) {
 
     /** Right-click with an item → conjure a REAL Ga'Mylan cage crystal
@@ -40,7 +42,7 @@ class CrystalPedestalBlock(properties: BlockBehaviour.Properties) : Block(proper
      *  pedestal-home flow, spins, takes damage, and breaking it returns
      *  the item. Refused while any crystal is already homed to (or
      *  hovering over) this pedestal — one occupant per pedestal. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: net.minecraft.world.entity.player.Player,
@@ -84,25 +86,28 @@ class CrystalPedestalBlock(properties: BlockBehaviour.Properties) : Block(proper
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState =
         defaultBlockState().setValue(BlockStateProperties.POWERED, context.level.hasNeighborSignal(context.clickedPos))
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape =
         SHAPE
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getOcclusionShape(state: BlockState, level: BlockGetter, pos: BlockPos): VoxelShape =
         SHAPE
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun useShapeForLightOcclusion(state: BlockState): Boolean = true
 
     /** Comparator output: full signal while a crystal is docked (welded).
      *  LIT is flipped by [GamylanCagePedestals] exactly on weld/release, so
      *  it doubles as the dock indicator without a BE lookup. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun hasAnalogOutputSignal(state: BlockState): Boolean = true
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getAnalogOutputSignal(state: BlockState, level: Level, pos: BlockPos): Int =
         if (state.getValue(BlockStateProperties.LIT)) 15 else 0
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, moving: Boolean,
@@ -114,7 +119,7 @@ class CrystalPedestalBlock(properties: BlockBehaviour.Properties) : Block(proper
         if (powered) GamylanCagePedestals.onPedestalPowered(level as net.minecraft.server.level.ServerLevel, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {
@@ -168,7 +173,7 @@ class CrystalPedestalBlock(properties: BlockBehaviour.Properties) : Block(proper
         type: net.minecraft.core.particles.ParticleOptions,
         dx: Double, dy: Double, dz: Double,
     ) {
-        val ship = level.getShipObjectManagingPos(pos) as? ClientShip
+        val ship = level.getLoadedShipManagingPos(pos) as? ClientShip
         var wx = bx; var wy = by; var wz = bz
         if (ship != null) {
             val local = Vector3d(bx, by, bz)

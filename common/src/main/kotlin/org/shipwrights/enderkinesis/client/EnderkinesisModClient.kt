@@ -41,7 +41,6 @@ object EnderkinesisModClient {
      * may call `RegistrySupplier.get()`.
      */
     @Suppress("LongMethod") // Flat list of client registrations; splitting it hides the load order.
-    @JvmStatic
     fun initClientEarly() {
         if (earlyDone) return
         earlyDone = true
@@ -150,7 +149,6 @@ object EnderkinesisModClient {
     }
 
     @Suppress("LongMethod") // Flat list of client registrations and listener wiring.
-    @JvmStatic
     fun initClient() {
         initClientEarly()
         // Forge throws if Sheets loads during mod construction, so this stays out of initClientEarly.

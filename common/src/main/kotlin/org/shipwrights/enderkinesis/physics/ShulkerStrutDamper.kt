@@ -11,12 +11,13 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.io.DataInput
 import java.io.DataOutput
 import java.io.IOException
+import org.valkyrienskies.core.api.util.PhysTickOnly
 
 /**
  * Viscous damper between a Shulker Strut lid ship and its base, along the slide axis.
  * Konstant does not damp the prismatic limit spring as the joint's damping value asks, so the lid bounces.
  */
-@OptIn(VsBeta::class)
+@OptIn(VsBeta::class, PhysTickOnly::class)
 class ShulkerStrutDamper : ShipPhysicsListener {
 
     @Volatile private var active = false

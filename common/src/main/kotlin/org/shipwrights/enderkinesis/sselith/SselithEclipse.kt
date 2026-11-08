@@ -334,7 +334,6 @@ object SselithEclipse {
     }
 
     /** Light Damage with its burn sound. The sound plays only when the hit lands. */
-    @JvmStatic
     fun applyLightDamage(level: ServerLevel, entity: LivingEntity, amount: Float) {
         if (!entity.hurt(EKDamageSources.lightDamage(level, entity), amount)) return
         playAt(level, entity, EKSounds.SSELITH_LIGHT_BURN.get(), LIGHT_BURN_VOLUME, BODY_PITCH_SPREAD)

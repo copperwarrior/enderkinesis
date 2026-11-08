@@ -80,7 +80,6 @@ class SselithBookItem(properties: Properties) : TomeItem(properties) {
         private const val ENCHANTABILITY = 25
         private const val WRITTEN_MAX_STACK = 1
 
-        @JvmStatic
         fun isBlank(stack: ItemStack): Boolean = stack.tag?.getList(PAGES, Tag.TAG_STRING.toInt())?.isEmpty() ?: true
 
         /** True when vanilla's `is(Items.BOOK)` check must also accept [stack]. */

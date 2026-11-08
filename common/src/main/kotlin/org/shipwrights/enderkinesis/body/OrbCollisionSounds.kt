@@ -11,8 +11,11 @@ import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.ConcurrentHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** Knock sound for an Orb of Potential that strikes something. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object OrbCollisionSounds {
 
     /** Dimension id → (orb body id → peak approach speed). Written on the physics thread, drained on the server. */

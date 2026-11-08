@@ -13,6 +13,7 @@ import org.shipwrights.enderkinesis.block.YgannBarnacleBlock
 import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Ygann Barnacle live renderer: a staged, pulsing bulb plus tentacles that creep over
@@ -23,6 +24,7 @@ import org.valkyrienskies.mod.common.getShipManagingPos
  * The shrivel-out DEATH is a detached effect ([YgannBarnacleDeathRenderer]) — the block
  * breaks normally, so nothing here fights the client's break prediction.
  */
+@OptIn(GameTickOnly::class)
 class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
 
     // Render thread only.

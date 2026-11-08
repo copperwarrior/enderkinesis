@@ -1,12 +1,13 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.Mth;
 import org.shipwrights.enderkinesis.client.WohlonBiomeSkyState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
@@ -46,20 +47,20 @@ public abstract class LevelSkyDarkenSmoothMixin {
     }
 
     /** Only one Mth.clamp call exists in getSkyColor (verified against 1.20.1 bytecode), so
-     *  the redirect doesn't need a slice/ordinal. */
-    @Redirect(
+     *  the wrap doesn't need a slice/ordinal. */
+    @WrapOperation(
         method = "getSkyColor(Lnet/minecraft/world/phys/Vec3;F)Lnet/minecraft/world/phys/Vec3;",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/util/Mth;clamp(FFF)F"
         )
     )
-    private float enderkinesis$smoothSkyColorBrightness(float value, float min, float max) {
+    private float enderkinesis$smoothSkyColorBrightness(float value, float min, float max, Operation<Float> original) {
         float blend = WohlonBiomeSkyState.getCurrentBlend();
-        if (blend <= 0f) return Mth.clamp(value, min, max);
+        if (blend <= 0f) return original.call(value, min, max);
 
         ClientLevel self = (ClientLevel) (Object) this;
-        if (self.dimensionType().hasFixedTime()) return Mth.clamp(value, min, max);
+        if (self.dimensionType().hasFixedTime()) return original.call(value, min, max);
         float actualTime = WohlonBiomeSkyState.unsnappedTimeOfDayFromDayTime(self.getDayTime());
         float wohlonTime = WohlonBiomeSkyState.getWohlonTimeOfDay();
 

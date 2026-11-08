@@ -308,16 +308,12 @@ class SselithPlacementData : SavedData() {
         private fun unpackKind(packed: Int): SselithEditKind =
             if (packed < 0) SselithEditKind.REMOVED else SselithEditKind.PLACED
 
-        @JvmStatic
         fun decodeX(chunkX: Int, packed: Int): Int = (chunkX shl 4) or localX(packed)
 
-        @JvmStatic
         fun decodeZ(chunkZ: Int, packed: Int): Int = (chunkZ shl 4) or localZ(packed)
 
-        @JvmStatic
         fun decodeY(packed: Int): Int = unpackY(packed)
 
-        @JvmStatic
         fun decodeKind(packed: Int): SselithEditKind = unpackKind(packed)
     }
 }

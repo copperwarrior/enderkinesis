@@ -23,12 +23,10 @@ object DisintegrationLootingOverride {
 
     private val holder = ThreadLocal<Int?>()
 
-    @JvmStatic
     fun set(level: Int) {
         if (level > 0) holder.set(level) else holder.remove()
     }
 
-    @JvmStatic
     fun clear() {
         holder.remove()
     }

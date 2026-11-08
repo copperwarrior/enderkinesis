@@ -93,7 +93,7 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
      *  [BlockStateProperties.POWER] each tick to scale thrust. Writing it into the blockstate
      *  (rather than computing in the BE) keeps the value observable to comparators / debug
      *  tooling and survives block reads from non-tick contexts. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, moving: Boolean,
@@ -118,12 +118,12 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
     }
 
     // Not a BaseEntityBlock, so the block event does not reach the block entity without this.
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean =
         level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
 
     /** Drop the fuel slot's contents when the block breaks. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {
@@ -138,7 +138,7 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
     /** Hand-managed fuelling: right-click with a dragon's breath to load, right-click empty-
      *  handed to unload. No GUI — single slot doesn't need one and other thrusters (VStuff
      *  Continued's, etc.) use the same hand-interaction pattern for fuel. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos, player: Player,
         hand: InteractionHand, hit: BlockHitResult,

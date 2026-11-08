@@ -32,7 +32,6 @@ class FractalProjectorBlockEntity(
 ) : BlockEntity(EKBlockEntities.FRACTAL_PROJECTOR.get(), pos, state) {
 
     companion object {
-        @JvmStatic
         fun serverTick(
             level: Level, pos: BlockPos, state: BlockState, @Suppress("UNUSED_PARAMETER") be: FractalProjectorBlockEntity,
         ) {

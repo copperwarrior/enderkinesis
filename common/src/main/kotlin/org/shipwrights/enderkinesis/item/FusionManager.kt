@@ -32,9 +32,12 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** Staff of Fusion: ships in the bubble are pulled together, and two ships whose blocks touch are
  *  welded where they touch. Geometry is in [FusionGeometry]. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object FusionManager {
 
     private val LOG = LogUtils.getLogger()
@@ -166,7 +169,8 @@ object FusionManager {
         }
         if (fused) {
             // Only the welded ships changed; the deleted source is dropped from the lifted set at the refresh.
-            for (id in bubble.welded) bubble.blocks.remove(id)
+            val welded = bubble.welded.iterator()
+            while (welded.hasNext()) bubble.blocks.remove(welded.nextLong())
             bubble.nextRefreshTick = now + 1
         }
     }

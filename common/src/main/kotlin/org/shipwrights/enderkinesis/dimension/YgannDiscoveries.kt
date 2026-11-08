@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerPlayer
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Awards the "Ygann Abyss" advancement category from server code, keyed off the LIVE
@@ -23,6 +24,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * [YgannStructureShips] at assembly; the advancements use `minecraft:impossible` criteria
  * and only ever complete through [grant].
  */
+@OptIn(GameTickOnly::class)
 object YgannDiscoveries {
 
     const val KIND_GEODE = "geode"

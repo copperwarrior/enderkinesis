@@ -4308,7 +4308,6 @@ class WohlonnogondoniaChunkGenerator(
          *  where every call computes 8 corner keys by incrementing
          *  a base key in fixed bit positions instead of re-packing
          *  three int→long conversions per corner. */
-        @JvmStatic
         private fun bark3HashCached(
             keys: LongArray, vals: DoubleArray,
             key: Long, x: Int, y: Int, z: Int,
@@ -4328,13 +4327,7 @@ class WohlonnogondoniaChunkGenerator(
 
         /** xxhash mix on 3 integer coords for bark noise. Direct
          *  computation; for cache-fronted lookups call
-         *  [bark3HashCached] instead.
-         *
-         *  `@JvmStatic` matters here: this is called 8× per
-         *  [valueNoise3D] (through [bark3HashCached]), and the cache
-         *  miss path needs to invoke this without going through the
-         *  synthetic Companion accessor. */
-        @JvmStatic
+         *  [bark3HashCached] instead. */
         private fun bark3Hash(x: Int, y: Int, z: Int): Double {
             var h = x * 0x9E3779B1.toInt() xor
                 (y * 0x85EBCA77.toInt()) xor
@@ -4360,7 +4353,6 @@ class WohlonnogondoniaChunkGenerator(
          *  ThreadLocal.get for every noise evaluation, which
          *  with ~200M noise evals per ~200s sample is millions
          *  of saved TL lookups per second. */
-        @JvmStatic
         fun valueNoise3D(x: Double, y: Double, z: Double): Double =
             valueNoise3D(barkCache.get(), x, y, z)
 
@@ -4369,7 +4361,6 @@ class WohlonnogondoniaChunkGenerator(
          *  8 corner lookups in this call. Marked `internal`
          *  because [BarkCache] is an internal type — public
          *  callers go through the no-arg overload above. */
-        @JvmStatic
         internal fun valueNoise3D(cache: BarkCache, x: Double, y: Double, z: Double): Double {
             val ix = Math.floor(x).toInt(); val fx = x - ix
             val iy = Math.floor(y).toInt(); val fy = y - iy

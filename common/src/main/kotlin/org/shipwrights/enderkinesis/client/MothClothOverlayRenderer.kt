@@ -8,7 +8,8 @@ import net.minecraft.util.RandomSource
 import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.block.MothClothBlock
 import org.valkyrienskies.core.api.ships.ClientShip
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Per-frame overlay pass drawing the Moth Cloth glint on top of the base
@@ -25,6 +26,7 @@ import org.valkyrienskies.mod.common.getShipObjectManagingPos
  *     multiplied into the PoseStack before the block-position translate, so
  *     the glint quads follow the ship's orientation exactly.
  */
+@OptIn(GameTickOnly::class)
 object MothClothOverlayRenderer {
 
     private val random: RandomSource = RandomSource.create()
@@ -76,7 +78,7 @@ object MothClothOverlayRenderer {
             val state = level.getBlockState(pos)
             if (state.block !is MothClothBlock) return@forEach
 
-            val ship = level.getShipObjectManagingPos(pos) as? ClientShip
+            val ship = level.getLoadedShipManagingPos(pos) as? ClientShip
 
             // Cloaked ships render into the concealment side FB, not the
             // main FB — our overlay pass runs outside VS2's per-ship

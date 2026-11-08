@@ -27,6 +27,8 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Two-path merger triggered when a candidate binding_roots pair passes [checkPair] (snap
@@ -45,6 +47,7 @@ import org.valkyrienskies.mod.common.vsCore
  * gone are pruned rather than welding to phantoms. Block merges need no persistence — the
  * candidate's blocks live in the host.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object BindingRootsMerger {
 
     // Engagement gate is now a block-volume intersection check (per-axis |delta| < 1 — see
@@ -94,13 +97,11 @@ object BindingRootsMerger {
 
     private val positions: MutableMap<ServerLevel, MutableSet<Long>> = mutableMapOf()
 
-    @JvmStatic
     fun registerPosition(level: ServerLevel, pos: BlockPos) {
         positions.getOrPut(level) { mutableSetOf() }.add(pos.asLong())
         BindingRootsSavedData.forLevel(level).addAnchor(pos.asLong())
     }
 
-    @JvmStatic
     fun unregisterPosition(level: ServerLevel, pos: BlockPos) {
         positions[level]?.remove(pos.asLong())
         BindingRootsSavedData.forLevel(level).removeAnchor(pos.asLong())
@@ -879,7 +880,6 @@ object BindingRootsMerger {
      *  block is currently anchoring a joint weld, removes both endpoints from [activeJoints]
      *  AND the persistent [BindingRootsSavedData] record so the joint doesn't come back
      *  after a world reload. No-op for binding_roots that aren't part of a joint. */
-    @JvmStatic
     fun onJointAnchorBroken(level: ServerLevel, pos: BlockPos) {
         if (keepJointsDuringMove) return
         BindingRootsSavedData.forLevel(level).removeInvolving(pos)

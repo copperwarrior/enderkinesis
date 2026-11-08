@@ -19,6 +19,7 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.compat.create.CreateCompat
 import org.shipwrights.enderkinesis.mixin.ServerGamePacketListenerAccessor
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -31,6 +32,8 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.BlockEntityPhysicsListener
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.EntitylessClip
 
 /**
  * Backing block entity for [AetherPadBlock]. Mirrored ship/world interaction model:
@@ -55,7 +58,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *  fully inert (no trace, no push, no particles). POWER 15 = the constants below in full.
  *  Intermediate values scale proportionally.
  */
-@OptIn(PhysTickOnly::class, VsBeta::class)
+@OptIn(VsBeta::class)
 class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.AETHER_PAD.get(), pos, state),
     BlockEntityPhysicsListener {
@@ -167,6 +170,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         super.setRemoved()
     }
 
+    @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         val power = cachedPower
         if (power <= 0) return                              // pad is unpowered
@@ -223,6 +227,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
      *    a 1-tonne skiff and a 1-kilotonne galleon both lose perpendicular drift at the
      *    same rate per pad.
      */
+    @OptIn(PhysTickOnly::class)
     private fun applyMirroredHover(
         target: PhysShip,
         distance: Double,
@@ -297,26 +302,6 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     )
 
     companion object {
-
-        /** Reflectively-loaded Create `AbstractContraptionEntity` class, or null if
-         *  Create isn't installed. Used by [pushEntitiesForward] to skip contraption
-         *  entities from the beam — pushing them via `deltaMovement` desyncs the
-         *  contraption's anchor from the visual blocks it carries. Loaded once at
-         *  class-init time so the per-entity check in the hot loop is just a fast
-         *  `isInstance`. */
-        private val CONTRAPTION_ENTITY_CLASS: Class<*>? = run {
-            // Modern (Create 0.5+/6.x) path first, with a legacy fallback so the same
-            // build works against older Create if anyone backports.
-            val candidates = listOf(
-                "com.simibubi.create.content.contraptions.AbstractContraptionEntity",
-                "com.simibubi.create.content.contraptions.components.structureMovement.AbstractContraptionEntity",
-            )
-            for (name in candidates) {
-                try { return@run Class.forName(name) } catch (_: Throwable) {}
-            }
-            null
-        }
-
         /** Mass-relative hover-lift factor. Per-pad peak force at the ground (proximity=1,
          *  POWER 15) is `HOVER_LIFT_FACTOR × m × g / ASSUMED_PAD_COUNT` newtons. With
          *  factor 2.5 and 4 assumed pads, the n_pads together produce 2.5·m·g at the
@@ -454,10 +439,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
             for (entity in level.getEntities(null as Entity?, box) { it.isAlive }) {
                 if (entity.isPassenger) continue
                 if (entity is Player && (entity.isSpectator || entity.abilities.flying)) continue
-                // Skip Create contraption entities — they have their own movement/rotation
-                // logic and pushing them via deltaMovement causes desyncs/glitches between
-                // the contraption's anchor entity and the visual blocks it carries.
-                if (CONTRAPTION_ENTITY_CLASS?.isInstance(entity) == true) continue
+                if (CreateCompat.isContraption(entity)) continue
                 val dx = entity.x - padWorld.x
                 val dy = entity.y - padWorld.y
                 val dz = entity.z - padWorld.z
@@ -481,10 +463,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 )
                 val rayEnd = Vec3(entity.x, entity.y + entity.bbHeight * 0.5, entity.z)
                 val occlusion = level.clip(
-                    ClipContext(
+                    EntitylessClip.of(
                         rayStart, rayEnd,
                         ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE,
-                        null as Entity?,
                     )
                 )
                 if (occlusion.type == HitResult.Type.BLOCK) continue
@@ -568,10 +549,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 padWorld.y + facingWorld.y * GROUND_MAX_RANGE,
                 padWorld.z + facingWorld.z * GROUND_MAX_RANGE,
             )
-            val ctx = ClipContext(
+            val ctx = EntitylessClip.of(
                 from, to,
                 ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY,
-                null as Entity?,
             )
             val hit = level.clip(ctx)
             return if (hit.type == HitResult.Type.BLOCK) {
@@ -591,6 +571,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
          * shipyard position (`worldToShip` of the world entry point) is what physTick
          * applies the push at, so off-COM application produces torque on the target.
          */
+        @OptIn(GameTickOnly::class)
         fun findClosestShipInBeam(
             level: ServerLevel,
             padWorld: Vector3d,
@@ -646,6 +627,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         /** Slab-method ray-vs-AABB intersection. Returns the entry-t along the ray
          *  (origin + t·dir = hit point), or NaN if no intersection within `t ≥ 0`.
          *  Origin inside the box returns t=0. */
+        @OptIn(GameTickOnly::class)
         private fun raySlabIntersect(
             ox: Double, oy: Double, oz: Double,
             dx: Double, dy: Double, dz: Double,

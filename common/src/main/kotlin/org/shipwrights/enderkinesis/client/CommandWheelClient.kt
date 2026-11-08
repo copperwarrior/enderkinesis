@@ -45,7 +45,6 @@ object CommandWheelClient {
     @Volatile private var predictedKey: String? = null
     @Volatile private var predictedAtMs: Long = 0L
 
-    @JvmStatic
     fun init() {
         ClientGuiEvent.RENDER_HUD.register(::renderHud)
     }

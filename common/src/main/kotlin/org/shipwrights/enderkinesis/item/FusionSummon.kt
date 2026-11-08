@@ -25,12 +25,14 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * When a Staff of Fusion bubble holds the parts of a wither or an iron golem, it builds the vanilla
  * pattern on the ship that a weld would keep. A part alone on its ship is pulled to its cell and welded
  * there; other parts wait for the regular teleport tries. The last head spawns the mob.
  */
+@OptIn(GameTickOnly::class)
 internal class FusionSummon {
 
     private class Part(val ship: LoadedServerShip, val pos: Long, val lone: Boolean)

@@ -43,8 +43,8 @@ import org.shipwrights.enderkinesis.worldgen.ShipyardCrew
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Shulkonaut — a shulker-like gunnery officer. Sits where placed, holds a list of
@@ -58,6 +58,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * shipyard-coordinate convention, and per-shot dispatch re-resolves the host ship the
  * same way the staff does.
  */
+@OptIn(GameTickOnly::class)
 class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : Mob(type, level), ShipMoveListener, ShipyardCrew {
 
     private val commanded = ArrayList<StaffOfCommandItem.Companion.Entry>()
@@ -397,7 +398,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
      *  shipyard coordinates; VS2 renders and collides such entities with the ship,
      *  which is how vanilla shulkers work on ships). */
     private fun aboardShip(server: ServerLevel) =
-        server.getShipObjectManagingPos(blockPosition())
+        server.getLoadedShipManagingPos(blockPosition())
 
     /** World-frame position: raw for world placements, ship-transformed aboard. */
     private fun worldPos(server: ServerLevel): net.minecraft.world.phys.Vec3 {

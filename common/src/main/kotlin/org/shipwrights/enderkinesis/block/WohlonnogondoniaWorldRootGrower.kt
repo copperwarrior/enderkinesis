@@ -121,7 +121,6 @@ object WohlonnogondoniaWorldRootGrower {
      * be Wohlon biome by the time of the call; if not, the trigger
      * is ignored and we wait for a future flip.
      */
-    @JvmStatic
     fun maybeEnqueueCell(level: ServerLevel, qx: Int, qy: Int, qz: Int) {
         if (suppressTrigger) return
         if (level.dimension() == Wohlonnogondonia.LEVEL_KEY) return

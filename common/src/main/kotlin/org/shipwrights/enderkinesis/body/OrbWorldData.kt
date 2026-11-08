@@ -50,12 +50,10 @@ class OrbWorldData : SavedData() {
     companion object {
         private const val SAVE_KEY = "enderkinesis_orbs"
 
-        @JvmStatic
         fun get(level: ServerLevel): OrbWorldData {
             return level.dataStorage.computeIfAbsent(::load, ::OrbWorldData, SAVE_KEY)
         }
 
-        @JvmStatic
         fun load(tag: CompoundTag): OrbWorldData {
             val out = OrbWorldData()
             val list = tag.getList("Orbs", Tag.TAG_COMPOUND.toInt())

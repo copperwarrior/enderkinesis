@@ -17,6 +17,7 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Ships travelling the Ygann Abyss pick up barnacles: every [ATTACH_INTERVAL] each
@@ -25,6 +26,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * barnacle also seeds new ones near itself ([tickMature]). A Quasar of Purity on the
  * ship stops all new attachment.
  */
+@OptIn(GameTickOnly::class)
 object YgannBarnacleSpreader {
 
     fun init() {

@@ -21,6 +21,7 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.toWorldCoordinates
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Detached shrivel-out death for the Ygann Barnacle. The block breaks normally; the
@@ -30,6 +31,7 @@ import org.valkyrienskies.mod.common.toWorldCoordinates
  * client barnacle's fresh walk, or are re-walked once (hull still intact), and serve the whole animation.
  * The same effect dissolves the part of a limb that a cut took off ([addSever]).
  */
+@OptIn(GameTickOnly::class)
 object YgannBarnacleDeathRenderer {
 
     /** Each path withers from [frontStart] (path-local px) out to [reveal]: from 0 for a death, from

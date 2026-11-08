@@ -51,6 +51,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.LongConsumer
 import kotlin.math.max
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Wohlon biome spreader — four wired features:
@@ -68,6 +69,7 @@ import kotlin.math.max
  *
  * Tainted set grows only — once Wohlon touches a chunk it stays in the economy forever.
  */
+@OptIn(GameTickOnly::class)
 object WohlonnogondoniaSpreader {
 
     /** 1 in-game hour = 1000 ticks (vanilla day = 24000 ticks ÷ 24). */
@@ -756,7 +758,6 @@ object WohlonnogondoniaSpreader {
      *  positions of the freshly-placed voxels get fed in and
      *  the cells they cover flip to Wohlon. The tree's painted
      *  shape then carries the biome with it as it grows. */
-    @JvmStatic
     fun convertCellsToWohlon(level: ServerLevel, blockPositions: Collection<BlockPos>) {
         if (blockPositions.isEmpty()) return
         val wohlonBiome = lookupBiome(level) ?: return
@@ -781,7 +782,6 @@ object WohlonnogondoniaSpreader {
      * around a ritual tree: [TREE_SPREAD_RADIUS] around its centre line, and the same distance past its top
      * and bottom. Cells in chunks unloaded when their turn comes are skipped.
      */
-    @JvmStatic
     fun spreadAroundTree(level: ServerLevel, centerX: Int, centerZ: Int, bottomY: Int, topY: Int) {
         require(topY >= bottomY) { "tree top $topY below bottom $bottomY" }
         val radius = TREE_SPREAD_RADIUS.toDouble()
@@ -815,7 +815,6 @@ object WohlonnogondoniaSpreader {
         SeedJob(ArrayDeque(computeSphereCells(BlockPos.ZERO, 2)), 1)
     }
 
-    @JvmStatic
     fun startPortalSeed(level: ServerLevel, portalPos: BlockPos) {
         val cells = computeSphereCells(portalPos, SEED_RADIUS_BLOCKS)
         if (cells.isEmpty()) return
@@ -1222,7 +1221,6 @@ object WohlonnogondoniaSpreader {
                         bx.toDouble() * BLOCK_NOISE_FREQUENCY,
                         by.toDouble() * BLOCK_NOISE_FREQUENCY,
                         bz.toDouble() * BLOCK_NOISE_FREQUENCY,
-                        0.0, 0.0,
                     )
                     if (blockNoise < BLOCK_NOISE_THRESHOLD) return@repeat
                     val rate = (baseRate * spreadSpeed).coerceAtMost(1.0)
@@ -1312,7 +1310,7 @@ object WohlonnogondoniaSpreader {
             if (d < best) best = d
         }
         val wobble = SPREAD_BOUNDARY_NOISE.noise(
-            bx * DEPTH_NOISE_FREQUENCY, by * DEPTH_NOISE_FREQUENCY, bz * DEPTH_NOISE_FREQUENCY, 0.0, 0.0,
+            bx * DEPTH_NOISE_FREQUENCY, by * DEPTH_NOISE_FREQUENCY, bz * DEPTH_NOISE_FREQUENCY,
         )
         return best + wobble * DEPTH_NOISE
     }
@@ -1416,6 +1414,7 @@ object WohlonnogondoniaSpreader {
 
     /** A fixed value in [0, 1) for a column and a plant. */
     private fun columnRoll(x: Int, z: Int, salt: Int): Float {
+        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; 1.20.1 has no replacement.
         var h = net.minecraft.util.Mth.getSeed(x, salt, z)
         h = (h xor (h ushr 31)) * -0x4b47d5b1L
         h = h xor (h ushr 29)
@@ -1901,7 +1900,6 @@ object WohlonnogondoniaSpreader {
                 nqx.toDouble() * SPREAD_NOISE_FREQUENCY,
                 nqy.toDouble() * SPREAD_NOISE_FREQUENCY,
                 nqz.toDouble() * SPREAD_NOISE_FREQUENCY,
-                0.0, 0.0,
             )
             if (noiseValue < SPREAD_NOISE_THRESHOLD) return@repeat
             // Air-only cells get spread only from the vertical-up cascade

@@ -68,7 +68,7 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -255,14 +255,14 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
         )
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun hasAnalogOutputSignal(state: BlockState): Boolean = true
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getAnalogOutputSignal(state: BlockState, level: Level, pos: BlockPos): Int =
         (level.getBlockEntity(pos) as? EyeroscopeBlockEntity)?.comparatorSignal ?: 0
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

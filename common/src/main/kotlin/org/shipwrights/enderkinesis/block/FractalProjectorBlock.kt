@@ -39,6 +39,7 @@ class FractalProjectorBlock(properties: Properties) : Block(properties), EntityB
         builder.add(FRACTAL_TYPE)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.INVISIBLE
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =
@@ -76,7 +77,6 @@ class FractalProjectorBlock(properties: Properties) : Block(properties), EntityB
          *  only the low 12 bits (`y mod N`), so the mixer is needed for
          *  full 3D variation. Used on both sides so identical positions
          *  agree without needing the value over the wire. */
-        @JvmStatic
         fun computeFractalType(anchor: Vector3dc): Int {
             val x = Math.floor(anchor.x()).toLong()
             val y = Math.floor(anchor.y()).toLong()

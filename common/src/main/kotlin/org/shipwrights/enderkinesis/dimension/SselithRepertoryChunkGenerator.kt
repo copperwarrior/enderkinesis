@@ -5063,6 +5063,7 @@ class SselithRepertoryChunkGenerator(
 
     override fun spawnOriginalMobs(level: WorldGenRegion) {
         val chunkPos = level.center
+        @Suppress("DEPRECATION") // WorldGenRegion.getLevel: the only path to the ServerLevel here in 1.20.1.
         val serverLevel = level.level
 
         // Flush POI registrations queued by fillFromNoise. See the doc comment on
@@ -5212,6 +5213,7 @@ class SselithRepertoryChunkGenerator(
         // sits at (cornerY + 1), so 1-tall paintings hang clear of the
         // floor block and 4-tall paintings reach the ceiling.
         val yBase = cornerY + 1
+        @Suppress("DEPRECATION") // WorldGenRegion.getLevel: the only path to the ServerLevel here in 1.20.1.
         val serverLevel = level.level
 
         // The gallery NBT has no outer walls — its "open faces" are the
@@ -6950,7 +6952,9 @@ class SselithRepertoryChunkGenerator(
                     // True ⇒ unpaintable: NBT had structure_void (null) or
                     // a non-solid block at the would-be backer. The
                     // `isSolid()` check matches vanilla `survives()`.
-                    state == null || !state.isSolid
+                    @Suppress("DEPRECATION") // BlockState.isSolid has no 1.20.1 replacement.
+                    val solid = state?.isSolid == true
+                    !solid
                 }
             }
         }

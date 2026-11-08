@@ -26,6 +26,8 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.SculkSpread
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
+import net.minecraft.world.damagesource.DamageTypes
 
 /**
  * Echo Cannon BE. Owns the charge-up timer and the single-shot fire
@@ -46,6 +48,7 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
  *    every few ticks during cooldown so the cannon visibly vents
  *    before it can fire again.
  */
+@OptIn(GameTickOnly::class)
 class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.ECHO_CANNON.get(), pos, state), Commandable {
 
@@ -375,7 +378,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
 
     private fun damageAlongTrace(level: ServerLevel, segments: List<org.shipwrights.enderkinesis.item.BeamSegment>) {
         val touched = HashSet<Int>()  // entity ids — don't double-hit on bounces
-        val src = level.damageSources().sonicBoom(null)
+        val src = level.damageSources().source(DamageTypes.SONIC_BOOM)
         for (seg in segments) {
             // Broad-phase: expand the segment's AABB by the hit radius.
             val box = AABB(

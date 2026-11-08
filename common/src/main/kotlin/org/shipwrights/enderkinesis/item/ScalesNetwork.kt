@@ -17,6 +17,8 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.dimensionId
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 
 /** Network packets for the Staff of Scales.
@@ -31,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
  *  - [BEGIN] (C2S): no payload (server raycasts itself).
  *  - [STATE] (S2C): server's reply — picked ship id + current scale.
  *  - [COMMIT] (C2S): scale only; server uses the cached ship from BEGIN. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object ScalesNetwork {
 
     val BEGIN: ResourceLocation = EnderkinesisMod.id("staff_of_scales/begin")

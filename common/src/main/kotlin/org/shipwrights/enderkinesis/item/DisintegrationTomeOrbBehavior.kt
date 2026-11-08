@@ -23,6 +23,7 @@ import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Tome of Disintegration behavior — fires a destructive beam from the SEND orb toward each
@@ -49,6 +50,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * normal "well-tooled" drops (cobblestone from stone, ingots from ores, etc.) rather than
  * the empty-handed no-tool drops.
  */
+@OptIn(GameTickOnly::class)
 object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_disintegration")

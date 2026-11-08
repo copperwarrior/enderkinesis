@@ -4,7 +4,6 @@ import com.mojang.blaze3d.vertex.PoseStack
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.entity.EntityRenderer
 import net.minecraft.client.renderer.entity.EntityRendererProvider
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.entity.SpellBoltEntity
@@ -29,8 +28,8 @@ class SpellBoltRenderer(ctx: EntityRendererProvider.Context) : EntityRenderer<Sp
         super.render(bolt, yaw, partialTick, pose, buffers, light)
     }
 
-    @Suppress("DEPRECATION") // EntityRenderer needs a texture. This renderer uses none, and LOCATION_BLOCKS is deprecated.
-    override fun getTextureLocation(bolt: SpellBoltEntity): ResourceLocation = TextureAtlas.LOCATION_BLOCKS
+    // EntityRenderer needs a texture; this renderer uses none.
+    override fun getTextureLocation(bolt: SpellBoltEntity): ResourceLocation = BLOCK_ATLAS
 
     private companion object {
         /** In blocks. */

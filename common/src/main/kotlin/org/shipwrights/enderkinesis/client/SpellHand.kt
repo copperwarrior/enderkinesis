@@ -154,7 +154,6 @@ object SpellHand {
         lastFist.clear(); lastShoulder.clear(); lastAxis.clear(); lastMove.clear()
     }
 
-    @JvmStatic
     fun startUse(player: Player, use: Use, hand: InteractionHand) {
         if (player !== Minecraft.getInstance().player) return
         sync(player)

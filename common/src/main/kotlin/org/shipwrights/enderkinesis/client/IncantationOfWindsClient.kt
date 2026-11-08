@@ -396,7 +396,6 @@ object IncantationOfWindsClient {
             player.usedItemHand == hand &&
             player.getItemInHand(hand).item is IncantationItem
 
-    @JvmStatic
     fun isCastingWinds(player: Player, hand: InteractionHand): Boolean =
         player.isUsingItem &&
             player.usedItemHand == hand &&

@@ -34,6 +34,7 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Crepusculite lattice. Sits at the centre of an end meteorite geode.
@@ -43,6 +44,7 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
  * density 1500), 15 = disabled (light 1, density 0), linear in between. Right-clicking with a book
  * yields an Almanac of Everywhere.
  */
+@OptIn(GameTickOnly::class)
 class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(properties), EntityBlock {
 
     init {
@@ -68,7 +70,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean
     ) {
@@ -84,6 +86,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         super.onRemove(state, level, pos, newState, moved)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult
@@ -132,13 +135,13 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         TOO_LARGE("message.enderkinesis.lattice.too_large"),
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, moved: Boolean) {
         super.onPlace(state, level, pos, oldState, moved)
         syncSignal(state, level, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, moving: Boolean
@@ -163,6 +166,9 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
         const val OFF_POWER = 15
         /** Hard cap on the flood-fill so an ender-pearl assembly can't shipify the world. */
         private const val MAX_ASSEMBLY_BLOCKS = 100_000
+
+        /** Blocks [expandWithAttachments] may add; past this, the rest drop as vanilla drops them. */
+        private const val MAX_ATTACHED_BLOCKS = 256
         /** Slack for "does the outline shape touch this face plane" (block units). */
         private const val FACE_REACH_EPS = 1.0e-4
 
@@ -189,11 +195,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
          * single corners, a chequer-pattern hull, a meteorite geode whose ancrite crystals only
          * meet the lattice at a corner) still count as one piece. Air bounds the structure; the
          * size is capped so a lattice that happens to touch terrain can't try to shipify the world.
-         *
-         * Public-static so the ender-pearl-impact mixin can reuse the exact same flood-fill +
-         * bounds logic as the right-click path.
          */
-        @JvmStatic
         fun assembleConnectedShip(level: ServerLevel, origin: BlockPos): AssembleOutcome {
             if (level.getLoadedShipManagingPos(origin) != null || level.isBlockInShipyard(origin)) {
                 return AssembleOutcome.ALREADY_SHIP
@@ -245,7 +247,6 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
          *  For diagonal / corner moves (≥2 non-zero components), every applicable axis
          *  must pass, preserving the 26-neighbour intent (a diagonal staircase of solid
          *  cubes still connects) while rejecting diagonals through non-structural blocks. */
-        @JvmStatic
         fun isStructuralLink(
             level: net.minecraft.world.level.LevelReader,
             fromState: BlockState, fromPos: BlockPos,
@@ -322,16 +323,18 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
          *  dependent multi-block structures (doors, beds, double-tall plants) still
          *  cascade — that one needs a VS2-side fix to add `UPDATE_SUPPRESS_DROPS` or
          *  `UPDATE_KNOWN_SHAPE` to the pass-1 flag. */
-        @JvmStatic
         fun expandWithAttachments(level: ServerLevel, blocks: Set<BlockPos>): Set<BlockPos> {
             val expanded = HashSet(blocks)
             // The answer for a pair (p, n) does not change, so each block is examined one time.
             val frontier = java.util.ArrayDeque(blocks)
-            while (true) {
+            var added = 0
+            while (added < MAX_ATTACHED_BLOCKS) {
                 val p = frontier.poll() ?: break
                 for (dir in Direction.values()) {
                     val n = p.relative(dir)
                     if (n in expanded) continue
+                    // canSurvive reads the cells next to n; a read in an unloaded chunk would load it.
+                    if (!isNeighbourhoodLoaded(level, n)) continue
                     val ns = level.getBlockState(n)
                     if (ns.isAir) continue
                     // Don't steal blocks that belong to another ship's claim or are
@@ -344,9 +347,10 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
                     // so canSurvive's neighbour checks see the rest of the structure.
                     val mock = AttachmentMockReader(level, p)
                     if (!ns.canSurvive(mock, n)) {
-                        val added = n.immutable()
-                        expanded.add(added)
-                        frontier.add(added)
+                        val attached = n.immutable()
+                        expanded.add(attached)
+                        frontier.add(attached)
+                        if (++added >= MAX_ATTACHED_BLOCKS) break
                     }
                 }
             }
@@ -354,6 +358,10 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
                 .sortedByDescending { it.y }
                 .toCollection(LinkedHashSet())
         }
+
+        private fun isNeighbourhoodLoaded(level: ServerLevel, pos: BlockPos): Boolean =
+            level.isLoaded(pos) && level.isLoaded(pos.east()) && level.isLoaded(pos.west()) &&
+                level.isLoaded(pos.north()) && level.isLoaded(pos.south())
 
         /** Light emitted at analogue redstone [power] (0..15): 0 → 15, 15 → 1, linear. */
         fun lightFor(power: Int): Int =

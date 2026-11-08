@@ -8,6 +8,7 @@ import org.shipwrights.enderkinesis.body.OrbDynamicLightMap
 import org.valkyrienskies.core.api.bodies.ClientVsBody
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Per-client-tick publisher for [OrbDynamicLightMap] — the [MAX_ORBS] closest active orbs
@@ -18,6 +19,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * crosses a block boundary or enters/leaves the active set — vanilla's `onLightUpdate`
  * chain only fires from the light-engine BFS, and our hook bypasses that engine.
  */
+@OptIn(GameTickOnly::class)
 object OrbDynamicLightDriver {
 
     /** Block-light level injected at each active orb's position. 13
@@ -42,7 +44,6 @@ object OrbDynamicLightDriver {
      *  invalidated alongside the new one. */
     private val lastBodyPos: HashMap<Long, Long> = HashMap()
 
-    @JvmStatic
     fun tick(mc: Minecraft) {
         val level = mc.level ?: run {
             if (lastBodyPos.isNotEmpty()) {

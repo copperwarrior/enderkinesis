@@ -12,13 +12,14 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.io.DataInput
 import java.io.DataOutput
 import java.io.IOException
+import org.valkyrienskies.core.api.util.PhysTickOnly
 
 /**
  * Per-block Archimedes — fractional submersion makes the water surface a soft ramp instead of
  * a step, which (with submersion-scaled drag) is what keeps the ship from bouncing. Force-at-
  * position follows vstuffcontinued's thruster pattern (`blockCenter − transform.positionInShip`).
  */
-@OptIn(VsBeta::class)
+@OptIn(VsBeta::class, PhysTickOnly::class)
 class CrepusculiteLatticeForceInducer(
     /** World-space Y of the virtual sea surface (lattice world Y when this was created). */
     var waterLineY: Double = 0.0,
@@ -165,7 +166,7 @@ class CrepusculiteLatticeForceInducer(
             )
             // VS2 queues these two objects with no copy, so each call needs new ones.
             val rel = Vector3d(cx - com.x(), cy - com.y(), cz - com.z())
-            physShip.applyInvariantForceToPos(force, rel)
+            physShip.applyWorldForceToBodyPos(force, rel)
         }
     }
 

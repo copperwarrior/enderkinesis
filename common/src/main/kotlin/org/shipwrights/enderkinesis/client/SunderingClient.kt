@@ -174,7 +174,6 @@ object SunderingClient {
      *  with `lifetime = Int.MAX_VALUE` and self-remove when wielding ends. */
     private var localGlyphRingActive: Boolean = false
 
-    @JvmStatic
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel { level ->
             val localPlayer = Minecraft.getInstance().player
@@ -201,7 +200,6 @@ object SunderingClient {
         })
     }
 
-    @JvmStatic
     fun renderAll(
         pose: PoseStack, consumers: MultiBufferSource,
         camX: Double, camY: Double, camZ: Double, tickDelta: Float,
@@ -227,7 +225,6 @@ object SunderingClient {
 
     /** Public wielding check used by [SunderingGlyphParticle.tick] to
      *  decide whether to keep tracking the local player's beam tip. */
-    @JvmStatic
     fun isLocalWieldingSundering(player: Player): Boolean = isWielding(player)
 
     /** Live world-space position of one slot on the SUNDER glyph ring,
@@ -235,7 +232,6 @@ object SunderingClient {
      *  the given [tickDelta]. Called from
      *  [SunderingGlyphParticle.tick] every game tick so the letter stays
      *  pinned to the rotating ring as the player turns. */
-    @JvmStatic
     fun glyphRingPosition(player: Player, slotIndex: Int, tickDelta: Float): Vec3 {
         val viewVec = player.getViewVector(tickDelta).normalize()
         // Forward push along the beam puts the glyph ring just ahead of the
@@ -487,7 +483,6 @@ object SunderingClient {
     )
 
     /** Call only from the world-render hook of the staff beams. [fadeBack] fades the beam in behind its start. */
-    @JvmStatic
     fun renderColouredBeam(
         pose: PoseStack, consumers: MultiBufferSource,
         camX: Double, camY: Double, camZ: Double,

@@ -11,10 +11,13 @@ import kotlin.math.atan2
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** Staff of Fusion forces: a velocity-limited pull of the blocks inside the bubble toward a point,
  *  an attraction between nearest blocks of neighbor ships, and a rotation that tumbles, holds
  *  steady, or aligns to a goal. */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class FusionPullAttachment : ShipPhysicsListener {
 
     @Volatile private var targetX: Double = 0.0

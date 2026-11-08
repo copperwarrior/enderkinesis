@@ -80,15 +80,18 @@ class GuardianSpikeBlock(props: Properties) : GuardianSpikeBase(props) {
         return if (state.canSurvive(ctx.level, ctx.clickedPos)) state else null
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canBeReplaced(state: BlockState, ctx: BlockPlaceContext): Boolean =
         !ctx.isSecondaryUseActive && ctx.itemInHand.`is`(asItem()) && cachedSpikes(state).size < SLOTS.size
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
         val spikes = cachedSpikes(state)
         return spikes.isNotEmpty() && spikes.all { wallsHold(level, pos, it) }
     }
 
     // Every wall is a face neighbour, so updateShape sees each support change.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, dir: Direction, neighbor: BlockState, level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
     ): BlockState {

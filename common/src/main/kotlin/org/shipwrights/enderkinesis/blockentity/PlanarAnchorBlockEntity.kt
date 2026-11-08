@@ -9,7 +9,6 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundSource
-import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -34,6 +33,8 @@ import org.valkyrienskies.mod.common.executeOrSchedule
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.world.clipIncludeShips
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.EntitylessClip
 
 /**
  * The Planar Anchor's block entity.
@@ -55,6 +56,7 @@ import org.valkyrienskies.mod.common.world.clipIncludeShips
  * with delay=4, no .serialized() so the joint stays ephemeral and is re-bound on chunk reload
  * by [serverTick]) matches VS2's own `TestHingeBlock` and vstuff's `RopePosData`.
  */
+@OptIn(GameTickOnly::class)
 class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.PLANAR_ANCHOR.get(), pos, state), ShipMoveListener {
 
@@ -486,8 +488,8 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
             val worldEndVec = Vec3(outboardCloud.x, outboardCloud.y, outboardCloud.z)
             val shipReachEnd = Vector3d(centerWorld).add(Vector3d(outward).mul(cloudDistance * SHIP_REACH_MULT))
             val shipEndVec = Vec3(shipReachEnd.x, shipReachEnd.y, shipReachEnd.z)
-            val worldCtx = ClipContext(sourceCenterWorld, worldEndVec, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, null as Entity?)
-            val shipCtx = ClipContext(sourceCenterWorld, shipEndVec, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, null as Entity?)
+            val worldCtx = EntitylessClip.of(sourceCenterWorld, worldEndVec, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE)
+            val shipCtx = EntitylessClip.of(sourceCenterWorld, shipEndVec, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE)
             val worldHitResult = level.clipIncludeShips(worldCtx, true, ship.id, false)
             val shipHitResult = level.clipIncludeShips(shipCtx, true, ship.id, true)
             val worldHitDist = if (worldHitResult.type == HitResult.Type.BLOCK)

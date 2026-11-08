@@ -5,8 +5,10 @@ import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.particle.Particle
 import net.minecraft.core.particles.ParticleTypes
 import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** PORTAL particles in crepusculite pink that converge on a target. */
+@OptIn(GameTickOnly::class)
 internal object CrepusculitePortalParticles {
 
     /** The same cull distance that vanilla uses for a particle that is not forced. */

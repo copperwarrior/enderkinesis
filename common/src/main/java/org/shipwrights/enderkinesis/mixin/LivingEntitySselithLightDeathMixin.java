@@ -1,5 +1,8 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
@@ -11,7 +14,6 @@ import org.shipwrights.enderkinesis.sselith.SselithEclipse;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -46,39 +48,42 @@ public abstract class LivingEntitySselithLightDeathMixin {
         ci.cancel();
     }
 
-    @Redirect(
+    @WrapOperation(
         method = "hurt",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/world/level/Level;broadcastDamageEvent(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/damagesource/DamageSource;)V"
         )
     )
-    private void enderkinesis$skipLightHurtBroadcast(Level level, Entity entity, DamageSource source) {
+    private void enderkinesis$skipLightHurtBroadcast(Level level, Entity entity, DamageSource source,
+                                                     Operation<Void> original) {
         if (SselithEclipse.isLightDamageSource(source)) return;
-        level.broadcastDamageEvent(entity, source);
+        original.call(level, entity, source);
     }
 
-    @Redirect(
+    @WrapOperation(
         method = "die",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/world/level/Level;broadcastEntityEvent(Lnet/minecraft/world/entity/Entity;B)V"
         )
     )
-    private void enderkinesis$skipLightDeathBroadcast(Level level, Entity entity, byte event, DamageSource source) {
+    private void enderkinesis$skipLightDeathBroadcast(Level level, Entity entity, byte event, Operation<Void> original,
+                                                      @Local(argsOnly = true) DamageSource source) {
         if (event == 3 && SselithEclipse.isLightDamageSource(source)) return;
-        level.broadcastEntityEvent(entity, event);
+        original.call(level, entity, event);
     }
 
-    @Redirect(
+    @WrapOperation(
         method = "die",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/world/entity/LivingEntity;setPose(Lnet/minecraft/world/entity/Pose;)V"
         )
     )
-    private void enderkinesis$skipLightDeathPose(LivingEntity self, Pose pose, DamageSource source) {
+    private void enderkinesis$skipLightDeathPose(LivingEntity self, Pose pose, Operation<Void> original,
+                                                 @Local(argsOnly = true) DamageSource source) {
         if (pose == Pose.DYING && SselithEclipse.isLightDamageSource(source)) return;
-        self.setPose(pose);
+        original.call(self, pose);
     }
 }

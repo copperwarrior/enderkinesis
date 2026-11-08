@@ -12,6 +12,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.io.DataInput
 import java.io.DataOutput
 import java.io.IOException
+import org.valkyrienskies.core.api.util.PhysTickOnly
 
 /**
  * PD altitude controller pulling any ship carrying Moth Cloth up to
@@ -32,7 +33,7 @@ import java.io.IOException
  * shipyard position via `applyWorldForceToModelPos` (world-frame up at a
  * model-space point), so cloth placement determines the ship's balance.
  */
-@OptIn(VsBeta::class)
+@OptIn(VsBeta::class, PhysTickOnly::class)
 class MothClothForceInducer : ShipPhysicsListener {
 
     /** Packed shipyard positions of the cloth. [MothClothShipRegistry] replaces the whole array

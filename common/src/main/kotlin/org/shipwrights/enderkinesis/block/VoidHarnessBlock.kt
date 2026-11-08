@@ -62,7 +62,7 @@ class VoidHarnessBlock(properties: BlockBehaviour.Properties) : Block(properties
     /** Mirror the strongest neighbouring redstone signal into the [POWER] blockstate the instant
      *  it changes — the BER reads POWER for animation rate / brightness, the BE re-caches it
      *  for force scaling on the next server tick. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         neighborBlock: Block, neighborPos: BlockPos, isMoving: Boolean,

@@ -62,7 +62,7 @@ class StatueBlock(val kind: StatueKind, properties: BlockBehaviour.Properties) :
         level.setBlock(pos.above(), state.setValue(HALF, DoubleBlockHalf.UPPER), UPDATE_ALL)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
@@ -79,28 +79,28 @@ class StatueBlock(val kind: StatueKind, properties: BlockBehaviour.Properties) :
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun rotate(state: BlockState, rotation: Rotation): BlockState =
         state.setValue(FACING, rotation.rotate(state.getValue(FACING)))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun mirror(state: BlockState, mirror: Mirror): BlockState =
         state.rotate(mirror.getRotation(state.getValue(FACING)))
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity? =
         if (state.getValue(HALF) == DoubleBlockHalf.LOWER) StatueBlockEntity(pos, state) else null
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = StatueShapes.of(kind, state.getValue(FACING), state.getValue(HALF))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = StatueShapes.of(kind, state.getValue(FACING), state.getValue(HALF))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getOcclusionShape(state: BlockState, level: BlockGetter, pos: BlockPos): VoxelShape =
         Shapes.empty()
 

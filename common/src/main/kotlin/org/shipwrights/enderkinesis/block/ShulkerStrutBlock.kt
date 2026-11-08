@@ -83,7 +83,7 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
 
     /** Mirror the strongest neighbour signal into [BlockStateProperties.POWER] so the BE's
      *  next tick observes the new target extension. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, moving: Boolean,
@@ -102,19 +102,19 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
      *  without this, a strut placed on a ship would carry a full-cube collider that fights
      *  the lid ship's half-cube collider. `getCollisionShape` is overridden to the same
      *  value for symmetry with world-mounted strut behaviour. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = baseHalfCube(state.getValue(BlockStateProperties.FACING))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = baseHalfCube(state.getValue(BlockStateProperties.FACING))
 
     /** Raycast targeting (break-select / right-click) uses the full cube so the player can
      *  still aim at the whole block even though the collision is a half-cube. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getInteractionShape(
         state: BlockState, level: BlockGetter, pos: BlockPos,
     ): VoxelShape = Shapes.block()
@@ -122,7 +122,7 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
     /** Right-click with a dye item paints the strut. Updates the base BE's `dyeColor`,
      *  which propagates to the lid BE and triggers a block update so both BERs pick the
      *  matching shulker entity texture (e.g. `entity/shulker/shulker_red.png`). */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos, player: Player,
         hand: InteractionHand, hit: BlockHitResult,
@@ -137,24 +137,24 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
         return InteractionResult.CONSUME
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun rotate(state: BlockState, rotation: Rotation): BlockState =
         state.setValue(BlockStateProperties.FACING, rotation.rotate(state.getValue(BlockStateProperties.FACING)))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun mirror(state: BlockState, mirror: Mirror): BlockState =
         state.rotate(mirror.getRotation(state.getValue(BlockStateProperties.FACING)))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun hasAnalogOutputSignal(state: BlockState): Boolean = true
 
     /** Reads the lid's measured extension, which lags the input while moving, loaded, or blocked. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getAnalogOutputSignal(state: BlockState, level: Level, pos: BlockPos): Int =
         (level.getBlockEntity(pos) as? ShulkerStrutBlockEntity)?.comparatorSignal ?: 0
 
     /** Tear down the body when the base breaks so the lid doesn't get orphaned. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

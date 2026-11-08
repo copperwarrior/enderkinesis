@@ -18,9 +18,11 @@ import org.valkyrienskies.mod.common.BlockStateInfo
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Ship geometry for the Staff of Fusion. All positions are block centers in a ship's shipyard frame
  *  unless a name says world. */
+@OptIn(GameTickOnly::class)
 internal object FusionGeometry {
 
     /** Two touching unit cubes are this close; the margin absorbs physics penetration slop. */

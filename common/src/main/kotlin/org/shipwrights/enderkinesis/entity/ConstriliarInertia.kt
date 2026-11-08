@@ -17,7 +17,7 @@ internal object ConstriliarInertia {
     /** Sylvester's criterion on the stored tensor, plus a finite positive mass. */
     fun isValid(ship: ServerShip): Boolean {
         val data = ship.inertiaData
-        val m = data.momentOfInertiaTensor
+        val m = data.inertiaTensor
         return data.mass.isFinite() && data.mass > 0.0 &&
             m.m00() > 0.0 &&
             m.m00() * m.m11() - m.m01() * m.m10() > 0.0 &&

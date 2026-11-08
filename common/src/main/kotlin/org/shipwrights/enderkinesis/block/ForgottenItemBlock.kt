@@ -22,14 +22,14 @@ class ForgottenItemBlock(properties: Properties) : Block(properties), EntityBloc
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = ForgottenItemBlockEntity(pos, state)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.INVISIBLE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         SHAPE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -55,7 +55,7 @@ class ForgottenItemBlock(properties: Properties) : Block(properties), EntityBloc
         return InteractionResult.CONSUME
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
         if (!state.`is`(newState.block)) {
             val stack = (level.getBlockEntity(pos) as? ForgottenItemBlockEntity)?.take() ?: ItemStack.EMPTY

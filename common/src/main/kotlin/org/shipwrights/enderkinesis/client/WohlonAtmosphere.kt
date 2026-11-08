@@ -118,7 +118,6 @@ object WohlonAtmosphere {
         fogEndScale = 1f + blend * (target - 1f)
     }
 
-    @JvmStatic
     fun onDisconnect() {
         tintR = 1f; tintG = 1f; tintB = 1f
         fogEndScale = 1f

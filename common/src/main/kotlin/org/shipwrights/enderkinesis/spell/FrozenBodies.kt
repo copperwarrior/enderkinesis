@@ -10,7 +10,7 @@ import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKEffects
-import org.shipwrights.enderkinesis.util.VsBodies
+import org.shipwrights.enderkinesis.util.deleteStandaloneBody
 import org.valkyrienskies.core.api.bodies.VsBodyCreateData
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.dimensionId
@@ -19,9 +19,12 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
 import java.util.EnumSet
 import java.util.IdentityHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** The client moves a player, so a frozen player follows its body by teleport.
  *  A frozen entity that is also Absent stays where it vanished. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object FrozenBodies {
 
     private class Frozen(val bodyId: Long, val initial: Quaterniond)
@@ -61,7 +64,7 @@ object FrozenBodies {
             mob.deltaMovement = Vec3(v.x() / 20.0, v.y() / 20.0, v.z() / 20.0)
             mob.hurtMarked = true
         }
-        VsBodies.delete(level, state.bodyId)
+        level.deleteStandaloneBody(state.bodyId)
     }
 
     private fun createBody(level: ServerLevel, mob: LivingEntity, initial: Quaterniond): Long? {
@@ -92,7 +95,6 @@ object FrozenBodies {
                 restitutionCoefficient = 0.1,
             ),
         )
-        VsBodies.unregisterPreemptiveStandaloneBody(shipWorld, body.id)
         return body.id
     }
 
@@ -103,7 +105,7 @@ object FrozenBodies {
         for ((mob, state) in frozen.entries.filter { it.key.level() === level }.map { it.key to it.value }) {
             if (mob.isRemoved || !mob.isAlive) {
                 frozen.remove(mob)
-                VsBodies.delete(level, state.bodyId)
+                level.deleteStandaloneBody(state.bodyId)
                 continue
             }
             if (!mob.hasEffect(EKEffects.FROZEN.get())) {
@@ -128,7 +130,7 @@ object FrozenBodies {
 
     // Each entity keeps its hold, so it freezes again when it next loads.
     private fun dropAll() {
-        for ((mob, state) in frozen) (mob.level() as? ServerLevel)?.let { VsBodies.delete(it, state.bodyId) }
+        for ((mob, state) in frozen) (mob.level() as? ServerLevel)?.deleteStandaloneBody(state.bodyId)
         frozen.clear()
     }
 }

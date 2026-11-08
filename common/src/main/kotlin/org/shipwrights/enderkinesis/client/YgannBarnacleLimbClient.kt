@@ -13,8 +13,10 @@ import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 import java.util.Collections
 import java.util.IdentityHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Left-click hits on barnacle limbs. Limbs are not blocks or entities, so vanilla picking cannot find them. */
+@OptIn(GameTickOnly::class)
 object YgannBarnacleLimbClient {
 
     // Client thread only (renderer and Minecraft.startAttack/continueAttack).

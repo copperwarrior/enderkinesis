@@ -6,7 +6,6 @@ import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.texture.OverlayTexture
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
@@ -21,7 +20,7 @@ import org.joml.Matrix4f
 object FountainOfBlessingDome {
 
     private const val MAX_QUEUED = 8
-    private val DOME_TYPE: RenderType = RenderType.entityTranslucent(TextureAtlas.LOCATION_BLOCKS)
+    private val DOME_TYPE: RenderType = RenderType.entityTranslucent(BLOCK_ATLAS)
     private val WATER_STILL = ResourceLocation("minecraft", "block/water_still")
 
     // Block x, y, z (packed); surface height in the block; time; vigour; packed light.
@@ -51,7 +50,7 @@ object FountainOfBlessingDome {
         queued = 0
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
-        val sprite = mc.getTextureAtlas(TextureAtlas.LOCATION_BLOCKS).apply(WATER_STILL)
+        val sprite = mc.getTextureAtlas(BLOCK_ATLAS).apply(WATER_STILL)
         val bufferSource = mc.renderBuffers().bufferSource()
         val vc = bufferSource.getBuffer(DOME_TYPE)
         val cam = camera.position

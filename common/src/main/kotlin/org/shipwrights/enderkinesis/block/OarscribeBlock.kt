@@ -63,10 +63,10 @@ class OarscribeBlock(properties: Properties) : FaceAttachedHorizontalDirectional
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean = true
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape =
         shapes.getValue(state)
 
@@ -79,7 +79,7 @@ class OarscribeBlock(properties: Properties) : FaceAttachedHorizontalDirectional
         return BlockEntityTicker { lvl, pos, st, be -> (be as? OarscribeBlockEntity)?.tick(lvl, pos, st) }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -127,7 +127,7 @@ class OarscribeBlock(properties: Properties) : FaceAttachedHorizontalDirectional
         player.displayClientMessage(Component.translatable(IchaericInkJarBlock.CONTENTS_KEY, bottles, capacity), true)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
         if (!state.`is`(newState.block)) {
             (level.getBlockEntity(pos) as? OarscribeBlockEntity)?.let { Containers.dropContents(level, pos, it) }

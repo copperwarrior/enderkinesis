@@ -53,7 +53,7 @@ class UlderBeamAnchorBlock(properties: BlockBehaviour.Properties) : Block(proper
         if (level.isClientSide || type != EKBlockEntities.ULDER_BEAM_ANCHOR.get()) null
         else BlockEntityTicker { _, _, _, _ -> }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = when (state.getValue(FACING)) {
@@ -73,7 +73,7 @@ class UlderBeamAnchorBlock(properties: BlockBehaviour.Properties) : Block(proper
     }
 
     /** A selected Ulder Beam Anchor item claims this anchor for its orb. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -86,7 +86,7 @@ class UlderBeamAnchorBlock(properties: BlockBehaviour.Properties) : Block(proper
         return InteractionResult.CONSUME
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean) {
         if (!state.`is`(newState.block) && level is ServerLevel && !ShipMoves.isMovingBlocks(level)) {
             (level.getBlockEntity(pos) as? UlderBeamAnchorBlockEntity)?.release(level)

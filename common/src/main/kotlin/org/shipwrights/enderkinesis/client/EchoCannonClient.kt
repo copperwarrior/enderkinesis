@@ -14,6 +14,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.network.EchoCannonNetwork
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.CopyOnWriteArrayList
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Client-side renderer + packet receiver for [EchoCannonNetwork.FIRE].
@@ -32,6 +33,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  *  cannon is a one-shot, so the visual reads as "afterimage of the
  *  shot" fading rather than a held ramp.
  */
+@OptIn(GameTickOnly::class)
 object EchoCannonClient {
 
     /** Total fade window in client ticks. 10 ticks = 0.5 s per spec. */

@@ -27,7 +27,9 @@ import org.shipwrights.enderkinesis.util.ShipMoveListener
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.isBlockInShipyard
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object HeartOfTheWildManager : ShipMoveListener {
 
     private val LOG = LogUtils.getLogger()
@@ -139,7 +141,6 @@ object HeartOfTheWildManager : ShipMoveListener {
         }
     }
 
-    @JvmStatic
     fun onBlockDestroyed(server: ServerLevel, pos: BlockPos, oldState: BlockState) {
         // Chunkgen workers fire LevelChunk.setBlockState during paint flushes, which would
         // mutate our plain HashMaps concurrently with tickServerLevel AND enroll millions of

@@ -6,6 +6,5 @@ import org.slf4j.LoggerFactory
 object SilverpointDebug {
     private val LOG = LoggerFactory.getLogger("SilverpointDebug")
 
-    @JvmStatic
     fun log(message: String, vararg args: Any?) = LOG.info(message, *args)
 }

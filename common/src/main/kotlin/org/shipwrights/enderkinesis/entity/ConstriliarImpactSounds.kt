@@ -9,7 +9,10 @@ import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.ConcurrentHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
+@OptIn(GameTickOnly::class, VsBeta::class)
 object ConstriliarImpactSounds {
 
     /** Dimension id → (body ship id → walker). Written on the server thread, read on the physics thread. */

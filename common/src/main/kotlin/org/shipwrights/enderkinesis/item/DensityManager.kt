@@ -11,6 +11,8 @@ import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.core.impl.game.ships.ShipInertiaDataImpl
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** Server-side application of Staff-of-Density mass changes.
  *
@@ -23,6 +25,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *
  *  Per-ship state is persisted in a [DensityAttachment] saved on the ServerShip — VS2
  *  serialises attachments alongside the ship, so the multiplier survives world reload. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object DensityManager {
 
     const val MIN_MULTIPLIER: Double = 0.5

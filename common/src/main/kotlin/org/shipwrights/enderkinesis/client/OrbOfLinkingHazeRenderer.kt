@@ -10,7 +10,6 @@ import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.renderer.entity.ItemRenderer
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceLocation
@@ -69,7 +68,7 @@ class OrbOfLinkingHazeRenderer(
         // and (when active) the pulsing haze.
         val textureId = textureFor(role)
         val sprite = Minecraft.getInstance()
-            .getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
+            .getTextureAtlas(BLOCK_ATLAS)
             .apply(textureId)
         val texSpanU = sprite.u1 - sprite.u0
         val texSpanV = sprite.v1 - sprite.v0
@@ -92,7 +91,7 @@ class OrbOfLinkingHazeRenderer(
         val matrix = ps.last().pose()
         val normal = ps.last().normal()
         val builder = bufferSource.getBuffer(
-            RenderType.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS)
+            RenderType.entityTranslucentCull(BLOCK_ATLAS)
         )
 
         // -------------------------------------------------------------

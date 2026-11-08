@@ -183,14 +183,12 @@ object WohlonnogondoniaPortalManager {
     /** Public hook for [WohlonnogondoniaPortalRitual.teleportFromHeart]
      *  to mark an entity as just-returned, so the source-side portal's
      *  next [scanAndTeleport] doesn't immediately ship it back to Wohlon. */
-    @JvmStatic
     fun noteReturnedEntity(entityId: UUID, gameTime: Long) {
         returnCooldowns[entityId] = gameTime
     }
 
     /** Hook for [WohlonnogondoniaCatastrophe], after a wipe: each stored landing points into
      *  terrain that is gone, so each portal searches again. */
-    @JvmStatic
     fun resetSessionStateForWipe(server: MinecraftServer) {
         synchronized(pendingSearches) {
             pendingSearches.clear()
@@ -218,7 +216,6 @@ object WohlonnogondoniaPortalManager {
      *  [HeartCandleBlock.onPlace] — skip the costly idempotent
      *  follow-up work (biome seed, tree grow) when the player
      *  re-lights a candle that already anchors a portal here. */
-    @JvmStatic
     fun addPortal(level: ServerLevel, pos: BlockPos): Boolean {
         val data = getData(level)
         if (!data.positions.add(pos.asLong())) return false
@@ -229,7 +226,6 @@ object WohlonnogondoniaPortalManager {
 
     /** The stored landing for [portalPos], if its ground and its 3×3×3 space are still good.
      *  A landing that fails is dropped, and [tickLevel] queues a new search. */
-    @JvmStatic
     fun validatedLanding(sourceLevel: ServerLevel, portalPos: BlockPos, wohlonLevel: ServerLevel): BlockPos? {
         val data = sourceLevel.dataStorage.get(
             { tag -> PortalSavedData.load(tag) }, DATA_NAME,
@@ -246,13 +242,11 @@ object WohlonnogondoniaPortalManager {
     }
 
     /** True while a landing search for the portal can still give a result. */
-    @JvmStatic
     fun isSearchPending(sourceDim: ResourceKey<Level>, portalPos: BlockPos): Boolean =
         (sourceDim to portalPos.asLong()) !in exhaustedSearches
 
     /** An arrival position near [portalPos]. The Heart block fills the portal cell itself, so
      *  an arrival there is inside a block. Nearest cell with a floor and two free cells. */
-    @JvmStatic
     fun findReturnSpot(level: ServerLevel, portalPos: BlockPos): Vec3 {
         val feet = BlockPos.MutableBlockPos()
         val probe = BlockPos.MutableBlockPos()
@@ -325,7 +319,6 @@ object WohlonnogondoniaPortalManager {
         return best?.let(BlockPos::of)
     }
 
-    @JvmStatic
     fun isInsideAnyTreeBounds(level: ServerLevel, pos: BlockPos): Boolean {
         val data = level.dataStorage.get(
             { tag -> PortalSavedData.load(tag) }, DATA_NAME,
@@ -352,7 +345,6 @@ object WohlonnogondoniaPortalManager {
      *  most recently, send me back there"). Tracker lives on the
      *  overworld dimension's data storage; one canonical store
      *  regardless of where this gets called from. */
-    @JvmStatic
     fun recordPlayerEntry(
         server: MinecraftServer,
         playerId: UUID,
@@ -369,7 +361,6 @@ object WohlonnogondoniaPortalManager {
      *  admin `/tp`, `/execute … run tp`, datapack scripts, etc.
      *  Caller is expected to fall back to the random-portal path
      *  in that case (still gets the player out of Wohlon). */
-    @JvmStatic
     fun getPlayerEntry(server: MinecraftServer, playerId: UUID): EntryRecord? {
         return getEntryTracker(server).entries[playerId]
     }
@@ -381,7 +372,6 @@ object WohlonnogondoniaPortalManager {
      *  and item entities that step into the heart get sent
      *  somewhere, anywhere, that isn't another corner of Wohlon.
      *  Returns null if no outbound portals exist yet. */
-    @JvmStatic
     fun pickRandomNonWohlonPortal(
         server: MinecraftServer,
         random: RandomSource,

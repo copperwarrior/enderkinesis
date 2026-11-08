@@ -48,7 +48,9 @@ import org.valkyrienskies.mod.common.config.VSGameConfig
 import kotlin.math.abs
 import kotlin.math.PI
 import kotlin.math.pow
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object NamedEffects {
 
     fun heat(ctx: SpellContext, delivery: Delivery) {
@@ -286,7 +288,7 @@ object NamedEffects {
             if (!mag.isFinite() || mag <= 0) continue
             // The replacement takes a body-frame point whose origin is not checked yet; changing it needs a playtest.
             @Suppress("DEPRECATION")
-            gtpa.applyInvariantForce(srv.id, Vector3d(dir.x * mag, dir.y * mag, dir.z * mag))
+            gtpa.applyWorldForceToBodyPos(srv.id, Vector3d(dir.x * mag, dir.y * mag, dir.z * mag))
         }
     }
 

@@ -57,7 +57,9 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object FieldSignatures {
     val ALL: Map<Signature, SignatureBehaviour> = mapOf(
         Signature.STILLPOINT to Stillpoint,

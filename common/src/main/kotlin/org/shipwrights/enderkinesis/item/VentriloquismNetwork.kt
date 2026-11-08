@@ -30,7 +30,6 @@ object VentriloquismNetwork {
 
     private val byDim: MutableMap<ResourceKey<Level>, MutableSet<BlockPos>> = ConcurrentHashMap()
 
-    @JvmStatic
     fun register(level: ServerLevel, pos: BlockPos) {
         byDim.computeIfAbsent(level.dimension()) { ConcurrentHashMap.newKeySet() }.add(pos.immutable())
     }

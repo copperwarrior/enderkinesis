@@ -202,7 +202,6 @@ object AegisClient {
      *  keeps the look cohesive. */
     private const val SPARKLE_ALPHA: Int = 110
 
-    @JvmStatic
     fun init() {
         // Architectury per-frame-after-level tick is fine for particle
         // emission. The world-render hook is per-platform and registered
@@ -225,7 +224,6 @@ object AegisClient {
      *  (`WorldRenderEvents.AFTER_TRANSLUCENT` / `RenderLevelStageEvent`).
      *  Iterates every visible player using the staff and draws their shield
      *  wireframe in world space. */
-    @JvmStatic
     fun renderAll(pose: PoseStack, consumers: MultiBufferSource, camX: Double, camY: Double, camZ: Double, tickDelta: Float) {
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return

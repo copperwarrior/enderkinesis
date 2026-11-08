@@ -122,6 +122,7 @@ object WohlonFogWisps {
 
     /** A value in [0, 1) from a cell, an epoch and a salt. */
     private fun hash(cx: Int, cz: Int, epoch: Long, salt: Int): Double {
+        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; 1.20.1 has no replacement.
         var h = Mth.getSeed(cx, salt, cz) xor (epoch * -0x61c8864680b583ebL)
         h = (h xor (h ushr 31)) * -0x4b47d5b1L
         h = h xor (h ushr 29)

@@ -75,7 +75,7 @@ class PlanarAnchorBlock(properties: BlockBehaviour.Properties) :
      * deactivation logic stays in one place; the BE's own guards make repeat invocation (which
      * `neighborChanged` does freely) idempotent.
      */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         neighborBlock: Block, neighborPos: BlockPos, isMoving: Boolean,

@@ -270,7 +270,6 @@ object SpellVfxClient {
         }
     }
 
-    @JvmStatic
     fun renderAll(pose: PoseStack, buffers: MultiBufferSource, camX: Double, camY: Double, camZ: Double, partialTick: Float) {
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return

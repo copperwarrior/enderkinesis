@@ -9,7 +9,6 @@ import dev.architectury.event.events.client.ClientReloadShadersEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.ShaderInstance
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.Mth
 import net.minecraft.world.level.Level
@@ -58,9 +57,9 @@ object SunErasureRoots {
         val phase = (System.nanoTime() * 1e-9) % (2.0 * TIME_PERIOD_SEC)
         sh.safeGetUniform("Time").set((if (phase <= TIME_PERIOD_SEC) phase else 2.0 * TIME_PERIOD_SEC - phase).toFloat())
         sh.safeGetUniform("Brightness").set(level.getSkyDarken(partialTick).coerceAtLeast(MIN_BRIGHTNESS))
-        val sprite = Minecraft.getInstance().getTextureAtlas(TextureAtlas.LOCATION_BLOCKS).apply(ROOT_SPRITE)
+        val sprite = Minecraft.getInstance().getTextureAtlas(BLOCK_ATLAS).apply(ROOT_SPRITE)
         sh.safeGetUniform("SpriteUV").set(sprite.u0, sprite.v0, sprite.u1, sprite.v1)
-        RenderSystem.setShaderTexture(0, TextureAtlas.LOCATION_BLOCKS)
+        RenderSystem.setShaderTexture(0, BLOCK_ATLAS)
 
         RenderSystem.enableBlend()
         RenderSystem.depthMask(false)

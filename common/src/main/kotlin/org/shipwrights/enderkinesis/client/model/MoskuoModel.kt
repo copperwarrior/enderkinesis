@@ -59,7 +59,6 @@ class MoskuoModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<Mo
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id(MoskuoEntity.ID_PATH), "main")
 
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

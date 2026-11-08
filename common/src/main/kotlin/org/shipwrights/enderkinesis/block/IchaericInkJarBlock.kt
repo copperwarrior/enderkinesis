@@ -45,26 +45,26 @@ class IchaericInkJarBlock(properties: Properties) : Block(properties) {
         builder.add(BOTTLES, OPEN)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         SHAPE
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState =
         defaultBlockState().setValue(OPEN, isUnderRetort(context.level, context.clickedPos))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
     ): BlockState = if (direction == Direction.UP) state.setValue(OPEN, isUnderRetort(level, pos)) else state
 
     // Catches a column change that neither the jar nor the retort touches directly.
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun randomTick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         refreshOpen(level, pos, state)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -133,7 +133,6 @@ class IchaericInkJarBlock(properties: Properties) : Block(properties) {
             return stack
         }
 
-        @JvmStatic
         fun bottlesOf(stack: ItemStack): Int =
             stack.tag?.getCompound(BlockItem.BLOCK_STATE_TAG)?.getString(BOTTLES.name)?.toIntOrNull()
                 ?.coerceIn(0, MAX_BOTTLES) ?: 0

@@ -43,6 +43,9 @@ import kotlin.math.roundToInt
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
 import org.valkyrienskies.core.api.world.ServerShipWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
 /**
  * Drives the Shulker Strut. The lid is a **1-block VS2 ship** containing a single
@@ -67,6 +70,7 @@ import org.valkyrienskies.core.api.world.ServerShipWorld
  * Client-side: BER renders both shulker shells (base at the block, lid at the ship's
  * `renderTransform`). See [org.shipwrights.enderkinesis.client.ShulkerStrutRenderer].
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.SHULKER_STRUT.get(), pos, state), ShipMoveListener {
 
@@ -392,6 +396,8 @@ class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
         return true
     }
 
+    // Konstant is the only target backend.
+    @OptIn(UnavailableInKrunch::class)
     private fun buildJoint(
         basePos: BlockPos,
         baseShip: Ship?,

@@ -1,76 +1,39 @@
 package org.shipwrights.enderkinesis.client
 
-import net.minecraft.client.model.EntityModel
-import net.minecraft.client.model.geom.ModelPart
-import net.minecraft.client.model.geom.PartPose
 import net.minecraft.world.entity.LivingEntity
 import org.shipwrights.enderkinesis.spell.SpellVisuals
-import java.lang.reflect.Field
-import java.lang.reflect.Modifier
-import java.util.Collections
-import java.util.IdentityHashMap
 import java.util.WeakHashMap
 
-// A frozen tumble still turns the whole model (see `LivingEntityRendererFrozenTumbleMixin`).
+/**
+ * Holds a frozen mob's pose by replaying the animation inputs of its first frozen frame, as a Ga'mylan cage
+ * copy that never ticks. Any model that poses from LivingEntityRenderer's inputs freezes, modded models too.
+ * A frozen tumble still turns the whole model (see `LivingEntityRendererFrozenTumbleMixin`).
+ */
 object FrozenPoses {
-    private class Snapshot(val bodyRot: Float) {
-        var model: EntityModel<*>? = null
-        var parts: List<Pair<ModelPart, PartPose>>? = null
-    }
+    const val ATTACK_TIME = 0
+    const val BODY_ROT = 1
+    const val AGE_IN_TICKS = 2
+    const val PARTIAL_TICK = 3
+    const val LIMB_SWING = 4
+    const val LIMB_SWING_AMOUNT = 5
+    const val HEAD_YAW = 6
+    const val HEAD_PITCH = 7
+    private const val SLOTS = 8
 
-    // Render thread only.
-    private val snapshots = WeakHashMap<LivingEntity, Snapshot>()
-    // Reflection results, found once for each model class.
-    private val partFields = HashMap<Class<*>, List<Field>>()
+    // Render thread only. NaN marks an input not yet kept.
+    private val kept = WeakHashMap<LivingEntity, FloatArray>()
 
-    /** Called first each frame, so it starts the snapshot on freeze and forgets it on thaw. */
+    /** [live] while [entity] is not frozen; else the value [slot] had on the first frozen frame. */
     @JvmStatic
-    fun bodyRot(entity: LivingEntity, rot: Float): Float {
+    fun input(entity: LivingEntity, slot: Int, live: Float): Float {
         if (!SpellVisuals.isFrozen(entity)) {
-            snapshots.remove(entity)
-            return rot
+            if (kept.isNotEmpty()) kept.remove(entity)
+            return live
         }
-        return snapshots.getOrPut(entity) { Snapshot(rot) }.bodyRot
+        val inputs = kept.getOrPut(entity) { FloatArray(SLOTS) { Float.NaN } }
+        if (inputs[slot].isNaN()) inputs[slot] = live
+        return inputs[slot]
     }
 
-    /** The first frozen frame stores the pose; each later frame restores it. */
-    @JvmStatic
-    fun posed(entity: LivingEntity, model: EntityModel<*>) {
-        val snap = snapshots[entity] ?: return
-        val kept = snap.parts
-        if (kept == null || snap.model !== model) {
-            snap.model = model
-            snap.parts = parts(model).map { it to it.storePose() }
-            return
-        }
-        for ((part, pose) in kept) part.loadPose(pose)
-    }
-
-    private fun parts(model: EntityModel<*>): List<ModelPart> {
-        val out = Collections.newSetFromMap(IdentityHashMap<ModelPart, Boolean>())
-        for (field in fieldsOf(model.javaClass)) {
-            when (val v = field.get(model)) {
-                is ModelPart -> v.allParts.forEach { out += it }
-                is Array<*> -> v.forEach { p -> (p as? ModelPart)?.allParts?.forEach { out += it } }
-            }
-        }
-        return out.toList()
-    }
-
-    private fun fieldsOf(type: Class<*>): List<Field> = partFields.getOrPut(type) {
-        val fields = ArrayList<Field>()
-        var c: Class<*>? = type
-        while (c != null && c != Any::class.java) {
-            for (f in c.declaredFields) {
-                if (Modifier.isStatic(f.modifiers)) continue
-                val t = f.type
-                if (t != ModelPart::class.java && !(t.isArray && t.componentType == ModelPart::class.java)) continue
-                if (runCatching { f.isAccessible = true }.isSuccess) fields += f
-            }
-            c = c.superclass
-        }
-        fields
-    }
-
-    fun reset() = snapshots.clear()
+    fun reset() = kept.clear()
 }

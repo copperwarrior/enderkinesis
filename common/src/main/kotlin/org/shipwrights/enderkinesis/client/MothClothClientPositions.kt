@@ -7,6 +7,7 @@ import net.minecraft.world.level.chunk.ChunkStatus
 import net.minecraft.world.level.chunk.LevelChunk
 import org.shipwrights.enderkinesis.block.MothClothBlock
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Client-side registry of every Moth Cloth block position currently visible
@@ -24,6 +25,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * otherwise pay iterating tens of thousands of blocks in a heavily-clothed
  * level.
  */
+@OptIn(GameTickOnly::class)
 object MothClothClientPositions {
 
     private val positions = LongOpenHashSet(64)
@@ -38,14 +40,12 @@ object MothClothClientPositions {
         synchronized(positions) { positions.remove(pos.asLong()) }
     }
 
-    @JvmStatic
     fun clear() {
         synchronized(positions) { positions.clear() }
     }
 
     /** Iterate visible positions. The [action] receives a mutable BlockPos —
      *  do not retain it across iterations. */
-    @JvmStatic
     fun forEach(action: (BlockPos.MutableBlockPos) -> Unit) {
         val scratch = BlockPos.MutableBlockPos()
         val snapshot = synchronized(positions) { positions.toLongArray() }
@@ -59,7 +59,6 @@ object MothClothClientPositions {
         }
     }
 
-    @JvmStatic
     fun size(): Int = synchronized(positions) { positions.size }
 
     /** Palette-gated section scan. Called on chunk load to seed the
@@ -97,7 +96,6 @@ object MothClothClientPositions {
      *  are replaced wholesale so broken/unloaded ship blocks age out;
      *  live placement/breaking is additionally caught instantly by the
      *  LevelChunk.setBlockState mixin. */
-    @JvmStatic
     fun rescanShips(level: ClientLevel) {
         val now = System.currentTimeMillis()
         if (now - lastShipScanMs < SHIP_RESCAN_MS) return

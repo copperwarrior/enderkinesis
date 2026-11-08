@@ -26,6 +26,7 @@ import org.valkyrienskies.mod.common.getShipsIntersecting
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.world.clipIncludeShips
 import java.util.PriorityQueue
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Any-surface A* for the ship-bodied Constriliar (Spiders-2.0-style directional nodes,
@@ -36,6 +37,7 @@ import java.util.PriorityQueue
  * nodes — it feeds them as hover/velocity targets to the ship controller, so traversal
  * is still pure physics.
  */
+@OptIn(GameTickOnly::class)
 class ConstriliarSurfaceNavigator {
 
     /** [face] points from the air cell toward its supporting solid block. */

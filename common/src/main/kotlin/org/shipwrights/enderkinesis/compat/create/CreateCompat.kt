@@ -2,10 +2,12 @@ package org.shipwrights.enderkinesis.compat.create
 
 import org.valkyrienskies.mod.common.dimensionId
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour
+import com.simibubi.create.content.contraptions.AbstractContraptionEntity
 import com.simibubi.create.content.contraptions.behaviour.MovementContext
 import dev.architectury.platform.Platform
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
@@ -20,13 +22,21 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
 import kotlin.math.exp
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
+@OptIn(GameTickOnly::class, VsBeta::class)
 object CreateCompat {
 
     private val LOG = com.mojang.logging.LogUtils.getLogger()
 
+    private val LOADED = Platform.isModLoaded("create")
+
+    /** Create's own movement code moves a contraption; a push through deltaMovement splits its anchor from its blocks. */
+    fun isContraption(entity: Entity): Boolean = LOADED && entity is AbstractContraptionEntity
+
     fun init() {
-        if (!Platform.isModLoaded("create")) return
+        if (!LOADED) return
         try {
             vsCore.registerAttachment(
                 vsCore.newAttachmentRegistrationBuilder(ContraptionHarnessForceProvider::class.java)

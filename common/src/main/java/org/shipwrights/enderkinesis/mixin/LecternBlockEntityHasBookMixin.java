@@ -1,13 +1,13 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.WrittenBookItem;
 import net.minecraft.world.level.block.entity.LecternBlockEntity;
 import org.shipwrights.enderkinesis.item.TomeItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * <p>Separately, {@code LecternBlockEntity} derives {@code pageCount} from
  * {@code WrittenBookItem.getPageCount}, which is 0 for a tome (no {@code pages} NBT on the real
  * stack). With a 0 page count {@code setPage} clamps every turn back to 0, so the server-driven
- * page buttons do nothing and the redstone comparator can't scale. Redirecting that lookup to
+ * page buttons do nothing and the redstone comparator can't scale. Wrapping that lookup to
  * {@link TomeItem#pageCount(ItemStack)} makes page-turning and the comparator behave exactly like
  * a vanilla book lectern.
  */
@@ -41,7 +41,7 @@ public class LecternBlockEntityHasBookMixin {
         }
     }
 
-    @Redirect(
+    @WrapOperation(
         method = {
             "setBook(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/player/Player;)V",
             "load(Lnet/minecraft/nbt/CompoundTag;)V"
@@ -51,10 +51,10 @@ public class LecternBlockEntityHasBookMixin {
             target = "Lnet/minecraft/world/item/WrittenBookItem;getPageCount(Lnet/minecraft/world/item/ItemStack;)I"
         )
     )
-    private int enderkinesis$tomePageCount(ItemStack book) {
+    private int enderkinesis$tomePageCount(ItemStack book, Operation<Integer> original) {
         if (book.getItem() instanceof TomeItem tome) {
             return tome.pageCount(book);
         }
-        return WrittenBookItem.getPageCount(book);
+        return original.call(book);
     }
 }

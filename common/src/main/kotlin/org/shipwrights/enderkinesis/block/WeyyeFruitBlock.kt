@@ -11,7 +11,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
 
 /** Wey'ye fruit growing straight from a wogor trunk, cocoa-style. Vanilla cocoa only accepts jungle logs. */
 class WeyyeFruitBlock(properties: Properties) : CocoaBlock(properties) {
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
         val support = level.getBlockState(pos.relative(state.getValue(FACING)))
         return support.`is`(EKBlocks.WOGOR_WOOD.get()) || support.`is`(EKBlocks.WOGOR_LOG.get())

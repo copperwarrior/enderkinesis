@@ -23,11 +23,13 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 import java.util.IdentityHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Tendrils from each artery of a Heart of the Wild to the nearest solid block above it. An artery with no
  * block in reach has no tendril. Client thread only.
  */
+@OptIn(GameTickOnly::class)
 object HeartOfTheWildTendrils {
 
     private const val TRACK_RANGE_SQR = 64.0 * 64.0

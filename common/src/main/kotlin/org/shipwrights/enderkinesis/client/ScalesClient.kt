@@ -50,7 +50,6 @@ object ScalesClient {
      *  the mouse hasn't moved between ticks. */
     @Volatile private var lastStreamedScale: Double = Double.NaN
 
-    @JvmStatic
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, ScalesNetwork.STATE) { buf, _ ->
             val shipId = buf.readLong()
@@ -84,7 +83,6 @@ object ScalesClient {
         return EventResult.interruptFalse()
     }
 
-    @JvmStatic
     fun beginSession(shipId: Long) {
         activeShipId = shipId
         dragPixels = 0.0
@@ -96,7 +94,6 @@ object ScalesClient {
         lastStreamedScale = Double.NaN
     }
 
-    @JvmStatic
     fun endSession() {
         val shipId = activeShipId
         if (shipId == null) return
@@ -152,7 +149,6 @@ object ScalesClient {
     /** Per-tick streaming hook called from [StaffOfScalesItem.onUseTick] on
      *  the client. Sends the current scale to the server when it has moved at
      *  all since the previous send. */
-    @JvmStatic
     fun streamTickIfActive() {
         val shipId = activeShipId ?: return
         if (!isActive()) return

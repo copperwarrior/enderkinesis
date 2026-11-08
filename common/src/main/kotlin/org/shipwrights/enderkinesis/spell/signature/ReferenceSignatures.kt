@@ -37,7 +37,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object ReferenceSignatures {
     val ALL: Map<Signature, SignatureBehaviour> = mapOf(
         Signature.BLACK_HOLE_SUN to BlackHoleSun,

@@ -210,7 +210,6 @@ object SunderingManager {
      *  factor. Public so the client renderer can read it directly when
      *  computing visual stage progression — keeps the wireframe / glow
      *  fade / etc. in sync with the server's accelerated ramp. */
-    @JvmStatic
     fun effectiveElapsed(player: Player, stack: ItemStack): Int {
         val raw = elapsed(player, stack)
         val quick = SunderingEnchants.fromOffhand(player).quickCharge
@@ -223,7 +222,6 @@ object SunderingManager {
      *  same distance the server actually checks; without this the visual
      *  beam would stop at the base range and Infinity would appear to
      *  do nothing in-game. */
-    @JvmStatic
     fun effectiveRange(player: Player): Double {
         val infinity = SunderingEnchants.fromOffhand(player).infinity
         if (infinity == 0) return RANGE

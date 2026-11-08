@@ -15,6 +15,8 @@ import org.joml.Quaternionf
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.bodies.ClientVsBody
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Client-side mirror of [org.shipwrights.enderkinesis.body.GamylanCageRegistry].
@@ -26,6 +28,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * Per-dimension keying matches the server side — the client only
  * shows cages in the level it's currently in.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object GamylanCageClientRegistry {
 
     class Entry(

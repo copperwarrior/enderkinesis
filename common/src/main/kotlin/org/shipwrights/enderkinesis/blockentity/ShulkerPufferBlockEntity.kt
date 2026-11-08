@@ -28,6 +28,7 @@ import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.BlockEntityPhysicsListener
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Thrust direction is local `-FACING` (Newton's third — exhaust out the front, reaction
@@ -39,7 +40,7 @@ import org.valkyrienskies.mod.api.BlockEntityPhysicsListener
  * read. Auto-attached: VS2's `MixinLevelChunk` registers any [BlockEntityPhysicsListener]
  * on chunk load, so being one is sufficient — no explicit attach/detach.
  */
-@OptIn(PhysTickOnly::class, VsBeta::class)
+@OptIn(VsBeta::class)
 class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.SHULKER_PUFFER.get(), pos, state),
     BlockEntityPhysicsListener,
@@ -144,6 +145,7 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
      *      `shipToWorld` first, so the bottle pops out at the actual world location of the
      *      ship instead of getting stranded in the shipyard region.
      */
+    @OptIn(GameTickOnly::class)
     private fun ejectEmptyBottle(level: ServerLevel, pos: BlockPos, facing: Direction) {
         val backDir = facing.opposite
         val backPos = pos.relative(backDir)
@@ -201,6 +203,7 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
         return false
     }
 
+    @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         if (physShip == null) return                       // only thrusts when ship-mounted
         val power = cachedPower
@@ -244,6 +247,7 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
     /** For ship-mounted puffers the block position is in shipyard coords,
      *  so we transform through `shipToWorld` first or the sound plays in the far-off
      *  shipyard region instead of next to the player. */
+    @OptIn(GameTickOnly::class)
     private fun playWorldSound(level: ServerLevel, pos: BlockPos, event: SoundEvent) {
         val ship = level.getLoadedShipManagingPos(pos)
         val soundPos = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)

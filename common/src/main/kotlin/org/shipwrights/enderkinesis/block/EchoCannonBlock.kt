@@ -48,7 +48,7 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
     /** Union of the full block cube + the barrel's 4-unit protrusion out of
      *  the FACING face. Selection outlines and collision include the barrel
      *  so the player can click / bump into it as its own shape. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: net.minecraft.core.BlockPos, ctx: CollisionContext,
     ): VoxelShape = SHAPE_BY_FACING[state.getValue(FACING).ordinal]
@@ -58,7 +58,7 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
      *  bigger union shape reads as "non-full" and neighbours stop culling
      *  the faces they share with this block, producing z-fighting seams
      *  and interior-face render. Same trick vanilla piston-heads use. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getOcclusionShape(
         state: BlockState, level: BlockGetter, pos: net.minecraft.core.BlockPos,
     ): VoxelShape = Shapes.block()
@@ -66,7 +66,7 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
     /** Light-occlusion mirror of [getOcclusionShape]. Without this, light
      *  propagation would sample the extended union shape (the barrel
      *  sticking out) and treat that outboard tile as blocked. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun useShapeForLightOcclusion(state: BlockState): Boolean = false
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState {
@@ -79,7 +79,7 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
     /** Redstone hook. Vanilla calls this whenever a neighbour changes;
      *  we route the powered-state edge into the BE so the BE owns the
      *  charge / fire state machine. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, isMoving: Boolean,

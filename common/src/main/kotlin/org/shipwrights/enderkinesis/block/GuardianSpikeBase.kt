@@ -71,6 +71,7 @@ abstract class GuardianSpikeBase(props: Properties) : Block(props), SimpleWaterl
     open fun offset(state: BlockState, pos: BlockPos): Vec3 {
         val free = infos.getValue(state).free
         if (!free[0] && !free[1] && !free[2]) return Vec3.ZERO
+        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; 1.20.1 has no replacement.
         val seed = Mth.getSeed(pos.x, pos.y, pos.z)
         return Vec3(
             if (free[0]) offsetFromBits(seed) else 0.0,
@@ -80,9 +81,11 @@ abstract class GuardianSpikeBase(props: Properties) : Block(props), SimpleWaterl
     }
 
     // Shifts are already in the spikes, so the vanilla offset (zero or not) is not added again here.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape =
         placed(state, pos).fold(Shapes.empty()) { acc, spike -> Shapes.or(acc, spike.shape()) }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         if (level.isClientSide || entity !is LivingEntity) return
         val box = entity.boundingBox.move(-pos.x.toDouble(), -pos.y.toDouble(), -pos.z.toDouble())
@@ -94,9 +97,11 @@ abstract class GuardianSpikeBase(props: Properties) : Block(props), SimpleWaterl
         if (state.getValue(WATERLOGGED)) level.scheduleTick(pos, Fluids.WATER, Fluids.WATER.getTickDelay(level))
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getFluidState(state: BlockState): FluidState =
         if (state.getValue(WATERLOGGED)) Fluids.WATER.getSource(false) else super.getFluidState(state)
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun isPathfindable(state: BlockState, level: BlockGetter, pos: BlockPos, type: PathComputationType): Boolean = false
 
     companion object {

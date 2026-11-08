@@ -54,12 +54,13 @@ class FountainOfBlessingBlock(properties: BlockBehaviour.Properties) : Block(pro
     }
 
     // Block, unlike BaseEntityBlock, does not pass block events to the block entity.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean {
         super.triggerEvent(state, level, pos, id, param)
         return level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos, player: Player, hand: InteractionHand, hit: BlockHitResult,
     ): InteractionResult {
@@ -68,7 +69,7 @@ class FountainOfBlessingBlock(properties: BlockBehaviour.Properties) : Block(pro
         return be.interact(level as ServerLevel, player, hand)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean) {
         if (!state.`is`(newState.block)) {
             (level.getBlockEntity(pos) as? FountainOfBlessingBlockEntity)?.let {
@@ -79,18 +80,18 @@ class FountainOfBlessingBlock(properties: BlockBehaviour.Properties) : Block(pro
         super.onRemove(state, level, pos, newState, isMoving)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape = SHAPE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         Shapes.empty()
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getFluidState(state: BlockState): FluidState =
         if (state.getValue(WATERLOGGED)) Fluids.WATER.getSource(false) else super.getFluidState(state)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,

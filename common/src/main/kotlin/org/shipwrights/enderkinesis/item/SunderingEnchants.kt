@@ -84,7 +84,6 @@ data class SunderingEnchants(
         /** Singleton "no offhand enchants" instance — handed back by
          *  [fromOffhand] when there's nothing to read, so the per-tick
          *  read path doesn't allocate a fresh record. */
-        @JvmStatic
         val NONE: SunderingEnchants = SunderingEnchants(
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         )
@@ -93,7 +92,6 @@ data class SunderingEnchants(
          *  offhand. Returns [NONE] if the offhand is empty or isn't a
          *  book. Levels are **uncapped** — whatever the book's NBT
          *  stores is what we use. */
-        @JvmStatic
         fun fromOffhand(player: Player): SunderingEnchants {
             val offhand = player.offhandItem
             if (offhand.isEmpty || offhand.item !is EnchantedBookItem) return NONE

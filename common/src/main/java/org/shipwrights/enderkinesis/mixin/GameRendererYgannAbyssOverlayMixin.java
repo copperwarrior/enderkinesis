@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.toasts.ToastComponent;
@@ -10,13 +12,12 @@ import net.minecraft.client.renderer.GameRenderer;
 import org.shipwrights.enderkinesis.client.YgannAbyssVoidOverlay;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
  * Final-fallback render path for the Ygann Abyss overlay when the HUD is hidden (F1)
  * AND no screen is open. {@code GameRenderer.render} skips {@code Gui.render} entirely
  * in that case (gated on {@code !hideGui || screen != null}), so
- * {@link GuiYgannAbyssOverlayMixin} never fires. Redirecting the unconditional
+ * {@link GuiYgannAbyssOverlayMixin} never fires. Wrapping the unconditional
  * {@code ToastComponent.render} call gives a stable injection point with a valid
  * {@code GuiGraphics} in the correct coord space.
  *
@@ -31,16 +32,17 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(GameRenderer.class)
 public abstract class GameRendererYgannAbyssOverlayMixin {
 
-    @Redirect(
+    @WrapOperation(
         method = "render(FJZ)V",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/client/gui/components/toasts/ToastComponent;render(Lnet/minecraft/client/gui/GuiGraphics;)V"
         )
     )
-    private void enderkinesis$drawAbyssOverlayAroundToasts(ToastComponent toasts, GuiGraphics graphics) {
+    private void enderkinesis$drawAbyssOverlayAroundToasts(ToastComponent toasts, GuiGraphics graphics,
+                                                          Operation<Void> original) {
         // Original behaviour first — toasts always render, regardless of overlay state.
-        toasts.render(graphics);
+        original.call(toasts, graphics);
 
         // Only handle the hideGui + no-screen case here. F1 + normal screen is handled
         // by RENDER_POST; F1 + pause/death is handled by GuiYgannAbyssOverlayMixin

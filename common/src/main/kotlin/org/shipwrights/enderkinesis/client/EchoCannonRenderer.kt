@@ -193,7 +193,6 @@ class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererP
          *  model on both loaders so it gets baked; the platform-specific
          *  bake hook stamps [capturedBarrelModel] as soon as baking
          *  completes. */
-        @JvmStatic
         val BARREL_MODEL_LOCATION: ResourceLocation =
             ResourceLocation("enderkinesis", "block/echo_cannon_barrel")
 
@@ -203,7 +202,6 @@ class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererP
          *  finishes baking. Null before that first bake; the renderer
          *  no-ops in that window. */
         @Volatile
-        @JvmStatic
         var capturedBarrelModel: BakedModel? = null
 
         /** Shared no-alloc random for `getQuads()` calls if we ever need

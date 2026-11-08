@@ -47,15 +47,12 @@ object SselithRepertory {
     const val MERIDIAN_OFFSET_MAX = MERIDIAN_INTERVAL - 1 + MERIDIAN_OFFSET_MIN
 
     /** Signed distance of [w] from the nearest meridian, in [MERIDIAN_OFFSET_MIN]..[MERIDIAN_OFFSET_MAX]. */
-    @JvmStatic
     fun meridianOffset(w: Int): Int =
         Math.floorMod(w - MERIDIAN_OFFSET_MIN, MERIDIAN_INTERVAL) + MERIDIAN_OFFSET_MIN
 
-    @JvmStatic
     fun nearestMeridian(w: Int): Int = w - meridianOffset(w)
 
     /** [w] with all meridian bands removed. A band column maps to the first column after its band. */
-    @JvmStatic
     fun latticeCoord(w: Int): Int {
         val shifted = w + LIBRARY_QUADRANT_SHIFT
         val region = Math.floorDiv(shifted, MERIDIAN_INTERVAL)
@@ -64,11 +61,9 @@ object SselithRepertory {
     }
 
     /** Inverse of [latticeCoord] for columns out of the bands. */
-    @JvmStatic
     fun worldCoord(lattice: Int): Int =
         lattice + Math.floorDiv(lattice, LATTICE_PER_INTERVAL) * BAND_WIDTH + LIBRARY_QUADRANT_SHIFT + 1
 
-    @JvmStatic
     fun isAxialBand(x: Int, z: Int): Boolean =
         meridianOffset(x) in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT ||
             meridianOffset(z) in -LIBRARY_QUADRANT_SHIFT..LIBRARY_QUADRANT_SHIFT
@@ -80,12 +75,10 @@ object SselithRepertory {
      * terrain/world fog alpha) and `SselithRepertorySky.renderSky` (for the sky's
      * clear-colour blend), so the two stay locked in step.
      */
-    @JvmStatic
     fun fogDensityAt(y: Double): Float = 1.0f - fogHeightFraction(y) * (1.0f - FOG_MIN_DENSITY)
 
     /** 0 at y=0, rising linearly to 1 at |y| ≥ [FOG_FALLOFF_Y]. Fog colour scales by it, so the
      *  fog is black at y=0 on the same curve the density follows. */
-    @JvmStatic
     fun fogHeightFraction(y: Double): Float {
         val t = Math.abs(y) / FOG_FALLOFF_Y
         return if (t > 1.0) 1.0f else t.toFloat()

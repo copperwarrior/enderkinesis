@@ -39,6 +39,7 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Two modes: static yaw (empty-hand right-click captures `player.lookAngle`) and compass-pinned
@@ -53,7 +54,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * **PD around world Y** uses `R·I·R⁻¹` sandwich (same pattern as [WyllandTomeForceInducer]).
  * Leading minus on the PD output: positive MC-yaw error means rotate CW (decreasing JOML +Y ω).
  */
-@OptIn(PhysTickOnly::class, VsBeta::class)
+@OptIn(VsBeta::class)
 class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.EYEROSCOPE.get(), pos, state),
     BlockEntityPhysicsListener,
@@ -270,6 +271,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     /** Re-derive a tracked pin's world point from the live ship transform. */
+    @OptIn(GameTickOnly::class)
     private fun refreshTrackedPin(level: ServerLevel) {
         if (pinShipId == -1L) return
         val ship = level.shipObjectWorld.loadedShips.getById(pinShipId) ?: return
@@ -475,6 +477,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  recompute our distance² to the current target, and decide whether we're the
      *  primary eyeroscope for our host ship. World-placed eyeroscopes are always primary
      *  (no contention possible). */
+    @OptIn(GameTickOnly::class)
     private fun updatePriorityRegistry(level: ServerLevel, pos: BlockPos) {
         val host = level.getLoadedShipManagingPos(pos)
         val currentId = host?.id
@@ -591,6 +594,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  transform but isn't currently in `loadedShips` (no active physics step) still
      *  resolves — `Ship.transform.shipToWorld` is populated either way and gives us the
      *  best available world position. */
+    @OptIn(GameTickOnly::class)
     private fun findShipForShipyardPos(level: ServerLevel, pos: BlockPos): Ship? {
         val sow = level.shipObjectWorld
         val dim = level.dimensionId
@@ -631,6 +635,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
     private fun comparatorDeadZoneSq(): Double =
         Math.min(cachedDeadZoneSq, MAX_COMPARATOR_DEADZONE_RADIUS * MAX_COMPARATOR_DEADZONE_RADIUS)
 
+    @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         if (physShip == null) return                       // world-placed: nothing to turn
         if (!isPrimaryEye) return                          // a sibling eyeroscope on this ship aimed closer
@@ -711,6 +716,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
 
     /** Yaw-only PD controller. World-Y torque only — the ship can pitch and roll on its
      *  own (e.g. ocean wave forcing) but we don't drive those axes. */
+    @OptIn(PhysTickOnly::class)
     private fun physTickYawOnly(physShip: PhysShip, target: Float, powerScale: Double) {
         val rotation = physShip.transform.shipToWorldRotation
         val currentYaw = facingMcYaw(rotation, cachedFacing)
@@ -757,6 +763,7 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  block's current world-FACING direction and the desired look direction. K_D damps
      *  all three world-frame angular-velocity components, so any spurious roll picked up
      *  in transit decays on its own — no explicit roll controller. */
+    @OptIn(PhysTickOnly::class)
     private fun physTick3Axis(physShip: PhysShip, targetYaw: Float, targetPitch: Float, powerScale: Double) {
         if (targetPitch.isNaN()) return
 

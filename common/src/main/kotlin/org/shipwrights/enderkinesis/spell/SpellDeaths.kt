@@ -54,7 +54,6 @@ object SpellDeaths {
 
     fun resetClient() = client.clear()
 
-    @JvmStatic
     fun of(entity: LivingEntity): Element? = (if (entity.level().isClientSide) client else server)[entity.id]?.element
 
     @JvmStatic

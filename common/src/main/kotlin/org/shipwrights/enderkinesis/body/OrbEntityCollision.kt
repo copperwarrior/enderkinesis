@@ -8,6 +8,7 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Skyriders-style helper that adjusts an entity's intended movement to
@@ -18,6 +19,7 @@ import org.valkyrienskies.mod.common.vsCore
  *  a few distance checks and no VS2 body lookups. Orbs that pass the cull go through VS2's
  *  [EntityShipCollisionUtils.adjustEntityMovementForPrimitiveShapeCollision] against their
  *  live transform. */
+@OptIn(VsBeta::class)
 object OrbEntityCollision {
 
     private const val COLLISION_EPSILON: Double = 1.0e-12

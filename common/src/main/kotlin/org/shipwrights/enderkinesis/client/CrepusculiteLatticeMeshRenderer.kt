@@ -27,6 +27,7 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Wave-displaced translucent mesh that paints each active crepusculite lattice's virtual sea.
@@ -48,6 +49,7 @@ import kotlin.math.sqrt
  * its swell height, normal and base alpha; `rendertype_lattice_ocean` does the colour, the
  * shore and the TV static grain per pixel.
  */
+@OptIn(GameTickOnly::class)
 object CrepusculiteLatticeMeshRenderer {
     private val LOG = com.mojang.logging.LogUtils.getLogger()
 

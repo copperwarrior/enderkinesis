@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.mixin;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.lighting.DataLayerStorageMap;
@@ -8,7 +9,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -25,15 +25,19 @@ public abstract class LayerLightSectionStorageMixin {
     @SuppressWarnings("rawtypes")
     protected volatile DataLayerStorageMap updatingSectionData;
 
-    @Redirect(
+    // Never written: an empty DataLayer reads 0 everywhere, so one shared instance is safe on the light threads.
+    private static final DataLayer ENDERKINESIS$EMPTY = new DataLayer();
+
+    // The innermost light read: no allocation here.
+    @ModifyExpressionValue(
         method = "getStoredLevel",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/world/level/chunk/DataLayer;get(III)I"
+            target = "Lnet/minecraft/world/level/lighting/LayerLightSectionStorage;getDataLayer(JZ)Lnet/minecraft/world/level/chunk/DataLayer;"
         )
     )
-    private int enderkinesis$nullSafeStoredLevel(DataLayer dataLayer, int x, int y, int z) {
-        return dataLayer == null ? 0 : dataLayer.get(x, y, z);
+    private DataLayer enderkinesis$nullSafeStoredLevel(DataLayer dataLayer) {
+        return dataLayer == null ? ENDERKINESIS$EMPTY : dataLayer;
     }
 
     /**

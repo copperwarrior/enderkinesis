@@ -94,12 +94,10 @@ class OarscribeRenderer(context: BlockEntityRendererProvider.Context) : BlockEnt
         /** Keeps the float time small. Both periods divide it, so the wrap does not jump. */
         private const val TIME_WRAP_TICKS = 24_000L
 
-        @JvmStatic
         val HAND_MODEL_LOCATION: ResourceLocation = ResourceLocation("enderkinesis", "block/oarscribe_hand")
 
         /** Set by the loader bake hook. */
         @Volatile
-        @JvmStatic
         var handModel: BakedModel? = null
     }
 }

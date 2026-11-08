@@ -5,13 +5,14 @@ import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.ShipGravityAttachment
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Cancels gravity through VS2's [ShipGravityAttachment] while any system calls [hold] each
  * game tick. VS-core saves both attachments with the ship, so this marker keeps the value
  * to restore after the holds stop, or after an unload, stop or crash.
  */
-@OptIn(VsBeta::class)
+@OptIn(VsBeta::class, GameTickOnly::class)
 class ShipGravityHold(var savedOverride: Double? = null) {
 
     // Game thread only. Transient, so a marker loaded from disk is stale at once.

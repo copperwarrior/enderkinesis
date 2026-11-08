@@ -78,7 +78,7 @@ class AetherPadBlock(properties: BlockBehaviour.Properties) :
      *  each tick and scales every force (entity beam, lift, friction) linearly by
      *  `POWER / 15`. POWER 0 = pad fully inert; POWER 15 = the constants on
      *  [AetherPadBlockEntity] in full. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         block: Block, fromPos: BlockPos, moving: Boolean,

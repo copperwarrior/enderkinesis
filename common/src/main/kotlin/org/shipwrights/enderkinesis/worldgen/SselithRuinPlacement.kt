@@ -54,6 +54,7 @@ class SselithRuinPlacement(
     frequencyReductionMethod: FrequencyReductionMethod,
     frequency: Float,
     salt: Int,
+    @Suppress("DEPRECATION") // The vanilla placement constructor still takes it.
     exclusionZone: Optional<ExclusionZone>,
 ) : RandomSpreadStructurePlacement(
     locateOffset,

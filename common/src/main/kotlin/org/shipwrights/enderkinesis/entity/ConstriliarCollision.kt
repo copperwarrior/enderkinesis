@@ -13,7 +13,8 @@ import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet
-import org.valkyrienskies.mod.common.config.MassDatapackResolver
+import org.shipwrights.enderkinesis.mixin.MassDatapackResolverAccessor
+import org.shipwrights.enderkinesis.mixin.VSBlockStateInfoAccessor
 import org.valkyrienskies.mod.common.hooks.VSGameEvents
 
 /** The walker senses the world with the collision its VS2 body has, plus fluids, which
@@ -23,6 +24,7 @@ internal object ConstriliarCollision {
     /** The shape VS2 gives [state] at [pos] for ship bodies: the outline for solid states
      *  (a cobweb is a full cube to a ship, though it has no collision), else the
      *  collision shape; empty for [shipPassable] blocks. Mirrors MassDatapackResolver. */
+    @Suppress("DEPRECATION") // VS2 uses BlockState.isSolid; 1.20.1 has no replacement.
     fun shipShape(level: BlockGetter, pos: BlockPos, state: BlockState): VoxelShape = when {
         shipPassable(state) -> Shapes.empty()
         state.isSolid -> state.getShape(level, pos)
@@ -30,20 +32,14 @@ internal object ConstriliarCollision {
     }
 
     /** vs_mass `no_collision` (leaves and the like). VS2 2.4 keeps such a block solid-typed
-     *  with an empty shape, so only the resolver's flag tells. The map and its
-     *  package-private value class are not API, and the getter's name differs between
-     *  VS2 builds, so both are read by reflection. */
-    fun shipPassable(state: BlockState): Boolean {
-        val vs = vsMass ?: return false
-        return passableSnapshot(vs)?.blocks?.contains(state.block) ?: vs.lookup(state.block)
-    }
+     *  with an empty shape, so only the resolver's flag tells. */
+    fun shipPassable(state: BlockState): Boolean =
+        passableSnapshot()?.blocks?.contains(state.block) ?: lookup(state.block)
 
-    private class VsMass(val map: Map<ResourceLocation, Any>, val noCollision: java.lang.reflect.Method) {
-        fun lookup(block: Block): Boolean {
-            val info = map[BuiltInRegistries.BLOCK.getKey(block)] ?: return false
-            return noCollision.invoke(info) == true
-        }
-    }
+    private fun lookup(block: Block): Boolean =
+        vsMassMap[BuiltInRegistries.BLOCK.getKey(block)]?.noCollision() == true
+
+    private fun Any.noCollision(): Boolean? = (this as VSBlockStateInfoAccessor).`enderkinesis$getNoCollision`()
 
     private class Snapshot(val mapSize: Int, val generation: Int, val blocks: ReferenceOpenHashSet<Block>)
 
@@ -51,15 +47,15 @@ internal object ConstriliarCollision {
     @Volatile private var snapshot: Snapshot? = null
     @Volatile private var generation = 0
 
-    private fun passableSnapshot(vs: VsMass): Snapshot? {
+    private fun passableSnapshot(): Snapshot? {
         val gen = generation
-        val size = vs.map.size
+        val size = vsMassMap.size
         snapshot?.let { if (it.mapSize == size && it.generation == gen) return it }
         // The resolver can refill its map on another thread during a reload.
         val blocks = try {
             ReferenceOpenHashSet<Block>().apply {
-                for ((id, info) in vs.map) {
-                    if (vs.noCollision.invoke(info) == true) BuiltInRegistries.BLOCK.getOptional(id).ifPresent { add(it) }
+                for ((id, info) in vsMassMap) {
+                    if (info.noCollision() == true) BuiltInRegistries.BLOCK.getOptional(id).ifPresent { add(it) }
                 }
             }
         } catch (_: ConcurrentModificationException) {
@@ -68,28 +64,14 @@ internal object ConstriliarCollision {
         return Snapshot(size, gen, blocks).also { snapshot = it }
     }
 
-    // Declared before vsMass: object properties initialise in order.
-    private val NO_COLLISION_GETTERS = listOf("getNoCollision", "getNoCollisionOverride")
-
     // The resolver fills this one map in place on each datapack load.
-    @Suppress("UNCHECKED_CAST")
-    private val vsMass: VsMass? = runCatching {
-        val map = MassDatapackResolver::class.java.getDeclaredField("map").apply { isAccessible = true }.get(null)
-            as Map<ResourceLocation, Any>
-        val info = Class.forName("org.valkyrienskies.mod.common.config.VSBlockStateInfo")
-        val getter = NO_COLLISION_GETTERS.firstNotNullOf { name ->
-            runCatching { info.getDeclaredMethod(name) }.getOrNull()
-        }.apply { isAccessible = true }
-        VsMass(map, getter).also { vs ->
-            val count = vs.map.values.count { getter.invoke(it) == true }
-            LogUtils.getLogger().info("[EK constriliar] VS2 no_collision blocks: {}", count)
-        }
-    }.onFailure { LogUtils.getLogger().warn("[EK constriliar] no VS2 no_collision data; leaves count as solid", it) }
-        .getOrNull()
+    private val vsMassMap: Map<ResourceLocation, Any> = MassDatapackResolverAccessor.`enderkinesis$getMap`()
 
     init {
         // Tag-based vs_mass entries can replace map values without a change in map size.
-        if (vsMass != null) VSGameEvents.tagsAreLoaded.on { _, _ -> generation++ }
+        VSGameEvents.tagsAreLoaded.on { _, _ -> generation++ }
+        val count = vsMassMap.values.count { it.noCollision() == true }
+        LogUtils.getLogger().info("[EK constriliar] VS2 no_collision blocks: {}", count)
     }
 
     /** A collider clip that sees fluids and skips [shipPassable] blocks. VS2 rebuilds the

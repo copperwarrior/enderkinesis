@@ -22,7 +22,6 @@ object ServerTicks {
     /** The server tick count, for physics-thread staleness tests. A wall-clock test fails
      *  when the tick rate is low or when ticks catch up. */
     @Volatile
-    @JvmStatic
     var now: Int = 0
         private set
 

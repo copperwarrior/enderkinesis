@@ -27,6 +27,7 @@ import org.valkyrienskies.mod.common.assembly.VSAssemblyEvents
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Structure processor for the Roaming End Ship: after the template's blocks have been placed,
@@ -45,6 +46,7 @@ import org.valkyrienskies.mod.common.vsCore
  * Yaw is picked from [StructurePlaceSettings.getRandom] keyed on the structure's start
  * position, so the chosen rotation is stable across chunk regeneration of the same world seed.
  */
+@OptIn(GameTickOnly::class)
 object RoamingEndShipShipifyProcessor : StructureProcessor(), CapturesCrew {
 
     /** Empty codec — this processor takes no configuration. Use the value-form of
@@ -85,6 +87,7 @@ object RoamingEndShipShipifyProcessor : StructureProcessor(), CapturesCrew {
         // the same yaw. Mth.getSeed gives a deterministic but position-varying seed, so
         // different ships get different yaws and re-generating the same chunk picks the
         // same one.
+        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; 1.20.1 has no replacement.
         val rng = RandomSource.create(Mth.getSeed(startPos.x, startPos.y, startPos.z))
         val yawRadians = rng.nextDouble() * (2.0 * Math.PI)
         // Standing orders, rolled per ship from the same position-stable seed: a

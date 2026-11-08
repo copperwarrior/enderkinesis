@@ -16,7 +16,6 @@ import net.minecraft.client.renderer.LevelRenderer
 import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.client.renderer.RenderType
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
@@ -128,7 +127,7 @@ object SselithChainRenderer {
         }
 
         val sprite = Minecraft.getInstance()
-            .getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
+            .getTextureAtlas(BLOCK_ATLAS)
             .apply(CHAIN_SPRITE)
         val v = ensureVbo(sprite, level.minBuildHeight, level.maxBuildHeight)
 

@@ -28,6 +28,7 @@ import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.GameToPhysicsAdapter
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Server-side per-tick logic for the Staff of Aegis.
  *
@@ -49,6 +50,7 @@ import org.valkyrienskies.mod.common.util.GameToPhysicsAdapter
  *
  *  Effects run once per tick per player; called from
  *  [StaffOfAegisItem.onUseTick] on the server. */
+@OptIn(GameTickOnly::class)
 object AegisManager {
 
     val DEFLECTABLE_TAG: TagKey<EntityType<*>> = TagKey.create(
@@ -285,7 +287,7 @@ object AegisManager {
             away.y * mag + mag * SHIP_PUSH_LIFT_FRACTION,
             away.z * mag,
         )
-        gtpa.applyInvariantForce(ship.id, force)
+        gtpa.applyWorldForceToBodyPos(ship.id, force)
     }
 
     /** The ship the player is currently riding / standing on, or null if

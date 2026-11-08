@@ -62,7 +62,7 @@ class VoidHookBlock(properties: BlockBehaviour.Properties) : Block(properties), 
             .setValue(POWER, powered)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = SHAPES.getValue(state.getValue(FACING))
@@ -80,7 +80,7 @@ class VoidHookBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         neighborBlock: Block, neighborPos: BlockPos, isMoving: Boolean,

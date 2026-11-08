@@ -85,6 +85,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
     }
 
     /** Per-FACING voxel shape — the orb visibly sits against its active face. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = when (state.getValue(FACING)) {
@@ -99,14 +100,14 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
     /** Always a potential signal source — the per-tick power is whatever the Signal tome has
      *  computed and stamped into [POWER]. Wires reading us will only see signal on the active
      *  face's adjacent block (see [getSignal]). */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun isSignalSource(state: BlockState): Boolean = true
 
     /** Weak signal in **every** direction, mirroring vanilla button/lever semantics — any
      *  block or wire adjacent to the orb reads the current [POWER] level directly, not just
      *  the support. The previous repeater-style "weak signal only in one direction" was
      *  more restrictive than the user wanted and didn't feel like direct redstone power. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getSignal(
         state: BlockState, level: BlockGetter, pos: BlockPos, direction: Direction,
     ): Int = state.getValue(POWER)
@@ -117,7 +118,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
      *  passes the signal through to wires on its other faces. The `direction` argument is
      *  the side of THIS block being queried — the support (in the FACING direction) scans
      *  us via the opposite step, so we emit when `direction == facing.opposite`. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getDirectSignal(
         state: BlockState, level: BlockGetter, pos: BlockPos, direction: Direction,
     ): Int = if (direction == state.getValue(FACING).opposite) state.getValue(POWER) else 0
@@ -140,7 +141,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
      *     and friends' `useOn` still see the click.
      *
      *  Sneak doesn't modify this — it's an item-driven gesture, not a context modifier. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -243,14 +244,14 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
     }
 
     /** Block events go to the block, and the block entity keeps the state they carry. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean {
         super.triggerEvent(state, level, pos, id, param)
         return level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
     }
 
     /** Forward neighbour changes to every outgoing tome's behavior. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         neighborBlock: Block, neighborPos: BlockPos, isMoving: Boolean,
@@ -278,7 +279,7 @@ class OrbOfLinkingBlock(properties: BlockBehaviour.Properties) : Block(propertie
     /** Block destroyed / replaced by non-player means (explosion, piston, fluid). Same
      *  cleanup path; the [onBlockDestroyed] call is idempotent if [playerWillDestroy]
      *  already cleared the maps. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

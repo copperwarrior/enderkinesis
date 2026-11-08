@@ -1018,7 +1018,6 @@ class TightRobeArmorRenderer {
         val INSTANCE: TightRobeArmorRenderer by lazy { TightRobeArmorRenderer().also(::registerEvents) }
 
         /** Makes [INSTANCE], so the Mystic Wind hook exists before the first robe is drawn. */
-        @JvmStatic
         fun init() {
             INSTANCE
         }

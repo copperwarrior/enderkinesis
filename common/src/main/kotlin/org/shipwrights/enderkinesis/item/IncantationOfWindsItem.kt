@@ -12,6 +12,7 @@ import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Incantation of Winds: hold right-click to blast a gale along a cone from the caster's view.
  *
@@ -19,6 +20,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *  weaker with distance; on ships it is applied at that point. The wind also turns fireballs, blows smoke off
  *  fire (and sometimes puts it out), puts out candles, strips snow ([WindBlockEffects]) and speeds up Create windmills. The stream visuals are client-side, in
  *  [org.shipwrights.enderkinesis.client.IncantationOfWindsClient]. */
+@OptIn(GameTickOnly::class)
 class IncantationOfWindsItem(properties: Properties) : IncantationItem(
     properties,
     HAND_COLOUR,

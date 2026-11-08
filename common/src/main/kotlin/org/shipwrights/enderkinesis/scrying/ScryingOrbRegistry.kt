@@ -64,7 +64,6 @@ class ScryingOrbRegistry : SavedData() {
          *  folder). Vanilla appends `.dat`. */
         const val NAME: String = "enderkinesis_scrying_orbs"
 
-        @JvmStatic
         fun load(tag: CompoundTag): ScryingOrbRegistry {
             val registry = ScryingOrbRegistry()
             val list = tag.getList("orbs", Tag.TAG_COMPOUND.toInt())
@@ -76,7 +75,6 @@ class ScryingOrbRegistry : SavedData() {
 
         /** Get or create the registry for [level]'s dimension. First call after server
          *  start loads the NBT from disk; subsequent calls return the cached instance. */
-        @JvmStatic
         fun get(level: ServerLevel): ScryingOrbRegistry =
             level.dataStorage.computeIfAbsent(::load, ::ScryingOrbRegistry, NAME)
     }

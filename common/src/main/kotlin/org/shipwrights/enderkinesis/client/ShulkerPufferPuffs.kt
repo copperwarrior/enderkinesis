@@ -103,7 +103,7 @@ internal object ShulkerPufferPuffs {
             ship.transform.shipToWorldRotation.transform(eject)
             // Exhaust leaves with the nozzle's point velocity, v + ω × r.
             val v = ship.velocity
-            val w = ship.omega
+            val w = ship.angularVelocity
             val com = ship.transform.positionInWorld
             val rx = nozzle.x - com.x()
             val ry = nozzle.y - com.y()

@@ -55,7 +55,6 @@ class SselithMothRenderer(ctx: EntityRendererProvider.Context) :
         /** Perch tilt applied inside the yaw-rotated frame (after vanilla's
          *  YP(180 − yaw)). Shared with [SselithMothCamoLayer], which must
          *  rebuild this exact pose to bake the camo projection. */
-        @JvmStatic
         fun applyPerchAlignment(
             poseStack: PoseStack,
             normal: net.minecraft.world.phys.Vec3,

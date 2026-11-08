@@ -53,18 +53,20 @@ class AncriteChainBlock(properties: BlockBehaviour.Properties) : ChainBlock(prop
         return base.setValue(POWER, computeInputPower(context.level, context.clickedPos, base))
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun isSignalSource(state: BlockState): Boolean = true
 
     /** Weak-signal output: [POWER] on the two axis-aligned faces, 0 on the four perpendicular
      *  faces (so wires sneaking around the sides don't pick up the signal). No direct/strong
      *  signal — adjacent solid blocks pick up only weak power, exactly like wire-with-no-
      *  direct-output. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getSignal(state: BlockState, level: BlockGetter, pos: BlockPos, side: Direction): Int {
         if (side.axis != state.getValue(BlockStateProperties.AXIS)) return 0
         return state.getValue(POWER)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun neighborChanged(
         state: BlockState, level: Level, pos: BlockPos,
         neighborBlock: Block, neighborPos: BlockPos, isMoving: Boolean,

@@ -94,7 +94,6 @@ class StaffOfScalesItem(properties: Properties) : Item(properties) {
         /** Picks the VS2 ship under the player's crosshair within [REACH]. Uses
          *  VS2's `level.clip` mixin (shipyard-mapped `blockPos`) so a ship block
          *  resolves to the ship that owns it. */
-        @JvmStatic
         fun clientRaycastShip(level: Level, player: Player): Long? {
             val eye = player.getEyePosition(1f)
             val end = eye.add(player.getViewVector(1f).scale(REACH))

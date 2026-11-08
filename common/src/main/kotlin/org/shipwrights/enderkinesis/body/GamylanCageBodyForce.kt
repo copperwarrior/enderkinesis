@@ -7,6 +7,9 @@ import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.events.CollisionEvent
 import org.valkyrienskies.mod.api.vsApi
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
 /**
  * Hooks the VS2 phys-tick to drive every cage body's forces. Three
@@ -113,10 +116,11 @@ object GamylanCageBodyForce {
         pendingImpactDamage.remove(bodyId)
     }
 
+    // Subscribes on the game thread; the callbacks run on the physics thread.
+    @OptIn(PhysTickOnly::class, VsBeta::class, UnavailableInKrunch::class)
     fun register() {
         if (registered) return
         registered = true
-        @Suppress("OPT_IN_USAGE") // CollisionEvent is @VsBeta
         vsApi.collisionStartEvent.on(::onCollisionStart)
         vsApi.physTickEvent.on { event, _ ->
             val physLevel = event.world

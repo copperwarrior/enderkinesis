@@ -118,7 +118,6 @@ object ScrollBeamClient {
             }
     }
 
-    @JvmStatic
     fun renderAll(pose: PoseStack, consumers: MultiBufferSource, camX: Double, camY: Double, camZ: Double, tickDelta: Float) {
         val level = Minecraft.getInstance().level ?: return
         val gameTime = level.gameTime + tickDelta.toDouble()
@@ -226,7 +225,6 @@ object ScrollBeamClient {
      * The server cut length starts at the third-person hand, so a first-person beam ends off the crossing.
      * Thus cut at a nearby crossing first, and use the length only when no crossing is near.
      */
-    @JvmStatic
     fun clip(entityId: Int, segments: List<BeamSegment>): List<BeamSegment> {
         if (!cuts.containsKey(entityId)) return segments
         val cut = cuts.get(entityId)

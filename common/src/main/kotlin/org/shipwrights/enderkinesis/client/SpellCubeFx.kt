@@ -71,7 +71,6 @@ object SpellCubeFx {
     private fun newEffect() = VolumeEffect("spell_cube_fx")
 
     /** False outside the level pass, for example in the inventory player picture. Those cubes have no place on the view. */
-    @JvmStatic
     var drawingLevel = false
         private set
 
@@ -133,7 +132,6 @@ object SpellCubeFx {
     }
 
     /** Call after the world and before the hand. */
-    @JvmStatic
     fun renderWorld(time: Float) {
         if (pendingCount == 0) return
         if (viewCaptured) {
@@ -149,7 +147,6 @@ object SpellCubeFx {
     }
 
     /** Call after the hand. It also does the world cubes that remain, for frames with no hand pass. */
-    @JvmStatic
     fun render(time: Float) {
         renderWorld(time)
         pass(hand, time, depthTest = false)

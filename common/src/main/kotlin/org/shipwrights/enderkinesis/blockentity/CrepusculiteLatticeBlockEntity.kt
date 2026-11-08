@@ -39,7 +39,10 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
+@OptIn(GameTickOnly::class, VsBeta::class)
 class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.CREPUSCULITE_LATTICE.get(), pos, state) {
 
@@ -1075,7 +1078,6 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             be.blockState.getValue(BlockStateProperties.POWER) < CrepusculiteLatticeBlock.OFF_POWER
 
         /** Order by Y, then X, then Z. The highest lattice has authority on a ship. */
-        @JvmStatic
         fun comparePos(a: BlockPos, b: BlockPos): Int = when {
             a.y != b.y -> a.y.compareTo(b.y)
             a.x != b.x -> a.x.compareTo(b.x)

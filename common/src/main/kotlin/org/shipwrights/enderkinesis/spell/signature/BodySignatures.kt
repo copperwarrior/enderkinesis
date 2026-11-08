@@ -48,7 +48,9 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object BodySignatures {
     val ALL: Map<Signature, SignatureBehaviour> = mapOf(
         Signature.STARFALL to Starfall,

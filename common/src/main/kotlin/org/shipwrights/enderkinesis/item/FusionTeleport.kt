@@ -16,12 +16,14 @@ import org.shipwrights.enderkinesis.util.ShipMoves
 import org.shipwrights.enderkinesis.util.ShipWelderBridge
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * The fallback of one Staff of Fusion bubble: when its ships have not welded for [STALL_TICKS], now
  * and then one random block of a lifted ship teleports to a random free spot on the ship that keeps
  * its blocks in a weld: an empty cell next to a sturdy face.
  */
+@OptIn(GameTickOnly::class)
 internal class FusionTeleport {
 
     /** A teleported block. [deletedShip] is true when the move emptied and deleted its ship. */

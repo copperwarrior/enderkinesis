@@ -12,6 +12,8 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 
 /** Server-side application of Staff-of-Scales transform-scale changes.
@@ -33,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap
  *  dimensions, both this staff AND that mod would be writing the same
  *  property in a fight nobody wins. We refuse the staff on those dimensions
  *  rather than trigger a tug-of-war the player can't see. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object ScalesManager {
 
     const val MIN_SCALE: Double = 0.25
@@ -165,7 +168,7 @@ object ScalesManager {
             tf.positionInWorld,
             tf.shipToWorldRotation,
             ship.velocity,
-            ship.omega,
+            ship.angularVelocity,
             ship.chunkClaimDimension,
             newScale,
         )

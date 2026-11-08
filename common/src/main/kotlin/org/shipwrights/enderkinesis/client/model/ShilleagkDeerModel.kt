@@ -90,7 +90,6 @@ class ShilleagkDeerModel(private val bakedRoot: ModelPart) : CachedHierarchicalM
 
         private fun smootherstep(t: Float): Float = t * t * t * (t * (t * 6f - 15f) + 10f)
 
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

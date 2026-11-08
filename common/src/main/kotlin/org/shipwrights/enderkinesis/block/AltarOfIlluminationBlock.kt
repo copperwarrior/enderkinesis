@@ -52,14 +52,14 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =
         AltarOfIlluminationBlockEntity(pos, state)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.MODEL
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         SHAPE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -177,7 +177,7 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         level.playSound(null, pos, sound.get(), SoundSource.BLOCKS, 1f, 1f)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         val altar = level.getBlockEntity(pos) as? AltarOfIlluminationBlockEntity ?: return
         if (altar.takeInkDrop()) level.setBlock(pos, state.setValue(INK, (state.getValue(INK) - 1).coerceAtLeast(0)), UPDATE_ALL)
@@ -187,7 +187,7 @@ class AltarOfIlluminationBlock(properties: Properties) : BaseEntityBlock(propert
         player.displayClientMessage(Component.translatable(IchaericInkJarBlock.CONTENTS_KEY, ink, MAX_INK), true)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, movedByPiston: Boolean) {
         if (!state.`is`(newState.block)) {
             val altar = level.getBlockEntity(pos) as? AltarOfIlluminationBlockEntity

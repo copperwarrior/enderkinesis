@@ -261,7 +261,6 @@ object WohlonnogondoniaTreeGrower {
         }
     }
 
-    @JvmStatic
     fun startTree(level: ServerLevel, portalPos: BlockPos, igniteCandleCount: Int) {
         // ============================================================
         //   Main-thread phase — collect everything the off-thread

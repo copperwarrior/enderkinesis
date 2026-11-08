@@ -39,6 +39,7 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
 
     /** Stops vanilla from stacking a second candle into this block;
      *  the candle item falls through to normal adjacent-face placement instead. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canBeReplaced(state: BlockState, context: BlockPlaceContext): Boolean = false
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState? {
@@ -46,6 +47,7 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
         return defaultBlockState().setValue(WATERLOGGED, waterlogged)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
@@ -56,9 +58,11 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
         return super.updateShape(state, direction, neighborState, level, pos, neighborPos)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getFluidState(state: BlockState): FluidState =
         if (state.getValue(WATERLOGGED)) Fluids.WATER.getSource(false) else super.getFluidState(state)
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean =
         Block.canSupportCenter(level, pos.below(), Direction.UP)
 
@@ -71,6 +75,7 @@ class HeartCandleBlock(properties: Properties) : AbstractCandleBlock(properties)
 
     /** Custom shape unions wax base + wick pillar — vanilla's `ONE_AABB` only covers
      *  the wick, leaving the visible 6×6 base unhittable. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext,
     ): VoxelShape = SHAPE

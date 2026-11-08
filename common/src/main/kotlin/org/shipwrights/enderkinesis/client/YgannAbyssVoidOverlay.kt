@@ -160,7 +160,6 @@ object YgannAbyssVoidOverlay {
      * Mirrors [drawOverlay]'s "do we have anything to render" gates without doing any
      * actual rendering work.
      */
-    @JvmStatic
     fun shouldRenderForF1Fallback(): Boolean {
         val mc = Minecraft.getInstance()
         val player = mc.player ?: return false

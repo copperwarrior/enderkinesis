@@ -5,6 +5,7 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.valkyrienskies.core.api.bodies.shape.CompoundBodyShapeData
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.VsBeta
 
 /** Compound collision shape for a Ga'Mylan cage crystal — a hexagonal
  *  bipyramid that's tight against the rendered crystal mesh.
@@ -32,6 +33,7 @@ import org.valkyrienskies.mod.common.vsCore
  *  reads as (a big base sphere and a smaller tip sphere), so the
  *  collision matches what the player sees.
  */
+@OptIn(VsBeta::class)
 object GamylanCageShape {
 
     /** Minimum length on any dimension — degenerate captures still get

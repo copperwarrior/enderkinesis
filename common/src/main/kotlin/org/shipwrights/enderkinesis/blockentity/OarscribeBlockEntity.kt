@@ -24,11 +24,14 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Holds one penfeather and a tank of Ichaeric ink. Hoppers can load the penfeather and pipes can fill the tank,
  * but neither can empty them. Ink amounts are in droplets, [INK_PER_BUCKET] to a bucket, on both loaders.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 class OarscribeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.OARSCRIBE.get(), pos, state), WorldlyContainer {
 

@@ -11,8 +11,10 @@ import org.joml.Matrix4dc
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** A PortalParticle with its start and target in shipyard space, so it moves with the ship. */
+@OptIn(GameTickOnly::class)
 class ShipBoundPortalParticle(
     level: ClientLevel,
     private val ship: ClientShip,
@@ -24,7 +26,7 @@ class ShipBoundPortalParticle(
 
     init {
         // Same sprites as minecraft:particles/portal.json. getTextureAtlas() only knows ModelManager atlases, not particles.
-        val particles = Minecraft.getInstance().textureManager.getTexture(TextureAtlas.LOCATION_PARTICLES) as TextureAtlas
+        val particles = Minecraft.getInstance().textureManager.getTexture(PARTICLE_ATLAS) as TextureAtlas
         setSprite(particles.getSprite(GENERIC_SPRITES[random.nextInt(GENERIC_SPRITES.size)]))
         place(0f, ship.transform.shipToWorld)
         xo = x; yo = y; zo = z

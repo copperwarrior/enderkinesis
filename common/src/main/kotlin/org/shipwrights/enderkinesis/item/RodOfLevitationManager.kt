@@ -23,6 +23,8 @@ import org.valkyrienskies.core.api.attachment.getOrPutAttachment
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Coordinator for the Rod of Levitation's two non-entity-effect modes:
@@ -39,6 +41,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *   shipyard-frame position, in the player's look direction. Off-COM application means
  *   the click point determines both push and induced spin.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object RodOfLevitationManager {
 
     /** 4-second hover window after lift, matching the levitation-on-entity duration. */
@@ -108,7 +111,6 @@ object RodOfLevitationManager {
      *  tick loop to pick up once VS2 has promoted it to a `LoadedServerShip` (attachments
      *  can't be set on the bare `ServerShip` returned mid-assembly). Returns false only
      *  on assembly refusal — the caller treats that as PASS. */
-    @JvmStatic
     fun assembleAndLift(level: ServerLevel, pos: BlockPos, state: BlockState): Boolean {
         // Pull in anything attached to the lifted block — the torch on top, the tall
         // grass above the grass block, etc. Shared helper with the lattice / tome paths.
@@ -129,7 +131,6 @@ object RodOfLevitationManager {
      *  cube up another 2 blocks (rather than jumping it back to its original spawn Y).
      *  Replaces any in-flight entry for the same ship — each rod-tap restarts the 4 s
      *  window from scratch. */
-    @JvmStatic
     fun reLevitate(level: ServerLevel, ship: org.valkyrienskies.core.api.ships.LoadedServerShip): Boolean {
         val currentY = ship.transform.positionInWorld.y()
         val targetY = currentY + LIFT_BLOCKS
@@ -289,7 +290,7 @@ object RodOfLevitationManager {
                     val look = player.lookAngle
                     val force = Vector3d(look.x, look.y, look.z).mul(mass * NUDGE_ACCEL)
                     // COM-relative clicked-cell centre in shipyard frame —
-                    // applyInvariantForceToPos generates linear+torque from off-COM input.
+                    // applyWorldForceToBodyPos generates linear+torque from off-COM input.
                     val com = ship.inertiaData.centerOfMass
                     val rel = Vector3d(
                         pos.x + 0.5 - com.x(),

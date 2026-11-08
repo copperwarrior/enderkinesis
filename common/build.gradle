@@ -64,6 +64,9 @@ dependencies {
     // Only the DH API is referenced, and only behind DistantHorizonsCompat's isModLoaded gate.
     compileOnly("maven.modrinth:distanthorizons:3.3.3-1.20.1")
 
+    // Only the Iris API (also shipped by Oculus) is referenced, and only behind IrisCompat's isModLoaded gate.
+    modCompileOnly("maven.modrinth:iris:1.7.6+1.20.1") { transitive = false }
+
 
     // For unit testing.
     var kotestVersion = "5.9.1"

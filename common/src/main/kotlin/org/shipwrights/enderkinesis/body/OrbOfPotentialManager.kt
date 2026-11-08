@@ -10,6 +10,8 @@ import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Server-side spawn helper for Orb of Potential VS Bodies.
@@ -28,6 +30,7 @@ import org.valkyrienskies.mod.common.vsCore
  *  and produce a duplicate orb at that pos; we accept that as the
  *  cost of keeping the spawn path simple.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object OrbOfPotentialManager {
 
     private const val SPHERE_RADIUS: Double = 1.5

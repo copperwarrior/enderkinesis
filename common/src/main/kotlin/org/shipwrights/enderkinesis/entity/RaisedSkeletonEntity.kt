@@ -791,7 +791,6 @@ class RaisedSkeletonEntity(type: EntityType<out RaisedSkeletonEntity>, level: Le
             SynchedEntityData.defineId(RaisedSkeletonEntity::class.java, EntityDataSerializers.BOOLEAN)
 
         /** The slot a raised body would wear or wield [stack] in: armour and other wearables, shields, and weapons. */
-        @JvmStatic
         fun equipSlotFor(stack: ItemStack): EquipmentSlot? {
             if (stack.isEmpty) return null
             val slot = Mob.getEquipmentSlotForItem(stack)

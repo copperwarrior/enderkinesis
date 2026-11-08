@@ -16,7 +16,7 @@ import net.minecraft.world.level.levelgen.feature.ConfiguredFeature
 class WohlonMushroomBlock(properties: Properties, hugeFeature: ResourceKey<ConfiguredFeature<*, *>>) :
     MushroomBlock(properties, hugeFeature) {
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
         val below = pos.below()
         val ground = level.getBlockState(below)

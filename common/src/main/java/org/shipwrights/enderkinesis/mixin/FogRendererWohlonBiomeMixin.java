@@ -24,7 +24,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -141,7 +140,7 @@ public abstract class FogRendererWohlonBiomeMixin {
     /** Wohlon's snapped dusk sits inside vanilla's sunset window, so {@code setupColor} would
      *  paint fog ~85% orange every frame. Fade-and-null mirroring
      *  {@link LevelRendererWohlonBiomeSkyMixin#enderkinesis$wohlonSunsetColor}. */
-    @Redirect(
+    @WrapOperation(
         method = "setupColor(Lnet/minecraft/client/Camera;FLnet/minecraft/client/multiplayer/ClientLevel;IF)V",
         at = @At(
             value = "INVOKE",
@@ -149,11 +148,11 @@ public abstract class FogRendererWohlonBiomeMixin {
         )
     )
     private static float[] enderkinesis$suppressWohlonFogSunsetTint(
-            DimensionSpecialEffects effects, float timeOfDay, float partialTick) {
+            DimensionSpecialEffects effects, float timeOfDay, float partialTick, Operation<float[]> original) {
         float blend = WohlonBiomeFog.getCurrentBlend();
-        if (blend <= 0f) return effects.getSunriseColor(timeOfDay, partialTick);
+        if (blend <= 0f) return original.call(effects, timeOfDay, partialTick);
         if (blend >= 0.5f) return null;
-        float[] orig = effects.getSunriseColor(timeOfDay, partialTick);
+        float[] orig = original.call(effects, timeOfDay, partialTick);
         if (orig == null) return null;
         return new float[] {
             orig[0], orig[1], orig[2],

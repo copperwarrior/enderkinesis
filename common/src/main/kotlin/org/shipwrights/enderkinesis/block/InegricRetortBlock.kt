@@ -33,31 +33,31 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
         builder.add(DRIPPING)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         SHAPE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
         val above = pos.above()
         return level.getBlockState(above).isFaceSturdy(level, above, Direction.DOWN)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
     ): BlockState =
         if (direction == Direction.UP && !state.canSurvive(level, pos)) Blocks.AIR.defaultBlockState() else state
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, moved: Boolean) {
         if (level !is ServerLevel || oldState.`is`(this)) return
         syncDripping(state, level, pos)
         refreshJarBelow(level, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
         super.onRemove(state, level, pos, newState, moved)
         if (!level.isClientSide && !newState.`is`(this)) refreshJarBelow(level, pos)
@@ -69,7 +69,7 @@ class InegricRetortBlock(properties: Properties) : Block(properties) {
         if (state.`is`(EKBlocks.ICHAERIC_INK_JAR.get())) IchaericInkJarBlock.refreshOpen(level, target, state)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun randomTick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         syncDripping(state, level, pos)
         if (random.nextFloat() < InegricRetortRates.dripChance(level.dimension())) drip(level, pos)

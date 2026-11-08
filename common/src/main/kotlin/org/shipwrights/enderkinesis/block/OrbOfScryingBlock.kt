@@ -81,6 +81,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity =
         OrbOfScryingBlockEntity(pos, state)
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = when (state.getValue(FACING)) {
@@ -97,7 +98,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
      *     intent is "remove the cover"; you have to uncover before you can scry.)
      *  2. **Uncovered + carpet**: cover with that colour, consume one carpet.
      *  3. **Uncovered + non-carpet**: original scry sweep. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
@@ -223,7 +224,7 @@ class OrbOfScryingBlock(properties: BlockBehaviour.Properties) : Block(propertie
      *  through a block that no longer exists. Wired through `Block.onRemove` rather
      *  than `BE.setRemoved` so the registry edit only fires on real state changes
      *  and never on chunk unload. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

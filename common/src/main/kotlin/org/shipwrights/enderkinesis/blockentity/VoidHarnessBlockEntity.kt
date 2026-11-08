@@ -22,6 +22,7 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.BlockEntityPhysicsListener
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Phys-tick force applicator for the Void Harness.
@@ -36,7 +37,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *    harness's static world position.
  *
  * Force is in the XZ plane only (Y component zeroed) and applied at each ship's COM via
- * [PhysShip.applyInvariantForce] — invariant means the force vector is in world frame and does
+ * [PhysShip.applyWorldForceToBodyPos] — the force vector is in world frame and does
  * not rotate with the body, which is what we want when steering a ship toward a world point.
  *
  * Thread-safety: all fields read on the phys thread are `@Volatile`, and `cachedNearbyShipIds`
@@ -44,7 +45,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * auto-registers any [BlockEntityPhysicsListener] on chunk load, so no explicit setup is
  * needed.
  */
-@OptIn(PhysTickOnly::class, VsBeta::class)
+@OptIn(VsBeta::class)
 class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.VOID_HARNESS.get(), pos, state),
     BlockEntityPhysicsListener {
@@ -69,6 +70,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
     var pulling: Boolean = false
         private set
 
+    @OptIn(GameTickOnly::class)
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
         cachedPowerLevel = state.getValue(VoidHarnessBlock.POWER)
 
@@ -126,6 +128,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
         super.setRemoved()
     }
 
+    @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         val power = cachedPowerLevel
         if (power <= 0) return
@@ -156,6 +159,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
      *  shipyard ("model") position into a body-frame offset internally and emits the resulting
      *  torque, so a harness mounted off-COM yaws the ship to face its pull direction. Y
      *  component of the force is zeroed so the host ship isn't lifted/sunk by its own harness. */
+    @OptIn(PhysTickOnly::class)
     private fun applyPullAtHarness(ship: PhysShip, hx: Double, hz: Double, peakForce: Double) {
         val com = ship.kinematics.position
         val dx = hx - com.x()
@@ -172,6 +176,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
      *  `F(r) = peakForce · exp(-r / EXP_FALLOFF_SCALE)`. [peakForce] has already been scaled
      *  by redstone power level. Strong at close range, fading smoothly toward 0 by the
      *  [PULL_RADIUS] cutoff — ships near the harness get yanked hard, distant ones drift gently. */
+    @OptIn(PhysTickOnly::class)
     private fun applyPull3D(ship: PhysShip, hx: Double, hy: Double, hz: Double, peakForce: Double) {
         val com = ship.kinematics.position
         val dx = hx - com.x()
@@ -183,7 +188,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
         // decay outward). The extra [softCoreMultiplier] knocks the force down again at very
         // close range so a near-coincident ship stops oscillating around the harness.
         val magnitude = peakForce * Math.exp(-len / EXP_FALLOFF_SCALE) * softCoreMultiplier(len)
-        ship.applyInvariantForce(
+        ship.applyWorldForceToBodyPos(
             Vector3d(dx / len * magnitude, dy / len * magnitude, dz / len * magnitude)
         )
     }

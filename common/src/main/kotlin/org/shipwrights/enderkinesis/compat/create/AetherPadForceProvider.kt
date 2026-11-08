@@ -6,6 +6,8 @@ import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Per-ship VS2 attachment that lets multiple Aether Pads mounted on a Create contraption queue
@@ -19,6 +21,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
  *  wins per pad, with a staleness cutoff so abandoned cached values (contraption disassembled,
  *  pad disabled) clear themselves out.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class AetherPadForceProvider : ShipPhysicsListener {
 
     /** One entry per pad. World-frame force vector + the model-space (shipyard) position to

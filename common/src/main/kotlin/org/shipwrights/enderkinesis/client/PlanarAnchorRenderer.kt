@@ -9,7 +9,6 @@ import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.renderer.texture.OverlayTexture
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import org.shipwrights.enderkinesis.registry.EKParticles
 import net.minecraft.resources.ResourceLocation
@@ -128,14 +127,14 @@ class PlanarAnchorRenderer(
         poseStack.mulPose(q)
 
         val sprite = Minecraft.getInstance()
-            .getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
+            .getTextureAtlas(BLOCK_ATLAS)
             .apply(CHAIN_TEXTURE)
         // BER-time translucent on the block atlas: `RenderType.translucent()` is the *chunk*
         // translucent layer and renders at the wrong pipeline stage when used in a BER (chain
         // becomes invisible). `entityTranslucentCull(BLOCK_ATLAS)` flushes alongside other BERs
         // and supports per-vertex alpha for the fade.
         val builder = bufferSource.getBuffer(
-            RenderType.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS)
+            RenderType.entityTranslucentCull(BLOCK_ATLAS)
         )
         // Emissive brightness is computed per-vertex inside drawChain (pulse-scroll), so we no
         // longer pass a single FULL_BRIGHT — we pass the current game time (in ticks, with

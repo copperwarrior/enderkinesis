@@ -21,7 +21,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -142,26 +141,26 @@ public abstract class FogRendererSselithRepertoryMixin {
      * Force {@link FogShape#CYLINDER} for *every* {@code setShaderFogShape} call inside
      * {@code setupFog} when we're in Sselith — but only when the call site is the
      * terrain-mode path; the TAIL inject above then has the final word per FogMode. This
-     * redirect catches vanilla's own SPHERE-setting branches (lava fog, powder snow, the
+     * wrap catches vanilla's own SPHERE-setting branches (lava fog, powder snow, the
      * early water-fog conditional) so the shape uniform isn't briefly SPHERE between the
      * vanilla call and our TAIL inject for the terrain pass.
      *
      * <p>Outside Sselith we forward the original shape unchanged.
      */
-    @Redirect(
+    @WrapOperation(
         method = "setupFog(Lnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/FogRenderer$FogMode;FZF)V",
         at = @At(
             value = "INVOKE",
             target = "Lcom/mojang/blaze3d/systems/RenderSystem;setShaderFogShape(Lcom/mojang/blaze3d/shaders/FogShape;)V"
         )
     )
-    private static void enderkinesis$forceCylinderInSselith(FogShape shape) {
+    private static void enderkinesis$forceCylinderInSselith(FogShape shape, Operation<Void> original) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level != null && mc.level.dimension() == SselithRepertory.INSTANCE.getLEVEL_KEY()
             && !enderkinesis$vanillaFogApplies(mc.gameRenderer.getMainCamera())) {
-            RenderSystem.setShaderFogShape(FogShape.CYLINDER);
+            original.call(FogShape.CYLINDER);
         } else {
-            RenderSystem.setShaderFogShape(shape);
+            original.call(shape);
         }
     }
 }

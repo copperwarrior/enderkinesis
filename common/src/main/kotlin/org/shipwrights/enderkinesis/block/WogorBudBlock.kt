@@ -46,10 +46,10 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
     }
 
     // WogorBudRenderer draws the bud; the model only supplies the break-particle texture.
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.INVISIBLE
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState,
         level: BlockGetter,
@@ -61,21 +61,19 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         return SHAPES[state.getValue(AGE)][supportMask(level, pos)]
     }
 
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION") // Vanilla still routes fluid state through this override.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes fluid state through this override.
     override fun getFluidState(state: BlockState): FluidState =
         if (state.getValue(WATERLOGGED)) Fluids.WATER.getSource(false) else super.getFluidState(state)
 
     /** A noCollission block's vanilla default returns true here, so flowing water would erase the bud. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canBeReplaced(state: BlockState, fluid: Fluid): Boolean = false
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean =
         supportMask(level, pos) != 0
 
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION") // Vanilla still routes canSurvive and updateShape through the deprecated overrides.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes canSurvive and updateShape through the deprecated overrides.
     override fun updateShape(
         state: BlockState,
         direction: Direction,
@@ -93,8 +91,7 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         }
     }
 
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION") // Vanilla still routes onPlace through the deprecated override.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes onPlace through the deprecated override.
     override fun onPlace(
         state: BlockState,
         level: Level,
@@ -109,8 +106,7 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         level.scheduleTick(pos, this, growDelay(pos, 0))
     }
 
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION") // Vanilla still routes onRemove through the deprecated override.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes onRemove through the deprecated override.
     override fun onRemove(
         state: BlockState,
         level: Level,
@@ -123,7 +119,7 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         super.onRemove(state, level, pos, newState, isMoving)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(
         state: BlockState,
         level: ServerLevel,

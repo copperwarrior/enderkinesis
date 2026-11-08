@@ -9,7 +9,9 @@ import net.minecraft.sounds.SoundSource
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object ConcealmentSounds {
 
     private const val HUM_MAX_VOLUME: Float = 0.4f

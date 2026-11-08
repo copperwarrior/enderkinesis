@@ -41,7 +41,9 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.ENDER_ASTROLABE.get(), pos, state), Commandable {
 

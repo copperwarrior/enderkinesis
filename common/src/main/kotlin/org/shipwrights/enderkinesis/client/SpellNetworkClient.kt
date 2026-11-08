@@ -137,7 +137,6 @@ object SpellNetworkClient {
         return n
     }
 
-    @JvmStatic
     fun visuals(id: Int): Int = SpellVisuals.clientBits(id)
 
     /** Call when the entity leaves this client. */

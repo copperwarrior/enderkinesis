@@ -33,7 +33,7 @@ class EnderkinesisModForge {
 
         // Wire accessory-mod compat (no-op if the mod isn't loaded).
         CuriosCompat.init()
-        modEventBus.addListener(Companion::commonSetup)
+        modEventBus.addListener(::commonSetup)
 
         if (FMLEnvironment.dist.isClient) {
             // Before the renderer event and the options load; FMLClientSetupEvent is too late.
@@ -54,13 +54,11 @@ class EnderkinesisModForge {
         }
     }
 
-    companion object {
-        // The vanilla constructor keys the plant by registry name, which can be null while the plant registers.
-        private fun commonSetup(event: FMLCommonSetupEvent) {
-            event.enqueueWork {
-                val pot = Blocks.FLOWER_POT as FlowerPotBlock
-                for ((plant, potted) in EKBlocks.POTTED_PLANTS) pot.addPlant(plant.id, potted)
-            }
+    // The vanilla constructor keys the plant by registry name, which can be null while the plant registers.
+    private fun commonSetup(event: FMLCommonSetupEvent) {
+        event.enqueueWork {
+            val pot = Blocks.FLOWER_POT as FlowerPotBlock
+            for ((plant, potted) in EKBlocks.POTTED_PLANTS) pot.addPlant(plant.id, potted)
         }
     }
 }

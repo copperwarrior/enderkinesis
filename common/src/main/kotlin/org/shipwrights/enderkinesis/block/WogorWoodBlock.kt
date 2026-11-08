@@ -15,6 +15,7 @@ class WogorWoodBlock(properties: Properties) : RotatedPillarBlock(properties) {
 
     override fun isRandomlyTicking(state: BlockState): Boolean = true
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun randomTick(
         state: BlockState,
         level: ServerLevel,

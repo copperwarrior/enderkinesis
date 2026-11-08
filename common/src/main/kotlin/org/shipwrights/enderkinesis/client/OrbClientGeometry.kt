@@ -10,6 +10,7 @@ import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Shared client-side helper for finding an orb's current world-space centre. Mirrors the
@@ -21,6 +22,7 @@ import org.valkyrienskies.mod.common.getShipManagingPos
  * block at [pos] isn't an orb anymore (just broken / unloaded). Callers should treat null
  * as "endpoint vanished, stop rendering whatever uses it."
  */
+@OptIn(GameTickOnly::class)
 object OrbClientGeometry {
 
     /** Visual offset (blocks) from the block centre toward the active face. Matches the

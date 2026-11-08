@@ -151,7 +151,6 @@ class CatalogerModel(private val root: ModelPart) : CachedHierarchicalModel<Cata
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id("cataloger"), "main")
 
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

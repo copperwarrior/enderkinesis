@@ -8,11 +8,13 @@ import org.valkyrienskies.core.internal.joints.VSJointPose
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Joints made with `serialized()` go into VS-core's persisted joint store, which keeps
  * their ids across a reload and holds a jointed group still until all of it loads.
  */
+@OptIn(GameTickOnly::class)
 object SavedJoints {
 
     /**

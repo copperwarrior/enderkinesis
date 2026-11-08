@@ -194,7 +194,6 @@ object SselithRepertoryLighting {
     }
 
     /** Vanilla FogRenderer's Darkness dimming of the fog colour: `(1 − factor)²`. */
-    @JvmStatic
     fun darknessDim(partialTick: Float): Float {
         val clear = 1f - darknessFactor(partialTick)
         return clear * clear

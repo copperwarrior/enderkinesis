@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.client
 
 import net.minecraft.client.Minecraft
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Per-frame check that swaps ships into / out of [CloakingMixinSupport]'s concealed
  *  set as their client-side cloak progress crosses **1.0** (the full-strength
@@ -13,6 +14,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *  read-only. Driven from the same per-frame `Camera.setup` TAIL inject that drives
  *  the post-effect (see [ConcealmentPostEffect.tick]).
  */
+@OptIn(GameTickOnly::class)
 object ConcealmentTransitionWatcher {
 
     /** Chunk-level rendering is now redirected, not concealed: VS2's

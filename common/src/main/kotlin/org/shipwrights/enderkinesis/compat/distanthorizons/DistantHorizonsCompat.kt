@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.compat.distanthorizons
 
-import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.platform.Platform
 
 object DistantHorizonsCompat {
@@ -20,12 +19,9 @@ object DistantHorizonsCompat {
      * True on DH's LOD generation threads. DH runs our features and structures there through a
      * WorldGenRegion that wraps the live ServerLevel, but never saves the chunks.
      */
-    @JvmStatic
-    fun isLodGeneration(): Boolean = LOADED && DhApiAccess.isDhThread()
+    fun isLodGeneration(): Boolean = LOADED && DhThreads.isDhThread()
 
     fun initClient() {
-        if (!LOADED) return
-        DhApiAccess.registerFogMatch()
-        ClientTickEvent.CLIENT_POST.register { _ -> DhApiAccess.updateRenderGate() }
+        if (LOADED) DhApiAccess.initClient()
     }
 }

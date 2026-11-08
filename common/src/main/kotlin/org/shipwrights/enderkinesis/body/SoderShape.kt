@@ -4,6 +4,7 @@ import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.bodies.shape.CompoundBodyShapeData
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.VsBeta
 
 /** Collision compound for the "Tribulla" easter-egg cage — the
  *  hex bipyramid in [GamylanCageShape] is replaced by a 6-box stack
@@ -16,6 +17,7 @@ import org.valkyrienskies.mod.common.vsCore
  *  [org.shipwrights.enderkinesis.client.SoderRenderer] — both files
  *  read from the same canonical model + Y-flip-and-centre math.
  */
+@OptIn(VsBeta::class)
 object SoderShape {
 
     private const val PX_PER_BLOCK: Double = 16.0

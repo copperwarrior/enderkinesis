@@ -8,7 +8,10 @@ import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.physics.CrepusculiteLatticeForceInducer
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
+@OptIn(GameTickOnly::class, VsBeta::class)
 object ShellOfTidesBinding {
 
     const val REACH_BLOCKS: Double = 64.0

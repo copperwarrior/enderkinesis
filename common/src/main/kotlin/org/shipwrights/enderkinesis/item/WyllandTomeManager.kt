@@ -31,6 +31,7 @@ import org.valkyrienskies.mod.common.isBlockInShipyard
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Server-side bookkeeping + per-tick force application for the Wylland
@@ -51,6 +52,7 @@ import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
  *    using the player's local up + right axes — full 3DOF rotation
  *    when the mod key is held.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object WyllandTomeManager : ShipMoveListener {
 
     /** Per-player grab record. */
@@ -514,7 +516,6 @@ object WyllandTomeManager : ShipMoveListener {
     }
 
     /** A grab follows its grab point to the ship that now has that block. */
-    @OptIn(VsBeta::class)
     override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
         val from = level.shipObjectWorld.loadedShips.getById(move.fromShipId) ?: return
         for (g in grabs.values) {

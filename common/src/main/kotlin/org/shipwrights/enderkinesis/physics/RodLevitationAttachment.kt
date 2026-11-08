@@ -7,6 +7,8 @@ import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
 import java.util.concurrent.atomic.AtomicReference
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Per-ship attachment used by the Rod of Levitation. Wears two hats so a single ship can
@@ -18,10 +20,11 @@ import java.util.concurrent.atomic.AtomicReference
  *   which cancels gravity. A stale touch releases the ship cleanly.
  *
  * - Queued one-shot impulse: [queueNudge] parks a (force, COM-relative position) pair
- *   that the next phys tick consumes via `applyInvariantForceToPos`. That single tick of
+ *   that the next phys tick consumes via `applyWorldForceToBodyPos`. That single tick of
  *   force is the "slight nudge" — translation + induced torque both come out of the
  *   off-COM application.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class RodLevitationAttachment : ShipPhysicsListener {
 
     @Volatile private var lastTouchTick: Int = NEVER
@@ -42,7 +45,7 @@ class RodLevitationAttachment : ShipPhysicsListener {
         // One-shot impulse first — consumes the slot whether or not the ship is liftable.
         val nudge = pendingNudge.getAndSet(null)
         if (nudge != null && !physShip.isStatic && physShip.mass > 0.0) {
-            physShip.applyInvariantForceToPos(Vector3d(nudge.first), Vector3d(nudge.second))
+            physShip.applyWorldForceToBodyPos(Vector3d(nudge.first), Vector3d(nudge.second))
         }
 
         // Touch-driven lift. Three explicit stages:
@@ -68,7 +71,7 @@ class RodLevitationAttachment : ShipPhysicsListener {
         // F = m · Δv/Δt drives velocity to targetVy in one phys tick. It assumes
         // [ShipGravityHold] has cancelled gravity.
         val forceY = mass * (targetVy - currentVy) / PHYS_DT
-        physShip.applyInvariantForce(Vector3d(0.0, forceY, 0.0))
+        physShip.applyWorldForceToBodyPos(Vector3d(0.0, forceY, 0.0))
     }
 
     companion object {

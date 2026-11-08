@@ -22,6 +22,7 @@ import org.shipwrights.enderkinesis.scrying.ScryingChunkCacheBridge
 import org.shipwrights.enderkinesis.util.Sga
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Client-side state for the scrying-orb remote view.
@@ -54,6 +55,7 @@ import org.valkyrienskies.mod.common.getShipManagingPos
  *
  *  - On dimension change the view ends — the shipyard `BlockPos` is dimension-local.
  */
+@OptIn(GameTickOnly::class)
 object ScryingClient {
 
     /** Maximum distance from the SOURCE orb's world position the player can be while a view

@@ -24,11 +24,13 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Incantation of the River: hold right-click to shoot a pressure-washer jet along the view. The jet stops on the
  *  first entity, ship or block. It pushes and hurts that target, much harder close up, puts out fire, candles,
  *  campfires and lava at the impact, and washes what it holds on ([RiverWash]). The recoil pushes the caster, or the
  *  ship the caster stands on. */
+@OptIn(GameTickOnly::class)
 class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
     properties,
     HAND_COLOUR,

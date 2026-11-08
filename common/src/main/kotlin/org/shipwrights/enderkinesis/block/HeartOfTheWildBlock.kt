@@ -42,17 +42,20 @@ class HeartOfTheWildBlock(properties: BlockBehaviour.Properties) : Block(propert
     }
 
     // Block, unlike BaseEntityBlock, does not pass block events to the block entity.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun triggerEvent(state: BlockState, level: Level, pos: BlockPos, id: Int, param: Int): Boolean {
         super.triggerEvent(state, level, pos, id, param)
         return level.getBlockEntity(pos)?.triggerEvent(id, param) ?: false
     }
 
     /** Returning 0 makes survival-break impossible (bedrock idiom). Only applies to MOTHER. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getDestroyProgress(
         state: BlockState, player: Player, getter: BlockGetter, pos: BlockPos,
     ): Float = if (state.getValue(MOTHER)) 0f else super.getDestroyProgress(state, player, getter, pos)
 
     /** Gate on `state.block != newState.block` so an in-place property edit doesn't trigger the catastrophe. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

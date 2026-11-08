@@ -171,6 +171,7 @@ object WohlonReachingRoot {
     }
 
     /** Top of the ground under any canopy or trunk; [fallback] for a column whose chunk is not loaded. */
+    @Suppress("DEPRECATION") // BlockState.blocksMotion has no 1.20.1 replacement.
     private fun groundUnderTrees(level: ServerLevel, wx: Int, wz: Int, fallback: Int): Int {
         val chunk = level.chunkSource.getChunkNow(wx shr 4, wz shr 4) ?: return fallback
         val pos = BlockPos.MutableBlockPos(wx, chunk.getHeight(Heightmap.Types.OCEAN_FLOOR, wx and 15, wz and 15), wz)

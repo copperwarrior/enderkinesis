@@ -103,7 +103,6 @@ object SpellVisuals {
         if (bits and FROZEN == 0) clientPoses.remove(id)
     }
 
-    @JvmStatic
     fun clientBits(id: Int): Int = clientBits.get(id)
 
     fun anyClient(mask: Int): Boolean {

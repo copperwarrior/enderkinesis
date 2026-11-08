@@ -52,32 +52,31 @@ class RuneBlock(properties: Properties) : BaseEntityBlock(properties), LiquidBlo
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = RuneBlockEntity(pos, state)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.ENTITYBLOCK_ANIMATED
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         SHAPES.getValue(state.getValue(FACING))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext): VoxelShape =
         Shapes.empty()
 
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION") // Vanilla still routes fluid state through this override.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes fluid state through this override.
     override fun getFluidState(state: BlockState): FluidState =
         if (state.getValue(WATERLOGGED)) Fluids.WATER.getSource(false) else super.getFluidState(state)
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun rotate(state: BlockState, rotation: Rotation): BlockState =
         state.setValue(FACING, rotation.rotate(state.getValue(FACING)))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun mirror(state: BlockState, mirror: Mirror): BlockState =
         state.rotate(mirror.getRotation(state.getValue(FACING)))
 
     /** An ordinary neighbour update or host weathering, growth or work must not set the rune off. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
@@ -91,7 +90,7 @@ class RuneBlock(properties: Properties) : BaseEntityBlock(properties), LiquidBlo
     }
 
     /** [RuneTriggers.trigger] ignores a rune that an Abyssal Pocket phased. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         if (level !is ServerLevel || entity.isSpectator) return
         if ((level.getBlockEntity(pos) as? RuneBlockEntity)?.isArmed() != true) return
@@ -99,7 +98,7 @@ class RuneBlock(properties: Properties) : BaseEntityBlock(properties), LiquidBlo
         if (entity.boundingBox.intersects(decal)) RuneTriggers.trigger(level, pos)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, movedByPiston: Boolean) {
         if (level is ServerLevel && !state.`is`(newState.block)) {
             (level.getBlockEntity(pos) as? RuneBlockEntity)?.let { RuneTriggers.onRemoved(level, pos, it) }

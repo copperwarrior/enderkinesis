@@ -13,8 +13,11 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.bodies.ClientVsBody
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** One thrum loop for each Orb of Potential near the local player. Client thread only. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object FractalOrbSounds {
 
     private const val RANGE: Double = EKSounds.FRACTAL_ORB_LOOP_RANGE.toDouble()

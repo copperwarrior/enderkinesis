@@ -20,7 +20,7 @@ import java.util.function.Supplier
 class IchaericInkBlock(fluid: Supplier<out FlowingFluid>, properties: Properties) :
     ArchitecturyLiquidBlock(fluid, properties) {
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         if (level.isClientSide || entity !is LivingEntity) return
         val fluid = level.getFluidState(pos)
@@ -31,7 +31,7 @@ class IchaericInkBlock(fluid: Supplier<out FlowingFluid>, properties: Properties
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getFluidState(state: BlockState): FluidState {
         val flowing = EKFluids.ICHAERIC_INK_FLOWING.get()
         return if (state.getValue(LEVEL) == IchaericInkFlowingFluid.PUDDLE_BLOCK_LEVEL && flowing is IchaericInkFlowingFluid) {
@@ -47,7 +47,7 @@ class IchaericInkBlock(fluid: Supplier<out FlowingFluid>, properties: Properties
         return super.pickupBlock(level, pos, state)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
         if (level is ServerLevel && !newState.`is`(this)) IchaericInkReserve.of(level).forget(pos)
         super.onRemove(state, level, pos, newState, moved)

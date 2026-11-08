@@ -63,11 +63,11 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
         }
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun rotate(state: BlockState, rotation: Rotation): BlockState =
         state.setValue(BlockStateProperties.FACING, rotation.rotate(state.getValue(BlockStateProperties.FACING)))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun mirror(state: BlockState, mirror: Mirror): BlockState =
         state.rotate(mirror.getRotation(state.getValue(BlockStateProperties.FACING)))
 
@@ -75,19 +75,19 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
      *  half so the closed pair unions into a complete block. Lives on `getShape` (not just
      *  `getCollisionShape`) because VS2's ship-block collision reads `getShape` for solid
      *  blocks. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = topHalfCube(state.getValue(BlockStateProperties.FACING))
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext,
     ): VoxelShape = topHalfCube(state.getValue(BlockStateProperties.FACING))
 
     /** No raycast targeting — player should target / break the *base* block, never the
      *  lid directly. Empty interaction shape skips this block during world clip. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getInteractionShape(
         state: BlockState, level: BlockGetter, pos: BlockPos,
     ): VoxelShape = Shapes.empty()
@@ -98,7 +98,7 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
      *  re-enter `releaseAndDestroyTop`, which calls `setBlock(lidPos, AIR)`, which is a
      *  no-op because the lid is already gone. The cascade fires only if the base still
      *  names this lid, so an orphan or duplicate lid never breaks a live strut. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState, level: Level, pos: BlockPos, newState: BlockState, isMoving: Boolean,
     ) {

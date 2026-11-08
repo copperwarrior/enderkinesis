@@ -33,7 +33,7 @@ class CrepusculiteGlassBlock(properties: BlockBehaviour.Properties) : HalfTransp
         builder.add(LIT)
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun randomTick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         level.setBlock(pos, state.setValue(LIT, !state.getValue(LIT)), Block.UPDATE_ALL)
     }

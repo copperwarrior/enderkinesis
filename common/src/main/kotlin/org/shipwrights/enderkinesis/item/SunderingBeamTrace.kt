@@ -10,6 +10,7 @@ import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.spell.BeamGeometry
 import org.shipwrights.enderkinesis.util.LoadedRay
+import org.shipwrights.enderkinesis.util.EntitylessClip
 
 /** One straight-line piece of a Sundering beam. The beam is a polyline of
  *  these segments — first segment from staff tip to the first shield hit
@@ -137,7 +138,11 @@ object SunderingBeamTrace {
             }
 
             // Block raycast on the same segment.
-            val ctx = ClipContext(curOrigin, rangeEnd, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player)
+            val ctx = if (player != null) {
+                ClipContext(curOrigin, rangeEnd, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player)
+            } else {
+                EntitylessClip.of(curOrigin, rangeEnd, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE)
+            }
             val blockHit = level.clip(ctx)
             val blockDist = if (blockHit.type == HitResult.Type.BLOCK) {
                 curOrigin.distanceTo(blockHit.location)

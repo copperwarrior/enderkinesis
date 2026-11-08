@@ -53,7 +53,6 @@ object SureibjinSky {
     /** Called from `EnderkinesisModClient.initClient`. Registers the dream-sky
      *  noise shader (which also folds in the sun-nebula effect) with
      *  [ClientReloadShadersEvent] so it's reloaded on resource-pack swaps. */
-    @JvmStatic
     fun init() {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
             sink.registerShader(

@@ -106,7 +106,6 @@ object SselithBlockTracker {
     /** Called from the `LevelChunk.setBlockState` mixin for every server-side
      *  block write, to forget positions destroyed by something other than a
      *  player. Kept as cheap as possible — see the class doc. */
-    @JvmStatic
     fun onBlockChanged(changedLevel: Level, pos: BlockPos, newState: BlockState) {
         if (changedLevel !== level) return
         val store = data ?: return
@@ -131,7 +130,6 @@ object SselithBlockTracker {
     /** Called from the `ServerLevel.tickChunk` mixin — vanilla's own
      *  random-tick site. [randomTickSpeed] is the gamerule value vanilla
      *  passes in (0 disables random ticking entirely). */
-    @JvmStatic
     fun tickChunk(tickLevel: ServerLevel, chunk: LevelChunk, randomTickSpeed: Int) {
         if (tickLevel !== level || randomTickSpeed <= 0) return
         val store = data ?: return

@@ -69,7 +69,6 @@ class WeheloStoneCreatureModel(private val bakedRoot: ModelPart) :
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id(WeheloStoneCreature.ID_PATH), "main")
 
-        @JvmStatic
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val body = mesh.root.addOrReplaceChild("body", CubeListBuilder.create().texOffs(16, 16).addBox(-4.0f, 0.0f, -2.0f, 8.0f, 12.0f, 4.0f, CubeDeformation(0.0f)), PartPose.offset(0.0f, 0.0f, 0.0f))

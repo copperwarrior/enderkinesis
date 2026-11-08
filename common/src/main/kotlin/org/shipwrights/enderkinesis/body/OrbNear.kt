@@ -3,12 +3,14 @@ package org.shipwrights.enderkinesis.body
 import it.unimi.dsi.fastutil.longs.LongArrayList
 import net.minecraft.world.level.Level
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * The cull for Orbs of Potential. An orb is never destroyed, so the orb table grows with each
  * Sselith globe that a player has loaded. The per-tick and per-frame users read the orbs near
  * a player only, from a list that is built again one time each second.
  */
+@OptIn(VsBeta::class)
 internal object OrbNear {
 
     /** Blocks from a player to an orb's body. Above the largest render and interaction reach. */

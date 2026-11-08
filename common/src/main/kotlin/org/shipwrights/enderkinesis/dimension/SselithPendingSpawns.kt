@@ -326,16 +326,13 @@ class SselithPendingSpawns : SavedData() {
          *  inbox; the next server-thread [tick] will move it into
          *  the persistent queue and start counting against the
          *  drain budget. Safe to call from any thread. */
-        @JvmStatic
         fun enqueue(level: ServerLevel, intent: Intent) {
             INBOX.computeIfAbsent(level.dimension()) { ConcurrentLinkedQueue() }.offer(intent)
         }
 
-        @JvmStatic
         fun get(level: ServerLevel): SselithPendingSpawns =
             level.dataStorage.computeIfAbsent(::load, ::SselithPendingSpawns, SAVE_KEY)
 
-        @JvmStatic
         fun load(tag: CompoundTag): SselithPendingSpawns {
             val out = SselithPendingSpawns()
             val cataloger = tag.getList("Cataloger", Tag.TAG_COMPOUND.toInt())
@@ -381,7 +378,6 @@ class SselithPendingSpawns : SavedData() {
             }
         }
 
-        @JvmStatic
         fun tick(level: ServerLevel) {
             flushInbox(level)
             // `get`, not `computeIfAbsent`: idle and non-Sselith levels skip SavedData creation.

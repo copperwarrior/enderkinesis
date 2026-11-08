@@ -4,6 +4,8 @@ import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Per-ship attachment that applies the Binding-Roots merger's spring pull AND cardinal
@@ -19,6 +21,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
  * The merger writes zeros when no pair is active so the ship stops getting forced /
  * torqued the instant the pair breaks.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class BindingRootsPullAttachment : ShipPhysicsListener {
 
     @Volatile private var forceX: Double = 0.0

@@ -14,7 +14,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
 
 class SselithBookshelfBlock(properties: Properties) : Block(properties) {
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,

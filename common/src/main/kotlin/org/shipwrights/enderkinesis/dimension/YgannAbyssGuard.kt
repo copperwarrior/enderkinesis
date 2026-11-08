@@ -12,6 +12,7 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.BucketItem
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Placement gate for [YgannAbyss]: in that dimension a block may only land **inside a VS2
@@ -25,6 +26,7 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
  * targeted a ship — and `getLoadedShipManagingPos(pos)` returns that ship. Free placements in
  * the open void resolve to ordinary world coords, where no ship's shipyard sits.
  */
+@OptIn(GameTickOnly::class)
 object YgannAbyssGuard {
 
     fun init() {

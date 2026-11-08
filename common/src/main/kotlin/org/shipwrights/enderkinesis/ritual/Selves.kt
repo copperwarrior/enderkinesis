@@ -102,12 +102,10 @@ object Selves {
         PlayerEvent.PLAYER_RESPAWN.register { player, conqueredEnd -> onRespawn(player, conqueredEnd) }
     }
 
-    @JvmStatic
     fun formOf(player: Player): Form? =
         if (player.level().isClientSide) clientForms[player.uuid] else serverData?.forms?.get(player.uuid)
 
     /** A creature that is never in a level, to read the size, eye height and traits of [player]'s creature form. */
-    @JvmStatic
     fun dummyOf(player: Player): LivingEntity? {
         val form = formOf(player) as? Form.Creature ?: return null
         val level = player.level()

@@ -14,6 +14,7 @@ import net.minecraft.world.level.chunk.LevelChunk
 import org.valkyrienskies.mod.api.isBlockInShipyard
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Global "random tick" sweep that destroys any block in [YgannAbyss] that isn't held by a
@@ -46,6 +47,7 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
  *  - Destroyed blocks emit the same ender-particle burst + enderman-teleport sound as the
  *    placement-guard rejection, so cleanup and rejection feel like the same effect.
  */
+@OptIn(GameTickOnly::class)
 object YgannAbyssBlockSweeper {
 
     /** Voxels sampled per non-air section per tick — vanilla's `random_tick_speed = 3`. */

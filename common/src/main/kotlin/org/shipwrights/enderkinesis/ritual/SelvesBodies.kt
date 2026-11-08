@@ -29,13 +29,11 @@ object SelvesBodies {
     private val PLAYER_WALK = sqrt(Selves.PLAYER_SPEED * Selves.PLAYER_INPUT)
     private const val PLAYER_HEALTH = 20.0
 
-    @JvmStatic
     fun ownerOf(entity: Entity): UUID? {
         if (entity !is Mob) return null
         return if (entity.level().isClientSide) Selves.clientBodies[entity.uuid] else Selves.serverData?.bodies?.get(entity.uuid)?.owner
     }
 
-    @JvmStatic
     fun isBody(entity: Entity): Boolean = ownerOf(entity) != null
 
     /** Gives [mob] the player body's health, walk and equipment. [items] is a saved player inventory. */

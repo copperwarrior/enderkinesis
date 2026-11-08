@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.Entity
 import org.shipwrights.enderkinesis.mixin.ParticlePositionAccessor
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Shared lookup surface for every cloaking-concealment mixin.
  *
@@ -20,6 +21,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  *
  *  The map is mutated from [ConcealmentTransitionWatcher] (per-tick) — never from inside
  *  a mixin callback. */
+@OptIn(GameTickOnly::class)
 object CloakingMixinSupport {
 
     /** ship id → shipyard-coord AABB (inclusive on both sides). */
@@ -77,18 +79,15 @@ object CloakingMixinSupport {
      *  call passes through and produces the geometry we need for the side FB. */
     private val cancelSuspended: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
 
-    @JvmStatic
     fun setCancelSuspended(suspended: Boolean) {
         cancelSuspended.set(suspended)
     }
 
-    @JvmStatic
     fun isCancelSuspended(): Boolean = cancelSuspended.get()
 
     /** Recompute which concealed-ship bubbles currently contain the camera.
      *  Called once per frame from [ConcealmentTransitionWatcher.tick] before
      *  any cancel mixin queries fire this frame. */
-    @JvmStatic
     fun updateInsideBubbles(x: Double, y: Double, z: Double) {
         insideBubbles.clear()
         if (concealed.isEmpty()) return
@@ -170,7 +169,6 @@ object CloakingMixinSupport {
      *  (bubble silhouette, side-FB ship render) is driven by `renderTransform`, so
      *  the particle world-point check has to project through the same transform
      *  or the cull boundary drifts away from the visible bubble. */
-    @JvmStatic
     fun isWorldPointConcealed(x: Double, y: Double, z: Double): Boolean {
         if (concealed.isEmpty()) return false
         val level = Minecraft.getInstance().level ?: return false
@@ -213,7 +211,6 @@ object CloakingMixinSupport {
      *  the outside world (main FB) gets a light warbly distortion. Highest
      *  progress, not first match, so multiple overlapping bubbles converge on
      *  the most-engaged cloak's intensity for the warble strength. */
-    @JvmStatic
     fun bubbleProgressAt(x: Double, y: Double, z: Double): Float {
         if (concealed.isEmpty()) return 0f
         val level = Minecraft.getInstance().level ?: return 0f

@@ -31,6 +31,9 @@ import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
+import org.shipwrights.enderkinesis.util.deleteStandaloneBody
 
 /**
  * Server-side orchestrator for the Wand of Ga'Mylan capture + break
@@ -43,6 +46,7 @@ import org.valkyrienskies.mod.common.vsCore
  * Records whose body didn't survive the VS side get swept by
  * [sweepStaleAfterLoad] on a delayed post-load tick.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object GamylanCageManager {
 
     private val LOG = LogUtils.getLogger()
@@ -576,53 +580,8 @@ object GamylanCageManager {
         GamylanCageRegistry.remove(level, data.bodyId)
         GamylanCageBodyForce.forgetBody(data.bodyId)
         GamylanCageNetwork.broadcastRemoved(level, data.bodyId)
-        // Delete the VS2 body itself. Uses the same
-        // `vsApi.getServerShipWorld(server)` accessor Skyriders'
-        // VehicleManager uses (rather than `level.shipObjectWorld`)
-        // because that path resolves the SERVER-scoped world; without
-        // this deleteBody() call the invisible collision hull sits in
-        // physics forever, bumping entities off nothing.
-        // UPSTREAM VS CORE BUG (2.4.13): standalone bodies created via
-        // ShipObjectServerWorld.createBody(VsBodyCreateData) cannot be
-        // deleted cleanly. In ShipObjectServerWorld.kt:
-        //
-        //   1056:  _allBodies.add(newBody)                       // createBody
-        //   1058:  loadedStandaloneBodies.add(newBody.id)        // createBody
-        //   ...
-        //    791:  if (…&& loadedStandaloneBodies.add(body.id))  // per-tick wrapper loop
-        //    793:      _loadedBodies.add(newBodyObject)          // (never runs — set-add returned false)
-        //   ...
-        //   1181:  _allBodies.remove(body.id)                    // deleteBody
-        //   1182:  _loadedBodies.remove(body.id)                 // THROWS IAE — wrapper never created
-        //   1184:  deletedBodies.add(body.id)                    // never runs, phys queue never notified
-        //
-        // Because createBody preemptively puts the id in
-        // loadedStandaloneBodies, the per-tick loop's `set.add()`
-        // guard returns false and _loadedBodies is never populated
-        // for our body. deleteBody's second line then throws, which
-        // aborts before deletedBodies gets the id — so the physics
-        // engine is never told to drop the body, and the collision
-        // hull persists forever.
-        //
-        // Nothing to work around at our level cleanly. Best fix is a
-        // vs-core patch: either swap line 1182 with 1184 (queue the
-        // physics delete first), guard the _loadedBodies.remove with
-        // a `contains` check, or drop the preemptive
-        // `loadedStandaloneBodies.add` at line 1058. See
-        // vs-core/impl/src/main/kotlin/org/valkyrienskies/core/impl/
-        // game/ships/ShipObjectServerWorld.kt.
-        val shipWorld = org.valkyrienskies.mod.api.vsApi.getServerShipWorld(level.server)
-        val body = shipWorld?.allBodies?.getById(data.bodyId)
-        if (shipWorld != null && body != null) {
-            try {
-                shipWorld.deleteBody(body)
-            } catch (e: IllegalArgumentException) {
-                // See comment above — upstream bug, body stays in
-                // physics until vs-core is patched.
-            } catch (e: Throwable) {
-                LOG.warn("[ga'mylan] deleteBody({}) failed", data.bodyId, e)
-            }
-        }
+        // Without this the invisible collision hull stays in physics and bumps entities off nothing.
+        level.deleteStandaloneBody(data.bodyId)
     }
 
     private fun snapshotAnimation(entity: LivingEntity): CompoundTag {
@@ -680,25 +639,6 @@ object GamylanCageManager {
                     restitutionCoefficient = 0.1,
                 )
             )
-            // UPSTREAM VS CORE BUG (2.4.13): `createBody` preemptively
-            // adds `newBody.id` to a private `loadedStandaloneBodies`
-            // set inside ShipObjectServerWorld. The per-tick loop that
-            // wraps standalone bodies into `_loadedBodies` (which is
-            // what the update dispatcher iterates for setTransform-
-            // driven scaling and what deleteBody removes from) is
-            // gated on `loadedStandaloneBodies.add(body.id)` returning
-            // true — and it returns false because createBody already
-            // added it. Result: our body never enters `_loadedBodies`,
-            // so `setTransform` marks it dirty but nothing picks up
-            // the update; Staff of Scales silently does nothing, and
-            // `deleteBody` throws IAE on the missing wrapper.
-            //
-            // Fix in-place until vs-core is patched: reflect out the
-            // preemptive add. Next tick, the orphan-check loop's
-            // `loadedStandaloneBodies.add(body.id)` now returns true,
-            // the wrapper is created cleanly, and both scaling +
-            // deletion work end-to-end.
-            org.shipwrights.enderkinesis.util.VsBodies.unregisterPreemptiveStandaloneBody(shipWorld, body.id)
             body.id
         } catch (t: Throwable) {
             LOG.warn("[ga'mylan] VS body creation failed at {}", hoverPos, t)

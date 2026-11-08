@@ -35,6 +35,7 @@ class YgannBarnacleBlock(props: Properties) : Block(props), EntityBlock {
         builder.add(FACING)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState, level: BlockGetter, pos: BlockPos, context: CollisionContext,
     ): VoxelShape {
@@ -60,12 +61,14 @@ class YgannBarnacleBlock(props: Properties) : Block(props), EntityBlock {
         }
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean {
         val facing = state.getValue(FACING)
         val support = pos.relative(facing.opposite)
         return level.getBlockState(support).isFaceSturdy(level, support, facing)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, direction: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
@@ -76,6 +79,7 @@ class YgannBarnacleBlock(props: Properties) : Block(props), EntityBlock {
         return super.updateShape(state, direction, neighborState, level, pos, neighborPos)
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, old: BlockState, moved: Boolean) {
         super.onPlace(state, level, pos, old, moved)
         (level.getBlockEntity(pos) as? YgannBarnacleBlockEntity)?.initBorn(level)
@@ -121,6 +125,7 @@ class YgannBarnacleBlock(props: Properties) : Block(props), EntityBlock {
         return ticker as net.minecraft.world.level.block.entity.BlockEntityTicker<T>
     }
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun isPathfindable(
         state: BlockState, level: BlockGetter, pos: BlockPos, type: PathComputationType,
     ): Boolean = false

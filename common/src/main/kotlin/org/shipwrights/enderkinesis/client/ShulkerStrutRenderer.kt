@@ -13,7 +13,6 @@ import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.renderer.texture.OverlayTexture
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
@@ -27,9 +26,10 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.roundToInt
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Draws the strut as the base (bottom) shulker shell plus four ancrite chains spiraling
@@ -42,6 +42,7 @@ import kotlin.math.roundToInt
  * (`base[i] → lid[(i + 2) mod 4]`) — base 1,2,3,4 → lid 3,4,1,2. As the lid extends along
  * FACING, opposite-corner pairs cross diagonally between the two faces.
  */
+@OptIn(GameTickOnly::class)
 class ShulkerStrutRenderer(ctx: BlockEntityRendererProvider.Context) :
     BlockEntityRenderer<ShulkerStrutBlockEntity> {
 
@@ -102,7 +103,7 @@ class ShulkerStrutRenderer(ctx: BlockEntityRendererProvider.Context) :
         // the lid ship's world transform back through the host ship's worldToShip (or
         // identity if the strut is world-mounted).
         val hostShip = (level as? ClientLevel)
-            ?.getShipObjectManagingPos(be.blockPos) as? ClientShip
+            ?.getLoadedShipManagingPos(be.blockPos) as? ClientShip
 
         val lidWorld = lidCentreWorld.set(lidPos.x + 0.5, lidPos.y + 0.5, lidPos.z + 0.5)
         lidShip.renderTransform.shipToWorld.transformPosition(lidWorld)
@@ -111,9 +112,9 @@ class ShulkerStrutRenderer(ctx: BlockEntityRendererProvider.Context) :
         faceCorners(facing, baseFaceCentreLocal(facing, faceCentre), baseCorners)
         faceCorners(facing, lidFaceCentreLocal(facing, lidWorld, hostShip, be.blockPos, faceCentre), lidCorners)
 
-        val chainVc = buffers.getBuffer(RenderType.entityCutoutNoCull(TextureAtlas.LOCATION_BLOCKS))
+        val chainVc = buffers.getBuffer(RenderType.entityCutoutNoCull(BLOCK_ATLAS))
         val sprite = Minecraft.getInstance()
-            .getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
+            .getTextureAtlas(BLOCK_ATLAS)
             .apply(CHAIN_TEXTURE)
         for (i in 0..3) {
             drawChainSegment(chainVc, pose, baseCorners[i], lidCorners[(i + 2) % 4], sprite, light, lidLight, overlay)

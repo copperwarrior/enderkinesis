@@ -38,7 +38,9 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.valkyrienskies.core.api.util.GameTickOnly
 
+@OptIn(GameTickOnly::class)
 object WaveSignatures {
     val ALL: Map<Signature, SignatureBehaviour> = mapOf(
         Signature.AVALANCHE to Avalanche,

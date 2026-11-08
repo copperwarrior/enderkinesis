@@ -56,7 +56,7 @@ import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.mod.common.assembly.ShipAssembler
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipsIntersecting
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.world.clipIncludeShips
@@ -66,6 +66,7 @@ import org.valkyrienskies.mod.common.util.settings
 import org.valkyrienskies.mod.common.BlockStateInfo
 import java.util.EnumSet
 import java.util.UUID
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * The Constriliar — a four-legged walking platform that follows its owner and carries a
@@ -73,6 +74,7 @@ import java.util.UUID
  * the entity kinematically drives the (static) ship's pose every tick, so the cargo tilts
  * and turns with the body.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     PathfinderMob(type, level), ShipMoveListener {
 
@@ -323,7 +325,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  rays can exclude it — feet must never plant on the walker's own cargo. */
     fun clientOwnShipId(): Long? {
         val pPos = entityData.get(DATA_PLATFORM_POS).orElse(null) ?: return null
-        return level().getShipObjectManagingPos(pPos)?.id
+        return level().getLoadedShipManagingPos(pPos)?.id
     }
 
     /** The platform renderer finds its walker by the owner id the server stamps on the
@@ -374,7 +376,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  centre, rotation = ship ∘ 180°-yaw. */
     private fun shipRenderPose(): Pair<Vec3, Quaternionf>? {
         val pPos = entityData.get(DATA_PLATFORM_POS).orElse(null) ?: return null
-        val ship = level().getShipObjectManagingPos(pPos)
+        val ship = level().getLoadedShipManagingPos(pPos)
             as? org.valkyrienskies.core.api.ships.ClientShip ?: return null
         val rt = ship.renderTransform
         val centre = Vector3d(pPos.x + 0.5, pPos.y + 0.5, pPos.z + 0.5)
@@ -1585,7 +1587,6 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private var platformLostTicks = 0
 
     /** A VS2 split or weld can move the platform to another ship; the body follows it. */
-    @OptIn(VsBeta::class)
     override fun onShipBlocksMoved(level: ServerLevel, move: ShipBlockMove) {
         if (move.followPoint(faceAnchorShipId, faceAnchorLocal)) faceAnchorShipId = move.toShipId
         val platform = platformPos ?: return
@@ -1705,7 +1706,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (!ConstriliarDebugLog.ENABLED) return
         val d = ConstriliarDebugLog
         val speed = loaded.velocity.length()
-        val spin = loaded.omega.length()
+        val spin = loaded.angularVelocity.length()
         val spike = (speed > d.SPIKE_SPEED || spin > d.SPIKE_OMEGA) && tickCount - lastSpikeTick >= d.SPIKE_GAP_TICKS
         if (!spike && tickCount % d.INTERVAL_TICKS != 0) return
         if (spike) lastSpikeTick = tickCount
@@ -1718,7 +1719,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             "${if (spike) "SPIKE" else "state"} tick=$tickCount id=$id " +
                 "body=${BuiltInRegistries.BLOCK.getKey(bodyBlockState().block).path}",
             "brain=${d.v(position())} plate=${d.v(plate)} yaw=${d.f(yBodyRot.toDouble())} yawRate=${d.f(yawRate.toDouble())}",
-            "ship vel=${d.v(loaded.velocity)} speed=${d.f(speed)} omega=${d.v(loaded.omega)} " +
+            "ship vel=${d.v(loaded.velocity)} speed=${d.f(speed)} omega=${d.v(loaded.angularVelocity)} " +
                 "mass=${d.f(loaded.inertiaData.mass)} rotErr=${d.f(rotErrDeg)}deg",
             "up smooth=${d.v(smoothUp)} surface=${d.v(surfaceUp)} path=${d.v(pathUp)} pathActive=$pathUpActive " +
                 "ship=${d.v(shipUp)} floorFace=${onFloorFace()} contactGap=${d.f(attachedGap)} contactDir=$attachedDir",
@@ -2746,7 +2747,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (!level.getBlockState(pPos).`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())) return
         LOG.warn(
             "[EK constriliar] ship {} inertia invalid (mass={}, tensor={}); last mass op '{}' {} ticks ago; rebuilding",
-            ship.id, ship.inertiaData.mass, ship.inertiaData.momentOfInertiaTensor,
+            ship.id, ship.inertiaData.mass, ship.inertiaData.inertiaTensor,
             lastMassOp, tickCount - lastMassOpTick,
         )
         rebuildInertia(level, ship, pPos)

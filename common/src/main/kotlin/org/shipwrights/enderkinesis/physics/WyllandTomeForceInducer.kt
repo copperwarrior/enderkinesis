@@ -5,6 +5,8 @@ import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Physics attachment that turns a grabbed ship into a cursor-following
@@ -44,6 +46,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
  *    component to pre-compensate. This is the fix to the sag problem
  *    visible in earlier iterations.
  */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class WyllandTomeForceInducer(
     /** Cursor world-space target the grab point should reach. */
     @Transient var targetX: Double = 0.0,
@@ -125,7 +128,7 @@ class WyllandTomeForceInducer(
         // way around the unit-quaternion double cover.
         if (rotDiff.w > 0.0) rotDiffVector.mul(-1.0)
         // PD damping in world-frame angular velocity.
-        rotDiffVector.sub(Vector3d(physShip.omega).mul(dConstRot))
+        rotDiffVector.sub(Vector3d(physShip.angularVelocity).mul(dConstRot))
 
         // R · I · R⁻¹ sandwich: treat rotDiffVector as desired angular
         // acceleration in world frame, transform to body frame, scale
@@ -137,7 +140,7 @@ class WyllandTomeForceInducer(
         rotation.transformInverse(rotDiffVector, torque)
         inertia.transform(torque)
         rotation.transform(torque)
-        physShip.applyInvariantTorque(torque)
+        physShip.applyWorldTorque(torque)
 
         // iConst feed-forward: predict how the rotation we're about to
         // apply will displace the COM-relative cursor vector, and
@@ -155,7 +158,7 @@ class WyllandTomeForceInducer(
         val force = Vector3d(posDiff).add(iDiff)
             .sub(Vector3d(physShip.velocity).mul(dConst))
             .mul(mass)
-        physShip.applyInvariantForce(force)
+        physShip.applyWorldForceToBodyPos(force)
     }
 
     companion object {

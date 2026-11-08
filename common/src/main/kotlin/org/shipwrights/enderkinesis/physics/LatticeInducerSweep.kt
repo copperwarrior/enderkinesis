@@ -6,8 +6,11 @@ import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** Removes lattice inducers that no lattice drives, e.g. on a fracture piece that lost its lattice. */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object LatticeInducerSweep {
     private const val SWEEP_INTERVAL_TICKS = 20L
 

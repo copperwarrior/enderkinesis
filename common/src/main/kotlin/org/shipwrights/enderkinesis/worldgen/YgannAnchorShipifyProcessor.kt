@@ -29,6 +29,7 @@ import org.valkyrienskies.mod.common.assembly.VSAssemblyEvents
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Structure processor for the Ygann Anchor: after the template's blocks have been placed,
@@ -42,6 +43,7 @@ import org.valkyrienskies.mod.common.vsCore
  *  the grid-aligned look that yaw-only rotation produces. Yaw is full-range; pitch + roll are
  *  ±5° (~0.087 rad) so even at the extremes you'd struggle to spot the tilt from a distance.
  */
+@OptIn(GameTickOnly::class)
 object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
 
     val CODEC: Codec<YgannAnchorShipifyProcessor> = Codec.unit(YgannAnchorShipifyProcessor)
@@ -75,6 +77,7 @@ object YgannAnchorShipifyProcessor : StructureProcessor(), CapturesCrew {
         // Position-seeded random. [StructurePlaceSettings.getRandom] returns a fixed-seed
         // RNG that ignores its BlockPos argument — see [RoamingEndShipShipifyProcessor] for
         // the full why. Mth.getSeed gives a deterministic-but-position-varying seed.
+        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; 1.20.1 has no replacement.
         val rng = RandomSource.create(Mth.getSeed(startPos.x, startPos.y, startPos.z))
         val yaw = rng.nextDouble() * (2.0 * Math.PI)
         val pitch = (rng.nextDouble() * 2.0 - 1.0) * MAX_TILT_RAD

@@ -41,6 +41,7 @@ import java.util.Comparator
 import java.util.UUID
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Wipes Wohlon when the Mother Heart is forcibly removed. Hybrid live+marker design:
@@ -48,6 +49,7 @@ import kotlin.io.path.exists
  * on next start. Single-player integrated servers stop after phase-1 kicks, so phases 2-3
  * run via [registerLifecycleHooks] on next launch.
  */
+@OptIn(GameTickOnly::class)
 object WohlonnogondoniaCatastrophe {
 
     private val LOG = LogUtils.getLogger()
@@ -75,7 +77,6 @@ object WohlonnogondoniaCatastrophe {
 
     private const val WIPE_DATA_NAME = "enderkinesis_wohlon_wipes"
 
-    @JvmStatic
     fun isWipeInProgress(): Boolean = wipeInProgress
 
     /** A block read in [level] loads its chunk, and a loaded chunk stops the drain before the wipe. */

@@ -9,8 +9,10 @@ import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL12
 import org.shipwrights.enderkinesis.physics.LatticeHullVolume
 import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** The [LatticeHullVolume] flood result of each ship as an RGBA8 texture: one texel for each 32-bit word. */
+@OptIn(GameTickOnly::class)
 object CrepusculiteLatticeHullMask {
     private const val EVICT_FRAMES = 600L
 

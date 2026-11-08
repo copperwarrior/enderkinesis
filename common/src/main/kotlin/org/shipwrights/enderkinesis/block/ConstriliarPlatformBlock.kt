@@ -14,8 +14,10 @@ import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
 import org.shipwrights.enderkinesis.physics.ConstriliarShipController
 import org.shipwrights.enderkinesis.util.ShipMoves
-import org.valkyrienskies.mod.common.getShipObjectManagingPos
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * The Constriliar's back plate inside its cargo ship's shipyard. Visually empty but
@@ -23,6 +25,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
  * collision, no outline) so the walker never wedges against its own ship and clicks
  * pass through to the entity.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props), EntityBlock {
 
     init {
@@ -40,6 +43,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
 
     /** Mining feel inherits from the animated source block (stored on the BE):
      *  an obsidian-skinned constriliar digs like obsidian, tool rules included. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getDestroyProgress(
         state: BlockState,
         player: net.minecraft.world.entity.player.Player,
@@ -60,6 +64,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
      *  SYNCHRONOUS — deferring even one tick leaves a bare mass-0 dynamic ship for the
      *  physics thread to crash on ("invMass is not finite"); deleteShip inside the
      *  removal is the only ordering physics never observes. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onRemove(
         state: BlockState,
         level: net.minecraft.world.level.Level,
@@ -75,14 +80,14 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
             val owner = (level.getEntity(be?.ownerEntityId ?: -1) ?: be?.ownerUuid?.let { level.getEntity(it) })
                 as? org.shipwrights.enderkinesis.entity.ConstriliarEntity
             if (owner != null && owner.isAlive && !owner.releasingShip && !owner.servicingPlatform) {
-                val bodyReleasing = level.getShipObjectManagingPos(pos)
+                val bodyReleasing = level.getLoadedShipManagingPos(pos)
                     ?.getAttachment(ConstriliarShipController::class.java)?.releasing == true
                 if (bodyReleasing) owner.loseSharedBody() else owner.destroyByShapeLoss()
             } else if (owner == null) {
                 // Orphaned plate (dead-linkage debris): breaking it is the cleanup —
                 // delete the ship synchronously, same mass-0 reasoning as the owned
                 // death path.
-                val ship = level.getShipObjectManagingPos(pos)
+                val ship = level.getLoadedShipManagingPos(pos)
                 if (ship != null) {
                     org.shipwrights.enderkinesis.entity.ConstriliarCargo.dropShipCargo(level, ship, pos)
                     org.valkyrienskies.mod.common.assembly.ShipAssembler.deleteShip(level, ship, false, false)
@@ -100,6 +105,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
     // voxelizer reads getShape (not getCollisionShape) for isSolid states via
     // CollisionContext.empty(); an empty outline there fell back to a FULL-CUBE
     // physics voxel half a block below the visible plate.
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(
         state: BlockState,
         level: BlockGetter,
@@ -117,6 +123,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
      *  couldn't move); the full-width top face is sturdy, so non-full cargo (torches,
      *  slabs, rails) can be placed; and the ghost brain is noPhysics, so the old
      *  self-wedging concern is gone. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(
         state: BlockState,
         level: BlockGetter,
@@ -124,6 +131,7 @@ class ConstriliarPlatformBlock(props: BlockBehaviour.Properties) : Block(props),
         context: CollisionContext,
     ): VoxelShape = PLATE_COLLISION
 
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun isPathfindable(
         state: BlockState,
         level: BlockGetter,

@@ -5,7 +5,6 @@ import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.block.model.BakedQuad
-import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.core.Direction
 import net.minecraft.util.RandomSource
@@ -41,10 +40,8 @@ object BakedItemModels {
         packedOverlay: Int,
         alpha: Float = 1f,
     ) {
-        // LOCATION_BLOCKS is deprecated, but the baked item quads still sample the block atlas.
-        @Suppress("DEPRECATION")
         val vertexConsumer = bufferSource.getBuffer(
-            RenderType.entityTranslucentCull(TextureAtlas.LOCATION_BLOCKS),
+            RenderType.entityTranslucentCull(BLOCK_ATLAS),
         )
         val pose = poseStack.last()
         val matrix = pose.pose()

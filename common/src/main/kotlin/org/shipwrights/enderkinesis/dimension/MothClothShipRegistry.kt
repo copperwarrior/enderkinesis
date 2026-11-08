@@ -10,6 +10,8 @@ import org.valkyrienskies.mod.common.dimensionId
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentSkipListSet
 import net.minecraft.core.BlockPos
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /**
  * Server-thread registry mapping ship id → block positions where a Moth
@@ -20,6 +22,7 @@ import net.minecraft.core.BlockPos
  * World-placed moth cloth (not on any ship) is ignored — the lift only
  * makes sense on VS2 rigid bodies.
  */
+@OptIn(GameTickOnly::class, VsBeta::class)
 object MothClothShipRegistry {
 
     private val byShip: ConcurrentHashMap<Long, MutableSet<Long>> = ConcurrentHashMap()

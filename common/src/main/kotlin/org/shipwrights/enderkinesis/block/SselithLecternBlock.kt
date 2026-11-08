@@ -44,6 +44,7 @@ class SselithLecternBlock(properties: BlockBehaviour.Properties) : LecternBlock(
     /** Faces are sturdy on every direction except UP — torches, levers,
      *  redstone components and signs all mount on the bottom + four
      *  sides, but nothing wall-mounts on the slanted reading surface. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getBlockSupportShape(state: BlockState, level: BlockGetter, pos: BlockPos): VoxelShape =
         SUPPORT_SHAPE
 

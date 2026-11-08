@@ -167,7 +167,7 @@ class OrbFilter private constructor(val rules: List<Rule>) {
             // plank block).
             val itemForm = state.block.asItem()
             if (itemForm === Items.AIR) return false
-            return itemForm.builtInRegistryHolder().`is`(tag)
+            return BuiltInRegistries.ITEM.wrapAsHolder(itemForm).`is`(tag)
         }
 
         override fun matchesEntity(entity: LivingEntity, level: ServerLevel): Boolean {
@@ -182,7 +182,7 @@ class OrbFilter private constructor(val rules: List<Rule>) {
         override fun matchesItem(stack: ItemStack): Boolean {
             val it = stack.item
             if (it !is BlockItem) return false
-            return it.block.builtInRegistryHolder().`is`(tag)
+            return it.block.defaultBlockState().`is`(tag)
         }
 
         override fun matchesBlock(state: BlockState): Boolean = state.`is`(tag)

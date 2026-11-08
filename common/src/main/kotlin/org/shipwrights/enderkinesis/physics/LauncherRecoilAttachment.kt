@@ -5,6 +5,8 @@ import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
 import java.util.concurrent.ConcurrentLinkedQueue
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.VsBeta
 
 /** One-shot per-ship impulse queue. Originally the Lodestar Launcher's
  *  recoil path; also reused by the Echo Cannon's beam-hits-ship knockback.
@@ -12,6 +14,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  *  drained on the physics thread as a single-tick force at that point — an
  *  off-COM anchor imparts both linear push AND rotation, which is exactly
  *  what a real "shove" feels like. */
+@OptIn(PhysTickOnly::class, VsBeta::class)
 class LauncherRecoilAttachment : ShipPhysicsListener {
 
     private class Recoil(

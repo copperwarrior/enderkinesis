@@ -62,7 +62,7 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
             .setValue(DOWN,  connectsTo(level, pos.below(), Direction.UP))
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun updateShape(
         state: BlockState, dir: Direction, neighborState: BlockState,
         level: LevelAccessor, pos: BlockPos, neighborPos: BlockPos,
@@ -71,13 +71,13 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
         return state.setValue(prop, connectsToState(level, neighborPos, dir.opposite, neighborState))
     }
 
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape =
         SHAPE_CACHE[shapeIndex(state)]
 
     /** No collision — players and entities pass straight through. The visual + selection
      *  outline still come from [getShape]; only the entity-collision query is empty. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getCollisionShape(state: BlockState, level: BlockGetter, pos: BlockPos, ctx: CollisionContext): VoxelShape =
         Shapes.empty()
 
@@ -87,14 +87,14 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
      *  there for every vanilla check (and for our flood-fill gate). The visual /
      *  collision shapes stay thin via the other overrides — players still walk through
      *  the gaps; only the sturdy-face query sees the full slabs. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun getBlockSupportShape(state: BlockState, level: BlockGetter, pos: BlockPos): VoxelShape =
         SUPPORT_SHAPE_CACHE[shapeIndex(state)]
 
     /** Schedule the first disintegration tick the moment an unstable linkage lands —
      *  whether that's a freshly-assembled ship block landing in its shipyard chunk, or
      *  any other path that places it. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun onPlace(state: BlockState, level: Level, pos: BlockPos, oldState: BlockState, isMoving: Boolean) {
         super.onPlace(state, level, pos, oldState, isMoving)
         if (!state.getValue(STABLE) && level is ServerLevel) {
@@ -106,7 +106,7 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
      *  else already broke a linkage this tick, defer to next tick; otherwise claim
      *  the tick by stamping [lastBreakTick] and warp the block out — enderman
      *  teleport sound + portal particles, then [Blocks.AIR] in place. */
-    @Deprecated("Deprecated in Java")
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun tick(state: BlockState, level: ServerLevel, pos: BlockPos, random: RandomSource) {
         if (state.getValue(STABLE)) return
         val now = level.gameTime
@@ -187,7 +187,6 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
 
         /** Global one-per-tick gate. Block ticks run on the main server thread, so a
          *  plain mutable Long is fine — no atomic / volatile needed. */
-        @JvmStatic
         private var lastBreakTick: Long = Long.MIN_VALUE
 
         /** Flip a linkage at [pos] from stable to unstable, the moment it's "transported"

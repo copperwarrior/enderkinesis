@@ -38,12 +38,14 @@ import org.valkyrienskies.mod.common.assembly.ShipAssembler
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.isBlockInShipyard
 import org.valkyrienskies.mod.common.shipObjectWorld
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.shipwrights.enderkinesis.util.EntitylessClip
 
 /**
  * Always world-mode pull (host ship excluded so a ship-mounted hook drags OTHER ships, not its
  * own carrier). Game-tick snapshots the cone-filtered ship set; phys-tick applies the falloff.
  */
-@OptIn(PhysTickOnly::class, VsBeta::class)
+@OptIn(VsBeta::class)
 class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.VOID_HOOK.get(), pos, state),
     BlockEntityPhysicsListener, Commandable {
@@ -120,6 +122,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         }
     }
 
+    @OptIn(GameTickOnly::class)
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
         if (commandedPower > 0 && level.gameTime >= commandedUntil) {
             commandedPower = 0
@@ -193,6 +196,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
      *  Probabilistic chew rather than a deterministic sweep: hard blocks (high
      *  `explosionResistance`) almost never come loose, soft ones do quickly. Bedrock and
      *  the like are excluded by the `destroySpeed < 0` check. */
+    @OptIn(GameTickOnly::class)
     private fun attemptAssemblyTrace(level: ServerLevel) {
         val rand = level.random
         val end = coneSampler.setAxis(cachedFacingX, cachedFacingY, cachedFacingZ)
@@ -214,12 +218,11 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         val startX = cachedHx + cachedFacingX * 0.51
         val startY = cachedHy + cachedFacingY * 0.51
         val startZ = cachedHz + cachedFacingZ * 0.51
-        val ctx = ClipContext(
+        val ctx = EntitylessClip.of(
             Vec3(startX, startY, startZ),
             Vec3(endX, endY, endZ),
             ClipContext.Block.COLLIDER,
             ClipContext.Fluid.NONE,
-            null as Entity?,
         )
         val hit = level.clip(ctx)
         if (hit.type != HitResult.Type.BLOCK) return
@@ -335,6 +338,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         if (trackedAssemblies.size != before) setChanged()
     }
 
+    @OptIn(GameTickOnly::class)
     private fun checkTrackedAssemblies(level: ServerLevel) {
         val iter = trackedAssemblies.entries.iterator()
         while (iter.hasNext()) {
@@ -487,6 +491,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         level.setBlock(shipyardPos, Blocks.AIR.defaultBlockState(), 3)
     }
 
+    @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
         val power = cachedPowerLevel
         if (power <= 0) return
@@ -583,10 +588,11 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
      *  [cachedNearbyShipIds] at the last [serverTick]). The 50 ms staleness window is
      *  fine for gameplay: a ship moving 10 m/s drifts half a block between game ticks,
      *  well within the cone's flare. Force application point is the COM —
-     *  `applyInvariantForce` at COM produces clean translation with no induced torque.
+     *  `applyWorldForceToBodyPos` at COM produces clean translation with no induced torque.
      *  Depth used for the strength curve is the COM's depth along the cone axis
      *  *clamped* into `[0, PULL_RADIUS]` so a ship whose COM has briefly drifted just
      *  outside the apex/tip still gets a sensible strength multiplier. */
+    @OptIn(PhysTickOnly::class)
     private fun applyConeForces(ship: PhysShip, powerFraction: Double) {
         val com = ship.kinematics.position
         val dx = com.x() - cachedHx
@@ -626,7 +632,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         fyOut -= vTangentY * dampCoeff
         fzOut -= vTangentZ * dampCoeff
 
-        ship.applyInvariantForce(Vector3d(fxOut, fyOut, fzOut))
+        ship.applyWorldForceToBodyPos(Vector3d(fxOut, fyOut, fzOut))
     }
 
     companion object {

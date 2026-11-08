@@ -25,7 +25,6 @@ object MothCamoRenderType {
     @JvmField
     var shader: ShaderInstance? = null
 
-    @JvmStatic
     val SHADER_SUPPLIER: Supplier<ShaderInstance> = Supplier { shader }
 
     @JvmField

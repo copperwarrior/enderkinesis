@@ -35,6 +35,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.util.LoadedRay
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Lodestar Launcher block entity — 16-slot inventory (a 4×4 grid on the front face)
@@ -57,6 +58,7 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
  * inventory mutator calls [markChangedAndSync] which both marks the chunk dirty and
  * broadcasts the BE-data packet to nearby clients.
  */
+@OptIn(GameTickOnly::class)
 class LodestarLauncherBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.LODESTAR_LAUNCHER.get(), pos, state),
     WorldlyContainer, Commandable {

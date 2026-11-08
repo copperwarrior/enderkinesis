@@ -30,7 +30,6 @@ object AmbrosialCravingClient {
 
     private var tickCounter: Int = 0
 
-    @JvmStatic
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel { _ ->
             val mc = Minecraft.getInstance()

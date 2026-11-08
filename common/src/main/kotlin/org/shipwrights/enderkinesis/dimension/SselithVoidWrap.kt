@@ -22,6 +22,7 @@ import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
  * Vertical wrap-around for [SselithRepertory]: anything that falls below [WRAP_BOTTOM]
@@ -47,6 +48,7 @@ import org.valkyrienskies.mod.common.vsCore
  * Ships are teleported via [vsCore.teleportShip] (same call the Ender Astrolabe uses),
  * keeping the ship's rotation and only translating its world position by [WRAP_DELTA_Y].
  */
+@OptIn(GameTickOnly::class)
 object SselithVoidWrap {
 
     /** S2C, no payload: the receiver went from the bottom to the top. */
@@ -216,7 +218,7 @@ object SselithVoidWrap {
                 newPos = newPos,
                 newRot = ship.transform.shipToWorldRotation,
                 newVel = Vector3d(ship.velocity),
-                newOmega = Vector3d(ship.omega),
+                newOmega = Vector3d(ship.angularVelocity),
                 newDimension = dimId,
             )
             vsCore.teleportShip(sow, ship, data)

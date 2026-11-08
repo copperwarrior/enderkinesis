@@ -48,14 +48,15 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKPoiTypes
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.core.api.VsBeta
 
+@OptIn(VsBeta::class)
 object EnderkinesisMod {
     const val MOD_ID = "enderkinesis"
 
     fun id(path: String): ResourceLocation = ResourceLocation(MOD_ID, path)
 
     @Suppress("LongMethod") // Mod-wide registration and listener wiring; the order of calls is load-bearing.
-    @JvmStatic
     fun init() {
         // Order matters: blocks before items (block items reference blocks); sounds before
         // items (RecordItem's constructor resolves the SoundEvent eagerly); tab last.

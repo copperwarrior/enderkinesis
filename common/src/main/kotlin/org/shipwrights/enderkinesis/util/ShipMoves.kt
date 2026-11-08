@@ -16,6 +16,8 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.item.ShipCloakingTracker
 import org.shipwrights.enderkinesis.item.WyllandTomeManager
 import org.shipwrights.enderkinesis.mixin.LevelBlockEntityTickersAccessor
+import org.shipwrights.enderkinesis.mixin.ShipWelderMoveAccessor
+import org.shipwrights.enderkinesis.mixin.ShipWelderPlanAccessor
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.mod.common.assembly.VSAssemblyEvents
 
@@ -41,7 +43,6 @@ object ShipMoves {
     private var movingLevel: ServerLevel? = null
     private var movingTick = -1
 
-    @JvmStatic
     fun isMovingBlocks(level: Level): Boolean =
         level === movingLevel && movingLevel?.server?.tickCount == movingTick
 
@@ -96,7 +97,7 @@ object ShipMoves {
     @JvmStatic
     fun beginWeld(level: ServerLevel, plan: Any) {
         try {
-            beginMove(level, (invoke(plan, "getMoves") as List<*>).map { invoke(it!!, "getFrom") as BlockPos })
+            beginMove(level, plan.weldMoves().map { it.`enderkinesis$getFrom`() })
         } catch (e: Exception) {
             movingLevel = level
             movingTick = level.server.tickCount
@@ -106,22 +107,21 @@ object ShipMoves {
 
     /**
      * Called by ShipWelderMoveMixin after VS2 moved every block of [source] into [target].
-     * [plan] is VS2's private `ShipWelder.Plan`, read by reflection. This runs inside the VS2
+     * [plan] is VS2's private `ShipWelder.Plan`, read by accessor mixins. This runs inside the VS2
      * weld `try`, and an exception there rolls the weld back, so it never throws.
      */
     @JvmStatic
     fun onWeld(level: ServerLevel, target: ServerShip, targetPos: BlockPos, targetFace: Direction,
                source: ServerShip, sourcePos: BlockPos, plan: Any) {
         try {
-            val rotation = invoke(plan, "getRotation")
-            val axes = listOf("getXAxis", "getYAxis", "getZAxis").map { invoke(rotation, it) as Direction }
-            val moves = invoke(plan, "getMoves") as List<*>
+            val axes = ShipWelderBridge.weldAxes(plan)
+            val moves = plan.weldMoves()
             val moved = LongOpenHashSet(moves.size)
-            for (move in moves) moved.add((invoke(move!!, "getFrom") as BlockPos).asLong())
+            for (move in moves) moved.add(move.`enderkinesis$getFrom`().asLong())
             val transform = weldTransform(axes, sourcePos, targetPos.relative(targetFace))
             moves.firstOrNull()?.let { first ->
-                val from = invoke(first, "getFrom") as BlockPos
-                val to = invoke(first, "getTo") as BlockPos
+                val from = first.`enderkinesis$getFrom`()
+                val to = first.`enderkinesis$getTo`()
                 val mapped = transform.transformPosition(Vector3d(from.x + 0.5, from.y + 0.5, from.z + 0.5))
                 if (BlockPos.containing(mapped.x, mapped.y, mapped.z) != to) {
                     LOG.error("Weld transform disagrees with VS2 ($from -> $to); move ignored")
@@ -137,20 +137,20 @@ object ShipMoves {
     /** p' = R·(p − (sourceAnchor + ½)) + (destination + ½), as in VS2 `WeldRotation.destination`. */
     private fun weldTransform(axes: List<Direction>, sourceAnchor: BlockPos, destination: BlockPos): Matrix4d {
         val (x, y, z) = axes
-        val rotation = Matrix3d(
+        val matrix = Matrix3d(
             x.stepX.toDouble(), x.stepY.toDouble(), x.stepZ.toDouble(),
             y.stepX.toDouble(), y.stepY.toDouble(), y.stepZ.toDouble(),
             z.stepX.toDouble(), z.stepY.toDouble(), z.stepZ.toDouble(),
         )
         return Matrix4d()
             .translation(destination.x + 0.5, destination.y + 0.5, destination.z + 0.5)
-            .mul(Matrix4d().set(rotation))
+            .mul(Matrix4d().set(matrix))
             .translate(-(sourceAnchor.x + 0.5), -(sourceAnchor.y + 0.5), -(sourceAnchor.z + 0.5))
     }
 
-    // VS2's weld classes are private, but their Kotlin getters are public methods.
-    private fun invoke(target: Any, getter: String): Any =
-        target.javaClass.getMethod(getter).apply { isAccessible = true }.invoke(target)
+    // VS2's ShipWelder.Plan and Move are private classes; ShipWelderMoveMixin passes the plan as Any.
+    private fun Any.weldMoves(): List<ShipWelderMoveAccessor> =
+        (this as ShipWelderPlanAccessor).`enderkinesis$getMoves`().map { it as ShipWelderMoveAccessor }
 
     private fun queue(level: ServerLevel, fromShipId: Long, toShipId: Long, fromShipDeleted: Boolean,
                       transform: Matrix4d, moved: LongOpenHashSet) {
