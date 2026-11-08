@@ -3,10 +3,12 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.math.Axis
 import net.minecraft.client.Minecraft
+import net.minecraft.client.renderer.LevelRenderer
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.resources.model.BakedModel
+import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.RandomSource
@@ -37,6 +39,8 @@ import kotlin.math.sin
 class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererProvider.Context) :
     BlockEntityRenderer<EchoCannonBlockEntity> {
 
+    private val lightPos = BlockPos.MutableBlockPos()
+
     override fun render(
         be: EchoCannonBlockEntity,
         partialTick: Float,
@@ -49,6 +53,8 @@ class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererP
         val level = be.level ?: return
         val state = be.blockState
         val facing = state.getValue(DirectionalBlock.FACING)
+        // The cannon stops all light, so the light stored at its own pos is 0 (black barrel).
+        val barrelLight = LevelRenderer.getLightColor(level, lightPos.setWithOffset(be.blockPos, facing))
 
         // Charge-forward (barrel eases forward while charge is winding up)
         // and recoil-back (barrel snaps back on fire, eases forward to rest)
@@ -88,7 +94,7 @@ class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererP
         // cannon's own state — the barrel model has no tinted faces).
         br.modelRenderer.renderModel(
             ps.last(), vc, state, barrelModel,
-            1f, 1f, 1f, packedLight, packedOverlay,
+            1f, 1f, 1f, barrelLight, packedOverlay,
         )
         ps.popPose()
     }
