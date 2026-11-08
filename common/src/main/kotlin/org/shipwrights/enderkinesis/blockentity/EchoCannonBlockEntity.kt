@@ -317,7 +317,8 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         } else {
             trace.segments.map { EchoCannonNetwork.Segment(it.start, it.end) }
         }
-        EchoCannonNetwork.broadcastFire(level, pos, ship?.id ?: 0L, wireSegs)
+        val path = trace.segments.map { EchoCannonNetwork.Segment(it.start, it.end) }
+        EchoCannonNetwork.broadcastFire(level, pos, ship?.id ?: 0L, wireSegs, path)
     }
 
     /** Origin (just outside the emitter face) + outward unit direction,

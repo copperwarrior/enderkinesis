@@ -103,7 +103,10 @@ object WohlonTreeGhost {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_GHOST) { buf, _ ->
             val portal = BlockPos.of(buf.readLong())
             val candle = BlockPos.of(buf.readLong())
-            val segments = FloatArray(buf.readVarInt().coerceIn(0, 1 shl 20)) { buf.readFloat() }
+            val stride = WohlonnogondoniaTreeGrower.GHOST_SEGMENT_FLOATS
+            val segments = FloatArray(buf.readVarInt().coerceIn(0, (1 shl 20) / stride) * stride) {
+                if (it % stride == stride - 1) (if (buf.readBoolean()) 1f else 0f) else buf.readFloat()
+            }
             val tips = IntArray(buf.readVarInt().coerceIn(0, 1 shl 16)) { buf.readShort().toInt() }
             Util.backgroundExecutor().execute {
                 val grid = voxelize(candle, segments, tips) ?: return@execute

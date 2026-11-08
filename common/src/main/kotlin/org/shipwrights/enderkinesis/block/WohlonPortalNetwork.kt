@@ -33,6 +33,8 @@ object WohlonPortalNetwork {
     private val nearTrees = IntArrayList()
 
     fun sync(level: ServerLevel, portals: Collection<Long>, mother: BlockPos?) {
+        // With no one to send to, the per-trunk progress walk below is wasted.
+        if (level.players().isEmpty()) return
         trunks.clear()
         growing.clear()
         progress.clear()

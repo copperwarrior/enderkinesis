@@ -8,6 +8,8 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.util.addPointsAlong
+import org.shipwrights.enderkinesis.util.playersHolding
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /**
@@ -37,10 +39,14 @@ object EchoCannonNetwork {
      *  space depends on the message's `shipId`. */
     data class Segment(val start: Vec3, val end: Vec3)
 
-    /** Broadcast the fire event to every player in the same level. */
+    /** Sends the shot to every player near any part of its world-space [path], so a long beam is seen whole. */
     fun broadcastFire(
-        level: ServerLevel, cannon: BlockPos, shipId: Long, segments: List<Segment>,
+        level: ServerLevel, cannon: BlockPos, shipId: Long, segments: List<Segment>, path: List<Segment>,
     ) {
+        val points = ArrayList<Vec3>()
+        for (seg in path) addPointsAlong(seg.start, seg.end, points)
+        val players = level.playersHolding(points)
+        if (players.isEmpty()) return
         val buf = FriendlyByteBuf(Unpooled.buffer())
         buf.writeBlockPos(cannon)
         buf.writeLong(shipId)
@@ -49,7 +55,7 @@ object EchoCannonNetwork {
             buf.writeDouble(seg.start.x); buf.writeDouble(seg.start.y); buf.writeDouble(seg.start.z)
             buf.writeDouble(seg.end.x);   buf.writeDouble(seg.end.y);   buf.writeDouble(seg.end.z)
         }
-        for (player in level.players()) sendCopy(player, buf)
+        for (player in players) sendCopy(player, buf)
     }
 
     data class FireMessage(

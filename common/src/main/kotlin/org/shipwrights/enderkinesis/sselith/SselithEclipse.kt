@@ -37,6 +37,7 @@ import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
 import java.util.UUID
+import org.shipwrights.enderkinesis.util.playersHolding
 
 /**
  * Sselith Eclipse — periodic light-damage hazard in SselithRepertory.
@@ -308,7 +309,9 @@ object SselithEclipse {
         // The client starts the fall-over animation from the synced health value, so it must hide the body.
         if (entity is ServerPlayer) {
             SselithMothSpawner.spawnDeathMoth(level, entity)
-            for (viewer in level.players()) {
+            val viewers = LinkedHashSet(level.playersHolding(listOf(entity.position())))
+            viewers += entity
+            for (viewer in viewers) {
                 val buf = FriendlyByteBuf(Unpooled.buffer())
                 buf.writeVarInt(entity.id)
                 NetworkManager.sendToPlayer(viewer, LIGHT_DEATH_PACKET, buf)

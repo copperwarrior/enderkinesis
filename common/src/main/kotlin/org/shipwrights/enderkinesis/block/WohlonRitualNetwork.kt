@@ -63,16 +63,20 @@ object WohlonRitualNetwork {
     /** The tree skeleton for the client growth ghost, relative to the candle. */
     fun sendGhost(level: ServerLevel, portalPos: BlockPos, candlePos: BlockPos, segments: FloatArray, tips: IntArray) {
         if (segments.isEmpty()) return
+        // Encoded one time. Each segment's last float is a 0/1 root flag, so it goes as a byte.
+        val stride = WohlonnogondoniaTreeGrower.GHOST_SEGMENT_FLOATS
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeLong(portalPos.asLong())
+        buf.writeLong(candlePos.asLong())
+        buf.writeVarInt(segments.size / stride)
+        for (i in segments.indices) {
+            if (i % stride == stride - 1) buf.writeBoolean(segments[i] != 0f) else buf.writeFloat(segments[i])
+        }
+        buf.writeVarInt(tips.size)
+        for (v in tips) buf.writeShort(v)
         for (player in level.players()) {
             if (!inRange(player.x, player.y, player.z, portalPos)) continue
-            val buf = FriendlyByteBuf(Unpooled.buffer())
-            buf.writeLong(portalPos.asLong())
-            buf.writeLong(candlePos.asLong())
-            buf.writeVarInt(segments.size)
-            for (f in segments) buf.writeFloat(f)
-            buf.writeVarInt(tips.size)
-            for (v in tips) buf.writeShort(v)
-            NetworkManager.sendToPlayer(player, S2C_GHOST, buf)
+            NetworkManager.sendToPlayer(player, S2C_GHOST, FriendlyByteBuf(buf.copy()))
         }
     }
 
