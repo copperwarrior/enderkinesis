@@ -1,11 +1,18 @@
+// Client render and tick code only.
+@file:OptIn(GameTickOnly::class)
+
 package org.shipwrights.enderkinesis.client
 
+import org.valkyrienskies.core.api.util.GameTickOnly
 import com.mojang.blaze3d.vertex.PoseStack
 import net.minecraft.client.Camera
 import net.minecraft.core.BlockPos
+import net.minecraft.client.multiplayer.ClientLevel
 import org.joml.Matrix4f
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.mod.common.getShipManagingPos
 import java.util.WeakHashMap
 
 /** The pedestal chalice: tendrils rise from the candle flame and flare out to hold the sacrifice. Render thread only. */
@@ -49,6 +56,7 @@ object WohlonRitePedestalVisuals {
     private val queuedReach = DoubleArray(MAX_QUEUED)
     private val queuedStrength = FloatArray(MAX_QUEUED)
     private val queuedFeedReach = DoubleArray(MAX_QUEUED)
+    private val queuedShips = arrayOfNulls<ClientShip>(MAX_QUEUED)
     private var queued = 0
 
     /** Called from the entity renderer; the volume pass at the end of the frame draws the queue. */
@@ -61,6 +69,8 @@ object WohlonRitePedestalVisuals {
         val rise = (t / WohlonRitePedestal.RISE_TICKS).coerceIn(0f, 1f)
         val closing = pedestal.closingTick
         queuedShapes[queued] = shape
+        // A ship pedestal lives in shipyard coordinates; the shape stays there and draws through the ship transform.
+        queuedShips[queued] = (pedestal.level() as? ClientLevel)?.getShipManagingPos(pedestal.blockPosition()) as? ClientShip
         queuedReach[queued] = 1.0 - (1.0 - rise) * (1.0 - rise)
         queuedStrength[queued] = if (closing < 0) 1f else (1f - (t - closing) / WohlonRitePedestal.CLOSE_TICKS).coerceIn(0f, 1f)
         queuedFeedReach[queued] = feedReach(pedestal, shape, t)
@@ -146,6 +156,7 @@ object WohlonRitePedestalVisuals {
         if (TendrilVolume.begin(poseStack, projection, camera)) {
             for (i in 0 until queued) {
                 val shape = queuedShapes[i] ?: continue
+                shape.frame.toWorld = queuedShips[i]?.renderTransform?.shipToWorld
                 for (curve in shape.curves) TendrilVolume.draw(shape.frame, curve, queuedReach[i], queuedStrength[i], STYLE)
                 val feedStrength = queuedStrength[i] * FEED_STRENGTH
                 shape.feed?.forEach { TendrilVolume.draw(shape.frame, it.curve, queuedFeedReach[i], feedStrength, it.style) }
@@ -153,6 +164,7 @@ object WohlonRitePedestalVisuals {
             TendrilVolume.end()
         }
         queuedShapes.fill(null)
+        queuedShips.fill(null)
         queued = 0
     }
 }

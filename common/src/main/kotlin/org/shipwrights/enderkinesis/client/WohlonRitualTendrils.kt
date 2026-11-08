@@ -13,6 +13,8 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.WohlonRitualNetwork
 import org.shipwrights.enderkinesis.block.WohlonRitualTimeline
 import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
  * Ritual ignite: a tendril rises from each candle to the Heart, then tendrils run from the Heart
@@ -189,7 +191,9 @@ object WohlonRitualTendrils {
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         if (rituals.isEmpty() || !TendrilVolume.begin(poseStack, projection, camera)) return
+        val level = Minecraft.getInstance().level
         for (ritual in rituals) {
+            ritual.frame.toWorld = (level?.getShipManagingPos(ritual.candle) as? ClientShip)?.renderTransform?.shipToWorld
             val age = ageSec(ritual)
             val str = strength(ritual, age)
             if (str <= 0f) continue
