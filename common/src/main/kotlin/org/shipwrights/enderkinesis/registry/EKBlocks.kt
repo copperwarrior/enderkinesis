@@ -595,12 +595,6 @@ object EKBlocks {
         )
     }
 
-    /** Crystal Explosive — crepusculite-glass shell (matching [VOID_HARNESS]'s style)
-     *  with an end-crystal model floating inside. Detonates when its host ship takes a
-     *  hard collision, with explosion strength scaled to the contact-point impulse so
-     *  the bow of a ramming ship goes off harder than the stern. Listens on VS2's
-     *  `collisionStartEvent`. World-placed instances never fire (no host ship to
-     *  collide). */
     val CRYSTAL_EXPLOSIVE: RegistrySupplier<Block> = BLOCKS.register("crystal_explosive") {
         CrystalExplosiveBlock(
             BlockBehaviour.Properties.of()

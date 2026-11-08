@@ -1,33 +1,40 @@
 package org.shipwrights.enderkinesis.blockentity
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.GlobalPos
+import net.minecraft.nbt.CompoundTag
+import net.minecraft.network.protocol.Packet
+import net.minecraft.network.protocol.game.ClientGamePacketListener
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.Container
+import net.minecraft.world.entity.player.Player
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Items
 import net.minecraft.world.level.Level
+import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.block.CrystalExplosiveBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.util.ServerTicks
 import org.valkyrienskies.core.api.ships.properties.ShipId
+import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Detonates on a VS2 contact at THIS block's exact position. Per-block sensitivity (stern
- * doesn't fire when bow gets hit) is the router's job. Phys thread queues via
- * [queueDetonation]; game-thread [serverTick] drains and calls Level.explode.
- */
+/** Phys thread queues hits via [queueHit]; the game-thread [serverTick] drains them and calls Level.explode. */
 class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
-    BlockEntity(EKBlockEntities.CRYSTAL_EXPLOSIVE.get(), pos, state) {
+    BlockEntity(EKBlockEntities.CRYSTAL_EXPLOSIVE.get(), pos, state), Container {
 
-    /** `mass × |v_relative|` at the contact, packed as a double bit pattern. */
-    private val pendingImpulse: AtomicLong = AtomicLong(0L)
+    var crystal: ItemStack = ItemStack.EMPTY
+        private set
 
-    @Volatile private var detonating: Boolean = false
+    val armed: Boolean get() = !crystal.isEmpty
+
+    @Volatile private var hitPending: Boolean = false
 
     private var registeredShipId: ShipId? = null
 
@@ -38,84 +45,98 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
         if (level is ServerLevel) refreshRegistration(level)
     }
 
-    fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
+    fun serverTick(level: ServerLevel, pos: BlockPos) {
         refreshRegistration(level)
-
-        val packed = pendingImpulse.getAndSet(0L)
-        if (packed != 0L && !detonating) {
-            val impulse = java.lang.Double.longBitsToDouble(packed)
-            if (impulse > 0.0) {
-                val rawRadius = (Math.sqrt(impulse) * RADIUS_PER_SQRT_IMPULSE).toFloat()
-                val radius = Math.min(rawRadius, MAX_EXPLOSION_RADIUS)
-                if (radius >= MIN_EXPLOSION_RADIUS) {
-                    detonating = true
-                    // BE pos is in shipyard space when on a ship (~30M blocks from origin); must
-                    // transform to world or the explosion fires in the empty shipyard void.
-                    val worldPos = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-                    val ship = level.getLoadedShipManagingPos(pos)
-                    if (ship != null) ship.transform.shipToWorld.transformPosition(worldPos)
-
-
-                    // Suppress the self-chain: our own block is about to be destroyed
-                    // by this explosion, which fires its `Block.wasExploded` and would
-                    // otherwise queue *another* chain explosion at the same spot.
-                    EXPLODING_POSITIONS.add(pos.immutable())
-                    try {
-                        // Pre-remove so vanilla's ray-walk doesn't burn its power budget on the
-                        // explosive itself (resistance 6.0 absorbs ~1.89/hit; ~4 in-cell samples
-                        // zero a radius-5 explosion before it reaches neighbours).
-                        level.removeBlock(pos, false)
-                        level.explode(
-                            null,
-                            worldPos.x, worldPos.y, worldPos.z,
-                            radius,
-                            Level.ExplosionInteraction.TNT,
-                        )
-                    } finally {
-                        EXPLODING_POSITIONS.remove(pos)
-                    }
-                }
-            }
-        }
+        if (!hitPending) return
+        hitPending = false
+        if (!armed) return
+        // The crystal is spent, so the removal below must not drop it or start a chain.
+        crystal = ItemStack.EMPTY
+        // Before the removal: removing a ship's last block can drop the ship and its transform.
+        val worldPos = worldCentre(level, pos)
+        level.removeBlock(pos, false)
+        level.explode(null, worldPos.x, worldPos.y, worldPos.z, EXPLOSION_RADIUS, Level.ExplosionInteraction.TNT)
     }
 
-    /** Called from the physics thread by [CrystalExplosiveCollisionRouter]. Stores
-     *  the largest impulse seen since the last drain via a lock-free max-CAS. */
-    fun queueDetonation(impulse: Double) {
-        if (impulse < IMPACT_IMPULSE_THRESHOLD) {
-            return
-        }
-        val packed = java.lang.Double.doubleToRawLongBits(impulse)
-        while (true) {
-            val current = pendingImpulse.get()
-            val currentVal = java.lang.Double.longBitsToDouble(current)
-            if (impulse <= currentVal) return
-            if (pendingImpulse.compareAndSet(current, packed)) return
-        }
+    /** Phys thread. */
+    fun queueHit() {
+        hitPending = true
     }
 
-    /** Keep the registration in sync as the block transitions between ship and
-     *  world contexts (e.g. assembly/disassembly around this position). */
+    /** Moves one crystal from [stack] into the empty slot. */
+    fun insert(stack: ItemStack) {
+        require(canPlaceItem(0, stack)) { "Crystal Explosive takes one end crystal into an empty slot" }
+        setItem(0, stack.split(1))
+    }
+
+    fun take(): ItemStack = removeItemNoUpdate(0)
+
+    override fun setChanged() {
+        super.setChanged()
+        val level = level ?: return
+        if (!level.isClientSide) level.sendBlockUpdated(worldPosition, blockState, blockState, Block.UPDATE_CLIENTS)
+    }
+
+    override fun getContainerSize(): Int = 1
+    override fun isEmpty(): Boolean = crystal.isEmpty
+    override fun getItem(slot: Int): ItemStack = crystal
+    override fun getMaxStackSize(): Int = 1
+    override fun canPlaceItem(slot: Int, stack: ItemStack): Boolean = !armed && stack.`is`(Items.END_CRYSTAL)
+
+    override fun removeItem(slot: Int, amount: Int): ItemStack {
+        if (amount <= 0 || !armed) return ItemStack.EMPTY
+        return take()
+    }
+
+    override fun removeItemNoUpdate(slot: Int): ItemStack {
+        val out = crystal
+        crystal = ItemStack.EMPTY
+        if (!out.isEmpty) setChanged()
+        return out
+    }
+
+    override fun setItem(slot: Int, stack: ItemStack) {
+        crystal = if (stack.isEmpty) ItemStack.EMPTY else stack.copyWithCount(1)
+        setChanged()
+    }
+
+    override fun stillValid(player: Player): Boolean = Container.stillValidBlockEntity(this, player)
+
+    override fun clearContent() {
+        crystal = ItemStack.EMPTY
+        setChanged()
+    }
+
+    override fun load(tag: CompoundTag) {
+        super.load(tag)
+        crystal = if (tag.contains(NBT_CRYSTAL)) ItemStack.of(tag.getCompound(NBT_CRYSTAL)) else ItemStack.EMPTY
+    }
+
+    override fun saveAdditional(tag: CompoundTag) {
+        super.saveAdditional(tag)
+        if (armed) tag.put(NBT_CRYSTAL, crystal.save(CompoundTag()))
+    }
+
+    override fun getUpdateTag(): CompoundTag = saveWithoutMetadata()
+
+    override fun getUpdatePacket(): Packet<ClientGamePacketListener> = ClientboundBlockEntityDataPacket.create(this)
+
+    // Assembly can move the block onto a ship and back. Called from setLevel and serverTick, on the server thread.
+    @OptIn(GameTickOnly::class)
     private fun refreshRegistration(level: ServerLevel) {
         val ship = level.getLoadedShipManagingPos(blockPos)
         val newShipId = ship?.id
         val newDim = if (ship == null) level.dimensionId else null
-
-        if (newShipId != registeredShipId || newDim != registeredDim) {
-            // Drop the old registration (if any) before adding the new one — a ship
-            // forming around a previously world-placed explosive flips dim→ship; a
-            // ship dissolving flips ship→dim.
-            registeredShipId?.let { CrystalExplosiveCollisionRouter.removeShip(this, it) }
-            registeredDim?.let { CrystalExplosiveCollisionRouter.removeWorld(this, it) }
-
-            if (newShipId != null) {
-                CrystalExplosiveCollisionRouter.addShip(this, newShipId)
-            } else if (newDim != null) {
-                CrystalExplosiveCollisionRouter.addWorld(this, newDim)
-            }
-            registeredShipId = newShipId
-            registeredDim = newDim
+        if (newShipId == registeredShipId && newDim == registeredDim) return
+        registeredShipId?.let { CrystalExplosiveCollisionRouter.removeShip(this, it) }
+        registeredDim?.let { CrystalExplosiveCollisionRouter.removeWorld(this, it) }
+        if (newShipId != null) {
+            CrystalExplosiveCollisionRouter.addShip(this, newShipId)
+        } else if (newDim != null) {
+            CrystalExplosiveCollisionRouter.addWorld(this, newDim)
         }
+        registeredShipId = newShipId
+        registeredDim = newDim
     }
 
     override fun setRemoved() {
@@ -127,75 +148,46 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     companion object {
+        private const val NBT_CRYSTAL = "Crystal"
 
-        /** Positions of crystal-explosive blocks whose self-detonation `level.explode`
-         *  call is currently in flight. `Block.wasExploded` consults this set so the
-         *  initiating block doesn't fire a chain at itself and loop forever. */
-        val EXPLODING_POSITIONS: MutableSet<BlockPos> = ConcurrentHashMap.newKeySet()
+        /** Vanilla end crystal explosion power. */
+        const val EXPLOSION_RADIUS: Float = 6.0f
 
-        /** Fixed radius used for chain-reaction detonations (when an external explosion
-         *  destroys a crystal explosive). Independent of impulse: a sympathetic
-         *  detonation doesn't know what kinematic context triggered it, so use a
-         *  consistent visual + damage profile. Roughly TNT × 1.25. */
         const val CHAIN_EXPLOSION_RADIUS: Float = 5.0f
 
-        /** Convert a block-pos in the originating block's frame (shipyard or world)
-         *  to world XYZ, then queue a chain-style explosion on the next server tick.
-         *  Deferred so a long fuse of explosives propagates over consecutive ticks
-         *  instead of recursively blowing the call stack. `server.execute` is not a
-         *  delay: on the server thread it runs the task at once. */
+        /** Armed explosives removed this tick. An explosion calls `onRemove` before `wasExploded`, when the
+         *  block entity is already gone, so `wasExploded` reads the armed state from here. */
+        private val armedRemovals: MutableSet<GlobalPos> = ConcurrentHashMap.newKeySet()
+
+        fun noteArmedRemoval(level: ServerLevel, pos: BlockPos) {
+            val key = GlobalPos.of(level.dimension(), pos.immutable())
+            armedRemovals.add(key)
+            ServerTicks.runAfter(level.server, 1) { armedRemovals.remove(key) }
+        }
+
+        fun consumeArmedRemoval(level: ServerLevel, pos: BlockPos): Boolean =
+            armedRemovals.remove(GlobalPos.of(level.dimension(), pos))
+
+        /** Deferred one tick so a line of explosives goes off over consecutive ticks, not by recursion. */
         fun queueChainExplosion(level: ServerLevel, pos: BlockPos) {
-            val worldPos = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-            val ship = level.getLoadedShipManagingPos(pos)
-            if (ship != null) ship.transform.shipToWorld.transformPosition(worldPos)
-            val immut = pos.immutable()
+            val worldPos = worldCentre(level, pos)
             ServerTicks.runAfter(level.server, 1) {
-                EXPLODING_POSITIONS.add(immut)
-                try {
-                    level.explode(
-                        null,
-                        worldPos.x, worldPos.y, worldPos.z,
-                        CHAIN_EXPLOSION_RADIUS,
-                        Level.ExplosionInteraction.TNT,
-                    )
-                } finally {
-                    EXPLODING_POSITIONS.remove(immut)
-                }
+                level.explode(
+                    null, worldPos.x, worldPos.y, worldPos.z, CHAIN_EXPLOSION_RADIUS, Level.ExplosionInteraction.TNT,
+                )
             }
         }
 
-        /** Minimum impulse (`mass·|v|`, kg·m/s) to count as a detonation-worthy hit.
-         *  Calibration:
-         *    -  1 t ship at  5 m/s →   5 000 — light bumps don't fire
-         *    - 10 t ship at  5 m/s →  50 000 — a real collision fires
-         *    -  1 t ship at 10 m/s →  10 000 — ramming attacks count */
-        const val IMPACT_IMPULSE_THRESHOLD: Double = 625.0
+        // Shipyard to world for the blast. Called from serverTick and wasExploded, on the server thread.
+        @OptIn(GameTickOnly::class)
+        private fun worldCentre(level: ServerLevel, pos: BlockPos): Vector3d {
+            val worldPos = Vector3d(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+            level.getLoadedShipManagingPos(pos)?.transform?.shipToWorld?.transformPosition(worldPos)
+            return worldPos
+        }
 
-        /** Impulse → explosion radius via `r ≈ k · √impulse`. Square-root because
-         *  explosion linear-extent scales with √energy while delivered impulse
-         *  scales linearly with `mass × |Δv|`. Calibration with [MIN_EXPLOSION_RADIUS]
-         *  = 0.25 and [MAX_EXPLOSION_RADIUS] = 12:
-         *    - 10 t at  5 m/s, impulse  50 000 → r ≈  5.6
-         *    - 10 t at 20 m/s, impulse 200 000 → r ≈ 11.2
-         *    -100 t at  5 m/s, impulse 500 000 → r =  12.0 (capped) */
-        const val RADIUS_PER_SQRT_IMPULSE: Double = 0.025
-
-        /** Don't fire pillow-bumps that pass the impulse threshold but produce a
-         *  radius too small to actually break anything. Effective floor on detonation
-         *  impulse is `(MIN_EXPLOSION_RADIUS / RADIUS_PER_SQRT_IMPULSE)² = 100`, so
-         *  the binding gate is [IMPACT_IMPULSE_THRESHOLD] at 625 — a single-block
-         *  ship (1 t default) now trips at ~0.625 m/s.
-         *
-         *  The *real* anti-accident floor is the speed safety in
-         *  [org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter] —
-         *  see `SHIP_SAFETY_SPEED`. The impulse threshold sets the *minimum-energy*
-         *  detonation; the speed safety ensures the contact came from a body actually
-         *  travelling fast, not a sharp rotational nick at the contact point. */
-        const val MIN_EXPLOSION_RADIUS: Float = 0.25f
-
-        /** Hard cap. Beyond this the VS2 mixin's cube-summed blast force scales like
-         *  a small nuke on the host ship and the vanilla `O(r³)` ray sweep hitches
-         *  the server. */
-        const val MAX_EXPLOSION_RADIUS: Float = 12.0f
+        fun clearSession() {
+            armedRemovals.clear()
+        }
     }
 }

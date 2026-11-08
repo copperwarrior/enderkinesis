@@ -2,23 +2,25 @@ package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.math.Axis
-import net.minecraft.client.model.geom.ModelLayers
-import net.minecraft.client.model.geom.ModelPart
+import net.minecraft.client.renderer.LevelRenderer
 import net.minecraft.client.renderer.MultiBufferSource
-import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
+import net.minecraft.client.renderer.entity.ItemRenderer
 import net.minecraft.client.renderer.texture.OverlayTexture
-import net.minecraft.resources.ResourceLocation
+import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.world.item.ItemDisplayContext
 import org.joml.Quaternionf
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 
-/** Renders the vanilla end-crystal model (via `ModelLayers.END_CRYSTAL`) scaled down to fit
- *  inside the crepusculite-glass shell. Rotation matches vanilla (3°/tick Y + 60° tilt). */
+/** Draws the held end crystal item flat on the centre of each face. */
 class CrystalExplosiveRenderer(ctx: BlockEntityRendererProvider.Context) :
     BlockEntityRenderer<CrystalExplosiveBlockEntity> {
 
-    private val cube: ModelPart = ctx.bakeLayer(ModelLayers.END_CRYSTAL)
+    private val itemRenderer: ItemRenderer = ctx.itemRenderer
+
+    private val lightPos = BlockPos.MutableBlockPos()
 
     override fun render(
         be: CrystalExplosiveBlockEntity,
@@ -28,32 +30,47 @@ class CrystalExplosiveRenderer(ctx: BlockEntityRendererProvider.Context) :
         packedLight: Int,
         packedOverlay: Int,
     ) {
-        val time = (be.level?.gameTime ?: 0L).toDouble() + partialTick.toDouble()
-        val rotation = ((time * VANILLA_ROT_DEG_PER_TICK) % 360.0).toFloat()
-
-        val vc = buffers.getBuffer(END_CRYSTAL_TYPE)
-
-        pose.pushPose()
-        pose.translate(0.5, 0.5, 0.5)
-        pose.scale(SHELL_FIT_SCALE, SHELL_FIT_SCALE, SHELL_FIT_SCALE)
-        // Vanilla EndCrystalRenderer applies these same offsets to position the model
-        // correctly around the entity's origin. Keep them so the proportions look the
-        // same as a real end crystal entity, just shrunk down by SHELL_FIT_SCALE.
-        pose.mulPose(Axis.YP.rotationDegrees(rotation))
-        pose.mulPose(Quaternionf().setAngleAxis(TILT_RAD, SIN_45, 0f, SIN_45))
-        cube.render(pose, vc, packedLight, OverlayTexture.NO_OVERLAY)
-        pose.popPose()
+        val crystal = be.crystal
+        if (crystal.isEmpty) return
+        val level = be.level
+        val seed = be.blockPos.asLong().toInt()
+        for (i in DIRECTIONS.indices) {
+            val face = DIRECTIONS[i]
+            val light = if (level != null) {
+                LevelRenderer.getLightColor(level, lightPos.setWithOffset(be.blockPos, face))
+            } else {
+                packedLight
+            }
+            pose.pushPose()
+            pose.translate(0.5, 0.5, 0.5)
+            pose.mulPose(FACE_ROTATIONS[i])
+            pose.translate(0.0, 0.0, -FACE_OFFSET)
+            pose.scale(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE)
+            itemRenderer.renderStatic(
+                crystal, ItemDisplayContext.FIXED, light, OverlayTexture.NO_OVERLAY, pose, buffers, level, seed,
+            )
+            pose.popPose()
+        }
     }
 
     private companion object {
-        private val SIN_45 = Math.sin(Math.PI / 4.0).toFloat()
-        private val TILT_RAD = Math.toRadians(60.0).toFloat()
-        private const val VANILLA_ROT_DEG_PER_TICK = 3.0
-        /** Fit factor so the end-crystal model sits comfortably inside a 1×1×1
-         *  crepusculite-glass shell. The vanilla entity model is ~2 blocks tall; this
-         *  shrinks it to ~0.6 blocks across, leaving margin around the tilt sweep. */
-        private const val SHELL_FIT_SCALE = 0.3f
-        private val END_CRYSTAL_TYPE: RenderType =
-            RenderType.entityCutoutNoCull(ResourceLocation("textures/entity/end_crystal/end_crystal.png"))
+        private val DIRECTIONS: Array<Direction> = Direction.values()
+
+        /** A FIXED flat item faces -Z; each rotation turns -Z to the face's outward normal. */
+        private val FACE_ROTATIONS: Array<Quaternionf> = Array(DIRECTIONS.size) { i ->
+            when (DIRECTIONS[i]) {
+                Direction.NORTH -> Quaternionf()
+                Direction.SOUTH -> Axis.YP.rotationDegrees(180f)
+                Direction.EAST -> Axis.YP.rotationDegrees(-90f)
+                Direction.WEST -> Axis.YP.rotationDegrees(90f)
+                Direction.UP -> Axis.XP.rotationDegrees(90f)
+                Direction.DOWN -> Axis.XP.rotationDegrees(-90f)
+            }
+        }
+
+        private const val ITEM_SCALE = 0.5f
+
+        /** Half a block plus half the scaled 1/16 item thickness and a small gap against z-fighting. */
+        private const val FACE_OFFSET = 0.5 + ITEM_SCALE / 32.0 + 0.002
     }
 }

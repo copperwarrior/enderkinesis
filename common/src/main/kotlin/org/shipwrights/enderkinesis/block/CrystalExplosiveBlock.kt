@@ -2,6 +2,10 @@ package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.Containers
+import net.minecraft.world.InteractionHand
+import net.minecraft.world.InteractionResult
+import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.Explosion
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -11,17 +15,10 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker
 import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 
-/**
- * Detonates when its host ship experiences a sufficiently strong collision-shaped
- * velocity change. The BE listens on the physics tick (where ship velocity is live)
- * and queues an explosion back onto the game tick, where `Level.explode` is safe to
- * call. Detonation strength scales with the kinetic energy delivered to *this* block,
- * not just the ship's average, so an explosive at the bow of a ramming ship goes off
- * harder than one near the centre of mass.
- */
 class CrystalExplosiveBlock(properties: BlockBehaviour.Properties) :
     Block(properties), EntityBlock {
 
@@ -33,22 +30,56 @@ class CrystalExplosiveBlock(properties: BlockBehaviour.Properties) :
     ): BlockEntityTicker<T>? {
         if (level.isClientSide) return null
         if (type != EKBlockEntities.CRYSTAL_EXPLOSIVE.get()) return null
-        return BlockEntityTicker { lvl, p, st, be ->
-            (be as? CrystalExplosiveBlockEntity)?.serverTick(lvl as ServerLevel, p, st)
+        return BlockEntityTicker { lvl, p, _, be ->
+            (be as? CrystalExplosiveBlockEntity)?.serverTick(lvl as ServerLevel, p)
         }
     }
 
-    /** Chain reaction: when an *external* explosion destroys a crystal explosive, fire
-     *  a follow-up detonation at this position. The set guard skips the chain for the
-     *  block that itself originated the in-flight explosion (so its own blast doesn't
-     *  re-trigger itself); only neighbours caught in the radius propagate. Deferred
-     *  through `ServerTicks.runAfter` (in [CrystalExplosiveBlockEntity.queueChainExplosion])
-     *  so a long line of explosives propagates over consecutive ticks instead of
-     *  recursing through `level.explode` on the call stack. */
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes block use through this override.
+    override fun use(
+        state: BlockState, level: Level, pos: BlockPos, player: Player, hand: InteractionHand, hit: BlockHitResult,
+    ): InteractionResult {
+        val be = level.getBlockEntity(pos) as? CrystalExplosiveBlockEntity ?: return InteractionResult.PASS
+        val held = player.getItemInHand(hand)
+        if (be.armed) {
+            if (!held.isEmpty) return InteractionResult.PASS
+            if (!level.isClientSide) player.setItemInHand(hand, be.take())
+            return InteractionResult.sidedSuccess(level.isClientSide)
+        }
+        if (!be.canPlaceItem(0, held)) return InteractionResult.PASS
+        if (!level.isClientSide) {
+            val stack = if (player.abilities.instabuild) held.copy() else held
+            be.insert(stack)
+        }
+        return InteractionResult.sidedSuccess(level.isClientSide)
+    }
+
+    override fun playerWillDestroy(level: Level, pos: BlockPos, state: BlockState, player: Player) {
+        if (!level.isClientSide) {
+            val be = level.getBlockEntity(pos) as? CrystalExplosiveBlockEntity
+            val crystal = be?.take()
+            if (crystal != null && !crystal.isEmpty && !player.abilities.instabuild) {
+                Containers.dropItemStack(level, pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, crystal)
+            }
+        }
+        super.playerWillDestroy(level, pos, state, player)
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes onRemove through this override.
+    override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, moved: Boolean) {
+        if (!state.`is`(newState.block) && level is ServerLevel) {
+            val be = level.getBlockEntity(pos) as? CrystalExplosiveBlockEntity
+            if (be?.armed == true) CrystalExplosiveBlockEntity.noteArmedRemoval(level, pos)
+        }
+        super.onRemove(state, level, pos, newState, moved)
+    }
+
+    /** Only an armed explosive caught in another blast sets off a chain blast. */
     override fun wasExploded(level: Level, pos: BlockPos, explosion: Explosion) {
         super.wasExploded(level, pos, explosion)
         if (level !is ServerLevel) return
-        if (pos in CrystalExplosiveBlockEntity.EXPLODING_POSITIONS) return
-        CrystalExplosiveBlockEntity.queueChainExplosion(level, pos)
+        if (CrystalExplosiveBlockEntity.consumeArmedRemoval(level, pos)) {
+            CrystalExplosiveBlockEntity.queueChainExplosion(level, pos)
+        }
     }
 }
