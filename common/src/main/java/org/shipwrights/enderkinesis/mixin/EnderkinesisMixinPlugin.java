@@ -53,9 +53,6 @@ public class EnderkinesisMixinPlugin implements IMixinConfigPlugin {
             || mixinClassName.endsWith(".ControlledContraptionEntityAccessor")) {
             return createPresent;
         }
-        if (mixinClassName.endsWith(".SodiumLightPipelineSselithMixin")) {
-            return sodiumPresent || embeddiumPresent;
-        }
         if (mixinClassName.endsWith(".SodiumCloudRendererFadeMixin")) {
             return sodiumPresent || embeddiumPresent;
         }

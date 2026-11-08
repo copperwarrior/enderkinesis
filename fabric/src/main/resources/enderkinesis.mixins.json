@@ -13,7 +13,6 @@
     "BiomeFabricAccessor"
   ],
   "client": [
-    "ModelBlockRendererFlatSselithFabricMixin",
     "ParticleEngineCloakingFabricMixin"
   ],
   "injectors": {

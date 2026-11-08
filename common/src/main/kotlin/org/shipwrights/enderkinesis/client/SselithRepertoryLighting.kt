@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.platform.NativeImage
 import net.minecraft.client.Minecraft
-import net.minecraft.core.Direction
 import net.minecraft.util.Mth
 import net.minecraft.world.effect.MobEffects
 import org.joml.Matrix4f
@@ -17,21 +16,14 @@ import kotlin.math.sin
 /**
  * Lighting overrides for [org.shipwrights.enderkinesis.dimension.SselithRepertory].
  *
- * Three coordinated effects, all driven from the same fixed-sun direction:
+ * Two coordinated effects:
  *
  *  1. **Custom lightmap** ([writeLightmap]) — re-tints the 16×16 lightmap so sky-light
  *     cells are yellow (matching the visible sun) and block-light cells stay warm-white
  *     (vanilla-like torch colour). Sky and block contributions are *added*, not max'd,
  *     so mixed cells blend naturally and a torch in a dark room keeps its warm identity.
  *
- *  2. **Per-face sky-light attenuation** ([attenuateSkyLight]) — only the sky-light
- *     nibble of the per-face packed lightmap UV is reduced based on `dot(face_normal,
- *     sunDirection)`. Block-light is *untouched*, so torches stay full brightness on
- *     shadow faces. This is the actual directional shading, applied by
- *     `ModelBlockRendererFlatSselith*Mixin` (flat lighting, per loader) and `ModelBlockRendererAOSselithMixin`
- *     (smooth/AO lighting).
- *
- *  3. **Sun-aimed entity diffuse** ([fillShaderLights]) — view-space light vectors for
+ *  2. **Sun-aimed entity diffuse** ([fillShaderLights]) — view-space light vectors for
  *     `RenderSystem.setShaderLights`, so entities/items shade against the sun direction.
  *
  * The sun graphic itself is drawn by [SselithRepertorySky]; this file derives the
@@ -65,13 +57,6 @@ object SselithRepertoryLighting {
 
     /** Opaque pure-white ABGR pixel value used for the FULL_BRIGHT slot. */
     private const val FULL_BRIGHT_WHITE = 0xFFFFFFFF.toInt()
-
-
-    /** Minimum sky-light multiplier for a face pointing directly away from the sun.
-     *  Range [SKY_ATTEN_MIN, 1.0] is applied multiplicatively to the sky-light *nibble*
-     *  of the per-face packed UV, leaving block-light untouched. Smaller → harsher
-     *  directional cast; larger → gentler. */
-    private const val SKY_ATTEN_MIN = 0.30f
 
 
     private const val SUN_LIGHT_STRENGTH = 1.0f
@@ -218,40 +203,6 @@ object SselithRepertoryLighting {
         return SselithEclipse.intensity(level.gameTime.toDouble() + partialTick)
     }
 
-
-    /**
-     * Reduce the **sky-light** portion of a packed `(block_light, sky_light)` UV based
-     * on how aligned the face's normal is with the sun. Block-light is untouched, so
-     * this affects only sky-driven lighting.
-     *
-     * Packed layout (from `LightTexture.pack`): block_light_level in bits 4–7,
-     * sky_light_level in bits 20–23.
-     *
-     * Curve: hemispheric wrap `0.5 + 0.5 · dot(normal, sunDir)` mapped into
-     * `[SKY_ATTEN_MIN, 1.0]`. Sun-aligned face → unattenuated. Sun-opposite face →
-     * sky-light scaled to `SKY_ATTEN_MIN`. Mid-faces → smooth interpolation.
-     */
-    @JvmStatic
-    fun attenuateSkyLight(packedLight: Int, direction: Direction): Int {
-        val sd = sunDirection
-        val dot = direction.stepX * sd.x + direction.stepY * sd.y + direction.stepZ * sd.z
-        val wrap = 0.5f + 0.5f * dot
-        val factor = SKY_ATTEN_MIN + (1f - SKY_ATTEN_MIN) * wrap
-
-        val skyLightLevel = (packedLight ushr 20) and 0xF
-        val newSkyLevel = (skyLightLevel * factor).toInt().coerceIn(0, 15)
-
-        // Clear bits 20–23, then OR in the new sky-light nibble at that position.
-        val cleared = packedLight and (0xF shl 20).inv()
-        return cleared or (newSkyLevel shl 20)
-    }
-
-    @JvmStatic
-    fun attenuateFlatSkyLight(packedLight: Int, direction: Direction): Int {
-        val level = Minecraft.getInstance().level
-        if (level == null || level.dimension() != SselithRepertory.LEVEL_KEY) return packedLight
-        return attenuateSkyLight(packedLight, direction)
-    }
 
 
     /** Two view-space unit vectors written into the shader light slots. */

@@ -12,7 +12,6 @@
   "client": [
     "HumanoidArmorLayerRobeForgeMixin",
     "HumanoidArmorLayerCrownUntestedForgeMixin",
-    "ModelBlockRendererFlatSselithForgeMixin",
     "ParticleEngineCloakingForgeMixin",
     "ItemForgeLodestarDartMixin",
     "ItemForgeStatueMixin",
