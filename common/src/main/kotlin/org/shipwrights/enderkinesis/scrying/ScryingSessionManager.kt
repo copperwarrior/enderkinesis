@@ -66,6 +66,13 @@ object ScryingSessionManager {
     private val sessions: MutableMap<UUID, Session> = ConcurrentHashMap()
     private var validationCountdown = 0
 
+    /** Chunk packets per session per tick: view distance 10 (441 chunks) arrives in 1.4 s, inside the 2 s mount overlay. */
+    private const val MAX_CHUNKS_PER_TICK = 16
+
+    // Server thread only: the nearest ready chunks of the session being sent.
+    private val pickedDist = IntArray(MAX_CHUNKS_PER_TICK)
+    private val pickedChunks = arrayOfNulls<LevelChunk>(MAX_CHUNKS_PER_TICK)
+
     fun init() {
         PlayerEvent.PLAYER_QUIT.register { player -> unmount(player as ServerPlayer) }
         LifecycleEvent.SERVER_STOPPING.register { _ -> unmountAll() }
@@ -231,16 +238,37 @@ object ScryingSessionManager {
         for (session in sessions.values) {
             if (session.pendingChunks.isEmpty()) continue
             if (session.player.connection == null) continue
-            val it = session.pendingChunks.iterator()
-            while (it.hasNext()) {
-                val cp = it.next()
-                // `getChunkNow`: the ticket gives each chunk a holder, so `getChunk` waits on the
-                // server thread until the chunk is full, for the whole camera square in one tick.
-                val chunk: LevelChunk = session.level.chunkSource.getChunkNow(cp.x, cp.z) ?: continue
-                sendChunk(session.player, session.level, chunk)
-                session.sentChunks.add(cp)
-                it.remove()
+            sendNearestReady(session)
+        }
+    }
+
+    /** Sends up to [MAX_CHUNKS_PER_TICK] full pending chunks, nearest the camera first, so a mount does not
+     *  send the whole camera square in one tick. */
+    private fun sendNearestReady(session: Session) {
+        var picked = 0
+        val center = session.centerChunk
+        for (cp in session.pendingChunks) {
+            val dist = Math.max(Math.abs(cp.x - center.x), Math.abs(cp.z - center.z))
+            if (picked == MAX_CHUNKS_PER_TICK && dist >= pickedDist[picked - 1]) continue
+            // `getChunkNow`: the ticket gives each chunk a holder, so `getChunk` waits on the
+            // server thread until the chunk is full.
+            val chunk: LevelChunk = session.level.chunkSource.getChunkNow(cp.x, cp.z) ?: continue
+            // Insertion into the short list, kept sorted by distance.
+            var i = if (picked < MAX_CHUNKS_PER_TICK) picked++ else picked - 1
+            while (i > 0 && pickedDist[i - 1] > dist) {
+                pickedDist[i] = pickedDist[i - 1]
+                pickedChunks[i] = pickedChunks[i - 1]
+                i--
             }
+            pickedDist[i] = dist
+            pickedChunks[i] = chunk
+        }
+        for (i in 0 until picked) {
+            val chunk = checkNotNull(pickedChunks[i])
+            pickedChunks[i] = null
+            sendChunk(session.player, session.level, chunk)
+            session.sentChunks.add(chunk.pos)
+            session.pendingChunks.remove(chunk.pos)
         }
     }
 
