@@ -1,6 +1,8 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
+import net.minecraft.server.MinecraftServer
 import net.minecraft.util.Mth
 import org.joml.Vector3d
 import org.joml.Vector3dc
@@ -8,11 +10,13 @@ import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.physics.ContactPoint
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.properties.ShipId
+import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.util.UnavailableInKrunch
 import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.vsApi
+import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -36,14 +40,15 @@ object CrystalExplosiveCollisionRouter {
     private val physProbe = Vector3d()
     private val physProbePos = BlockPos.MutableBlockPos()
 
-    /** Ship id → pre-step linear velocity, for ships that carry an explosive. The START contact velocity is
-     *  already part-solved (a 12 m/s drop reads under 7 m/s); the VS2 devs advise tracking this per ship. */
+    /** Loaded ship id → pre-step linear velocity, for every loaded ship, so an unarmed rammer reads true too.
+     *  In a drop test the START contact velocity read ~35% of the true speed; this pre-step velocity read true.
+     *  The game thread adds and drops entries; the physics thread fills them. */
     private val preStep: ConcurrentHashMap<ShipId, Vector3d> = ConcurrentHashMap()
 
     // Physics thread only: the level of the tick in progress, read by [record].
     @OptIn(PhysTickOnly::class)
     private var tickLevel: PhysLevel? = null
-    private val recordPreStep = java.util.function.BiConsumer<ShipId, Any> { id, _ -> record(id) }
+    private val recordPreStep = java.util.function.BiConsumer<ShipId, Vector3d> { id, out -> record(id, out) }
     private val newPreStep = java.util.function.Function<ShipId, Vector3d> { Vector3d() }
 
     // Subscribes on the game thread; the callback runs on the physics thread. Konstant is the only target backend.
@@ -54,18 +59,30 @@ object CrystalExplosiveCollisionRouter {
         // Runs at the start of each physics tick, before the step that makes this tick's contacts.
         vsApi.physTickEvent.on { event, _ ->
             tickLevel = event.world
-            byShip.forEach(recordPreStep)
+            preStep.forEach(recordPreStep)
             tickLevel = null
         }
+        TickEvent.SERVER_POST.register(::syncLoadedShips)
         vsApi.collisionStartEvent.on { event, _ ->
             handle(event)
         }
     }
 
     @OptIn(PhysTickOnly::class)
-    private fun record(id: ShipId) {
+    private fun record(id: ShipId, out: Vector3d) {
         val ship = tickLevel?.getShipById(id) ?: return
-        preStep.computeIfAbsent(id, newPreStep).set(ship.velocity)
+        out.set(ship.velocity)
+    }
+
+    // Server tick, on the game thread. One Vector3d per loaded ship; an unloaded or deleted ship loses its entry.
+    @OptIn(GameTickOnly::class)
+    private fun syncLoadedShips(server: MinecraftServer) {
+        val loaded = server.shipObjectWorld.loadedShips
+        for (ship in loaded) preStep.computeIfAbsent(ship.id, newPreStep)
+        val ids = preStep.keys.iterator()
+        while (ids.hasNext()) {
+            if (loaded.getById(ids.next()) == null) ids.remove()
+        }
     }
 
     fun addShip(be: CrystalExplosiveBlockEntity, shipId: ShipId) {
@@ -75,7 +92,7 @@ object CrystalExplosiveCollisionRouter {
     fun removeShip(be: CrystalExplosiveBlockEntity, shipId: ShipId) {
         val map = byShip[shipId] ?: return
         map.remove(be.blockPos, be)
-        if (map.isEmpty() && byShip.remove(shipId, map)) preStep.remove(shipId)
+        if (map.isEmpty()) byShip.remove(shipId, map)
     }
 
     fun addWorld(be: CrystalExplosiveBlockEntity, dim: DimensionId) {
@@ -128,8 +145,8 @@ object CrystalExplosiveCollisionRouter {
         }
     }
 
-    /** The body's velocity along [n]: pre-step for a ship with an explosive, else its current velocity
-     *  (part-solved). A static body or terrain gives 0. */
+    /** The body's velocity along [n]: pre-step for a loaded ship, else its current velocity (a VS body such
+     *  as a cage; part-solved). A static body or terrain gives 0. */
     @OptIn(PhysTickOnly::class)
     private fun normalSpeed(id: ShipId, ship: PhysShip?, n: Vector3dc): Double {
         val v: Vector3dc = preStep[id] ?: ship?.takeUnless { it.isStatic }?.velocity ?: return 0.0
