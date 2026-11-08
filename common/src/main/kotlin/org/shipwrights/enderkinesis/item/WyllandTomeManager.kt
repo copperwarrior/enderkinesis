@@ -101,9 +101,14 @@ object WyllandTomeManager : ShipMoveListener {
         var pendingShipyardPoint: Vector3d? = null,
         /** Dimension of the grab. The tick of that level owns it. */
         val dimension: net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>,
+        /** Last points sent to the client; NaN forces the first send. */
+        val lastSyncedAnchor: Vector3d = Vector3d(Double.NaN),
+        val lastSyncedCursor: Vector3d = Vector3d(Double.NaN),
+        var lastSyncedShipId: Long? = null,
     )
 
     private val grabs = ConcurrentHashMap<UUID, Grab>()
+    private const val SYNC_MIN_MOVE_SQR = 0.01 * 0.01
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(TickEvent.ServerLevelTick { level ->
@@ -832,8 +837,9 @@ object WyllandTomeManager : ShipMoveListener {
                 // the visual reads as a continuous connection.
                 if (g.loadGraceTicks > 0) {
                     g.loadGraceTicks--
-                    WyllandTomeNetwork.sendGrabPointSync(
+                    syncGrabPoint(
                         player,
+                        g,
                         g.shipId,
                         g.pendingAnchor.x, g.pendingAnchor.y, g.pendingAnchor.z,
                         target.x, target.y, target.z,
@@ -881,8 +887,9 @@ object WyllandTomeManager : ShipMoveListener {
             // target) — the client uses it as a bezier control point so
             // the beam visually bows when the ship lags behind the cursor.
             val grabPoint = shipGrabPointWorld(ship, g)
-            WyllandTomeNetwork.sendGrabPointSync(
+            syncGrabPoint(
                 player,
+                g,
                 ship.id,
                 grabPoint.x, grabPoint.y, grabPoint.z,
                 target.x, target.y, target.z,
@@ -905,13 +912,30 @@ object WyllandTomeManager : ShipMoveListener {
                 return
             }
             applyToEntity(entity, target, entityYawDelta)
-            WyllandTomeNetwork.sendGrabPointSync(
+            syncGrabPoint(
                 player,
+                g,
                 null,
                 anchor.x, anchor.y, anchor.z,
                 target.x, target.y, target.z,
             )
         }
+    }
+
+    private fun syncGrabPoint(
+        player: ServerPlayer,
+        g: Grab,
+        shipId: Long?,
+        anchorX: Double, anchorY: Double, anchorZ: Double,
+        cursorX: Double, cursorY: Double, cursorZ: Double,
+    ) {
+        val anchorStill = g.lastSyncedAnchor.distanceSquared(anchorX, anchorY, anchorZ) < SYNC_MIN_MOVE_SQR
+        val cursorStill = g.lastSyncedCursor.distanceSquared(cursorX, cursorY, cursorZ) < SYNC_MIN_MOVE_SQR
+        if (anchorStill && cursorStill && shipId == g.lastSyncedShipId) return
+        g.lastSyncedAnchor.set(anchorX, anchorY, anchorZ)
+        g.lastSyncedCursor.set(cursorX, cursorY, cursorZ)
+        g.lastSyncedShipId = shipId
+        WyllandTomeNetwork.sendGrabPointSync(player, shipId, anchorX, anchorY, anchorZ, cursorX, cursorY, cursorZ)
     }
 
     /** Recover the world-space position of the grab anchor on a ship

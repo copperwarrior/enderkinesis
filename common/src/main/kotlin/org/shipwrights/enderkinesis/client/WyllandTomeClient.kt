@@ -4,6 +4,7 @@ import dev.architectury.event.EventResult
 import dev.architectury.event.events.client.ClientRawInputEvent
 import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.networking.NetworkManager
+import net.minecraft.Util
 import net.minecraft.client.Minecraft
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.valkyrienskies.core.api.ships.ClientShip
@@ -68,6 +69,11 @@ object WyllandTomeClient {
      *  grab. Drives the enchanted-book rain spawned inside the ship's
      *  local AABB each tick. */
     @Volatile private var syncedShipId: Long? = null
+
+    private const val ROTATE_FLUSH_MS = 25L
+    private var pendingYawDeg = 0.0
+    private var pendingPitchDeg = 0.0
+    private var lastRotateSendMs = 0L
 
     fun init() {
         ClientTickEvent.CLIENT_POST.register(ClientTickEvent.Client { mc ->
@@ -162,10 +168,20 @@ object WyllandTomeClient {
         // controlled ship rotation instead of camera-speed whip.
         val yawDeg = yawDelta * WyllandTomeItem.MOUSE_ROTATE_SENSITIVITY
         val pitchDeg = pitchDelta * WyllandTomeItem.MOUSE_ROTATE_SENSITIVITY
-        if (yawDeg != 0.0 || pitchDeg != 0.0) {
-            WyllandTomeNetwork.sendRotateInput(yawDeg, pitchDeg)
-        }
+        pendingYawDeg += yawDeg
+        pendingPitchDeg += pitchDeg
+        flushRotateInput()
         return true
+    }
+
+    private fun flushRotateInput() {
+        if (pendingYawDeg == 0.0 && pendingPitchDeg == 0.0) return
+        val now = Util.getMillis()
+        if (now - lastRotateSendMs < ROTATE_FLUSH_MS) return
+        WyllandTomeNetwork.sendRotateInput(pendingYawDeg, pendingPitchDeg)
+        pendingYawDeg = 0.0
+        pendingPitchDeg = 0.0
+        lastRotateSendMs = now
     }
 
     private fun tickInput(mc: Minecraft) {
@@ -181,6 +197,8 @@ object WyllandTomeClient {
                 syncedShipId = null
             }
             attackHeldLastTick = false
+            pendingYawDeg = 0.0
+            pendingPitchDeg = 0.0
             return
         }
         val attackHeld = mc.options.keyAttack.isDown
@@ -197,8 +215,12 @@ object WyllandTomeClient {
         }
 
         if (grabbing) {
+            flushRotateInput()
             spawnBeamParticles(mc, player)
             spawnShipParticles(mc)
+        } else {
+            pendingYawDeg = 0.0
+            pendingPitchDeg = 0.0
         }
 
         attackHeldLastTick = attackHeld
