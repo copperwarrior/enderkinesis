@@ -1064,6 +1064,12 @@ object EKBlocks {
     val WOHLON_LICHEN: RegistrySupplier<Block> = BLOCKS.register("wohlon_lichen") {
         org.shipwrights.enderkinesis.block.WohlonLichenBlock(
             BlockBehaviour.Properties.copy(Blocks.GLOW_LICHEN).mapColor(MapColor.PLANT).lightLevel { 0 }
+        )
+    }
+    val WOHLON_TALL_FERN: RegistrySupplier<Block> = BLOCKS.register("wohlon_tall_fern") {
+        DoublePlantBlock(BlockBehaviour.Properties.copy(Blocks.LARGE_FERN))
+    }
+
     // Registered after their plants: the vanilla constructor reads the plant block at once.
     // Forge also needs FLOWER_POT.addPlant, see EnderkinesisModForge.
     val POTTED_WOHLON_FERN: RegistrySupplier<Block> = pottedPlant("potted_wohlon_fern", WOHLON_FERN)
@@ -1082,12 +1088,6 @@ object EKBlocks {
         BLOCKS.register(id) {
             net.minecraft.world.level.block.FlowerPotBlock(plant.get(), BlockBehaviour.Properties.copy(Blocks.FLOWER_POT))
         }
-
-        )
-    }
-    val WOHLON_TALL_FERN: RegistrySupplier<Block> = BLOCKS.register("wohlon_tall_fern") {
-        DoublePlantBlock(BlockBehaviour.Properties.copy(Blocks.LARGE_FERN))
-    }
 
     // Re-skinned obsidian / crying obsidian / sand used inside the
     // Sureibjin dream coast. Behaviour is identical to the vanilla
