@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.spell
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongArrayList
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import it.unimi.dsi.fastutil.longs.LongSet
 import it.unimi.dsi.fastutil.longs.LongSets
@@ -10,8 +11,10 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.BlockGetter
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.AABB
@@ -69,6 +72,32 @@ object AbyssalPockets {
 
     fun clearClient() {
         clientPhased = LongSets.EMPTY_SET
+    }
+
+    /** Client: forgets the phased blocks of a chunk it unloads; the server sends them again if the chunk comes back. */
+    fun dropClientChunk(chunkX: Int, chunkZ: Int) {
+        val snapshot = clientPhased
+        if (snapshot.isEmpty()) return
+        val next = LongOpenHashSet(snapshot)
+        next.removeIf { (BlockPos.getX(it) shr 4) == chunkX && (BlockPos.getZ(it) shr 4) == chunkZ }
+        if (next.size == snapshot.size) return
+        clientPhased = if (next.isEmpty()) LongSets.EMPTY_SET else LongSets.unmodifiable(next)
+    }
+
+    /** Sends [player] the blocks phased in [chunk]. Call after the chunk itself is sent, so a late viewer sees the
+     *  pocket too. */
+    @JvmStatic
+    fun sendPhasedInChunk(player: ServerPlayer, level: ServerLevel, chunk: ChunkPos) {
+        if (phased.isEmpty()) return
+        val map = phased[level.dimension()] ?: return
+        var inChunk: LongArrayList? = null
+        val keys = map.keys.iterator()
+        while (keys.hasNext()) {
+            val key = keys.nextLong()
+            if ((BlockPos.getX(key) shr 4) != chunk.x || (BlockPos.getZ(key) shr 4) != chunk.z) continue
+            (inChunk ?: LongArrayList().also { inChunk = it }).add(key)
+        }
+        inChunk?.let { SpellNetwork.sendPhase(player, it) }
     }
 
     /** Returns true when a block newly phased. */

@@ -6,6 +6,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import org.shipwrights.enderkinesis.client.SselithVoidFog;
 import org.shipwrights.enderkinesis.client.WohlonWaterMurk;
+import org.shipwrights.enderkinesis.spell.AbyssalPockets;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -28,6 +29,7 @@ public abstract class ClientChunkCacheSselithVoidFogMixin {
     private void enderkinesis$voidFogChunkDropped(int x, int z, CallbackInfo ci) {
         SselithVoidFog.markChunkDirty(x, z);
         WohlonWaterMurk.markChunkDirty(x, z);
+        AbyssalPockets.INSTANCE.dropClientChunk(x, z);
     }
 
     // The Wohlon spreader resends biomes without the chunk; the water murk keys on the biome.

@@ -211,6 +211,7 @@
     "BookItemLecternSubclassMixin",
     "BottleItemIchaericInkMixin",
     "ChunkMapBroadcastScryingMixin",
+    "ChunkMapPocketResendMixin",
     "ChunkMapGetChunksAccessor",
     "ChunkMapTrackedEntityScryingMixin",
     "ChunkStorageWorkerAccessor",

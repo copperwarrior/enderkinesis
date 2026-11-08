@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.ints.Int2FloatMap
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongArrayList
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.core.BlockPos
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
@@ -48,6 +49,7 @@ object SpellNetwork {
     // Game thread only.
     private var holdingMerges = HashSet<ServerPlayer>()
     private val sentMerges = HashSet<ServerPlayer>()
+    private const val MAX_POSITIONS_PER_PACKET = 4096
 
     /** [from] also picks the players that get the batch, so it is kept when the batch is not [directed]. */
     private class ShiftBatch(val level: ServerLevel, val from: Vec3, val element: Int, val directed: Boolean) {
@@ -141,13 +143,41 @@ object SpellNetwork {
     /** Join, dimension change and respawn make a new client level; no tracking covers the player's own state. */
     private fun resync(player: ServerPlayer) {
         val phased = AbyssalPockets.phasedIn(player.serverLevel())
-        if (phased.isNotEmpty()) sendTo(listOf(player), PHASE) { writePositions(it, phased.asList()) }
+        if (phased.isNotEmpty()) sendPositions(listOf(player), PHASE, phased.asList())
         sendState(player, player)
     }
 
-    /** Send to all players in the level: a client that missed a pocket close keeps a hole that is not there. */
+    /** To the players who track a chunk of the pocket. A client that loads such a chunk later gets its phased blocks
+     *  with it ([AbyssalPockets.sendPhasedInChunk]), and a client that unloads one forgets them, so none keeps a stale
+     *  hole. */
     fun broadcastPhase(level: ServerLevel, positions: Collection<Long>, phased: Boolean) =
-        sendTo(level.players(), if (phased) PHASE else UNPHASE) { writePositions(it, positions) }
+        sendPositions(trackingAny(level, chunkCentres(positions)), if (phased) PHASE else UNPHASE, positions)
+
+    fun sendPhase(player: ServerPlayer, positions: Collection<Long>) = sendPositions(listOf(player), PHASE, positions)
+
+    private fun chunkCentres(positions: Collection<Long>): List<Vec3> {
+        val chunks = LongOpenHashSet()
+        val out = ArrayList<Vec3>()
+        for (key in positions) {
+            val x = BlockPos.getX(key)
+            val z = BlockPos.getZ(key)
+            if (chunks.add(ChunkPos.asLong(x shr 4, z shr 4))) out += Vec3(x + 0.5, BlockPos.getY(key) + 0.5, z + 0.5)
+        }
+        return out
+    }
+
+    /** In packets of at most [MAX_POSITIONS_PER_PACKET], so a large pocket stays well under the payload limit. */
+    private fun sendPositions(players: Collection<ServerPlayer>, id: ResourceLocation, positions: Collection<Long>) {
+        if (players.isEmpty() || positions.isEmpty()) return
+        val list = positions.toList()
+        var start = 0
+        while (start < list.size) {
+            val end = minOf(start + MAX_POSITIONS_PER_PACKET, list.size)
+            val slice = list.subList(start, end)
+            sendTo(players, id) { writePositions(it, slice) }
+            start = end
+        }
+    }
 
     private fun writePositions(buf: FriendlyByteBuf, positions: Collection<Long>) {
         buf.writeVarInt(positions.size)

@@ -247,6 +247,7 @@ object ScryingSessionManager {
     private fun sendChunk(player: ServerPlayer, level: ServerLevel, chunk: LevelChunk) {
         val packet = ClientboundLevelChunkWithLightPacket(chunk, level.lightEngine, null, null)
         player.connection.send(packet)
+        org.shipwrights.enderkinesis.spell.AbyssalPockets.sendPhasedInChunk(player, level, chunk.pos)
     }
 
     private fun shipyardToWorld(level: ServerLevel, pos: BlockPos): Vec3 {
