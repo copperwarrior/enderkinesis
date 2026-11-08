@@ -1064,6 +1064,25 @@ object EKBlocks {
     val WOHLON_LICHEN: RegistrySupplier<Block> = BLOCKS.register("wohlon_lichen") {
         org.shipwrights.enderkinesis.block.WohlonLichenBlock(
             BlockBehaviour.Properties.copy(Blocks.GLOW_LICHEN).mapColor(MapColor.PLANT).lightLevel { 0 }
+    // Registered after their plants: the vanilla constructor reads the plant block at once.
+    // Forge also needs FLOWER_POT.addPlant, see EnderkinesisModForge.
+    val POTTED_WOHLON_FERN: RegistrySupplier<Block> = pottedPlant("potted_wohlon_fern", WOHLON_FERN)
+    val POTTED_WOHLON_CUP_MUSHROOM: RegistrySupplier<Block> = pottedPlant("potted_wohlon_cup_mushroom", WOHLON_CUP_MUSHROOM)
+    val POTTED_WOHLON_LUMPY_MUSHROOM: RegistrySupplier<Block> =
+        pottedPlant("potted_wohlon_lumpy_mushroom", WOHLON_LUMPY_MUSHROOM)
+
+    /** Each potted plant with its plant, for the loader-side flower pot registration. */
+    val POTTED_PLANTS: List<Pair<RegistrySupplier<Block>, RegistrySupplier<Block>>> = listOf(
+        WOHLON_FERN to POTTED_WOHLON_FERN,
+        WOHLON_CUP_MUSHROOM to POTTED_WOHLON_CUP_MUSHROOM,
+        WOHLON_LUMPY_MUSHROOM to POTTED_WOHLON_LUMPY_MUSHROOM,
+    )
+
+    private fun pottedPlant(id: String, plant: RegistrySupplier<Block>): RegistrySupplier<Block> =
+        BLOCKS.register(id) {
+            net.minecraft.world.level.block.FlowerPotBlock(plant.get(), BlockBehaviour.Properties.copy(Blocks.FLOWER_POT))
+        }
+
         )
     }
     val WOHLON_TALL_FERN: RegistrySupplier<Block> = BLOCKS.register("wohlon_tall_fern") {

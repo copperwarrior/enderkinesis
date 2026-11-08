@@ -335,6 +335,9 @@ object EnderkinesisModClient {
             EKBlocks.WEYYE_FRUIT_POD.get(),
             EKBlocks.WOHLON_HANGING_ROOTS.get(),
             EKBlocks.WOHLON_CUP_MUSHROOM.get(),
+            EKBlocks.POTTED_WOHLON_FERN.get(),
+            EKBlocks.POTTED_WOHLON_CUP_MUSHROOM.get(),
+            EKBlocks.POTTED_WOHLON_LUMPY_MUSHROOM.get(),
         )
 
         // Binding Roots: custom hand-rolled model (we abandoned the `minecraft:block/cross`

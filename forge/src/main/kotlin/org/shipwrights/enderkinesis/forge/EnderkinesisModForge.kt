@@ -1,13 +1,17 @@
 package org.shipwrights.enderkinesis.forge
 
 import dev.architectury.platform.forge.EventBuses
+import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.FlowerPotBlock
 import net.minecraftforge.common.MinecraftForge
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent
 import net.minecraftforge.fml.common.Mod
 import thedarkcolour.kotlinforforge.forge.MOD_BUS
 import net.minecraftforge.fml.loading.FMLEnvironment
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.forge.client.EnderkinesisModForgeClient
 import org.shipwrights.enderkinesis.forge.compat.curios.CuriosCompat
+import org.shipwrights.enderkinesis.registry.EKBlocks
 
 /**
  * Forge-side entrypoint. All content is registered through Architectury in [EnderkinesisMod.init];
@@ -29,6 +33,7 @@ class EnderkinesisModForge {
 
         // Wire accessory-mod compat (no-op if the mod isn't loaded).
         CuriosCompat.init()
+        modEventBus.addListener(Companion::commonSetup)
 
         if (FMLEnvironment.dist.isClient) {
             // Before the renderer event and the options load; FMLClientSetupEvent is too late.
@@ -46,6 +51,16 @@ class EnderkinesisModForge {
             MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderLevelStage)
             MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderGuiPre)
             MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderGuiPost)
+        }
+    }
+
+    companion object {
+        // The vanilla constructor keys the plant by registry name, which can be null while the plant registers.
+        private fun commonSetup(event: FMLCommonSetupEvent) {
+            event.enqueueWork {
+                val pot = Blocks.FLOWER_POT as FlowerPotBlock
+                for ((plant, potted) in EKBlocks.POTTED_PLANTS) pot.addPlant(plant.id, potted)
+            }
         }
     }
 }
