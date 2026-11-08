@@ -1,12 +1,596 @@
 [
   {
-    "block": "enderkinesis:crystal_explosive",
-    "mass": 100.0,
+    "block": "enderkinesis:purpur_ballast",
+    "mass": 3500.0,
     "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:crepusculite_ore",
+    "mass": 200.0
+  },
+  {
+    "block": "enderkinesis:crepusculite_block",
+    "mass": 200.0
+  },
+  {
+    "block": "enderkinesis:crepusculite_lattice",
+    "mass": 200.0
+  },
+  {
+    "block": "enderkinesis:crepusculite_glass",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:crepusculite_lightstone",
+    "mass": 10.0
+  },
+  {
+    "block": "enderkinesis:ancrite_block",
+    "mass": 4000.0
+  },
+  {
+    "block": "enderkinesis:raw_ancrite",
+    "mass": 4000.0
+  },
+  {
+    "block": "enderkinesis:refined_ancrite",
+    "mass": 4000.0
+  },
+  {
+    "block": "enderkinesis:ancrite_stairs",
+    "mass": 3000.0
+  },
+  {
+    "block": "enderkinesis:ancrite_slab",
+    "mass": 2000.0
+  },
+  {
+    "block": "enderkinesis:ancrite_wall",
+    "mass": 2000.0
+  },
+  {
+    "block": "enderkinesis:refined_ancrite_stairs",
+    "mass": 3000.0
+  },
+  {
+    "block": "enderkinesis:refined_ancrite_slab",
+    "mass": 2000.0
+  },
+  {
+    "block": "enderkinesis:refined_ancrite_wall",
+    "mass": 2000.0
+  },
+  {
+    "block": "enderkinesis:ancrite_grate",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:ancrite_bars",
+    "mass": 200.0
+  },
+  {
+    "block": "enderkinesis:ancrite_chain",
+    "mass": 50.0
+  },
+  {
+    "block": "enderkinesis:ancrite_beam",
+    "mass": 1000.0
+  },
+  {
+    "block": "enderkinesis:orb_of_linking",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:ender_linkage",
+    "mass": 10.0,
+    "friction": 0.0,
+    "elasticity": 0.0,
+    "no_collision": true
+  },
+  {
+    "block": "enderkinesis:shulker_strut_top",
+    "mass": 500.0,
+    "friction": 0.9
+  },
+  {
+    "block": "enderkinesis:constriliar_platform",
+    "mass": 400.0,
+    "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:crystal_explosive",
+    "mass": 1250.0,
+    "friction": 0.2
   },
   {
     "block": "enderkinesis:void_harness",
     "mass": 100.0,
     "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:wogor_log",
+    "mass": 1000.0,
+    "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:wogor_wood",
+    "mass": 1000.0,
+    "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:stripped_wogor_log",
+    "mass": 1000.0,
+    "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:stripped_wogor_wood",
+    "mass": 1000.0,
+    "friction": 0.6
+  },
+  {
+    "block": "enderkinesis:wogor_planks",
+    "mass": 1000.0,
+    "friction": 0.5
+  },
+  {
+    "block": "enderkinesis:wogor_stairs",
+    "mass": 750.0,
+    "friction": 0.5
+  },
+  {
+    "block": "enderkinesis:wogor_wood_stairs",
+    "mass": 750.0,
+    "friction": 0.5
+  },
+  {
+    "block": "enderkinesis:wogor_slab",
+    "mass": 500.0,
+    "friction": 0.5
+  },
+  {
+    "block": "enderkinesis:wogor_wood_slab",
+    "mass": 500.0,
+    "friction": 0.5
+  },
+  {
+    "block": "enderkinesis:wogor_fence",
+    "mass": 1000.0
+  },
+  {
+    "block": "enderkinesis:wogor_wood_fence",
+    "mass": 1000.0
+  },
+  {
+    "block": "enderkinesis:wogor_fence_gate",
+    "mass": 1000.0
+  },
+  {
+    "block": "enderkinesis:wogor_wood_wall",
+    "mass": 1000.0
+  },
+  {
+    "block": "enderkinesis:wogor_door",
+    "mass": 187.5
+  },
+  {
+    "block": "enderkinesis:wogor_trapdoor",
+    "mass": 187.5
+  },
+  {
+    "block": "enderkinesis:wogor_wood_pane",
+    "mass": 125.0
+  },
+  {
+    "block": "enderkinesis:wogor_pressure_plate",
+    "mass": 50.0
+  },
+  {
+    "block": "enderkinesis:wogor_button",
+    "mass": 2.5
+  },
+  {
+    "block": "enderkinesis:wogor_wood_button",
+    "mass": 2.5
+  },
+  {
+    "block": "enderkinesis:wogor_bud",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:mundane_ore",
+    "mass": 2700.0
+  },
+  {
+    "block": "enderkinesis:ender_astrolabe",
+    "mass": 1600.0
+  },
+  {
+    "block": "enderkinesis:eyeroscope",
+    "mass": 1600.0
+  },
+  {
+    "block": "enderkinesis:lodestar_launcher",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:echo_cannon",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:planar_anchor",
+    "mass": 2000.0
+  },
+  {
+    "block": "enderkinesis:aether_pad",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:void_hook",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:quasar_of_purity",
+    "mass": 900.0
+  },
+  {
+    "block": "enderkinesis:orb_of_scrying",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:ulder_beam_anchor",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:analog_eye",
+    "mass": 10.0
+  },
+  {
+    "block": "enderkinesis:shulker_strut",
+    "mass": 500.0
+  },
+  {
+    "block": "enderkinesis:shulker_puffer",
+    "mass": 500.0
+  },
+  {
+    "block": "enderkinesis:guardian_spike",
+    "mass": 1900.0
+  },
+  {
+    "block": "enderkinesis:guardian_spike_outer",
+    "mass": 1900.0
+  },
+  {
+    "block": "enderkinesis:heart_candle",
+    "mass": 2.0
+  },
+  {
+    "block": "enderkinesis:heart_of_the_wild",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:fountain_of_blessing",
+    "mass": 3000.0
+  },
+  {
+    "block": "enderkinesis:fractal_projector",
+    "mass": 3000.0
+  },
+  {
+    "block": "enderkinesis:wehelo_pocket_wall",
+    "mass": 3000.0
+  },
+  {
+    "block": "enderkinesis:ichaeric_ink_jar",
+    "mass": 250.0
+  },
+  {
+    "block": "enderkinesis:inegric_retort",
+    "mass": 250.0
+  },
+  {
+    "block": "enderkinesis:scribes_desk",
+    "mass": 800.0
+  },
+  {
+    "block": "enderkinesis:oarscribe",
+    "mass": 2750.0
+  },
+  {
+    "block": "enderkinesis:jar_receptacle",
+    "mass": 2750.0
+  },
+  {
+    "block": "enderkinesis:altar_of_illumination",
+    "mass": 2750.0
+  },
+  {
+    "block": "enderkinesis:rune",
+    "mass": 1.0
+  },
+  {
+    "block": "enderkinesis:phantom_light",
+    "mass": 0.1
+  },
+  {
+    "block": "enderkinesis:forgotten_item",
+    "mass": 1.0
+  },
+  {
+    "block": "enderkinesis:sselith_bookshelf",
+    "mass": 800.0
+  },
+  {
+    "block": "enderkinesis:sselith_lectern",
+    "mass": 150.0
+  },
+  {
+    "block": "enderkinesis:sselith_ladder",
+    "mass": 50.0
+  },
+  {
+    "block": "enderkinesis:sselith_trapdoor",
+    "mass": 100.0
+  },
+  {
+    "block": "enderkinesis:sselith_lamp",
+    "mass": 25.0
+  },
+  {
+    "block": "enderkinesis:sselith_lantern",
+    "mass": 25.0
+  },
+  {
+    "block": "enderkinesis:willfaer_lantern",
+    "mass": 25.0
+  },
+  {
+    "block": "enderkinesis:willfaer_torch",
+    "mass": 5.0
+  },
+  {
+    "block": "enderkinesis:willfaer_wall_torch",
+    "mass": 5.0
+  },
+  {
+    "block": "enderkinesis:owl_deepslate",
+    "mass": 2750.0
+  },
+  {
+    "block": "enderkinesis:dream_obsidian",
+    "mass": 5000.0
+  },
+  {
+    "block": "enderkinesis:dream_crying_obsidian",
+    "mass": 5000.0
+  },
+  {
+    "block": "enderkinesis:dream_sand_layer",
+    "mass": 750.0
+  },
+  {
+    "block": "enderkinesis:crystal_pedestal",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:ygann_barnacle",
+    "mass": 150.0
+  },
+  {
+    "block": "enderkinesis:binding_roots",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_mud",
+    "mass": 1250.0
+  },
+  {
+    "block": "enderkinesis:wohlon_moss",
+    "mass": 250.0
+  },
+  {
+    "block": "enderkinesis:wohlon_moss_carpet",
+    "mass": 15.0
+  },
+  {
+    "block": "enderkinesis:wohlon_leaf_litter",
+    "mass": 15.0
+  },
+  {
+    "block": "enderkinesis:wohlon_fern",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_grass",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_reed",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_tall_fern",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_lily_pad",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_duckweed",
+    "mass": 20.0
+  },
+  {
+    "block": "enderkinesis:wohlon_lumpy_mushroom",
+    "mass": 10.0
+  },
+  {
+    "block": "enderkinesis:wohlon_cup_mushroom",
+    "mass": 10.0
+  },
+  {
+    "block": "enderkinesis:wohlon_lumpy_mushroom_block",
+    "mass": 400.0
+  },
+  {
+    "block": "enderkinesis:wohlon_cup_mushroom_block",
+    "mass": 400.0
+  },
+  {
+    "block": "enderkinesis:wohlon_mushroom_stem",
+    "mass": 600.0
+  },
+  {
+    "block": "enderkinesis:heartfire",
+    "mass": 1.0
+  },
+  {
+    "block": "enderkinesis:wohlon_lichen",
+    "mass": 1.0
+  },
+  {
+    "block": "enderkinesis:weyye_fruit_pod",
+    "mass": 50.0
+  },
+  {
+    "block": "enderkinesis:wohlon_hanging_roots",
+    "mass": 4.0
+  },
+  {
+    "block": "enderkinesis:wohlon_root",
+    "mass": 1200.0
+  },
+  {
+    "block": "enderkinesis:dream_sand",
+    "mass": 1500.0,
+    "friction": 0.4
+  },
+  {
+    "block": "enderkinesis:statue_steve",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_cataloger",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_tentacles",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_tentacled_beast",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_yellow_tower",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_black_goat",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_counting",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:statue_owl",
+    "mass": 2500.0
+  },
+  {
+    "block": "enderkinesis:moth_cloth_white",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_orange",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_magenta",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_light_blue",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_yellow",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_lime",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_pink",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_gray",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_light_gray",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_cyan",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_purple",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_blue",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_brown",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_green",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_red",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
+  },
+  {
+    "block": "enderkinesis:moth_cloth_black",
+    "mass": 500.0,
+    "friction": 0.6,
+    "elasticity": 0.5
   }
 ]
