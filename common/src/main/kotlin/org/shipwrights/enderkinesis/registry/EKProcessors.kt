@@ -5,6 +5,7 @@ import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.worldgen.HutWitchProcessor
 import org.shipwrights.enderkinesis.worldgen.RoamingEndShipShipifyProcessor
 import org.shipwrights.enderkinesis.worldgen.SeedLecternAlmanacProcessor
 import org.shipwrights.enderkinesis.worldgen.SselithRuinLecternProcessor
@@ -44,6 +45,11 @@ object EKProcessors {
     val SSELITH_RUIN_LECTERN: RegistrySupplier<StructureProcessorType<SselithRuinLecternProcessor>> =
         PROCESSORS.register("sselith_ruin_lectern") {
             StructureProcessorType<SselithRuinLecternProcessor> { SselithRuinLecternProcessor.CODEC }
+        }
+
+    val HUT_WITCH: RegistrySupplier<StructureProcessorType<HutWitchProcessor>> =
+        PROCESSORS.register("hut_witch") {
+            StructureProcessorType<HutWitchProcessor> { HutWitchProcessor.CODEC }
         }
 
     fun register() = PROCESSORS.register()

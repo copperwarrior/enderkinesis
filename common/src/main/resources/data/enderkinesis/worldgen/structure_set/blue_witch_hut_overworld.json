@@ -1,0 +1,11 @@
+{
+  "structures": [
+    { "structure": "enderkinesis:blue_witch_hut_overworld", "weight": 1 }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "salt": 1306524817,
+    "spacing": 48,
+    "separation": 16
+  }
+}
