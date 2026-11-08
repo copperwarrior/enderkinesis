@@ -11,6 +11,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.world.item.ItemDisplayContext
+import net.minecraft.world.level.block.Block
 import org.joml.Quaternionf
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 
@@ -36,8 +37,11 @@ class CrystalExplosiveRenderer(ctx: BlockEntityRendererProvider.Context) :
         val seed = be.blockPos.asLong().toInt()
         for (i in DIRECTIONS.indices) {
             val face = DIRECTIONS[i]
+            // On a ship the BE's level and pos are the shipyard ones, so the neighbour is the ship's own block.
             val light = if (level != null) {
-                LevelRenderer.getLightColor(level, lightPos.setWithOffset(be.blockPos, face))
+                lightPos.setWithOffset(be.blockPos, face)
+                if (!Block.shouldRenderFace(be.blockState, level, be.blockPos, face, lightPos)) continue
+                LevelRenderer.getLightColor(level, lightPos)
             } else {
                 packedLight
             }
