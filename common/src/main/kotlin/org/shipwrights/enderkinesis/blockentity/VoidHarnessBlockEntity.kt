@@ -12,6 +12,10 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import org.joml.Vector3d
+import org.joml.Vector3dc
+import org.joml.primitives.AABBd
+import org.shipwrights.enderkinesis.util.dynamicBody
+import org.shipwrights.enderkinesis.util.standaloneBodyIds
 import org.shipwrights.enderkinesis.block.VoidHarnessBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.valkyrienskies.core.api.VsBeta
@@ -32,7 +36,7 @@ import org.valkyrienskies.core.api.util.GameTickOnly
  *    COM toward the harness's current world position; the body-frame direction (COM → harness)
  *    is constant, so the ship gets a constant body-frame thrust.
  *  - **World source** (BE in the world): `physShip` is null. The game tick pre-computes the set
- *    of nearby ship ids (everything within `PULL_RADIUS` of the harness); the phys tick reads
+ *    of nearby ship and standalone body ids (everything within `PULL_RADIUS` of the harness); the phys tick reads
  *    that snapshot, looks each one up via `PhysLevel.getShipById`, and pulls its COM toward the
  *    harness's static world position.
  *
@@ -57,6 +61,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
     @Volatile private var cachedHy: Double = pos.y + 0.5
     @Volatile private var cachedHz: Double = pos.z + 0.5
     @Volatile private var cachedNearbyShipIds: LongArray = EMPTY_IDS
+    @Volatile private var cachedNearbyBodyIds: LongArray = EMPTY_IDS
 
     // Client-side rotation-phase accumulator. Read/written only by the render thread; the BER
     // integrates `current_rate · dt` each frame so changes in redstone power adjust the rate of
@@ -70,7 +75,7 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
     var pulling: Boolean = false
         private set
 
-    @OptIn(GameTickOnly::class)
+    @OptIn(GameTickOnly::class, VsBeta::class)
     fun serverTick(level: ServerLevel, pos: BlockPos, state: BlockState) {
         cachedPowerLevel = state.getValue(VoidHarnessBlock.POWER)
 
@@ -98,10 +103,16 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
                 if (dx * dx + dy * dy + dz * dz <= r2) ids.add(s.id)
             }
             cachedNearbyShipIds = ids.toLongArray()
+            val reach = AABBd(cachedHx - PULL_RADIUS, cachedHy - PULL_RADIUS, cachedHz - PULL_RADIUS, cachedHx + PULL_RADIUS, cachedHy + PULL_RADIUS, cachedHz + PULL_RADIUS)
+            cachedNearbyBodyIds = level.standaloneBodyIds(reach) { body ->
+                val p = body.kinematics.position
+                p.distanceSquared(cachedHx, cachedHy, cachedHz) <= r2
+            }
         } else {
             cachedNearbyShipIds = EMPTY_IDS
+            cachedNearbyBodyIds = EMPTY_IDS
         }
-        val nowPulling = cachedNearbyShipIds.isNotEmpty()
+        val nowPulling = cachedNearbyShipIds.isNotEmpty() || cachedNearbyBodyIds.isNotEmpty()
         if (nowPulling != pulling) {
             pulling = nowPulling
             level.sendBlockUpdated(pos, state, state, Block.UPDATE_CLIENTS)
@@ -149,7 +160,11 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
             // torque), with exponential gravitational falloff.
             for (id in cachedNearbyShipIds) {
                 val s = physLevel.getShipById(id) ?: continue
-                applyPull3D(s, hx, hy, hz, peakForce)
+                pull3D(s.kinematics.position, hx, hy, hz, peakForce)?.let { s.applyWorldForceToBodyPos(it) }
+            }
+            for (id in cachedNearbyBodyIds) {
+                val b = physLevel.dynamicBody(id) ?: continue
+                pull3D(b.kinematics.position, hx, hy, hz, peakForce)?.let { b.applyWorldForceToBodyPos(it) }
             }
         }
     }
@@ -175,22 +190,19 @@ class VoidHarnessBlockEntity(pos: BlockPos, state: BlockState) :
     /** Full 3D pull (world-placed case) with exponential gravitational falloff:
      *  `F(r) = peakForce · exp(-r / EXP_FALLOFF_SCALE)`. [peakForce] has already been scaled
      *  by redstone power level. Strong at close range, fading smoothly toward 0 by the
-     *  [PULL_RADIUS] cutoff — ships near the harness get yanked hard, distant ones drift gently. */
-    @OptIn(PhysTickOnly::class)
-    private fun applyPull3D(ship: PhysShip, hx: Double, hy: Double, hz: Double, peakForce: Double) {
-        val com = ship.kinematics.position
+     *  [PULL_RADIUS] cutoff — ships near the harness get yanked hard, distant ones drift gently.
+     *  Null at the harness itself. A new vector each call: VS2 queues it by reference. */
+    private fun pull3D(com: Vector3dc, hx: Double, hy: Double, hz: Double, peakForce: Double): Vector3d? {
         val dx = hx - com.x()
         val dy = hy - com.y()
         val dz = hz - com.z()
         val len = Math.sqrt(dx * dx + dy * dy + dz * dz)
-        if (len < 1e-3) return
+        if (len < 1e-3) return null
         // `exp(-len / EXP_FALLOFF_SCALE)` is the long-range falloff (1.0 at the harness, smooth
         // decay outward). The extra [softCoreMultiplier] knocks the force down again at very
         // close range so a near-coincident ship stops oscillating around the harness.
         val magnitude = peakForce * Math.exp(-len / EXP_FALLOFF_SCALE) * softCoreMultiplier(len)
-        ship.applyWorldForceToBodyPos(
-            Vector3d(dx / len * magnitude, dy / len * magnitude, dz / len * magnitude)
-        )
+        return Vector3d(dx / len * magnitude, dy / len * magnitude, dz / len * magnitude)
     }
 
     /**

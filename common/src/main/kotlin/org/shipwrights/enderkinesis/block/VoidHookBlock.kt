@@ -24,6 +24,8 @@ import org.joml.Vector3f
 import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import java.util.EnumMap
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 
 /**
  * Void Hook — directional, longer-effective-range cousin of [VoidHarnessBlock]. The hook
@@ -51,6 +53,12 @@ class VoidHookBlock(properties: BlockBehaviour.Properties) : Block(properties), 
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
         builder.add(FACING, POWER)
     }
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState = state.rotateFacing(rotation)
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState = state.mirrorFacing(mirror)
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState {
         // Dispenser convention: the clicked face becomes the back, so FACING points the
@@ -134,7 +142,7 @@ class VoidHookBlock(properties: BlockBehaviour.Properties) : Block(properties), 
 
         private val SHAPES: Map<Direction, VoxelShape> =
             EnumMap<Direction, VoxelShape>(Direction::class.java).apply {
-                for (facing in Direction.values()) put(facing, shapeFor(modelRotation(facing)))
+                for (facing in Direction.entries) put(facing, shapeFor(modelRotation(facing)))
             }
 
         private fun shapeFor(rotation: Quaternionfc): VoxelShape = UP_BOXES

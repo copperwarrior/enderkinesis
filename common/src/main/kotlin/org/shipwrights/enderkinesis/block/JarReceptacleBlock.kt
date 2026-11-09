@@ -108,7 +108,7 @@ class JarReceptacleBlock(properties: Properties) : HorizontalDirectionalBlock(pr
         var bottles = state.getValue(BOTTLES)
         if (!state.getValue(JAR) || bottles == 0) return
         val open = state.getValue(FACING)
-        for (side in Direction.values()) {
+        for (side in Direction.entries) {
             if (side == open) continue
             val oarscribe = level.getBlockEntity(pos.relative(side)) as? OarscribeBlockEntity ?: continue
             while (bottles > 0 && oarscribe.inkSpace >= OarscribeBlockEntity.INK_PER_BOTTLE) {

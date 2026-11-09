@@ -12,7 +12,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.OarscribeBlock
 import org.shipwrights.enderkinesis.blockentity.OarscribeBlockEntity
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object OarscribeSounds {
 
@@ -46,21 +46,15 @@ object OarscribeSounds {
         // A level change stops all sounds and does not call stop() on the instance.
         if (running != null && !running.isStopped && sounds.isActive(running)) return
         val player = mc.player ?: return
-        worldCentre(level, pos, scratch)
+        level.blockCentreInWorld(pos, scratch)
         if (player.distanceToSqr(scratch.x, scratch.y, scratch.z) > RANGE_SQR) return
         loops.values.removeIf { it.isStopped || !sounds.isActive(it) }
         loops[oarscribe] = WritingLoop(level, oarscribe).also(sounds::play)
     }
 
     private fun playAt(level: Level, pos: BlockPos, sound: SoundEvent) {
-        worldCentre(level, pos, scratch)
+        level.blockCentreInWorld(pos, scratch)
         level.playLocalSound(scratch.x, scratch.y, scratch.z, sound, SoundSource.BLOCKS, 1f, 1f, false)
-    }
-
-    /** On a ship, the block position is a shipyard position. */
-    private fun worldCentre(level: Level, pos: BlockPos, out: Vector3d) {
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
     }
 
     private class WritingLoop(
@@ -94,7 +88,7 @@ object OarscribeSounds {
         }
 
         private fun move() {
-            worldCentre(level, oarscribe.blockPos, position)
+            level.blockCentreInWorld(oarscribe.blockPos, position)
             x = position.x
             y = position.y
             z = position.z

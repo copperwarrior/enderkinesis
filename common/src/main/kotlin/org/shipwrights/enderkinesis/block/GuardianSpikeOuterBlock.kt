@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.block
 
+import org.shipwrights.enderkinesis.spell.SpellPlatform
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.BlockEvent
 import net.minecraft.core.BlockPos
@@ -66,7 +67,7 @@ class GuardianSpikeOuterBlock(props: Properties) : GuardianSpikeBase(props) {
         /** The support's faces under the spike: one per non-zero axis, each facing back toward the spike cell. */
         private val SUPPORT_FACES: Map<SpikeAttachment, List<Direction>> =
             EnumMap<SpikeAttachment, List<Direction>>(SpikeAttachment::class.java).apply {
-                for (attach in SpikeAttachment.values()) {
+                for (attach in SpikeAttachment.entries) {
                     put(attach, buildList {
                         if (attach.dx != 0) add(Direction.fromAxisAndDirection(Direction.Axis.X, sign(-attach.dx)))
                         if (attach.dy != 0) add(Direction.fromAxisAndDirection(Direction.Axis.Y, sign(-attach.dy)))
@@ -81,7 +82,7 @@ class GuardianSpikeOuterBlock(props: Properties) : GuardianSpikeBase(props) {
         /** The support is not a face neighbour, so a support break schedules a check on its spikes. */
         fun registerEvents() {
             BlockEvent.BREAK.register { level, pos, _, _, _ ->
-                if (level is ServerLevel) scheduleDiagonalChecks(level, pos)
+                if (level is ServerLevel && !SpellPlatform.isPermissionProbe()) scheduleDiagonalChecks(level, pos)
                 EventResult.pass()
             }
         }

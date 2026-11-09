@@ -7,6 +7,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferClientRegistry
 import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /** Puffs on the pulses of the puffer loops, and bursts on the pulses of the one-shot sounds. Client thread only. */
@@ -50,7 +51,7 @@ internal object ShulkerPufferPuffs {
         for (be in ShulkerPufferClientRegistry.all(level)) {
             if (be.isRemoved) continue
             if (be.burstKind == ShulkerPufferBlockEntity.BURST_NONE && ShulkerPufferSounds.power(be) <= 0) continue
-            ShulkerPufferSounds.worldCentre(level, be, nozzle)
+            level.blockCentreInWorld(be.blockPos, nozzle)
             val inRange = player.distanceToSqr(nozzle.x, nozzle.y, nozzle.z) <= RANGE_SQR
             val bursting = tickBurst(level, be, inRange)
             tickLoop(level, be, inRange && !bursting)

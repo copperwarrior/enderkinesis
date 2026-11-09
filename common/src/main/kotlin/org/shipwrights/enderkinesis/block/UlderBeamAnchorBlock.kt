@@ -13,6 +13,8 @@ import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.EntityBlock
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityTicker
 import net.minecraft.world.level.block.entity.BlockEntityType
@@ -38,6 +40,12 @@ class UlderBeamAnchorBlock(properties: BlockBehaviour.Properties) : Block(proper
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
         builder.add(FACING)
     }
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState = state.rotateFacing(rotation)
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState = state.mirrorFacing(mirror)
 
     /** FACING points toward the support block, as on [OrbOfLinkingBlock]. */
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState? =

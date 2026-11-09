@@ -34,7 +34,7 @@ internal object StatueShapes {
     }
 
     private fun shapesFor(half: DoubleBlockHalf): Map<StatueKind, Array<VoxelShape>> =
-        StatueKind.values().associateWith { kind ->
+        StatueKind.entries.associateWith { kind ->
             val box = northBox(kind)
             check(box[HEIGHT] > BLOCK_PIXELS) { "Statue $kind must be taller than one block" }
             Array(FACINGS) { turns -> build(box, turns, half) }

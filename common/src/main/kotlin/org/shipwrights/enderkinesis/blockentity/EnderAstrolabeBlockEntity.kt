@@ -684,8 +684,8 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         // (the second jump's read would see the first jump's already-applied
         // `noGravity = true`). Refcount goes up here; unfreezeAll decrements and only
         // restores when it hits 0.
-        for ((entity, capturedPos) in riders) {
-            val originalForLog = recordOriginalAndIncrement(entity)
+        for ((entity, _) in riders) {
+            recordOriginalAndIncrement(entity)
             entity.isNoGravity = true
             entity.deltaMovement = Vec3.ZERO
         }
@@ -831,10 +831,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
                 val newX = oldPos.x + delta.x
                 val newY = oldPos.y + delta.y
                 val newZ = oldPos.z + delta.z
-                val preDim = entity.level().dimension().location()
-                val prePos = entity.position()
                 SafeTeleporter.teleportTo(entity, targetLvl, newX, newY, newZ)
-                val landed = targetLvl.getEntity(uuid)
             }
 
             // Step 2: re-establish riding via UUID lookup. UUIDs are preserved across
@@ -909,7 +906,7 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         val particleCount = (volume / OBB_VOLUME_PER_PARTICLE).toInt()
             .coerceIn(OBB_PARTICLES_MIN, OBB_PARTICLES_MAX)
         val p = Vector3d()
-        for (i in 0 until particleCount) {
+        repeat(particleCount) { _ ->
             val lx = sb.minX() + rng.nextDouble() * sizeX
             val ly = sb.minY() + rng.nextDouble() * sizeY
             val lz = sb.minZ() + rng.nextDouble() * sizeZ

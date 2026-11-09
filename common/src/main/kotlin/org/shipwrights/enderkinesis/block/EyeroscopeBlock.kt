@@ -29,6 +29,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.phys.BlockHitResult
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
+import org.shipwrights.enderkinesis.item.pageText
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 
 /**
@@ -161,17 +162,9 @@ class EyeroscopeBlock(properties: BlockBehaviour.Properties) :
         val rawPage = pages.getString(0)
         if (rawPage.isEmpty()) return null
 
-        val pageText = if (stack.`is`(Items.WRITTEN_BOOK)) {
-            try {
-                Component.Serializer.fromJson(rawPage)?.string ?: rawPage
-            } catch (_: Exception) {
-                rawPage
-            }
-        } else {
-            rawPage
-        }
+        val text = if (stack.`is`(Items.WRITTEN_BOOK)) pageText(rawPage) else rawPage
 
-        val match = XYZ_REGEX.find(pageText) ?: return null
+        val match = XYZ_REGEX.find(text) ?: return null
         val x = match.groupValues[1].toDoubleOrNull()?.toInt() ?: return null
         val y = match.groupValues[2].toDoubleOrNull()?.toInt() ?: return null
         val z = match.groupValues[3].toDoubleOrNull()?.toInt() ?: return null

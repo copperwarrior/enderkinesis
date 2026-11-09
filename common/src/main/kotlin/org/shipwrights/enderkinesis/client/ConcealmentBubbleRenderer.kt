@@ -137,7 +137,6 @@ object ConcealmentBubbleRenderer {
             // Skip the cheap "no cloak active" case so the bubble pass costs nothing
             // when nothing's happening.
             if (progress <= 0.001f) continue
-            val intensity = progress
             val ship = (level.shipObjectWorld.allShips.getById(shipId) as? ClientShip) ?: continue
             val aabb = ship.shipAABB ?: continue
 

@@ -12,7 +12,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.AetherPadBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AetherPadClientRegistry
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object AetherPadSounds {
 
@@ -93,16 +93,9 @@ object AetherPadSounds {
 
     private fun targetPitch(power: Int): Float = 0.85f + 0.15f * power / 15f
 
-    /** On a ship, the block position is a shipyard position. */
-    private fun worldCentre(level: ClientLevel, be: AetherPadBlockEntity, out: Vector3d) {
-        val pos = be.blockPos
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
-    }
-
     /** Leaves the pad's world centre in [scratch]. */
     private fun inRange(level: ClientLevel, be: AetherPadBlockEntity, player: Player): Boolean {
-        worldCentre(level, be, scratch)
+        level.blockCentreInWorld(be.blockPos, scratch)
         return player.distanceToSqr(scratch.x, scratch.y, scratch.z) <= START_RANGE_SQR
     }
 
@@ -143,7 +136,7 @@ object AetherPadSounds {
         }
 
         private fun move() {
-            worldCentre(level, be, position)
+            level.blockCentreInWorld(be.blockPos, position)
             x = position.x
             y = position.y
             z = position.z

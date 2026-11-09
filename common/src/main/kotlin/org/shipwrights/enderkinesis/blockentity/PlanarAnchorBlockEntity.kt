@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import net.minecraft.world.phys.AABB
 import net.minecraft.core.BlockPos
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
@@ -18,6 +19,7 @@ import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Quaterniond
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.util.INFINITE_RENDER_BOX
 import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
@@ -35,6 +37,7 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.world.clipIncludeShips
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.shipwrights.enderkinesis.util.EntitylessClip
+import org.shipwrights.enderkinesis.util.gravity
 
 /**
  * The Planar Anchor's block entity.
@@ -59,6 +62,10 @@ import org.shipwrights.enderkinesis.util.EntitylessClip
 @OptIn(GameTickOnly::class)
 class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.PLANAR_ANCHOR.get(), pos, state), ShipMoveListener {
+
+    // The visual reaches far from the block; see INFINITE_RENDER_BOX.
+    @Suppress("unused")
+    fun getRenderBoundingBox(): AABB = INFINITE_RENDER_BOX
 
     /** VS2 joint id (>= 0) when this anchor is currently holding the ship. */
     private var jointId: Int = -1
@@ -594,7 +601,7 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         // too soft for heavy ships (12 Mkg test ship would sag through `m·g / 4k` = 3 km of
         // travel before equilibrating). See [computeEmptySpaceSpring] for the maths.
         val (epStiffness, epDamping) =
-            if (isPullOnly) computeEmptySpaceSpring(ship?.inertiaData?.mass)
+            if (isPullOnly) computeEmptySpaceSpring(ship?.inertiaData?.mass, level.gravity())
             else 0f to 0f                                  // values unused; stiffness=null below
         val joint: VSJoint = VSDistanceJoint(
             shipId0 = targetShipId,
@@ -683,7 +690,7 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
         // ship state — if the user packed extra blocks since last activation, the spring
         // gets stiffer with the heavier ship instead of using a stale persisted value.
         val (epStiffness, epDamping) =
-            if (persistedPullOnly) computeEmptySpaceSpring(ship?.inertiaData?.mass)
+            if (persistedPullOnly) computeEmptySpaceSpring(ship?.inertiaData?.mass, level.gravity())
             else 0f to 0f
         val joint: VSJoint = VSDistanceJoint(
             shipId0 = targetShipIdNullable,
@@ -797,9 +804,9 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
      *  fixed-stiffness comment warned about. Mass-aware critical adapts to whatever ship is
      *  hanging from it.
      */
-    private fun computeEmptySpaceSpring(shipMass: Double?): Pair<Float, Float> {
+    private fun computeEmptySpaceSpring(shipMass: Double?, gravity: Double): Pair<Float, Float> {
         val m = (shipMass ?: MIN_MASS_FOR_SPRING).coerceAtLeast(MIN_MASS_FOR_SPRING)
-        val k = m * GRAVITY / (ASSUMED_JOINT_COUNT * DESIRED_DROP)
+        val k = m * gravity / (ASSUMED_JOINT_COUNT * DESIRED_DROP)
         val c = 2.0 * Math.sqrt(k * m / ASSUMED_JOINT_COUNT)
         return k.toFloat() to c.toFloat()
     }
@@ -821,7 +828,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
     fun resetForStructureRespawn() {
         val srv = level as? ServerLevel
         val hadJoint = jointId >= 0
-        val hadPersisted = persistedJointType != JOINT_NONE
         if (hadJoint && srv != null) {
             ValkyrienSkiesMod.getOrCreateGTPA(srv.dimensionId).removeJoint(jointId)
         }
@@ -1065,10 +1071,6 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
          *  build the large 3-DOF stored-force pileup that motivated 1e-6 for the spherical pin,
          *  so we can run effectively rigid without trailing-impulse artefacts. */
         private const val EMPTY_SPACE_COMPLIANCE = 1e-10
-        /** VS2 world gravity magnitude (m/s²); same constant the lattice's force inducer
-         *  uses. */
-        private const val GRAVITY = 10.0
-
         /** How many empty-space anchors we *assume* a typical heavy ship is hung from when
          *  picking the per-anchor stiffness. With 4 anchors at the spec'd [DESIRED_DROP],
          *  per-anchor force at equilibrium is `mass · g / 4` — matches the user's actual

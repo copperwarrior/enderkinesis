@@ -52,7 +52,7 @@ object GuardianSpikeModels {
         val plate = quads.firstOrNull { q -> q.direction == Direction.UP && (0 until 4).all { y(q, it) <= FLAT_EPSILON } }
         val jittered = EnumMap<SpikeAttachment, Array<List<BakedQuad>>>(SpikeAttachment::class.java)
         val outward = EnumMap<SpikeAttachment, List<BakedQuad>>(SpikeAttachment::class.java)
-        for (attach in SpikeAttachment.values()) {
+        for (attach in SpikeAttachment.entries) {
             val tilted = spike.map { tilt(it, attach) }
             val inner = if (attach.order == 1) {
                 tilted + listOfNotNull(plate?.let { tilt(it, attach) })
@@ -77,7 +77,7 @@ object GuardianSpikeModels {
 
     private fun allQuads(model: BakedModel, state: BlockState): List<BakedQuad> {
         val rand = RandomSource.create(0L)
-        return (Direction.values().map { model.getQuads(state, it, rand) } + listOf(model.getQuads(state, null, rand))).flatten()
+        return (Direction.entries.map { model.getQuads(state, it, rand) } + listOf(model.getQuads(state, null, rand))).flatten()
     }
 
     private fun x(q: BakedQuad, v: Int) = Float.fromBits(q.vertices[v * STRIDE])

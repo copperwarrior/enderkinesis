@@ -42,6 +42,7 @@ object CrystalExplosiveCollisionRouter {
 
     /** Loaded ship id → pre-step linear velocity, for every loaded ship, so an unarmed rammer reads true too.
      *  In a drop test the START contact velocity read ~35% of the true speed; this pre-step velocity read true.
+     *  Stopgap until VS2 fixes the START contact velocity (confirmed upstream bug).
      *  The game thread adds and drops entries; the physics thread fills them. */
     private val preStep: ConcurrentHashMap<ShipId, Vector3d> = ConcurrentHashMap()
 
@@ -58,6 +59,7 @@ object CrystalExplosiveCollisionRouter {
         registered = true
         // Runs at the start of each physics tick, before the step that makes this tick's contacts.
         vsApi.physTickEvent.on { event, _ ->
+            if (noExplosives()) return@on
             tickLevel = event.world
             preStep.forEach(recordPreStep)
             tickLevel = null
@@ -77,6 +79,10 @@ object CrystalExplosiveCollisionRouter {
     // Server tick, on the game thread. One Vector3d per loaded ship; an unloaded or deleted ship loses its entry.
     @OptIn(GameTickOnly::class)
     private fun syncLoadedShips(server: MinecraftServer) {
+        if (noExplosives()) {
+            preStep.clear()
+            return
+        }
         val loaded = server.shipObjectWorld.loadedShips
         for (ship in loaded) preStep.computeIfAbsent(ship.id, newPreStep)
         val ids = preStep.keys.iterator()
@@ -84,6 +90,8 @@ object CrystalExplosiveCollisionRouter {
             if (loaded.getById(ids.next()) == null) ids.remove()
         }
     }
+
+    private fun noExplosives(): Boolean = byShip.isEmpty() && byWorld.isEmpty()
 
     fun addShip(be: CrystalExplosiveBlockEntity, shipId: ShipId) {
         byShip.computeIfAbsent(shipId) { ConcurrentHashMap() }[be.blockPos] = be

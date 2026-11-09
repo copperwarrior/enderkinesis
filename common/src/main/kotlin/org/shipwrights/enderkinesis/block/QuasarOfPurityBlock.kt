@@ -6,6 +6,8 @@ import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.EntityBlock
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
@@ -25,6 +27,12 @@ class QuasarOfPurityBlock(props: Properties) : Block(props), EntityBlock {
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
         builder.add(FACING)
     }
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState = state.rotateFacing(rotation)
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState = state.mirrorFacing(mirror)
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState =
         defaultBlockState().setValue(FACING, context.clickedFace)

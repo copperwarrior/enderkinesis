@@ -170,7 +170,7 @@ class ShulkerStrutBlock(properties: BlockBehaviour.Properties) :
         /** Half-cube voxel shapes keyed by FACING. The base occupies the half of the block
          *  *opposite* the FACING direction, so the lid body's half-cube (in the FACING
          *  half) tiles flush against it without overlap. Built once and reused. */
-        private val BASE_HALF_CUBE: Map<Direction, VoxelShape> = Direction.values().associateWith { d ->
+        private val BASE_HALF_CUBE: Map<Direction, VoxelShape> = Direction.entries.associateWith { d ->
             val n = d.normal
             // Voxel range [0..16] on each axis. Where n.<axis> = +1, base occupies 0..8;
             // where -1, base occupies 8..16; where 0, base spans the full 0..16.

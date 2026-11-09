@@ -21,11 +21,18 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.joml.Vector3dc
+import org.joml.primitives.AABBd
 import org.shipwrights.enderkinesis.block.VoidHookBlock
+import org.shipwrights.enderkinesis.body.bodyHoldsOwnGravity
 import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ConeSampler
+import org.shipwrights.enderkinesis.util.dynamicBody
+import org.shipwrights.enderkinesis.util.gravity
+import org.shipwrights.enderkinesis.util.massFalloff
+import org.shipwrights.enderkinesis.util.standaloneBodyIds
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.Ship
@@ -60,6 +67,8 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
     @Volatile private var cachedFacingY: Double = 0.0
     @Volatile private var cachedFacingZ: Double = 0.0
     @Volatile private var cachedNearbyShipIds: LongArray = EMPTY_IDS
+    @Volatile private var cachedNearbyBodyIds: LongArray = EMPTY_IDS
+    @Volatile private var cachedGravityBodyIds: LongArray = EMPTY_IDS
 
     /** Game-thread only. Saved, so a ripped block still becomes a falling block after a reload. */
     private val trackedAssemblies: HashMap<Long, TrackedAssembly> = HashMap()
@@ -176,6 +185,12 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
                 if (loaded != null) ShipGravityHold.hold(level, loaded)
             }
             cachedNearbyShipIds = ids.toLongArray()
+            val r = PULL_RADIUS
+            val reach = AABBd(cachedHx - r, cachedHy - r, cachedHz - r, cachedHx + r, cachedHy + r, cachedHz + r)
+            val bodies = level.standaloneBodyIds(reach) { worldAabbInCone(it.aabb) }
+            cachedNearbyBodyIds = bodies
+            cachedGravityBodyIds =
+                if (cancelsGravity) bodies.filterNot { level.bodyHoldsOwnGravity(it) }.toLongArray() else EMPTY_IDS
             // Block-sourced scale³ multiplier — matches the physTick path.
             val hostS1 = hostShip?.transform?.shipToWorldScaling?.x() ?: 1.0
             val hostS3 = hostS1 * hostS1 * hostS1
@@ -184,6 +199,8 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         } else {
             coneEntities = emptyList()
             cachedNearbyShipIds = EMPTY_IDS
+            cachedNearbyBodyIds = EMPTY_IDS
+            cachedGravityBodyIds = EMPTY_IDS
         }
         checkAssembliesLeftCone(level)
     }
@@ -503,11 +520,21 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         for (id in cachedNearbyShipIds) {
             val s = physLevel.getShipById(id) ?: continue
             if (s.isStatic || s.mass <= 0.0) continue
-            applyConeForces(s, powerFraction * hostS3)
+            s.applyWorldForceToBodyPos(coneForce(s.kinematics.position, s.velocity, s.mass, powerFraction * hostS3) ?: continue)
+        }
+        val gravityIds = cachedGravityBodyIds
+        val gravity = physLevel.gravity()
+        for (id in cachedNearbyBodyIds) {
+            val body = physLevel.dynamicBody(id) ?: continue
+            val mass = body.inertiaData.mass
+            val force = coneForce(body.kinematics.position, body.velocity, mass, powerFraction * hostS3) ?: Vector3d()
+            // A body has no gravity attachment, so the hold that [ShipGravityHold] gives ships is a counter-force here.
+            if (id in gravityIds) force.y += mass * gravity
+            body.applyWorldForceToBodyPos(force)
         }
     }
 
-    /** Game-tick variant of [applyConeForces] for raw [Entity] targets — mobs, items,
+    /** Game-tick variant of [coneForce] for raw [Entity] targets — mobs, items,
      *  players, projectiles. Same cone gate, same axial pull + tangential damping shape,
      *  applied as a `deltaMovement` delta because entities run on the 20 Hz game tick (not
      *  the 60 Hz phys tick). For [ServerPlayer]s we also push a [ClientboundSetEntityMotionPacket]
@@ -579,9 +606,9 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         }
     }
 
-    /** Per-tick cone forces for one ship: axial pull toward the hook apex (the "grab") plus
+    /** Per-tick cone force for one ship or standalone body: axial pull toward the hook apex (the "grab") plus
      *  tangential-velocity damping so a target doesn't sidescroll past us. Gravity is
-     *  cancelled separately by [ShipGravityHold].
+     *  cancelled separately by [ShipGravityHold], for ships only. A fresh vector each call: VS2 queues it by reference.
      *
      *  No AABB re-check on the physics thread — `PhysShipImpl.getWorldAABB` throws
      *  `NotImplementedError`, so the AABB-vs-cone gate is game-thread only (it populated
@@ -592,9 +619,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
      *  Depth used for the strength curve is the COM's depth along the cone axis
      *  *clamped* into `[0, PULL_RADIUS]` so a ship whose COM has briefly drifted just
      *  outside the apex/tip still gets a sensible strength multiplier. */
-    @OptIn(PhysTickOnly::class)
-    private fun applyConeForces(ship: PhysShip, powerFraction: Double) {
-        val com = ship.kinematics.position
+    private fun coneForce(com: Vector3dc, vel: Vector3dc, mass: Double, powerFraction: Double): Vector3d? {
         val dx = com.x() - cachedHx
         val dy = com.y() - cachedHy
         val dz = com.z() - cachedHz
@@ -604,25 +629,20 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
 
         val depthFrac = depth / PULL_RADIUS
         val depthPower = 1.0 - depthFrac * (1.0 - MIN_DEPTH_POWER)
-        val mass = ship.mass
 
         val dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-        if (dist < 1e-6) return
+        if (dist < 1e-6) return null
         val toHookDirX = -dx / dist
         val toHookDirY = -dy / dist
         val toHookDirZ = -dz / dist
 
-        // Axial pull toward the apex. Mass-scaled to a fixed acceleration so big ships and
-        // small ships approach the hook at the same rate; depth-scaled with the
-        // [MIN_DEPTH_POWER] floor so the far end isn't noticeably weaker than the apex.
-        val pullMag = mass * PULL_ACCEL * powerFraction * depthPower
+        val pullMag = mass * massFalloff(mass) * PULL_ACCEL * powerFraction * depthPower
         var fxOut = toHookDirX * pullMag
         var fyOut = toHookDirY * pullMag
         var fzOut = toHookDirZ * pullMag
 
         // Tangential-velocity damping: oppose the part of velocity perpendicular to the
         // ship→hook line. Same mass-independent decay-rate scaling as before.
-        val vel = ship.velocity
         val vRadial = vel.x() * toHookDirX + vel.y() * toHookDirY + vel.z() * toHookDirZ
         val vTangentX = vel.x() - toHookDirX * vRadial
         val vTangentY = vel.y() - toHookDirY * vRadial
@@ -632,7 +652,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         fyOut -= vTangentY * dampCoeff
         fzOut -= vTangentZ * dampCoeff
 
-        ship.applyWorldForceToBodyPos(Vector3d(fxOut, fyOut, fzOut))
+        return Vector3d(fxOut, fyOut, fzOut)
     }
 
     companion object {
@@ -668,7 +688,7 @@ class VoidHookBlockEntity(pos: BlockPos, state: BlockState) :
         const val MIN_DEPTH_POWER: Double = 0.95
 
         /** Axial-pull acceleration (m/s²) for **ships** at full redstone power, at the
-         *  cone apex. Mass-scaled (so all ship sizes approach at the same rate). The
+         *  cone apex, for a light ship; [massFalloff] lowers it for heavy ships. The
          *  applied force scales linearly with the redstone signal strength `power/15`
          *  — power 0 → 0 N, power 15 → full strength. At `3 m/s² ≈ 0.3 g` the pull
          *  reads as a very gentle draw. */

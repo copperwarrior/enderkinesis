@@ -122,7 +122,7 @@ abstract class GuardianSpikeBase(props: Properties) : Block(props), SimpleWaterl
         /** One box hides a diagonal spike in a cube of air, so edge and corner spikes get a staircase along the axis. */
         private val HIT_BOXES: Map<SpikeAttachment, List<AABB>> = EnumMap<SpikeAttachment, List<AABB>>(SpikeAttachment::class.java).apply {
             val cell = AABB(0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-            for (attach in SpikeAttachment.values()) {
+            for (attach in SpikeAttachment.entries) {
                 val steps = if (attach.order == 1) 1 else DIAGONAL_STEPS
                 put(attach, List(steps) { i ->
                     AABB(attach.along(i.toDouble() / steps), attach.along((i + 1.0) / steps)).inflate(HALF_WIDTH).intersect(cell)

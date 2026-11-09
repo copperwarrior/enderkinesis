@@ -13,7 +13,7 @@ import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferClientRegistry
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object ShulkerPufferSounds {
 
@@ -111,16 +111,9 @@ object ShulkerPufferSounds {
 
     internal fun targetPitch(power: Int): Float = 0.75f + 0.25f * (power - 1) / 14f
 
-    /** On a ship, the block position is a shipyard position. */
-    internal fun worldCentre(level: ClientLevel, be: ShulkerPufferBlockEntity, out: Vector3d) {
-        val pos = be.blockPos
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
-    }
-
     /** Leaves the puffer's world centre in [scratch]. */
     private fun inRange(level: ClientLevel, be: ShulkerPufferBlockEntity, player: Player): Boolean {
-        worldCentre(level, be, scratch)
+        level.blockCentreInWorld(be.blockPos, scratch)
         return player.distanceToSqr(scratch.x, scratch.y, scratch.z) <= START_RANGE_SQR
     }
 
@@ -171,7 +164,7 @@ object ShulkerPufferSounds {
         }
 
         private fun move() {
-            worldCentre(level, be, position)
+            level.blockCentreInWorld(be.blockPos, position)
             x = position.x
             y = position.y
             z = position.z

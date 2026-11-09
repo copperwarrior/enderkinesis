@@ -13,7 +13,7 @@ import org.shipwrights.enderkinesis.block.VoidHarnessBlock
 import org.shipwrights.enderkinesis.blockentity.VoidHarnessBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHarnessClientRegistry
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object VoidHarnessSounds {
 
@@ -85,15 +85,8 @@ object VoidHarnessSounds {
 
     private fun power(be: VoidHarnessBlockEntity): Int = be.blockState.getValue(VoidHarnessBlock.POWER)
 
-    /** On a ship, the block position is a shipyard position. */
-    private fun worldCentre(level: ClientLevel, be: VoidHarnessBlockEntity, out: Vector3d) {
-        val pos = be.blockPos
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
-    }
-
     private fun inRange(level: ClientLevel, be: VoidHarnessBlockEntity, player: Player): Boolean {
-        worldCentre(level, be, scratch)
+        level.blockCentreInWorld(be.blockPos, scratch)
         return player.distanceToSqr(scratch.x, scratch.y, scratch.z) <= START_RANGE_SQR
     }
 
@@ -162,7 +155,7 @@ object VoidHarnessSounds {
         }
 
         private fun move() {
-            worldCentre(level, be, position)
+            level.blockCentreInWorld(be.blockPos, position)
             x = position.x
             y = position.y
             z = position.z

@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.blockentity
 
 import com.mojang.logging.LogUtils
+import net.minecraft.world.phys.AABB
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
@@ -17,6 +18,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3i
+import org.shipwrights.enderkinesis.util.INFINITE_RENDER_BOX
 import org.shipwrights.enderkinesis.physics.ShulkerStrutDamper
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
@@ -73,6 +75,10 @@ import org.valkyrienskies.core.api.util.UnavailableInKrunch
 @OptIn(GameTickOnly::class, VsBeta::class)
 class ShulkerStrutBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.SHULKER_STRUT.get(), pos, state), ShipMoveListener {
+
+    // The visual reaches far from the block; see INFINITE_RENDER_BOX.
+    @Suppress("unused")
+    fun getRenderBoundingBox(): AABB = INFINITE_RENDER_BOX
 
     var topShipId: Long = NO_SHIP
         private set

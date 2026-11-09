@@ -57,13 +57,13 @@ enum class SpikeAttachment(val dx: Int, val dy: Int, val dz: Int) : StringRepres
         const val LENGTH = 9.0 / 16.0
 
         private val BY_STEP: Array<SpikeAttachment?> = arrayOfNulls<SpikeAttachment>(27).also { table ->
-            for (a in values()) table[(a.dx + 1) * 9 + (a.dy + 1) * 3 + (a.dz + 1)] = a
+            for (a in entries) table[(a.dx + 1) * 9 + (a.dy + 1) * 3 + (a.dz + 1)] = a
         }
 
         fun of(dx: Int, dy: Int, dz: Int): SpikeAttachment? =
             if (dx !in -1..1 || dy !in -1..1 || dz !in -1..1) null else BY_STEP[(dx + 1) * 9 + (dy + 1) * 3 + (dz + 1)]
 
-        val CORNERS: List<SpikeAttachment> = values().filter { it.order == 3 }
+        val CORNERS: List<SpikeAttachment> = entries.filter { it.order == 3 }
     }
 }
 

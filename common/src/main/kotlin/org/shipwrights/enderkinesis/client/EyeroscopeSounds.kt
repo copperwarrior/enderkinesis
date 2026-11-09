@@ -11,7 +11,7 @@ import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EyeroscopeClientRegistry
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object EyeroscopeSounds {
 
@@ -51,15 +51,8 @@ object EyeroscopeSounds {
         }
     }
 
-    /** On a ship, the block position is a shipyard position. */
-    private fun worldCentre(level: ClientLevel, be: EyeroscopeBlockEntity, out: Vector3d) {
-        val pos = be.blockPos
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
-    }
-
     private fun inRange(level: ClientLevel, be: EyeroscopeBlockEntity, player: Player, out: Vector3d): Boolean {
-        worldCentre(level, be, out)
+        level.blockCentreInWorld(be.blockPos, out)
         return player.distanceToSqr(out.x, out.y, out.z) <= START_RANGE_SQR
     }
 
@@ -92,7 +85,7 @@ object EyeroscopeSounds {
         }
 
         private fun move() {
-            worldCentre(level, be, position)
+            level.blockCentreInWorld(be.blockPos, position)
             x = position.x
             y = position.y
             z = position.z

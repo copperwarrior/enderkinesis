@@ -60,7 +60,7 @@ object BakedItemModels {
     fun quadsOf(model: BakedModel): List<BakedQuad> = quadsByModel.getOrPut(model) {
         val random = RandomSource.create()
         val quads = ArrayList<BakedQuad>()
-        for (dir in Direction.values()) {
+        for (dir in Direction.entries) {
             random.setSeed(QUAD_RANDOM_SEED)
             quads.addAll(model.getQuads(null, dir, random))
         }

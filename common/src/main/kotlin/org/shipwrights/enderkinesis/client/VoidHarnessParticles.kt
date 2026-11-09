@@ -75,6 +75,7 @@ object VoidHarnessParticles {
         val aabb = ship.shipAABB ?: return
         val rand = level.random
         repeat(CrepusculitePortalParticles.count(power, SHIP_MAX_PER_TICK)) {
+            @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
             for (attempt in 0 until SHIP_BLOCK_ATTEMPTS) {
                 // The shipAABB max is inclusive.
                 blockPos.set(

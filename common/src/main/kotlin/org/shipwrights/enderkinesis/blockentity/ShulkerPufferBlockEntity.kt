@@ -17,11 +17,19 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap
 import org.joml.Vector3d
+import org.joml.primitives.AABBd
 import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.dynamicBody
+import org.shipwrights.enderkinesis.util.WorldBox
+import org.shipwrights.enderkinesis.util.BoxSearchScratch
+import org.shipwrights.enderkinesis.util.forEachShipBlockInBox
+import org.shipwrights.enderkinesis.util.standaloneBodiesInBox
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.util.PhysTickOnly
@@ -53,6 +61,12 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
     @Volatile private var cachedFacing: Direction = state.getValue(BlockStateProperties.FACING)
     @Volatile private var cachedPower: Int = state.getValue(BlockStateProperties.POWER)
     @Volatile private var cachedFueled: Boolean = false
+    // World-placed only: the game thread fills these, the physics thread pushes them.
+    @Volatile private var exhaustTargets: ExhaustTargets = ExhaustTargets.NONE
+    private val exhaustScratch = AABBd()
+    private val exhaustCursor = BlockPos.MutableBlockPos()
+    private val exhaustNearest = Long2DoubleOpenHashMap()
+    private val boxScratch = BoxSearchScratch()
 
     private val items = net.minecraft.core.NonNullList.withSize(1, ItemStack.EMPTY)
 
@@ -99,6 +113,69 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
         }
         cachedFueled = fuelTicks > 0
         syncFueled(level, pos, state, powered)
+        scanExhaust(level, pos, powered)
+    }
+
+    @OptIn(GameTickOnly::class, VsBeta::class)
+    private fun scanExhaust(level: ServerLevel, pos: BlockPos, powered: Boolean) {
+        val reach = if (!powered || level.getLoadedShipManagingPos(pos) != null) 0.0
+            else clearReach(level, pos, cachedFacing)
+        if (reach <= 0.0) {
+            exhaustTargets = ExhaustTargets.NONE
+            return
+        }
+        val facing = cachedFacing
+        val fx = facing.stepX.toDouble()
+        val fy = facing.stepY.toDouble()
+        val fz = facing.stepZ.toDouble()
+        // Exhaust distances are measured from the nozzle face along FACING.
+        val n0 = (pos.x + 0.5 + fx * 0.5) * fx + (pos.y + 0.5 + fy * 0.5) * fy + (pos.z + 0.5 + fz * 0.5) * fz
+        val box = WorldBox.of(exhaustBox(pos, facing, reach))
+
+        val nearestShip = exhaustNearest.apply { clear() }
+        level.forEachShipBlockInBox(box, boxScratch) { ship, _, middle ->
+            val d = (middle.x() * fx + middle.y() * fy + middle.z() * fz - n0 - 0.5).coerceAtLeast(0.0)
+            if (d < nearestShip.getOrDefault(ship.id, Double.MAX_VALUE)) nearestShip.put(ship.id, d)
+        }
+        val bodyIds = level.standaloneBodiesInBox(box, boxScratch)
+        val bodyDist = DoubleArray(bodyIds.size) { i ->
+            val aabb = level.shipObjectWorld.allBodies.getById(bodyIds[i])?.aabb
+            if (aabb == null) 0.0 else {
+                val near = minOf(aabb.minX() * fx, aabb.maxX() * fx) +
+                    minOf(aabb.minY() * fy, aabb.maxY() * fy) +
+                    minOf(aabb.minZ() * fz, aabb.maxZ() * fz)
+                (near - n0).coerceAtLeast(0.0)
+            }
+        }
+        exhaustTargets = ExhaustTargets(
+            nearestShip.keys.toLongArray(), nearestShip.values.toDoubleArray(), bodyIds, bodyDist,
+        )
+    }
+
+    /** Blocks of exhaust before the first world block that has collision, which stops the push. */
+    private fun clearReach(level: ServerLevel, pos: BlockPos, facing: Direction): Double {
+        val steps = EXHAUST_REACH.toInt()
+        for (k in 1..steps) {
+            val p = exhaustCursor.setWithOffset(pos, facing.stepX * k, facing.stepY * k, facing.stepZ * k)
+            if (!level.getBlockState(p).getCollisionShape(level, p).isEmpty) return k - 1.0
+        }
+        return EXHAUST_REACH
+    }
+
+    // Game thread only.
+    private fun exhaustBox(pos: BlockPos, facing: Direction, reach: Double): AABBd {
+        val nx = pos.x + 0.5 + facing.stepX * 0.5
+        val ny = pos.y + 0.5 + facing.stepY * 0.5
+        val nz = pos.z + 0.5 + facing.stepZ * 0.5
+        val ex = nx + facing.stepX * reach
+        val ey = ny + facing.stepY * reach
+        val ez = nz + facing.stepZ * reach
+        val hx = if (facing.stepX == 0) 0.5 else 0.0
+        val hy = if (facing.stepY == 0) 0.5 else 0.0
+        val hz = if (facing.stepZ == 0) 0.5 else 0.0
+        return exhaustScratch
+            .setMin(minOf(nx, ex) - hx, minOf(ny, ey) - hy, minOf(nz, ez) - hz)
+            .setMax(maxOf(nx, ex) + hx, maxOf(ny, ey) + hy, maxOf(nz, ez) + hz)
     }
 
     /** A queued bottle burns on the next tick, so it counts as fuel here. This stops a fuel_out and a
@@ -205,9 +282,12 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
 
     @OptIn(PhysTickOnly::class)
     override fun physTick(physShip: PhysShip?, physLevel: PhysLevel) {
-        if (physShip == null) return                       // only thrusts when ship-mounted
         val power = cachedPower
         if (power <= 0) return
+        if (physShip == null) {
+            pushExhaustTargets(physLevel, power)
+            return
+        }
 
         // Local thrust direction: opposite of FACING. The block "blows" exhaust out the
         // front; reaction force points into the back.
@@ -223,8 +303,7 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
         // world direction follows).
         physShip.transform.shipToWorldRotation.transform(worldThrust)
 
-        val baseMag = MAX_FORCE * (power / 15.0)
-        val rawMag = if (cachedFueled) baseMag * FUEL_BOOST else baseMag
+        val rawMag = thrustMagnitude(power)
         // Block-sourced forces scale as scale³ — VS2's fluid drag is
         // cross-section-aware (∝ scale²), so a linear (× scale) multiplier
         // gives drag-divided steady-state velocity ∝ 1/scale (smaller ships
@@ -242,6 +321,49 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
             Vector3d(worldThrust.x * mag, worldThrust.y * mag, worldThrust.z * mag),
             Vector3d(blockPos.x + 0.5, blockPos.y + 0.5, blockPos.z + 0.5),
         )
+    }
+
+    private fun thrustMagnitude(power: Int): Double {
+        val baseMag = MAX_FORCE * (power / 15.0)
+        return if (cachedFueled) baseMag * FUEL_BOOST else baseMag
+    }
+
+    /** A world-placed puffer has no scale, so the force is the ship thrust at scale 1, along +FACING. */
+    @OptIn(PhysTickOnly::class)
+    private fun pushExhaustTargets(physLevel: PhysLevel, power: Int) {
+        val targets = exhaustTargets
+        if (targets.shipIds.isEmpty() && targets.bodyIds.isEmpty()) return
+        val facing = cachedFacing
+        val mag = thrustMagnitude(power)
+        // A point on the exhaust axis: the force acts along that axis, so any point on it gives the same torque.
+        val nx = blockPos.x + 0.5 + facing.stepX * 0.5
+        val ny = blockPos.y + 0.5 + facing.stepY * 0.5
+        val nz = blockPos.z + 0.5 + facing.stepZ * 0.5
+        for (i in targets.shipIds.indices) {
+            val ship = physLevel.getShipById(targets.shipIds[i]) ?: continue
+            val m = mag * exhaustFalloff(targets.shipDist[i])
+            ship.applyWorldForce(Vector3d(facing.stepX * m, facing.stepY * m, facing.stepZ * m), Vector3d(nx, ny, nz))
+        }
+        for (i in targets.bodyIds.indices) {
+            val body = physLevel.dynamicBody(targets.bodyIds[i]) ?: continue
+            val m = mag * exhaustFalloff(targets.bodyDist[i])
+            body.applyWorldForce(Vector3d(facing.stepX * m, facing.stepY * m, facing.stepZ * m), Vector3d(nx, ny, nz))
+        }
+    }
+
+    /** Force fraction at [distance] blocks from the nozzle. */
+    private fun exhaustFalloff(distance: Double): Double = (1.0 - distance / EXHAUST_REACH).coerceIn(0.0, 1.0)
+
+    /** One snapshot, so the physics thread never reads ids and distances from two different scans. */
+    private class ExhaustTargets(
+        val shipIds: LongArray,
+        val shipDist: DoubleArray,
+        val bodyIds: LongArray,
+        val bodyDist: DoubleArray,
+    ) {
+        companion object {
+            val NONE = ExhaustTargets(LongArray(0), DoubleArray(0), LongArray(0), DoubleArray(0))
+        }
     }
 
     /** For ship-mounted puffers the block position is in shipyard coords,
@@ -318,6 +440,9 @@ class ShulkerPufferBlockEntity(pos: BlockPos, state: BlockState) :
          *  dispenser uses for its ejected items so the bottle pops out at a believable
          *  velocity rather than dribbling or rocketing. */
         private const val EJECT_SPEED: Double = 0.2
+
+        /** Blocks in front of a world-placed puffer whose ships and bodies take the push. */
+        private const val EXHAUST_REACH: Double = 4.0
 
         const val EVENT_BURST: Int = 1
         const val BURST_NONE: Int = -1

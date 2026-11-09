@@ -16,6 +16,8 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.DirectionalBlock
 import net.minecraft.world.level.block.EntityBlock
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityTicker
 import net.minecraft.world.level.block.entity.BlockEntityType
@@ -64,6 +66,12 @@ class ShulkerPufferBlock(properties: BlockBehaviour.Properties) :
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
         builder.add(BlockStateProperties.FACING, BlockStateProperties.POWER, FUELED)
     }
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState = state.rotateFacing(rotation)
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState = state.mirrorFacing(mirror)
 
     override fun getStateForPlacement(context: BlockPlaceContext): BlockState? {
         // Dispenser convention: FACING = opposite of nearest look direction. The front face

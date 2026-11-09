@@ -15,7 +15,7 @@ import net.minecraft.world.level.block.Block
 import org.joml.Quaternionf
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 
-/** Draws the held end crystal item flat on the centre of each face. */
+/** Draws the held end crystal item flat in the socket at the centre of each face. */
 class CrystalExplosiveRenderer(ctx: BlockEntityRendererProvider.Context) :
     BlockEntityRenderer<CrystalExplosiveBlockEntity> {
 
@@ -74,7 +74,10 @@ class CrystalExplosiveRenderer(ctx: BlockEntityRendererProvider.Context) :
 
         private const val ITEM_SCALE = 0.5f
 
-        /** Half a block plus half the scaled 1/16 item thickness and a small gap against z-fighting. */
-        private const val FACE_OFFSET = 0.5 + ITEM_SCALE / 32.0 + 0.002
+        /** Depth of the 8x8 socket on each face of the block model (2 px). */
+        private const val SOCKET_DEPTH = 2.0 / 16.0
+
+        /** The crystal sits on the socket floor: half a block, less the socket, plus half the scaled item thickness and a gap. */
+        private const val FACE_OFFSET = 0.5 - SOCKET_DEPTH + ITEM_SCALE / 32.0 + 0.002
     }
 }

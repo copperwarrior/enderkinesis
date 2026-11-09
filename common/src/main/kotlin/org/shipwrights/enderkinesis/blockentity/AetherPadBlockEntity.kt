@@ -19,6 +19,9 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.joml.Vector3dc
+import org.joml.Quaterniond
+import org.joml.Quaterniondc
 import org.shipwrights.enderkinesis.compat.create.CreateCompat
 import org.shipwrights.enderkinesis.mixin.ServerGamePacketListenerAccessor
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
@@ -34,6 +37,12 @@ import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.shipwrights.enderkinesis.util.EntitylessClip
+import org.shipwrights.enderkinesis.util.dynamicBody
+import org.shipwrights.enderkinesis.util.BodyHit
+import org.shipwrights.enderkinesis.util.WorldBox
+import org.shipwrights.enderkinesis.util.BoxSearchScratch
+import org.shipwrights.enderkinesis.util.forEachShipBlockInBox
+import org.shipwrights.enderkinesis.util.standaloneBodiesInBox
 
 /**
  * Backing block entity for [AetherPadBlock]. Mirrored ship/world interaction model:
@@ -65,6 +74,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
 
     @Volatile override lateinit var dimension: DimensionId
 
+    // Server thread only: the beam searches of this pad.
+    private val boxScratch = BoxSearchScratch()
+
     @Volatile private var cachedFacing: Direction = state.getValue(BlockStateProperties.FACING)
     @Volatile private var cachedPower: Int = state.getValue(BlockStateProperties.POWER)
 
@@ -72,11 +84,15 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     // -1 = "not ship-resident this tick".
     @Volatile private var cachedGroundDistance: Double = -1.0
 
+    // When the cached distances were traced (20 Hz); physTick extrapolates them to its own step.
+    @Volatile private var tracedAtNanos: Long = System.nanoTime()
+
     // Server thread only.
     private var lastGroundSoundAt = Long.MIN_VALUE / 2
 
     // World-placed path: closest ship in beam (single target). -1 shipId = no target.
     @Volatile private var cachedTargetShipId: Long = -1L
+    @Volatile private var cachedTargetBodyId: Long = -1L
     @Volatile private var cachedTargetDistance: Double = -1.0
     @Volatile private var cachedTargetModelX: Double = 0.0
     @Volatile private var cachedTargetModelY: Double = 0.0
@@ -99,6 +115,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         if (cachedPower <= 0) {
             cachedGroundDistance = -1.0
             cachedTargetShipId = -1L
+            cachedTargetBodyId = -1L
             cachedTargetDistance = -1.0
             return
         }
@@ -125,6 +142,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         pushEntitiesForward(level, padWorld, facingWorld, cachedPower)
 
         if (level is ServerLevel) {
+            tracedAtNanos = System.nanoTime()
             spawnBeamParticles(level, padWorld, facingWorld, cachedPower)
             if (ship != null) {
                 // SHIP-RESIDENT: trace WORLD ground for hover lift.
@@ -132,12 +150,22 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 cachedGroundDistance = computeGroundDistance(level, padWorld, facingWorld)
                 if (!hadGround && hasGround(cachedGroundDistance)) playGround(level, pos)
                 cachedTargetShipId = -1L
-                cachedTargetDistance = -1.0
+                // A body nearer than the ground takes the push, and the host ship pushes off it.
+                val column = beamColumn(padWorld, facingWorld, facing, ship.transform.shipToWorldRotation)
+                val bodyHit = findClosestBodyInBeam(level, column, padWorld, facingWorld, cachedGroundDistance.coerceAtMost(GROUND_MAX_RANGE), boxScratch)
+                cachedTargetBodyId = bodyHit?.bodyId ?: -1L
+                cachedTargetDistance = bodyHit?.distance ?: -1.0
             } else {
                 // WORLD-PLACED: trace for SHIP in beam (mirror of ship→world).
                 cachedGroundDistance = -1.0
-                val hit = findClosestShipInBeam(level, padWorld, facingWorld)
-                if (hit == null) {
+                val column = beamColumn(padWorld, facingWorld, facing, null)
+                val hit = findClosestShipInBeam(level, column, padWorld, facingWorld, boxScratch)
+                val bodyHit = findClosestBodyInBeam(level, column, padWorld, facingWorld, hit?.distance ?: GROUND_MAX_RANGE, boxScratch)
+                cachedTargetBodyId = bodyHit?.bodyId ?: -1L
+                if (bodyHit != null) {
+                    cachedTargetShipId = -1L
+                    cachedTargetDistance = bodyHit.distance
+                } else if (hit == null) {
                     cachedTargetShipId = -1L
                     cachedTargetDistance = -1.0
                 } else {
@@ -176,9 +204,11 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         if (power <= 0) return                              // pad is unpowered
 
         if (physShip != null) {
-            val groundDist = cachedGroundDistance
+            val bodyId = cachedTargetBodyId
+            val body = if (bodyId >= 0L) physLevel.dynamicBody(bodyId) else null
+            val groundDist = if (body != null) cachedTargetDistance else cachedGroundDistance
             if (groundDist < 0.0 || groundDist >= GROUND_MAX_RANGE) return
-            applyMirroredHover(
+            val pushed = applyMirroredHover(
                 target = physShip,
                 distance = groundDist,
                 modelX = blockPos.x + 0.5, modelY = blockPos.y + 0.5, modelZ = blockPos.z + 0.5,
@@ -187,12 +217,24 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
                 // Pad block is on this same ship — its output scales with the ship's scale.
                 padScale = physShip.transform.shipToWorldScaling.x(),
             )
+            // Equal and opposite, as a new vector: VS2 keeps the one the ship got.
+            body?.applyWorldForceToBodyPos(Vector3d(pushed).negate())
         } else {
+            val targetDist = cachedTargetDistance
+            if (targetDist < 0.0 || targetDist >= GROUND_MAX_RANGE) return
+            val bodyId = cachedTargetBodyId
+            if (bodyId >= 0L) {
+                val body = physLevel.dynamicBody(bodyId) ?: return
+                val v = body.velocity
+                // Pad block is in world (no host ship) — no scale factor. At the COM: a body has no shipyard hit point.
+                body.applyWorldForceToBodyPos(
+                    hoverForce(body.inertiaData.mass, v.x(), v.y(), v.z(), targetDist, +1.0, power, 1.0),
+                )
+                return
+            }
             val shipId = cachedTargetShipId
             if (shipId < 0L) return
             val target = physLevel.getShipById(shipId) ?: return
-            val targetDist = cachedTargetDistance
-            if (targetDist < 0.0 || targetDist >= GROUND_MAX_RANGE) return
             applyMirroredHover(
                 target = target,
                 distance = targetDist,
@@ -208,24 +250,9 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     /**
-     * Shared push routine for ship-resident hover and world-pad → ship mirror. Both apply
-     * the same spring + critical-damping + lateral-friction model along the world-frame
-     * `FACING` axis (× pushSign), at the supplied model position on `target`. All three
-     * components are **mass-relative**: the lift force scales with the target's mass so a
-     * 1-tonne skiff and a 1-kilotonne galleon both hover at the same equilibrium height
-     * (set by [HOVER_LIFT_FACTOR] / [ASSUMED_PAD_COUNT]). Without mass-relative scaling,
-     * light ships rocket past the range cap and heavy ships can't lift off the ground.
-     *
-     *  - **Spring lift**: `springForcePerPad(m, power) × proximity`. Linear distance
-     *    falloff, linear in mass and power.
-     *  - **Critical damping**: `2·√(k·m/n)` where `k` is the spring stiffness (∂F/∂distance,
-     *    also mass-aware), so the damping coefficient scales with mass and keeps both small
-     *    and large ships settling cleanly without over-damping.
-     *  - **Lateral friction**: `LATERAL_FRICTION_RATE × m/n × proximity × power/15`,
-     *    against the target's velocity perpendicular to the lift axis. The 1/s rate means
-     *    a constant *deceleration* per unit of lateral velocity regardless of ship size —
-     *    a 1-tonne skiff and a 1-kilotonne galleon both lose perpendicular drift at the
-     *    same rate per pad.
+     * Shared push routine for ship-resident hover and world-pad → ship mirror: a fixed spring with critical
+     * damping along the world-frame `FACING` axis (× pushSign), and a fixed lateral friction, at the model position.
+     * The forces do not scale with mass, so more pads lift more.
      */
     @OptIn(PhysTickOnly::class)
     private fun applyMirroredHover(
@@ -235,23 +262,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         pushSign: Double,
         power: Int,
         padScale: Double,
-    ) {
-        val powerScale = power / 15.0
-        val proximity = 1.0 - (distance / GROUND_MAX_RANGE)
-        val effectiveMass = target.mass.coerceAtLeast(MIN_MASS_FOR_DAMP)
-        val massShare = effectiveMass / ASSUMED_PAD_COUNT
-
-        // Push direction in world frame.
-        val pushX = cachedFacingWorldX * pushSign
-        val pushY = cachedFacingWorldY * pushSign
-        val pushZ = cachedFacingWorldZ * pushSign
-
-        // Spring force — mass-relative. Per-pad force at the ground (proximity=1) is
-        // HOVER_LIFT_FACTOR × m × g / n_pads, so n_pads of them together push the ship
-        // upward with HOVER_LIFT_FACTOR × m × g of force at zero distance, settling at
-        // proximity = 1 / (HOVER_LIFT_FACTOR × powerScale) where lift equals gravity.
-        val springMag = springForcePerPad(effectiveMass, power) * proximity
-
+    ): Vector3dc {
         // Velocity at the application point in world frame: v_target_COM + ω × r_world.
         // r_world = (modelPos - targetCOMShip) rotated into world.
         val v = target.velocity
@@ -262,20 +273,43 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         val vpX: Double = v.x() + w.y() * rWorld.z - w.z() * rWorld.y
         val vpY: Double = v.y() + w.z() * rWorld.x - w.x() * rWorld.z
         val vpZ: Double = v.z() + w.x() * rWorld.y - w.y() * rWorld.x
-        val velAlongPush = vpX * pushX + vpY * pushY + vpZ * pushZ
+        val force = hoverForce(target.mass, vpX, vpY, vpZ, distance, pushSign, power, padScale)
+        target.applyWorldForceToModelPos(force, Vector3d(modelX, modelY, modelZ))
+        return force
+    }
 
-        // Critical damping on the lift axis. `k` (mass-aware) = peak spring force / range.
-        val k = springForcePerPad(effectiveMass, power) / GROUND_MAX_RANGE
+    /** The hover force for a target of [mass] whose application point moves at velocity vp, as a fresh vector. */
+    private fun hoverForce(
+        mass: Double,
+        vpX: Double, vpY: Double, vpZ: Double,
+        distance: Double,
+        pushSign: Double,
+        power: Int,
+        padScale: Double,
+    ): Vector3d {
+        val powerScale = power / 15.0
+        val massShare = mass.coerceAtLeast(1.0) / ASSUMED_PAD_COUNT
+
+        // Push direction in world frame.
+        val pushX = cachedFacingWorldX * pushSign
+        val pushY = cachedFacingWorldY * pushSign
+        val pushZ = cachedFacingWorldZ * pushSign
+
+        val velAlongPush = vpX * pushX + vpY * pushY + vpZ * pushZ
+        // A trace from up to 50 ms ago makes the spring lag and adds negative damping.
+        val age = ((System.nanoTime() - tracedAtNanos) * 1.0e-9).coerceIn(0.0, MAX_TRACE_AGE)
+        val proximity = 1.0 - ((distance + velAlongPush * age).coerceIn(0.0, GROUND_MAX_RANGE) / GROUND_MAX_RANGE)
+        val springMag = springForcePerPad(power) * proximity
+
+        // Critical damping for the mass share of one pad: k = peak spring force / range.
+        val k = springForcePerPad(power) / GROUND_MAX_RANGE
         val cCrit = 2.0 * Math.sqrt(k * massShare)
         val liftMag = (springMag - cCrit * velAlongPush).coerceAtLeast(0.0)
 
-        // Lateral friction (everything perpendicular to push axis). Force per pad =
-        // LATERAL_FRICTION_RATE × (mass/n) × v_perp × proximity × powerScale, giving a
-        // constant deceleration rate per pad regardless of ship size.
         val vPerpX = vpX - pushX * velAlongPush
         val vPerpY = vpY - pushY * velAlongPush
         val vPerpZ = vpZ - pushZ * velAlongPush
-        val frictionCoef = LATERAL_FRICTION_RATE * massShare * proximity * powerScale
+        val frictionCoef = PAD_FRICTION * proximity * powerScale
 
         val rawFx = pushX * liftMag - vPerpX * frictionCoef
         val rawFy = pushY * liftMag - vPerpY * frictionCoef
@@ -286,11 +320,7 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         val totalFx = rawFx * s3
         val totalFy = rawFy * s3
         val totalFz = rawFz * s3
-
-        target.applyWorldForceToModelPos(
-            Vector3d(totalFx, totalFy, totalFz),
-            Vector3d(modelX, modelY, modelZ),
-        )
+        return Vector3d(totalFx, totalFy, totalFz)
     }
 
     /** Result of a successful ship-in-beam trace. Public so [CreateCompat] can call
@@ -302,14 +332,10 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
     )
 
     companion object {
-        /** Mass-relative hover-lift factor. Per-pad peak force at the ground (proximity=1,
-         *  POWER 15) is `HOVER_LIFT_FACTOR × m × g / ASSUMED_PAD_COUNT` newtons. With
-         *  factor 2.5 and 4 assumed pads, the n_pads together produce 2.5·m·g at the
-         *  ground — 2.5 g of net upward thrust over gravity — and the ship settles at
-         *  proximity = 1 / (HOVER_LIFT_FACTOR · powerScale) where spring lift equals
-         *  weight. At full power that's proximity ≈ 0.4 → ≈ 2.4 blocks of hover height
-         *  above the ground, regardless of ship mass. */
-        const val HOVER_LIFT_FACTOR: Double = 2.5
+        private const val MAX_TRACE_AGE = 0.1
+
+        /** Spring force of one pad (N) at proximity 1 and full power. */
+        const val PAD_FORCE: Double = 100_000.0
 
         /** Maximum ground-effect detection range, blocks. */
         const val GROUND_MAX_RANGE: Double = 4.0
@@ -317,27 +343,11 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
         private const val GROUND_SOUND_VOLUME = 0.6f
         private const val GROUND_SOUND_GAP_TICKS = 40L
 
-        /** Lateral friction rate (1/s) — per-pad deceleration applied to perpendicular
-         *  velocity at full power, full proximity, scaled by `mass / ASSUMED_PAD_COUNT`.
-         *  4.0 → ~1 m/s² of decel per m/s of drift per pad on a typical hovercraft, so
-         *  4 pads together provide ~4 m/s² of grip. Mass-aware so the feel is consistent
-         *  across ship sizes. */
-        const val LATERAL_FRICTION_RATE: Double = 4.0
+        /** Lateral friction of one pad (N per m/s) at proximity 1 and full power. */
+        const val PAD_FRICTION: Double = 16_000.0
 
-        /** Standard gravity (m/s²) used for hover-force sizing. Matches VS2's world
-         *  gravity so the spring math stays in physical units. */
-        const val GRAVITY: Double = 10.0
-
-        /** Per-pad spring force (N) at proximity = 1 on a target of [mass] kg at [power]
-         *  (0–15). Total upward force from `ASSUMED_PAD_COUNT` pads at the ground equals
-         *  `HOVER_LIFT_FACTOR × mass × GRAVITY × power/15`. Shared between the BE's
-         *  `applyMirroredHover` and Create-compat's contraption staging path so both
-         *  routes apply the same physics. */
-        fun springForcePerPad(mass: Double, power: Int): Double {
-            val effective = mass.coerceAtLeast(MIN_MASS_FOR_DAMP)
-            val powerScale = power / 15.0
-            return HOVER_LIFT_FACTOR * effective * GRAVITY * powerScale / ASSUMED_PAD_COUNT
-        }
+        /** Spring force of one pad (N) at proximity 1 and [power] (0-15). The BE and the Create contraption path share it. */
+        fun springForcePerPad(power: Int): Double = PAD_FORCE * power / 15.0
 
         /** Target beam velocity (b/t), applied uniformly across the plateau region of the
          *  beam (i.e. up to `effectiveRange − effectiveTaper`). Must clearly beat gravity:
@@ -383,16 +393,8 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
          *  particle spawn AABB. */
         const val ENTITY_PUSH_HALFWIDTH: Double = 0.5
 
-        /** Assumed pad count for per-pad mass-share. Both the spring sizing and the
-         *  critical-damping formula divide the target's mass by this. Tuning constant —
-         *  a rig with exactly [ASSUMED_PAD_COUNT] pads experiences textbook critical
-         *  damping; more pads over-damp slightly, fewer under-damp. */
+        /** The critical damping divides the target's mass by this pad count: more pads over-damp slightly, fewer under-damp. */
         const val ASSUMED_PAD_COUNT: Double = 4.0
-
-        /** Floor on the target mass used in spring/damping sizing so a near-massless
-         *  body (or one whose inertia hasn't initialised yet) doesn't compute zero
-         *  forces. 1000 kg ≈ one slab of cobble. */
-        const val MIN_MASS_FOR_DAMP: Double = 1000.0
 
         /** Beam-particle emission interval (game ticks). Higher = sparser. */
         private const val BEAM_PARTICLE_INTERVAL: Long = 10L
@@ -564,110 +566,61 @@ class AetherPadBlockEntity(pos: BlockPos, state: BlockState) :
 
         private const val RAY_START_OFFSET = 0.51
 
+        /** The 1 by 1 push column from the pad face to [GROUND_MAX_RANGE]; [hostRotation] is null for a world pad. */
+        fun beamColumn(padWorld: Vector3d, facingWorld: Vector3d, facing: Direction, hostRotation: Quaterniondc?): WorldBox {
+            val half = (GROUND_MAX_RANGE - PAD_HALF) * 0.5
+            val extents = Vector3d(PAD_HALF, PAD_HALF, PAD_HALF).setComponent(facing.axis.ordinal, half)
+            val centre = Vector3d(facingWorld).mul(PAD_HALF + half).add(padWorld)
+            return WorldBox(centre, hostRotation ?: Quaterniond(), extents)
+        }
+
         /**
-         * Find the closest VS2 ship whose world AABB the beam enters within
-         * [GROUND_MAX_RANGE], or null if none. Uses the slab method for ray-vs-AABB —
-         * a clean intersection point, no false hits from inflated-box overlap. The hit's
-         * shipyard position (`worldToShip` of the world entry point) is what physTick
-         * applies the push at, so off-COM application produces torque on the target.
+         * The nearest ship with a real block in [column], or null. The push lands where the beam axis meets the
+         * near face, in the target's shipyard, so an off-COM hit tilts the target.
          */
         @OptIn(GameTickOnly::class)
         fun findClosestShipInBeam(
-            level: ServerLevel,
-            padWorld: Vector3d,
-            facingWorld: Vector3d,
+            level: ServerLevel, column: WorldBox, padWorld: Vector3d, facingWorld: Vector3d,
+            scratch: BoxSearchScratch = BoxSearchScratch(),
         ): ShipHit? {
             var bestT = GROUND_MAX_RANGE
-            var bestShipId = -1L
-            var bestWorldX = 0.0; var bestWorldY = 0.0; var bestWorldZ = 0.0
-            var bestShipRef: org.valkyrienskies.core.api.ships.LoadedServerShip? = null
-
-            val dim = level.dimensionId
-            for (s in level.shipObjectWorld.allShips) {
-                if (s.chunkClaimDimension != dim) continue
-                val sa = s.worldAABB
-                // Frame-of-reference guard: skip any ship whose worldAABB *contains*
-                // the pad's own world position. The pad is on that ship; pushing it
-                // would be the pad reacting against its own frame — an internal force
-                // that physically does nothing useful and in practice produces
-                // self-resonating oscillation as both the pad and the ship try to
-                // move in opposite directions. For a correctly-classified world-placed
-                // pad no ship contains its position and this is a no-op; for an
-                // edge-case where the world-pad branch ran on a ship-mounted pad
-                // (race between chunk load and `getLoadedShipManagingPos`), this is
-                // the defensive cutout that prevents the bug.
-                if (padWorld.x in sa.minX()..sa.maxX() &&
-                    padWorld.y in sa.minY()..sa.maxY() &&
-                    padWorld.z in sa.minZ()..sa.maxZ()) continue
-
-                val t = raySlabIntersect(
-                    padWorld.x, padWorld.y, padWorld.z,
-                    facingWorld.x, facingWorld.y, facingWorld.z,
-                    sa.minX(), sa.minY(), sa.minZ(),
-                    sa.maxX(), sa.maxY(), sa.maxZ(),
-                )
-                if (t.isNaN() || t > bestT) continue
-                bestT = t
-                bestShipId = s.id
-                bestWorldX = padWorld.x + facingWorld.x * t
-                bestWorldY = padWorld.y + facingWorld.y * t
-                bestWorldZ = padWorld.z + facingWorld.z * t
-                bestShipRef = s as? org.valkyrienskies.core.api.ships.LoadedServerShip
+            var best: org.valkyrienskies.core.api.ships.LoadedServerShip? = null
+            level.forEachShipBlockInBox(column, scratch) { ship, _, middle ->
+                // A pad that is on this ship but was read as a world pad must not push its own ship.
+                val sa = ship.worldAABB
+                if (padWorld.x in sa.minX()..sa.maxX() && padWorld.y in sa.minY()..sa.maxY() && padWorld.z in sa.minZ()..sa.maxZ()) return@forEachShipBlockInBox
+                val t = ((middle.x() - padWorld.x) * facingWorld.x + (middle.y() - padWorld.y) * facingWorld.y +
+                    (middle.z() - padWorld.z) * facingWorld.z - PAD_HALF).coerceAtLeast(PAD_HALF)
+                if (t < bestT) { bestT = t; best = ship }
             }
-            if (bestShipId < 0L || bestShipRef == null) return null
-
-            // Project world hit → shipyard position on the target. physTick uses model
-            // pos for off-COM application, which is what makes asymmetric ship layouts
-            // (target's COM off the pad's axis) naturally tilt under the push.
-            val modelPos = Vector3d(bestWorldX, bestWorldY, bestWorldZ)
-            bestShipRef.transform.worldToShip.transformPosition(modelPos)
-            return ShipHit(bestShipId, bestT, modelPos)
+            val ship = best ?: return null
+            val modelPos = Vector3d(facingWorld).mul(bestT).add(padWorld)
+            ship.transform.worldToShip.transformPosition(modelPos)
+            return ShipHit(ship.id, bestT, modelPos)
         }
 
-        /** Slab-method ray-vs-AABB intersection. Returns the entry-t along the ray
-         *  (origin + t·dir = hit point), or NaN if no intersection within `t ≥ 0`.
-         *  Origin inside the box returns t=0. */
-        @OptIn(GameTickOnly::class)
-        private fun raySlabIntersect(
-            ox: Double, oy: Double, oz: Double,
-            dx: Double, dy: Double, dz: Double,
-            minX: Double, minY: Double, minZ: Double,
-            maxX: Double, maxY: Double, maxZ: Double,
-        ): Double {
-            var tmin = Double.NEGATIVE_INFINITY
-            var tmax = Double.POSITIVE_INFINITY
-            // X slab
-            if (Math.abs(dx) < 1e-9) {
-                if (ox < minX || ox > maxX) return Double.NaN
-            } else {
-                val t1 = (minX - ox) / dx
-                val t2 = (maxX - ox) / dx
-                tmin = Math.max(tmin, Math.min(t1, t2))
-                tmax = Math.min(tmax, Math.max(t1, t2))
-                if (tmin > tmax) return Double.NaN
+        /** The nearest standalone body whose shape is in [column] and nearer than [maxDistance], or null. */
+        @OptIn(GameTickOnly::class, VsBeta::class)
+        fun findClosestBodyInBeam(
+            level: ServerLevel, column: WorldBox, padWorld: Vector3d, facingWorld: Vector3d, maxDistance: Double,
+            scratch: BoxSearchScratch = BoxSearchScratch(),
+        ): BodyHit? {
+            var best: BodyHit? = null
+            for (id in level.standaloneBodiesInBox(column, scratch)) {
+                val a = level.shipObjectWorld.allBodies.getById(id)?.aabb ?: continue
+                // The near side of the body bounds along the beam.
+                val near = ((a.minX() + a.maxX()) * 0.5 - padWorld.x) * facingWorld.x +
+                    ((a.minY() + a.maxY()) * 0.5 - padWorld.y) * facingWorld.y +
+                    ((a.minZ() + a.maxZ()) * 0.5 - padWorld.z) * facingWorld.z -
+                    (Math.abs(facingWorld.x) * (a.maxX() - a.minX()) + Math.abs(facingWorld.y) * (a.maxY() - a.minY()) +
+                        Math.abs(facingWorld.z) * (a.maxZ() - a.minZ())) * 0.5
+                val t = near.coerceAtLeast(PAD_HALF)
+                if (t <= maxDistance && (best == null || t < best.distance)) best = BodyHit(id, t)
             }
-            // Y slab
-            if (Math.abs(dy) < 1e-9) {
-                if (oy < minY || oy > maxY) return Double.NaN
-            } else {
-                val t1 = (minY - oy) / dy
-                val t2 = (maxY - oy) / dy
-                tmin = Math.max(tmin, Math.min(t1, t2))
-                tmax = Math.min(tmax, Math.max(t1, t2))
-                if (tmin > tmax) return Double.NaN
-            }
-            // Z slab
-            if (Math.abs(dz) < 1e-9) {
-                if (oz < minZ || oz > maxZ) return Double.NaN
-            } else {
-                val t1 = (minZ - oz) / dz
-                val t2 = (maxZ - oz) / dz
-                tmin = Math.max(tmin, Math.min(t1, t2))
-                tmax = Math.min(tmax, Math.max(t1, t2))
-                if (tmin > tmax) return Double.NaN
-            }
-            return if (tmin >= 0) tmin else if (tmax >= 0) 0.0 else Double.NaN
+            return best
         }
+
+        private const val PAD_HALF = 0.5
 
         /**
          * Spawn ender particles uniformly throughout the 1×N×1 beam column where

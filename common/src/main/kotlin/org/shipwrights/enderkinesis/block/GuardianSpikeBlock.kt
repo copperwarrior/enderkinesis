@@ -120,7 +120,7 @@ class GuardianSpikeBlock(props: Properties) : GuardianSpikeBase(props) {
 
         /** Per-spike shifts along the axes the spike is free on: a 4 x 4 grid on a face, 16 steps along an edge. */
         val JITTER: Map<SpikeAttachment, Array<Vec3>> = EnumMap<SpikeAttachment, Array<Vec3>>(SpikeAttachment::class.java).apply {
-            for (attach in SpikeAttachment.values()) put(attach, Array(VARIANTS) { jitter(attach, it) })
+            for (attach in SpikeAttachment.entries) put(attach, Array(VARIANTS) { jitter(attach, it) })
         }
 
         private fun jitter(attach: SpikeAttachment, k: Int): Vec3 {

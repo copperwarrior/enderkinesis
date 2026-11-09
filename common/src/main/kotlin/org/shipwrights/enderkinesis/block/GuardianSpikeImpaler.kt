@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Predicate
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.util.GameTickOnly
@@ -192,7 +193,7 @@ object GuardianSpikeImpaler {
         }
         if (count > MAX_WELDS_PER_SCAN) return
         val mass = reducedMass(spikeShip, targetShip) ?: return
-        val impale = newImpale(key, hit, mass, now)
+        val impale = newImpale(key, hit, mass, level.gravity(), now)
         map[key] = impale
         pending.computeIfAbsent(level.dimensionId) { ConcurrentLinkedQueue() }.add(impale)
     }
@@ -236,8 +237,8 @@ object GuardianSpikeImpaler {
         }
     }
 
-    private fun newImpale(key: Key, hit: Hit, mass: Double, now: Long): Impale {
-        val weight = mass * GRAVITY
+    private fun newImpale(key: Key, hit: Hit, mass: Double, gravity: Double, now: Long): Impale {
+        val weight = mass * gravity
         return Impale(
             lastSeen = now,
             spikeBody = key.spikeBody,
@@ -359,7 +360,6 @@ object GuardianSpikeImpaler {
     private val SAMPLES = doubleArrayOf(0.5, 1.0)
     /** Prismatic convention: local +X is the slide axis. */
     private val LOCAL_X = Vector3d(1.0, 0.0, 0.0)
-    private const val GRAVITY = 9.81
     /** Keeps the spring and the tear load above zero for a near-empty ship. */
     private const val MIN_MASS = 50.0
     /** One spike holds this many times the bodies' weight before it tears. */

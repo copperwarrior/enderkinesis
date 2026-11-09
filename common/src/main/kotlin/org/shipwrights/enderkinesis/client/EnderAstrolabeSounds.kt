@@ -11,7 +11,7 @@ import org.shipwrights.enderkinesis.block.EnderAstrolabeBlock
 import org.shipwrights.enderkinesis.blockentity.EnderAstrolabeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.EnderAstrolabeClientRegistry
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object EnderAstrolabeSounds {
 
@@ -48,17 +48,10 @@ object EnderAstrolabeSounds {
         if (loops.isNotEmpty()) loops.values.removeIf { it.isStopped || !sounds.isActive(it) }
         for (be in EnderAstrolabeClientRegistry.all(level)) {
             if (be in loops || !isCharging(be)) continue
-            worldCentre(level, be, scratch)
+            level.blockCentreInWorld(be.blockPos, scratch)
             if (player.distanceToSqr(scratch.x, scratch.y, scratch.z) > START_RANGE_SQR) continue
             loops[be] = ChargeLoop(level, be).also(sounds::play)
         }
-    }
-
-    /** On a ship, the block position is a shipyard position. */
-    private fun worldCentre(level: ClientLevel, be: EnderAstrolabeBlockEntity, out: Vector3d) {
-        val pos = be.blockPos
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
     }
 
     private fun isCharging(be: EnderAstrolabeBlockEntity): Boolean =
@@ -99,7 +92,7 @@ object EnderAstrolabeSounds {
         }
 
         private fun moveToBlock() {
-            worldCentre(level, be, scratch)
+            level.blockCentreInWorld(be.blockPos, scratch)
             x = scratch.x
             y = scratch.y
             z = scratch.z

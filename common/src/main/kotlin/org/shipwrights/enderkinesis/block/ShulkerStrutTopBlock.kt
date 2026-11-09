@@ -114,7 +114,7 @@ class ShulkerStrutTopBlock(properties: BlockBehaviour.Properties) :
     }
 
     companion object {
-        private val TOP_HALF_CUBE: Map<Direction, VoxelShape> = Direction.values().associateWith { d ->
+        private val TOP_HALF_CUBE: Map<Direction, VoxelShape> = Direction.entries.associateWith { d ->
             val n = d.normal
             // Mirror of [ShulkerStrutBlock]'s base shape — same axes, swapped 0/8 vs 8/16 so
             // the FACING half is filled instead of the opposite.

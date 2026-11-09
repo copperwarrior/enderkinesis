@@ -11,7 +11,6 @@ import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.util.RandomSource
 import net.minecraft.world.level.block.DirectionalBlock
 import org.shipwrights.enderkinesis.blockentity.EchoCannonBlockEntity
 import kotlin.math.sin
@@ -209,12 +208,5 @@ class EchoCannonRenderer(@Suppress("UNUSED_PARAMETER") ctx: BlockEntityRendererP
          *  no-ops in that window. */
         @Volatile
         var capturedBarrelModel: BakedModel? = null
-
-        /** Shared no-alloc random for `getQuads()` calls if we ever need
-         *  them from this renderer's helpers. Vanilla model renderers use
-         *  a random per invocation; a fixed-seed shared source is fine
-         *  here since the barrel model has no random-variant quads. */
-        @Suppress("unused")
-        private val quadRandom: RandomSource = RandomSource.create(0L)
     }
 }

@@ -196,7 +196,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
     private fun spawnCooldownSmoke(level: ServerLevel, pos: BlockPos, state: BlockState) {
         val (muzzle, dir) = computeWorldOriginAndDir(level, pos, state, MUZZLE_OFFSET)
         val rng = level.random
-        for (i in 0 until COOLDOWN_SMOKE_PER_PUFF) {
+        repeat(COOLDOWN_SMOKE_PER_PUFF) { _ ->
             // Slight scatter perpendicular to the muzzle direction so
             // the puff isn't a perfect line.
             val jx = (rng.nextDouble() - 0.5) * 0.1
@@ -228,7 +228,7 @@ class EchoCannonBlockEntity(pos: BlockPos, state: BlockState) :
         val rng = level.random
         val progress = chargeTicks.toFloat() / CHARGE_TICKS
         val count = (1 + (SUCK_PARTICLES_PEAK - 1) * progress).toInt().coerceAtLeast(1)
-        for (i in 0 until count) {
+        repeat(count) { _ ->
             val u = rng.nextDouble() * 2.0 - 1.0
             val theta = rng.nextDouble() * 2.0 * Math.PI
             val r = Math.sqrt(1.0 - u * u)

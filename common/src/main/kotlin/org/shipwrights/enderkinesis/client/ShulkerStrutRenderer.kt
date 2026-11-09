@@ -309,7 +309,7 @@ class ShulkerStrutRenderer(ctx: BlockEntityRendererProvider.Context) :
         private val SHULKER_TEXTURE = ResourceLocation("textures/entity/shulker/shulker.png")
         private val SHULKER_RENDER_TYPE: RenderType = RenderType.entityCutoutNoCull(SHULKER_TEXTURE)
 
-        private val COLORED_TYPES: Map<DyeColor, RenderType> = DyeColor.values().associateWith { c ->
+        private val COLORED_TYPES: Map<DyeColor, RenderType> = DyeColor.entries.associateWith { c ->
             RenderType.entityCutoutNoCull(
                 ResourceLocation("textures/entity/shulker/shulker_${c.getName()}.png")
             )

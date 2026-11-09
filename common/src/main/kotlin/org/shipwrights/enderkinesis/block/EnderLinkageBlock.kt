@@ -150,17 +150,6 @@ class EnderLinkageBlock(properties: Properties) : Block(properties) {
         return neighborState.isFaceSturdy(level, neighborPos, faceTowardLinkage)
     }
 
-    /** Compute a fully-connected default state for a fresh linkage at [pos] — what
-     *  [getStateForPlacement] returns, but callable without a [BlockPlaceContext]
-     *  (used by the Packing Pearl placer to spawn linkages from a queue). */
-    fun freshStateAt(level: BlockGetter, pos: BlockPos): BlockState = defaultBlockState()
-        .setValue(NORTH, connectsTo(level, pos.north(), Direction.SOUTH))
-        .setValue(SOUTH, connectsTo(level, pos.south(), Direction.NORTH))
-        .setValue(EAST,  connectsTo(level, pos.east(),  Direction.WEST))
-        .setValue(WEST,  connectsTo(level, pos.west(),  Direction.EAST))
-        .setValue(UP,    connectsTo(level, pos.above(), Direction.DOWN))
-        .setValue(DOWN,  connectsTo(level, pos.below(), Direction.UP))
-
     private fun directionProperty(dir: Direction): BooleanProperty? = when (dir) {
         Direction.NORTH -> NORTH
         Direction.SOUTH -> SOUTH

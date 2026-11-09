@@ -8,6 +8,8 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.DirectionalBlock
 import net.minecraft.world.level.block.EntityBlock
+import net.minecraft.world.level.block.Mirror
+import net.minecraft.world.level.block.Rotation
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityTicker
 import net.minecraft.world.level.block.entity.BlockEntityType
@@ -44,6 +46,12 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
     override fun createBlockStateDefinition(builder: StateDefinition.Builder<Block, BlockState>) {
         builder.add(FACING)
     }
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun rotate(state: BlockState, rotation: Rotation): BlockState = state.rotateFacing(rotation)
+
+    @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
+    override fun mirror(state: BlockState, mirror: Mirror): BlockState = state.mirrorFacing(mirror)
 
     /** Union of the full block cube + the barrel's 4-unit protrusion out of
      *  the FACING face. Selection outlines and collision include the barrel
@@ -110,7 +118,7 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
         }
 
         /** Per-facing shape = full block cube ∪ barrel protrusion. */
-        private val SHAPE_BY_FACING: Array<VoxelShape> = net.minecraft.core.Direction.values().let { dirs ->
+        private val SHAPE_BY_FACING: Array<VoxelShape> = net.minecraft.core.Direction.entries.let { dirs ->
             Array(dirs.size) { i -> Shapes.or(Shapes.block(), barrelBoxFor(dirs[i])) }
         }
 
@@ -141,7 +149,7 @@ class EchoCannonBlock(properties: BlockBehaviour.Properties) :
             }
         }
 
-        private val MODEL_SHAPE_BY_FACING: Array<VoxelShape> = Direction.values().let { dirs ->
+        private val MODEL_SHAPE_BY_FACING: Array<VoxelShape> = Direction.entries.let { dirs ->
             Array(dirs.size) { i ->
                 MODEL_BOXES.map { modelBox(it, dirs[i]) }.reduce { acc, box -> Shapes.or(acc, box) }
             }
