@@ -412,6 +412,10 @@ object EnderkinesisModClient {
             VoidHookRenderer(ctx)
         }
 
+        BlockEntityRendererRegistry.register(EKBlockEntities.GAS_VENT.get()) { ctx ->
+            GasVentRenderer(ctx)
+        }
+
         // Orb of Linking: pulsing "haze" outer layer drawn on top of the static block model.
         // Invisible when the orb is UNBOUND, visible + sine-pulsed when SEND or RECEIVE.
         BlockEntityRendererRegistry.register(EKBlockEntities.ORB_OF_LINKING.get()) { ctx ->

@@ -30,6 +30,7 @@ import org.shipwrights.enderkinesis.item.CrepusculiteCharmItem
 import org.shipwrights.enderkinesis.item.CrownOfTheDarkStarItem
 import org.shipwrights.enderkinesis.item.CrownUntestedItem
 import org.shipwrights.enderkinesis.item.SilverpointItem
+import org.shipwrights.enderkinesis.item.HrassSackItem
 import org.shipwrights.enderkinesis.item.ShellOfTidesItem
 import org.shipwrights.enderkinesis.item.UlderGemItem
 import org.shipwrights.enderkinesis.item.UlderScrollItem
@@ -188,6 +189,9 @@ object EKItems {
 
     val SHELL_OF_TIDES: RegistrySupplier<Item> =
         ITEMS.register("shell_of_tides") { ShellOfTidesItem(props().stacksTo(1)) }
+
+    val HRASS_SACK: RegistrySupplier<Item> =
+        ITEMS.register("hrass_sack") { HrassSackItem(props().stacksTo(1)) }
 
     /** Irreverent Remnant "spawn egg" — testing tool that drops a single
      *  blob of the pseudo-entity. Not a real SpawnEggItem (there's no
@@ -530,6 +534,7 @@ object EKItems {
     val VOID_HARNESS_ITEM = blockItem("void_harness", EKBlocks.VOID_HARNESS)
     val VOID_HOOK_ITEM = blockItem("void_hook", EKBlocks.VOID_HOOK)
     val SHULKER_PUFFER_ITEM = blockItem("shulker_puffer", EKBlocks.SHULKER_PUFFER)
+    val GAS_VENT_ITEM = blockItem("gas_vent", EKBlocks.GAS_VENT)
     val SHULKER_STRUT_ITEM = blockItem("shulker_strut", EKBlocks.SHULKER_STRUT)
     val AETHER_PAD_ITEM = blockItem("aether_pad", EKBlocks.AETHER_PAD)
 

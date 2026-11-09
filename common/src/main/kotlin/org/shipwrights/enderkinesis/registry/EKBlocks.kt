@@ -50,6 +50,7 @@ import org.shipwrights.enderkinesis.block.HeartCandleBlock
 import org.shipwrights.enderkinesis.block.HeartOfTheWildBlock
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.block.PlanarAnchorBlock
+import org.shipwrights.enderkinesis.block.GasVentBlock
 import org.shipwrights.enderkinesis.block.ShulkerPufferBlock
 import org.shipwrights.enderkinesis.block.ShulkerStrutBlock
 import org.shipwrights.enderkinesis.block.IchaericInkBlock
@@ -371,6 +372,15 @@ object EKBlocks {
                 .requiresCorrectToolForDrops()
                 .strength(3.0f, 6.0f)
                 .sound(EKSounds.SHULKER_PUFFER_SOUND_TYPE),
+        )
+    }
+
+    val GAS_VENT: RegistrySupplier<Block> = BLOCKS.register("gas_vent") {
+        GasVentBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_PINK)
+                .requiresCorrectToolForDrops()
+                .strength(3.5f),
         )
     }
 
@@ -1192,7 +1202,7 @@ object EKBlocks {
      *  wool sound); the fresnel yellow sheen is applied client-side via a
      *  custom RenderType, so the block-level definition stays vanilla-lite. */
     val MOTH_CLOTH_BY_COLOR: Map<net.minecraft.world.item.DyeColor, RegistrySupplier<Block>> =
-        net.minecraft.world.item.DyeColor.values().associateWith { color ->
+        net.minecraft.world.item.DyeColor.entries.associateWith { color ->
             BLOCKS.register("moth_cloth_${color.name.lowercase()}") {
                 org.shipwrights.enderkinesis.block.MothClothBlock(
                     color,

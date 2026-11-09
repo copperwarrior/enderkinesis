@@ -3,6 +3,8 @@ package org.shipwrights.enderkinesis.registry
 import dev.architectury.registry.registries.DeferredRegister
 import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
+import com.mojang.datafixers.types.Type
+import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
@@ -24,6 +26,7 @@ import org.shipwrights.enderkinesis.blockentity.LodestarLauncherBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OrbOfScryingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.PlanarAnchorBlockEntity
+import org.shipwrights.enderkinesis.blockentity.GasVentBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerPufferBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ShulkerStrutTopBlockEntity
@@ -45,7 +48,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("crepusculite_lattice") {
             BlockEntityType.Builder.of(
                 ::CrepusculiteLatticeBlockEntity, EKBlocks.CREPUSCULITE_LATTICE.get()
-            ).build(null) as BlockEntityType<CrepusculiteLatticeBlockEntity>
+            ).build() as BlockEntityType<CrepusculiteLatticeBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -53,7 +56,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("constriliar_platform") {
             BlockEntityType.Builder.of(
                 ::ConstriliarPlatformBlockEntity, EKBlocks.CONSTRILIAR_PLATFORM.get()
-            ).build(null) as BlockEntityType<ConstriliarPlatformBlockEntity>
+            ).build() as BlockEntityType<ConstriliarPlatformBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -61,7 +64,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("echo_cannon") {
             BlockEntityType.Builder.of(
                 ::EchoCannonBlockEntity, EKBlocks.ECHO_CANNON.get()
-            ).build(null) as BlockEntityType<EchoCannonBlockEntity>
+            ).build() as BlockEntityType<EchoCannonBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -69,7 +72,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("ender_astrolabe") {
             BlockEntityType.Builder.of(
                 ::EnderAstrolabeBlockEntity, EKBlocks.ENDER_ASTROLABE.get()
-            ).build(null) as BlockEntityType<EnderAstrolabeBlockEntity>
+            ).build() as BlockEntityType<EnderAstrolabeBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -77,7 +80,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("eyeroscope") {
             BlockEntityType.Builder.of(
                 ::EyeroscopeBlockEntity, EKBlocks.EYEROSCOPE.get()
-            ).build(null) as BlockEntityType<EyeroscopeBlockEntity>
+            ).build() as BlockEntityType<EyeroscopeBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -85,7 +88,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("planar_anchor") {
             BlockEntityType.Builder.of(
                 ::PlanarAnchorBlockEntity, EKBlocks.PLANAR_ANCHOR.get()
-            ).build(null) as BlockEntityType<PlanarAnchorBlockEntity>
+            ).build() as BlockEntityType<PlanarAnchorBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -93,7 +96,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("void_harness") {
             BlockEntityType.Builder.of(
                 ::VoidHarnessBlockEntity, EKBlocks.VOID_HARNESS.get()
-            ).build(null) as BlockEntityType<VoidHarnessBlockEntity>
+            ).build() as BlockEntityType<VoidHarnessBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -101,7 +104,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("void_hook") {
             BlockEntityType.Builder.of(
                 ::VoidHookBlockEntity, EKBlocks.VOID_HOOK.get()
-            ).build(null) as BlockEntityType<VoidHookBlockEntity>
+            ).build() as BlockEntityType<VoidHookBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -109,7 +112,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("aether_pad") {
             BlockEntityType.Builder.of(
                 ::AetherPadBlockEntity, EKBlocks.AETHER_PAD.get()
-            ).build(null) as BlockEntityType<AetherPadBlockEntity>
+            ).build() as BlockEntityType<AetherPadBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -118,7 +121,7 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::YgannBarnacleBlockEntity,
                 EKBlocks.YGANN_BARNACLE.get()
-            ).build(null) as BlockEntityType<YgannBarnacleBlockEntity>
+            ).build() as BlockEntityType<YgannBarnacleBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -127,7 +130,7 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::QuasarOfPurityBlockEntity,
                 EKBlocks.QUASAR_OF_PURITY.get()
-            ).build(null) as BlockEntityType<QuasarOfPurityBlockEntity>
+            ).build() as BlockEntityType<QuasarOfPurityBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -135,7 +138,15 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("analog_eye") {
             BlockEntityType.Builder.of(
                 ::AncriteEyeBlockEntity, EKBlocks.ANCRITE_EYE.get()
-            ).build(null) as BlockEntityType<AncriteEyeBlockEntity>
+            ).build() as BlockEntityType<AncriteEyeBlockEntity>
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    val GAS_VENT: RegistrySupplier<BlockEntityType<GasVentBlockEntity>> =
+        BLOCK_ENTITIES.register("gas_vent") {
+            BlockEntityType.Builder.of(
+                ::GasVentBlockEntity, EKBlocks.GAS_VENT.get()
+            ).build() as BlockEntityType<GasVentBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -143,7 +154,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("shulker_puffer") {
             BlockEntityType.Builder.of(
                 ::ShulkerPufferBlockEntity, EKBlocks.SHULKER_PUFFER.get()
-            ).build(null) as BlockEntityType<ShulkerPufferBlockEntity>
+            ).build() as BlockEntityType<ShulkerPufferBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -151,7 +162,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("shulker_strut") {
             BlockEntityType.Builder.of(
                 ::ShulkerStrutBlockEntity, EKBlocks.SHULKER_STRUT.get()
-            ).build(null) as BlockEntityType<ShulkerStrutBlockEntity>
+            ).build() as BlockEntityType<ShulkerStrutBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -159,7 +170,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("shulker_strut_top") {
             BlockEntityType.Builder.of(
                 ::ShulkerStrutTopBlockEntity, EKBlocks.SHULKER_STRUT_TOP.get()
-            ).build(null) as BlockEntityType<ShulkerStrutTopBlockEntity>
+            ).build() as BlockEntityType<ShulkerStrutTopBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -167,7 +178,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("orb_of_linking") {
             BlockEntityType.Builder.of(
                 ::OrbOfLinkingBlockEntity, EKBlocks.ORB_OF_LINKING.get()
-            ).build(null) as BlockEntityType<OrbOfLinkingBlockEntity>
+            ).build() as BlockEntityType<OrbOfLinkingBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -175,7 +186,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("ulder_beam_anchor") {
             BlockEntityType.Builder.of(
                 ::UlderBeamAnchorBlockEntity, EKBlocks.ULDER_BEAM_ANCHOR.get()
-            ).build(null) as BlockEntityType<UlderBeamAnchorBlockEntity>
+            ).build() as BlockEntityType<UlderBeamAnchorBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -183,7 +194,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("orb_of_scrying") {
             BlockEntityType.Builder.of(
                 ::OrbOfScryingBlockEntity, EKBlocks.ORB_OF_SCRYING.get(),
-            ).build(null) as BlockEntityType<OrbOfScryingBlockEntity>
+            ).build() as BlockEntityType<OrbOfScryingBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -191,7 +202,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("crystal_explosive") {
             BlockEntityType.Builder.of(
                 ::CrystalExplosiveBlockEntity, EKBlocks.CRYSTAL_EXPLOSIVE.get()
-            ).build(null) as BlockEntityType<CrystalExplosiveBlockEntity>
+            ).build() as BlockEntityType<CrystalExplosiveBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -199,7 +210,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("fountain_of_blessing") {
             BlockEntityType.Builder.of(
                 ::FountainOfBlessingBlockEntity, EKBlocks.FOUNTAIN_OF_BLESSING.get()
-            ).build(null) as BlockEntityType<FountainOfBlessingBlockEntity>
+            ).build() as BlockEntityType<FountainOfBlessingBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -207,7 +218,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("heart_of_the_wild") {
             BlockEntityType.Builder.of(
                 ::HeartOfTheWildBlockEntity, EKBlocks.HEART_OF_THE_WILD.get()
-            ).build(null) as BlockEntityType<HeartOfTheWildBlockEntity>
+            ).build() as BlockEntityType<HeartOfTheWildBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -215,7 +226,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("fractal_projector") {
             BlockEntityType.Builder.of(
                 ::FractalProjectorBlockEntity, EKBlocks.FRACTAL_PROJECTOR.get()
-            ).build(null) as BlockEntityType<FractalProjectorBlockEntity>
+            ).build() as BlockEntityType<FractalProjectorBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -223,7 +234,7 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("lodestar_launcher") {
             BlockEntityType.Builder.of(
                 ::LodestarLauncherBlockEntity, EKBlocks.LODESTAR_LAUNCHER.get()
-            ).build(null) as BlockEntityType<LodestarLauncherBlockEntity>
+            ).build() as BlockEntityType<LodestarLauncherBlockEntity>
         }
 
     /** One BE type shared across all statue blocks — the BE itself holds no
@@ -236,14 +247,14 @@ object EKBlockEntities {
             BlockEntityType.Builder.of(
                 ::StatueBlockEntity,
                 *EKBlocks.STATUES.map { it.get() }.toTypedArray(),
-            ).build(null) as BlockEntityType<StatueBlockEntity>
+            ).build() as BlockEntityType<StatueBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
     val SCRIBES_DESK: RegistrySupplier<BlockEntityType<ScribesDeskBlockEntity>> =
         BLOCK_ENTITIES.register("scribes_desk") {
             BlockEntityType.Builder.of(::ScribesDeskBlockEntity, EKBlocks.SCRIBES_DESK.get())
-                .build(null) as BlockEntityType<ScribesDeskBlockEntity>
+                .build() as BlockEntityType<ScribesDeskBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -251,32 +262,29 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("oarscribe") {
             BlockEntityType.Builder.of(
                 ::OarscribeBlockEntity, EKBlocks.OARSCRIBE.get(),
-            ).build(null) as BlockEntityType<OarscribeBlockEntity>
+            ).build() as BlockEntityType<OarscribeBlockEntity>
         }
 
     @Suppress("UNCHECKED_CAST")
     val FORGOTTEN_ITEM: RegistrySupplier<BlockEntityType<ForgottenItemBlockEntity>> =
         BLOCK_ENTITIES.register("forgotten_item") {
             BlockEntityType.Builder.of(::ForgottenItemBlockEntity, EKBlocks.FORGOTTEN_ITEM.get())
-                .build(null) as BlockEntityType<ForgottenItemBlockEntity>
+                .build() as BlockEntityType<ForgottenItemBlockEntity>
         }
 
-    // build(null): no datafixer type, the vanilla idiom; Mojang's annotations mark it non-null.
     @Suppress("UNCHECKED_CAST", "NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
     val ALTAR_OF_ILLUMINATION: RegistrySupplier<BlockEntityType<AltarOfIlluminationBlockEntity>> =
         BLOCK_ENTITIES.register("altar_of_illumination") {
             BlockEntityType.Builder.of(::AltarOfIlluminationBlockEntity, EKBlocks.ALTAR_OF_ILLUMINATION.get())
-                .build(null) as BlockEntityType<AltarOfIlluminationBlockEntity>
+                .build() as BlockEntityType<AltarOfIlluminationBlockEntity>
         }
 
-    // build(null): no datafixer type, the vanilla idiom; Mojang's annotations mark it non-null.
     @Suppress("UNCHECKED_CAST", "NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
     val RUNE: RegistrySupplier<BlockEntityType<RuneBlockEntity>> =
         BLOCK_ENTITIES.register("rune") {
-            BlockEntityType.Builder.of(::RuneBlockEntity, EKBlocks.RUNE.get()).build(null) as BlockEntityType<RuneBlockEntity>
+            BlockEntityType.Builder.of(::RuneBlockEntity, EKBlocks.RUNE.get()).build() as BlockEntityType<RuneBlockEntity>
         }
 
-    // build(null): no datafixer type, the vanilla idiom; Mojang's annotations mark it non-null.
     @Suppress("UNCHECKED_CAST", "NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
     val WILLFAER_FLAME: RegistrySupplier<BlockEntityType<WillfaerFlameBlockEntity>> =
         BLOCK_ENTITIES.register("willfaer_flame") {
@@ -285,8 +293,12 @@ object EKBlockEntities {
                 EKBlocks.WILLFAER_LANTERN.get(),
                 EKBlocks.WILLFAER_TORCH.get(),
                 EKBlocks.WILLFAER_WALL_TORCH.get(),
-            ).build(null) as BlockEntityType<WillfaerFlameBlockEntity>
+            ).build() as BlockEntityType<WillfaerFlameBlockEntity>
         }
 
     fun register() = BLOCK_ENTITIES.register()
 }
+
+// Not build(null): the Java parameter is non-null-annotated, so a literal null warns.
+private fun <T : BlockEntity> BlockEntityType.Builder<T>.build(): BlockEntityType<T> =
+    build(java.util.Optional.empty<Type<*>>().orElse(null))

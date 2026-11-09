@@ -94,6 +94,8 @@ object EKCreativeTab {
             output.accept(EKItems.YGANN_ACUUL.get())
             output.accept(EKItems.MUSIC_DISC_MYSTERY.get())
             output.accept(EKItems.SHELL_OF_TIDES.get())
+            output.accept(EKItems.HRASS_SACK.get())
+            output.accept(EKItems.GAS_VENT_ITEM.get())
 
             // Sselith: materials, blocks, devices, tools, books, wearables, food
             output.accept(EKItems.OLD_PAPER.get())
@@ -107,7 +109,7 @@ object EKCreativeTab {
             output.accept(EKItems.OWL_DEEPSLATE_ITEM.get())
             output.accept(EKItems.SSELITH_LECTERN_ITEM.get())
             // Vanilla wool order.
-            for (color in net.minecraft.world.item.DyeColor.values()) {
+            for (color in net.minecraft.world.item.DyeColor.entries) {
                 EKItems.MOTH_CLOTH_ITEMS_BY_COLOR[color]?.get()?.let(output::accept)
             }
             for (statue in EKItems.STATUE_ITEMS) output.accept(statue.get())
