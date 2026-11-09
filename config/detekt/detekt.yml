@@ -1,0 +1,36 @@
+# Overrides on top of the detekt default config (buildUponDefaultConfig = true).
+# CLAUDE.md Rule 4: LongMethod threshold = 60.
+
+build:
+  maxIssues: -1
+
+complexity:
+  LongMethod:
+    active: true
+    threshold: 60
+  CyclomaticComplexMethod:
+    threshold: 20
+  NestedBlockDepth:
+    threshold: 6
+  ComplexCondition:
+    threshold: 6
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 10
+  TooManyFunctions:
+    active: false
+  LargeClass:
+    active: false
+
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    maxLineLength: 160
+  ReturnCount:
+    max: 6
+    excludeGuardClauses: true
+  LoopWithTooManyJumpStatements:
+    active: false
+  DestructuringDeclarationWithTooManyEntries:
+    active: false
