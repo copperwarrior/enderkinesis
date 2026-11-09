@@ -20,6 +20,7 @@ import org.shipwrights.enderkinesis.sselith.Sselith
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import org.shipwrights.enderkinesis.item.pageText
 
 /**
  * The Cataloger's one act: when it finishes staring at a lectern, it
@@ -128,15 +129,6 @@ object CatalogerScribe {
             level.sendParticles(EKParticles.sselithGlyph(), px, py, pz, 0, 0.0, 0.0, 0.0, 0.0)
         }
     }
-
-    /** Plain display text of a written-book page (a JSON component),
-     *  falling back to the raw string if it won't parse. */
-    private fun pageText(json: String): String =
-        try {
-            Component.Serializer.fromJson(json)?.string ?: json
-        } catch (e: Exception) {
-            json
-        }
 
     /** A signed Sselith book: translated title, original author, pages
      *  as JSON literal components. Carries [SSELITH_FLAG]. */

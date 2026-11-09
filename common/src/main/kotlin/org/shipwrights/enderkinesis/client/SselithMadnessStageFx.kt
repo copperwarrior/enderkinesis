@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft
 import net.minecraft.network.chat.Component
 import org.shipwrights.enderkinesis.dimension.SselithMadness
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.smoothstep
 
 object SselithMadnessStageFx {
 
@@ -57,10 +58,5 @@ object SselithMadnessStageFx {
         val t = (Util.getMillis() - startMs).toFloat()
         if (t < 0f || t >= TOTAL_MS) return 0f
         return smoothstep(0f, FADE_IN_MS, t) * (1f - smoothstep(FADE_OUT_START_MS, TOTAL_MS, t))
-    }
-
-    private fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
-        val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
-        return t * t * (3f - 2f * t)
     }
 }

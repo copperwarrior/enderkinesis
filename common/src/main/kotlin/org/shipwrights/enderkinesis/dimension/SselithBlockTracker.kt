@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.dimension
 
+import org.shipwrights.enderkinesis.spell.SpellPlatform
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.BlockEvent
 import dev.architectury.event.events.common.LifecycleEvent
@@ -82,7 +83,7 @@ object SselithBlockTracker {
             pending = null
         }
         BlockEvent.PLACE.register { placeLevel, pos, state, placer ->
-            if (placer is ServerPlayer && placeLevel === level) {
+            if (placer is ServerPlayer && placeLevel === level && !SpellPlatform.isPermissionProbe()) {
                 val parallel = SselithParallel.get(placer)
                 // Forge fires PLACE after the block write. Fabric fires it before.
                 if (placeLevel.getBlockState(pos) == state) {
@@ -94,7 +95,7 @@ object SselithBlockTracker {
             EventResult.pass()
         }
         BlockEvent.BREAK.register { breakLevel, pos, _, breaker, _ ->
-            if (breakLevel === level) {
+            if (breakLevel === level && !SpellPlatform.isPermissionProbe()) {
                 pending = PendingEdit(
                     pos.immutable(), SselithEditKind.REMOVED, SselithParallel.get(breaker), breakLevel.gameTime,
                 )
@@ -168,15 +169,6 @@ object SselithBlockTracker {
             }
         }
     }
-
-    /** The kind of player edit recorded at [pos] in Sselith, or null. */
-    fun editAt(queryLevel: Level, pos: BlockPos): SselithEditKind? {
-        if (queryLevel !== level) return null
-        return data?.kindAt(pos)
-    }
-
-    fun isPlayerPlaced(queryLevel: Level, pos: BlockPos): Boolean =
-        editAt(queryLevel, pos) == SselithEditKind.PLACED
 
     /** Total tracked positions in Sselith, O(1). */
     fun count(): Int = data?.count ?: 0

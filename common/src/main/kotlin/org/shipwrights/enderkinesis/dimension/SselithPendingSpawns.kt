@@ -59,11 +59,14 @@ class SselithPendingSpawns : SavedData() {
 
     private val queue: ArrayDeque<Intent> = ArrayDeque()
 
+    // Failed spawn attempts of each queued intent, this session only. Server thread.
+    private val failures = java.util.IdentityHashMap<Intent, Int>()
+
     /** Server-thread only. Workers must go through the static
      *  [enqueue]/[INBOX] path because [SavedData] mutations are
      *  unsafe off the server thread. */
     private fun addInternal(intent: Intent) {
-        if (queue.size >= QUEUE_CAP) queue.poll()
+        if (queue.size >= QUEUE_CAP) queue.poll()?.let(failures::remove)
         queue.add(intent)
         setDirty()
     }
@@ -92,14 +95,23 @@ class SselithPendingSpawns : SavedData() {
                     is Intent.Archive -> { spawnArchive(level, intent); true }
                     is Intent.Painting -> spawnPainting(level, intent)
                 }
-            } catch (_: Throwable) {
-                // Don't let one bad intent poison the whole queue.
+            } catch (e: RuntimeException) {
+                // Try again on a later tick; one intent that keeps failing goes, so it cannot block the queue.
+                val tries = (failures[intent] ?: 0) + 1
+                if (tries < MAX_SPAWN_FAILURES) {
+                    failures[intent] = tries
+                    queue.add(intent)
+                    continue
+                }
+                failures.remove(intent)
+                LOG.warn("Dropped a Sselith chunk spawn after {} failures: {}", tries, intent, e)
                 true
             }
             if (!handled) {
                 queue.add(intent)
                 continue
             }
+            failures.remove(intent)
             processed++
         }
         if (processed > 0) setDirty()
@@ -297,6 +309,8 @@ class SselithPendingSpawns : SavedData() {
          *  entities just don't spawn (acceptable for decorative mobs
          *  and paintings; the maze itself is unaffected). */
         private const val QUEUE_CAP = 8192
+        private const val MAX_SPAWN_FAILURES = 20
+        private val LOG = com.mojang.logging.LogUtils.getLogger()
         /** Vertical search radius for [findOpenAirSpawn]. 6 covers the
          *  full procedural decor stack (slab + wall + cap) plus a
          *  small NBT replacement buffer; deeper search would risk

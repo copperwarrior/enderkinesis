@@ -25,7 +25,7 @@ class OldPaperItem(properties: Properties) : TomeItem(properties) {
         val pages = tag.getList("pages", Tag.TAG_STRING.toInt())
         if (pages.isEmpty()) return TomeLore.blank(TITLE)
         val baked = (0 until minOf(pages.size, MAX_PAGES)).map { i ->
-            val page = TomeLore.pageComponent(pages.getString(i))
+            val page = pageComponent(pages.getString(i))
             InkBleed.apply(Component.empty().withStyle(TomeLore.SLOPPY_STYLE).append(page))
         }
         return TomeLore.bake(

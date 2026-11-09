@@ -3,9 +3,11 @@ package org.shipwrights.enderkinesis.client
 import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.player.LocalPlayer
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
 import net.minecraft.client.resources.sounds.SoundInstance
 import net.minecraft.sounds.SoundSource
+import net.minecraft.util.RandomSource
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 import org.shipwrights.enderkinesis.registry.EKEffects
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -103,8 +105,13 @@ object SselithAmbience {
         val rng = level.random
         val now = level.gameTime
         val inSselith = level.dimension() == SselithRepertory.LEVEL_KEY
+        tickLoop(mc, rng, inSselith)
+        tickMurmurs(mc, rng, now, inSselith)
+        tickWhispers(mc, player, rng, now)
+    }
 
-        // ── Loop: in-dimension only ─────────────────────────────────────
+    /** The ambient loop plays only in Sselith. */
+    private fun tickLoop(mc: Minecraft, rng: RandomSource, inSselith: Boolean) {
         if (inSselith) {
             if (loop.let { it == null || !mc.soundManager.isActive(it) }) {
                 val l = SimpleSoundInstance(
@@ -119,8 +126,10 @@ object SselithAmbience {
             loop?.let { mc.soundManager.stop(it) }
             loop = null
         }
+    }
 
-        // ── Murmurs: in-dimension only ──────────────────────────────────
+    /** Murmurs play only in Sselith. */
+    private fun tickMurmurs(mc: Minecraft, rng: RandomSource, now: Long, inSselith: Boolean) {
         if (inSselith) {
             if (!murmurScheduled) {
                 murmurNextTick = now + MURMUR_FIRST_MIN + rng.nextInt((MURMUR_FIRST_MAX - MURMUR_FIRST_MIN).toInt())
@@ -143,8 +152,10 @@ object SselithAmbience {
             murmurScheduled = false
             currentMurmur = null
         }
+    }
 
-        // ── Whispers: madness-keyed, any dimension ──────────────────────
+    /** Whispers follow the Sselith Madness level, in any dimension. */
+    private fun tickWhispers(mc: Minecraft, player: LocalPlayer, rng: RandomSource, now: Long) {
         val amp = player.getEffect(EKEffects.SSELITH_MADNESS.get())?.amplifier ?: -1
         val madnessLevel = amp + 1
         if (madnessLevel <= 0) {

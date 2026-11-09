@@ -47,7 +47,7 @@ class SselithBookItem(properties: Properties) : TomeItem(properties) {
         val pages = tag.getList(PAGES, Tag.TAG_STRING.toInt())
         if (pages.isEmpty()) return TomeLore.blank(TITLE)
         val baked = (0 until minOf(pages.size, BookPaginator.MAX_PAGES)).map { i ->
-            Component.empty().withStyle(TomeLore.SERIF_STYLE).append(TomeLore.pageComponent(pages.getString(i)))
+            Component.empty().withStyle(TomeLore.SERIF_STYLE).append(pageComponent(pages.getString(i)))
         }
         return TomeLore.bake(
             tag.getString(TITLE_KEY).ifEmpty { TITLE },

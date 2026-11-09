@@ -30,7 +30,7 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 /**
  * Player-side gift flourish under Sselith Madness, in-Repertory only: random per-tick roll
  * picks a dart-style raycast to a Sselith bookshelf, locks the camera there for
- * [STARE_DURATION_TICKS] via [ClientboundPlayerLookAtPacket], then drops one [PICKABLE_TOMES_TAG]
+ * the Cataloger summon phases (the client eases the camera), then drops one [PICKABLE_TOMES_TAG]
  * tome the player doesn't already own into their inventory.
  *
  * Server-only state, cleared on logout / dimension change / death / effect loss — the stare
@@ -161,8 +161,6 @@ object SselithMadnessTomeSummon {
      *
      *   - Pin the player's movement to zero so they don't drift away
      *     from the summon.
-     *   - Force the camera onto the right target for the current
-     *     phase via [ClientboundPlayerLookAtPacket].
      *   - At the OUT→DWELL boundary, deliver or commit to the IN
      *     phase based on inventory state.
      *   - When the configured total ticks are up, end the summon. */
@@ -284,11 +282,9 @@ object SselithMadnessTomeSummon {
         }
     }
 
-    /** Server players who can see [player]: everyone tracking the
-     *  player entity, plus the player themselves. */
+    /** [player] and the server players within 64 blocks of it. */
     private fun trackingPlayers(player: ServerPlayer): Collection<ServerPlayer> {
         val level = player.level() as? ServerLevel ?: return listOf(player)
-        val tracker = level.chunkSource.chunkMap
         val set = LinkedHashSet<ServerPlayer>()
         set.add(player)
         for (other in level.players()) {
@@ -379,7 +375,7 @@ object SselithMadnessTomeSummon {
             EKSounds.SSELITH_TOME_CALL.get(), SoundSource.PLAYERS,
             0.6f, 0.9f + player.random.nextFloat() * 0.1f,
         )
-        for (i in 0 until 16) {
+        repeat(16) { _ ->
             level.sendParticles(
                 ParticleTypes.ENCHANT,
                 shelf.x + 0.5, shelf.y + 0.5, shelf.z + 0.5,
@@ -414,7 +410,7 @@ object SselithMadnessTomeSummon {
             )
         }
         if (outcome == Delivery.GIFT) {
-            for (i in 0 until 16) {
+            repeat(16) { _ ->
                 level.sendParticles(
                     ParticleTypes.ENCHANT,
                     shelf.x + 0.5, shelf.y + 0.5, shelf.z + 0.5,
@@ -426,7 +422,7 @@ object SselithMadnessTomeSummon {
                 )
             }
         }
-        for (i in 0 until 12) {
+        repeat(12) { _ ->
             level.sendParticles(
                 ParticleTypes.ENCHANT,
                 player.x, player.y + 1.0, player.z,
@@ -476,10 +472,4 @@ object SselithMadnessTomeSummon {
      *  3 → covers a much wider arc per roll without saturating the
      *  hit rate (still plenty of corridors that miss every ray). */
     private const val RAYCAST_ATTEMPTS = 3
-
-    /** How long the player is held looking at the shelf before the
-     *  tome arrives. 40 ticks ≈ 2 s — long enough to register as a
-     *  deliberate flourish, short enough that the camera-lock doesn't
-     *  feel like a hostage situation. */
-    private const val STARE_DURATION_TICKS = 40L
 }

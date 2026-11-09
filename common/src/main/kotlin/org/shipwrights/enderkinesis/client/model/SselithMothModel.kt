@@ -61,6 +61,7 @@ class SselithMothModel(private val bakedRoot: ModelPart) :
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id("sselith_moth"), "main")
 
+        @Suppress("LongMethod") // A Blockbench export: one statement for each model part.
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

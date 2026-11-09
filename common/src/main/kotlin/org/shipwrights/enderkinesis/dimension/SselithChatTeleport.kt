@@ -7,14 +7,26 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.resources.ResourceKey
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
+import net.minecraft.util.Mth
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
+import org.joml.Vector3d
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.sselith.SselithDustBurst
+import org.valkyrienskies.core.api.ships.Ship
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.getEnclosingShip
+import org.valkyrienskies.mod.common.getShipMountedTo
+import org.valkyrienskies.mod.common.getShipStoodOn
+import org.valkyrienskies.mod.common.shipObjectWorld
 
 /**
  * Chat-phrase teleport in/out of Sselith's Repertory.
@@ -66,11 +78,40 @@ object SselithChatTeleport {
     private const val SSELITH_ARRIVAL_YAW = 34.5f
     private const val SSELITH_ARRIVAL_PITCH = -34.5f
 
+    /** [ship] holds the ship the point stood on, so the return follows that ship when it moves. */
     internal data class ReturnPoint(
         val dimension: ResourceKey<Level>,
         val x: Double, val y: Double, val z: Double,
         val yRot: Float, val xRot: Float,
+        val ship: ShipSpot? = null,
     ) {
+        /** [x], [y], [z] are SHIPYARD coordinates; [yaw] is the ship's MC yaw at the save. */
+        internal data class ShipSpot(val id: Long, val x: Double, val y: Double, val z: Double, val yaw: Float)
+
+        /** A world point, and the yaw the ship turned through since the save. */
+        internal data class Landing(val x: Double, val y: Double, val z: Double, val yawChange: Float) {
+            /** The point at world offset [dx], [dy], [dz] from the save, turned with the ship. */
+            fun offset(dx: Double, dy: Double, dz: Double): Vec3 {
+                val turn = Math.toRadians(yawChange.toDouble())
+                val cos = Math.cos(turn); val sin = Math.sin(turn)
+                return Vec3(x + dx * cos - dz * sin, y + dy, z + dx * sin + dz * cos)
+            }
+        }
+
+        /**
+         * Where the point is now in [level]: on its ship when that ship is still there, else the saved world point.
+         * Only server-thread teleports call it.
+         */
+        @OptIn(GameTickOnly::class)
+        fun landing(level: ServerLevel): Landing {
+            val spot = ship ?: return Landing(x, y, z, 0f)
+            val found = level.shipObjectWorld.allShips.getById(spot.id)
+                ?.takeIf { it.chunkClaimDimension == level.dimensionId }
+                ?: return Landing(x, y, z, 0f)
+            val world = found.transform.shipToWorld.transformPosition(Vector3d(spot.x, spot.y, spot.z))
+            return Landing(world.x, world.y, world.z, Mth.wrapDegrees(shipYaw(found) - spot.yaw))
+        }
+
         fun save(tag: CompoundTag): CompoundTag {
             tag.putString("Dim", dimension.location().toString())
             tag.putDouble("X", x)
@@ -78,17 +119,49 @@ object SselithChatTeleport {
             tag.putDouble("Z", z)
             tag.putFloat("YRot", yRot)
             tag.putFloat("XRot", xRot)
+            ship?.let {
+                tag.putLong("Ship", it.id)
+                tag.putDouble("ShipX", it.x)
+                tag.putDouble("ShipY", it.y)
+                tag.putDouble("ShipZ", it.z)
+                tag.putFloat("ShipYaw", it.yaw)
+            }
             return tag
         }
 
         companion object {
+            /** Where [entity] is now, with the ship it rides or stands on. */
+            fun of(entity: Entity): ReturnPoint {
+                // The 0.2-block foot probe misses a server player mid-jump or a little off the deck; the dragger keeps the ship.
+                val found = getShipMountedTo(entity) ?: entity.getEnclosingShip() ?: entity.getShipStoodOn()
+                val spot = found?.let {
+                    val local = it.transform.worldToShip.transformPosition(Vector3d(entity.x, entity.y, entity.z))
+                    ShipSpot(it.id, local.x, local.y, local.z, shipYaw(it))
+                }
+                return ReturnPoint(entity.level().dimension(), entity.x, entity.y, entity.z, entity.yRot, entity.xRot, spot)
+            }
+
             fun load(tag: CompoundTag): ReturnPoint? {
                 val dim = ResourceLocation.tryParse(tag.getString("Dim")) ?: return null
+                val spot = if (tag.contains("Ship")) {
+                    ShipSpot(
+                        tag.getLong("Ship"), tag.getDouble("ShipX"), tag.getDouble("ShipY"), tag.getDouble("ShipZ"),
+                        tag.getFloat("ShipYaw"),
+                    )
+                } else {
+                    null
+                }
                 return ReturnPoint(
                     ResourceKey.create(Registries.DIMENSION, dim),
                     tag.getDouble("X"), tag.getDouble("Y"), tag.getDouble("Z"),
                     tag.getFloat("YRot"), tag.getFloat("XRot"),
+                    spot,
                 )
+            }
+
+            private fun shipYaw(ship: Ship): Float {
+                val forward = ship.transform.shipToWorldRotation.transform(Vector3d(0.0, 0.0, 1.0))
+                return Math.toDegrees(Math.atan2(-forward.x, forward.z)).toFloat()
             }
         }
     }
@@ -120,7 +193,8 @@ object SselithChatTeleport {
             val returnMono = EKSounds.SSELITH_RETURN_MONO.get()
             SselithDustBurst.at(player.serverLevel(), player)
             playForOthers(player, returnMono)
-            player.teleportTo(targetLevel, rp.x, rp.y, rp.z, rp.yRot, rp.xRot)
+            val landing = rp.landing(targetLevel)
+            player.teleportTo(targetLevel, landing.x, landing.y, landing.z, rp.yRot + landing.yawChange, rp.xRot)
             playForOthers(player, returnMono)
             player.playNotifySound(EKSounds.SSELITH_RETURN.get(), SoundSource.PLAYERS, 1.0f, 1.0f)
             sendGlyphSeed(player, EKParticles.sselithDepartureAura())
@@ -152,14 +226,7 @@ object SselithChatTeleport {
 
     /** Save where [player] stands now, so the invocation in Sselith can bring them back. */
     fun saveReturnPoint(player: ServerPlayer) {
-        SselithReturnSavedData.get(player.server).put(
-            player.uuid,
-            ReturnPoint(
-                dimension = player.level().dimension(),
-                x = player.x, y = player.y, z = player.z,
-                yRot = player.yRot, xRot = player.xRot,
-            ),
-        )
+        SselithReturnSavedData.get(player.server).put(player.uuid, ReturnPoint.of(player))
     }
 
     private fun sendGlyphSeed(player: ServerPlayer, seed: SimpleParticleType) {

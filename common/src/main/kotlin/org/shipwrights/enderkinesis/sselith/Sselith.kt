@@ -1113,19 +1113,6 @@ object Sselith {
         else -> lemma + "ing"
     }
 
-    /** Count tokens in [text] that this translator can reverse-look-up.
-     *  Used by the Scroll of Unravelling to phrase its action-bar line. */
-    fun countReversibleTokens(text: String): Int {
-        if (text.isEmpty()) return 0
-        var n = 0
-        for (m in TOKEN.findAll(text)) {
-            val v = m.value
-            if (v.firstOrNull()?.isLetter() != true) continue
-            if (reverseLookup(v.lowercase(Locale.ROOT)) != null) n++
-        }
-        return n
-    }
-
     // ──────────────────────────────────────────────────────────────────────────
     // Dictionary loading
     // ──────────────────────────────────────────────────────────────────────────

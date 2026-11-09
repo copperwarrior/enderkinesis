@@ -127,6 +127,9 @@ object SselithEclipse {
     fun init() {
         TickEvent.PLAYER_POST.register(::tickPlayer)
         PlayerEvent.PLAYER_QUIT.register { exposure.remove(it.uuid) }
+        // A player who enters Sselith during a command eclipse missed its trigger, but the light still hurts.
+        PlayerEvent.PLAYER_JOIN.register { sendActiveTrigger(it, it.level().dimension()) }
+        PlayerEvent.CHANGE_DIMENSION.register { player, _, to -> sendActiveTrigger(player, to) }
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
         EntityEvent.LIVING_DEATH.register(::onLivingDeath)
     }
@@ -177,6 +180,16 @@ object SselithEclipse {
         for (player in level.players()) {
             NetworkManager.sendToPlayer(player, TRIGGER_PACKET, FriendlyByteBuf(buf.copy()))
         }
+    }
+
+    private fun sendActiveTrigger(player: ServerPlayer, dimension: net.minecraft.resources.ResourceKey<Level>) {
+        val start = manualTriggerStart
+        if (start == NO_MANUAL || dimension != SselithRepertory.LEVEL_KEY) return
+        val sselith = player.server.getLevel(dimension) ?: return
+        if (sselith.gameTime - start >= ACTIVE_TICKS) return
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeLong(start)
+        NetworkManager.sendToPlayer(player, TRIGGER_PACKET, buf)
     }
 
     /** Client-side mirror for the manual-trigger broadcast — receivers call this from
@@ -233,17 +246,6 @@ object SselithEclipse {
         if (intensity(tick) <= 0f) return
         if (tick % MOB_TICK_PERIOD == 0L) tickMobs(level)
         if (tick % ITEM_TICK_PERIOD == 0L) tickItems(level)
-    }
-
-    /** Tick offset into the currently-active eclipse window (manual override wins, then
-     *  natural). Caller must have already established that an eclipse is active. */
-    private fun currentActiveTick(gameTime: Long): Long {
-        val manual = manualTriggerStart
-        if (manual != NO_MANUAL) {
-            val elapsed = gameTime - manual
-            if (elapsed in 0 until ACTIVE_TICKS) return elapsed
-        }
-        return ((gameTime % CYCLE_TICKS) + CYCLE_TICKS) % CYCLE_TICKS
     }
 
     private fun tickMobs(level: ServerLevel) {

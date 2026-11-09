@@ -1,9 +1,9 @@
 package org.shipwrights.enderkinesis.entity
 
 import net.minecraft.nbt.Tag
-import net.minecraft.network.chat.Component
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.item.pageText
 
 /** Reads a patrol route from any item with book pages: every "X Y Z" triple, in order. */
 object PatrolRoute {
@@ -19,7 +19,7 @@ object PatrolRoute {
         if (pages.isEmpty()) return null
         val points = ArrayList<Vec3>()
         for (i in 0 until pages.size) {
-            for (match in TRIPLE.findAll(pageText(pages.getString(i)))) {
+            for (match in TRIPLE.findAll(routeText(pages.getString(i)))) {
                 if (points.size >= MAX_POINTS) return points
                 val (x, y, z) = match.destructured
                 points += Vec3(centered(x), y.toDouble(), centered(z))
@@ -29,10 +29,7 @@ object PatrolRoute {
     }
 
     // Written books and Old Paper store each page as component JSON; a book and quill stores plain text.
-    private fun pageText(raw: String): String {
-        if (raw.isEmpty() || raw[0] !in "{[\"") return raw
-        return runCatching { Component.Serializer.fromJson(raw)?.string }.getOrNull() ?: raw
-    }
+    private fun routeText(raw: String): String = if (raw.isEmpty() || raw[0] !in "{[\"") raw else pageText(raw)
 
     /** A whole-number coordinate names a block, so walk to its centre. */
     private fun centered(text: String): Double = if ('.' in text) text.toDouble() else text.toDouble() + 0.5

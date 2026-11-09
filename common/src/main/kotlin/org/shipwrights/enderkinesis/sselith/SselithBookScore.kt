@@ -5,6 +5,7 @@ import net.minecraft.network.chat.Component
 import net.minecraft.world.item.ItemStack
 import kotlin.math.min
 import kotlin.math.roundToInt
+import org.shipwrights.enderkinesis.item.pageText
 
 /**
  * Scores the text written in a vanilla written book and turns it into a
@@ -168,12 +169,7 @@ object SselithBookScore {
         val sb = StringBuilder()
         for (i in 0 until pages.size) {
             val rawPage = pages.getString(i)
-            val text = try {
-                Component.Serializer.fromJson(rawPage)?.string ?: rawPage
-            } catch (e: Exception) {
-                rawPage
-            }
-            sb.append(text).append('\n')
+            sb.append(pageText(rawPage)).append('\n')
         }
         return sb.toString()
     }

@@ -148,15 +148,6 @@ object ScrollOfUnravelling {
         return true
     }
 
-    /** Plain display text of a written-book page (a JSON component),
-     *  falling back to the raw string if it won't parse. */
-    private fun pageText(json: String): String =
-        try {
-            Component.Serializer.fromJson(json)?.string ?: json
-        } catch (_: Exception) {
-            json
-        }
-
     /**
      * Reverse-translate both faces of [be] in place. Returns true iff at
      * least one line on either face actually changed. [SignText] is

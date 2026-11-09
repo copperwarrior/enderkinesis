@@ -40,10 +40,6 @@ object TomeLore {
         return book.tag?.getBoolean(SERIF_PAGES_FLAG) == true
     }
 
-    /** A stored page as a component. Plain text is not valid JSON, so it becomes a literal page. */
-    fun pageComponent(raw: String): Component =
-        runCatching { Component.Serializer.fromJson(raw) }.getOrNull() ?: Component.literal(raw)
-
     /** A single-page book reading "the pages are blank" — placeholder for tomes without lore yet. */
     fun blank(title: String, author: String = "Unknown"): ItemStack =
         bake(title, author, listOf(Component.literal("(the pages are blank)")))

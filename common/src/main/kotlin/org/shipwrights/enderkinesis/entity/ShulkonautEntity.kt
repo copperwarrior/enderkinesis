@@ -34,6 +34,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import org.shipwrights.enderkinesis.blockentity.Commandable
 import org.shipwrights.enderkinesis.item.OldPaperItem
 import org.shipwrights.enderkinesis.item.StaffOfCommandItem
+import org.shipwrights.enderkinesis.item.pageText
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.ShipBlockMove
@@ -855,7 +856,7 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         for (i in 0 until pages.size) {
             val raw = pages.getString(i)
             val text = if (stack.`is`(Items.WRITTEN_BOOK) || stack.item is OldPaperItem) {
-                runCatching { Component.Serializer.fromJson(raw)?.string }.getOrNull() ?: raw
+                pageText(raw)
             } else {
                 raw
             }

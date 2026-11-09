@@ -61,7 +61,6 @@ import net.minecraft.world.level.block.entity.LecternBlockEntity
 import net.minecraft.world.level.block.entity.SignBlockEntity
 import org.shipwrights.enderkinesis.registry.EKItems
 import net.minecraft.world.level.block.state.BlockState
-import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.Half
 import net.minecraft.world.level.block.state.properties.SlabType
 import net.minecraft.world.level.block.state.properties.WallSide
@@ -83,7 +82,7 @@ import net.minecraft.world.level.levelgen.blending.Blender
  *  ## Maze layout
  *
  *  Space is divided into [MAZE_CELL_X] × [MAZE_CELL_Y] × [MAZE_CELL_Z] cells. Each cell
- *  has a [MAZE_DENSITY_PERCENT] % chance of holding a node — a 5×5 polished-deepslate
+ *  holds a node — a 5×5 polished-deepslate
  *  floor at a random `(x, y, z)` within the cell. Each existing node connects to its
  *  `+X` and `+Z` cell neighbours **if** those neighbours also have nodes, producing a
  *  real graph rather than detached fragments.
@@ -1924,25 +1923,6 @@ class SselithRepertoryChunkGenerator(
             if (mazeNodeAt(cellX, cellY, cellZ) != null) return minCellY
         }
         return null
-    }
-
-    /** Per-cell ring picker — every node picks one of [RING_STYLE_COUNT]
-     *  options: each NBT ring + a "procedural" sentinel that defers to
-     *  the [LIBRARY_CELL]-baked concentric-slab pattern. Independent of
-     *  [replacementTypeAt] (its own hash salt so the ring choice doesn't
-     *  correlate with the platform / rare structure pick). Returns null
-     *  for "no NBT ring here" — either the cell has no maze node, or
-     *  the picker rolled the procedural sentinel (which means the
-     *  [LIBRARY_CELL] y=0 ring fires unsuppressed for this cell).
-     *  Rings paint at floor-Y; orthogonal to vertical-connection logic,
-     *  so no upward-connection filter. */
-    private fun ringAt(cellX: Int, cellY: Int, cellZ: Int): RingDecoration? {
-        if (mazeNodeAt(cellX, cellY, cellZ) == null) return null
-        val typeRoll = positiveMod(
-            mazeHash(cellX, cellY, cellZ, RING_TYPE_HASH_SALT), RING_STYLE_COUNT,
-        )
-        return if (typeRoll < RingDecoration.entries.size) RingDecoration.entries[typeRoll]
-               else null
     }
 
 
@@ -3970,31 +3950,6 @@ class SselithRepertoryChunkGenerator(
         return a.ny
     }
 
-    /** Scan the path cache at `(wx, wz)` across `[yLo, yHi]` for a corridor
-     *  floor — POLISHED_DEEPSLATE or POLISHED_DEEPSLATE_STAIRS. Returns the
-     *  world Y of the first one found, or null. */
-    private fun findCorridorFloorY(
-        pathCache: Array<Array<Array<BlockState?>>>,
-        baseX: Int, baseZ: Int, baseY: Int, cacheSize: Int, span: Int,
-        wx: Int, wz: Int, yLo: Int, yHi: Int,
-    ): Int? {
-        val lx = wx - baseX
-        if (lx !in 0 until cacheSize) return null
-        val lz = wz - baseZ
-        if (lz !in 0 until cacheSize) return null
-        val clipYLo = Math.max(yLo, baseY)
-        val clipYHi = Math.min(yHi, baseY + span - 1)
-        if (clipYLo > clipYHi) return null
-        val col = pathCache[lx][lz]
-        for (wy in clipYLo..clipYHi) {
-            val block = col[wy - baseY] ?: continue
-            if (block.`is`(Blocks.POLISHED_DEEPSLATE) || block.`is`(Blocks.POLISHED_DEEPSLATE_STAIRS)) {
-                return wy
-            }
-        }
-        return null
-    }
-
     /** Paint the wall opening frame across two columns: the wall itself
      *  (`depth=0`) and the inner archway shelf column one block inward
      *  (`depth=1`). For stair connections, the corridor floor Y differs by
@@ -4084,7 +4039,6 @@ class SselithRepertoryChunkGenerator(
     // precompute a BooleanArray lookup once at class init — the
     // method body becomes a single array read.
     private fun isStairwellVec(vIdx: Int): Boolean = IS_STAIRWELL_VEC[vIdx]
-    private fun isPathwayVec(vIdx: Int): Boolean = IS_PATHWAY_VEC[vIdx]
 
     /** Tight bbox of the corridor blocks a connection would place
      *  (excludes the platform footprints). Returns a shared **read-only**
@@ -4499,15 +4453,6 @@ class SselithRepertoryChunkGenerator(
         a[0] <= b[1] && a[1] >= b[0] &&
             a[2] < b[3] && a[3] > b[2] &&
             a[4] <= b[5] && a[5] >= b[4]
-
-    /** Strict overlap on ALL three axes — two boxes that only touch at a
-     *  single boundary plane on any axis are reported as non-overlapping.
-     *  Used by the stairwell-vs-stairwell check to identify true
-     *  block-sharing crossings vs adjacent-but-tangent flights. */
-    private fun bboxOverlapsAllStrict(a: IntArray, b: IntArray): Boolean =
-        a[0] < b[1] && a[1] > b[0] &&
-            a[2] < b[3] && a[3] > b[2] &&
-            a[4] < b[5] && a[5] > b[4]
 
     /** Picks for this cell: ALWAYS includes one preferred diagonal
      *  stairwell ([preferredStairwell]) plus the two vertical ladders, then
@@ -5194,9 +5139,8 @@ class SselithRepertoryChunkGenerator(
         }
     }
 
-    /** Pack a random arrangement of paintings onto each of the gallery's
-     *  four interior side walls (N / S / E / W) and spawn the entities into
-     *  the world. The grid on each wall is `GALLERY_GRID_W × GALLERY_GRID_H`,
+    /** Pack a random arrangement of paintings onto the two faces of the
+     *  gallery's central spine and spawn the entities into the world. The grid on each wall is `GALLERY_GRID_W × GALLERY_GRID_H`,
      *  centred horizontally on the wall and starting one block above the
      *  gallery floor. Paint packing is deterministic per (node, wall) so
      *  the arrangement stays stable across reloads. */
@@ -5207,7 +5151,6 @@ class SselithRepertoryChunkGenerator(
         val cornerZ = node.nz + type.cornerOffsetZ
         val cornerY = node.ny + type.cornerOffsetY
         // Centre the W-wide grid horizontally on each wall.
-        val xBase = cornerX + (type.dimX - GALLERY_GRID_W) / 2
         val zBase = cornerZ + (type.dimZ - GALLERY_GRID_W) / 2
         // One block above the gallery floor — the bottom row of the grid
         // sits at (cornerY + 1), so 1-tall paintings hang clear of the
@@ -5398,10 +5341,6 @@ class SselithRepertoryChunkGenerator(
     override fun addDebugScreenInfo(
         info: MutableList<String>, randomState: RandomState, pos: BlockPos,
     ) = Unit
-
-    @Suppress("unused")
-    fun getBiomeSourceForCodec(): BiomeSource = this.biomeSource
-
 
     companion object {
         fun init() {
@@ -5661,76 +5600,6 @@ class SselithRepertoryChunkGenerator(
             }
         }
 
-        /** Legacy 16³ tile data from `data/minecraft/structures/library.nbt`
-         *  (Mojang 20w14infinite client). No longer used after the rescale
-         *  to 48×24×48 procedural cells. Kept inline as a reference. */
-        @Suppress("unused")
-        private const val LIBRARY_TILE_DATA: String =
-            "PSSSSSS__SSSSSSPE......__......WE.____________.WE._G_......_G_.W" +
-            "E.____________.WE._._.n..n._._.WE._._wPNNPe_._.W___._.W..E._.___" +
-            "___._.W..E._.___E._._wPSSPe_._.WE._._.s..s._._.WE.____________.W" +
-            "E._G_......_G_.WE.____________.WE......__......WPNNNNNN__NNNNNNP" +
-            "PSSSSSS..SSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wPNNPe....W......W..E......" +
-            "......W..E......E....wPSSPe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNN..NNNNNNP" +
-            "PSSSSSS..SSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wPNNPe....W......W..E......" +
-            "......W..E......E....wPSSPe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNN..NNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wPPPPe....WE........P.....W" +
-            "E........P.....WE....wPPPPe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wP..Pe....WE..............W" +
-            "E..............WE....wP..Pe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP" +
-            "PSSSSSSSSSSSSSSPE..............WE..............WE..............W" +
-            "E..............WE.....n..n.....WE....wPPPPe....WE.....P..P.....W" +
-            "E.....P..P.....WE....wPPPPe....WE.....s..s.....WE..............W" +
-            "E..............WE..............WE..............WPNNNNNNNNNNNNNNP"
-
         private val AIR: BlockState = Blocks.AIR.defaultBlockState()
         private val DEEPSLATE_BRICKS: BlockState = Blocks.DEEPSLATE_BRICKS.defaultBlockState()
         /** Sentinel returned by [neighbourBlockStateAt] for out-of-cache
@@ -5791,16 +5660,9 @@ class SselithRepertoryChunkGenerator(
             org.shipwrights.enderkinesis.registry.EKBlocks.OWL_DEEPSLATE.get().defaultBlockState()
         }
         private val POLISHED_DEEPSLATE: BlockState = Blocks.POLISHED_DEEPSLATE.defaultBlockState()
-        /** Reserved — kept for compatibility but no longer placed; backing
-         *  walls use [DEEPSLATE_BRICKS] now. */
-        @Suppress("unused")
-        private val DEEPSLATE: BlockState = Blocks.DEEPSLATE.defaultBlockState()
         private val CHAIN: BlockState = Blocks.CHAIN.defaultBlockState()
         private val YELLOW_CARPET: BlockState = Blocks.YELLOW_CARPET.defaultBlockState()
         private val WHITE_CARPET: BlockState = Blocks.WHITE_CARPET.defaultBlockState()
-        private val DEEPSLATE_BRICK_STAIRS_BASE: BlockState =
-            Blocks.DEEPSLATE_BRICK_STAIRS.defaultBlockState()
-                .setValue(StairBlock.HALF, Half.BOTTOM)
         // Cell-wall-top inward-facing battlement caps (half = bottom so
         // the solid material sits on top of the wall and the step rises
         // from the cell-interior side, reading as a step you could climb
@@ -5847,26 +5709,6 @@ class SselithRepertoryChunkGenerator(
         private val POLISHED_DEEPSLATE_STAIRS_BOTTOM_SOUTH_OUTER_RIGHT: BlockState =
             Blocks.POLISHED_DEEPSLATE_STAIRS.defaultBlockState()
                 .setValue(StairBlock.FACING, Direction.SOUTH)
-                .setValue(StairBlock.HALF, Half.BOTTOM)
-                .setValue(StairBlock.SHAPE, net.minecraft.world.level.block.state.properties.StairsShape.OUTER_RIGHT)
-        private val POLISHED_DEEPSLATE_STAIRS_BOTTOM_EAST_OUTER_LEFT: BlockState =
-            Blocks.POLISHED_DEEPSLATE_STAIRS.defaultBlockState()
-                .setValue(StairBlock.FACING, Direction.EAST)
-                .setValue(StairBlock.HALF, Half.BOTTOM)
-                .setValue(StairBlock.SHAPE, net.minecraft.world.level.block.state.properties.StairsShape.OUTER_LEFT)
-        private val POLISHED_DEEPSLATE_STAIRS_BOTTOM_EAST_OUTER_RIGHT: BlockState =
-            Blocks.POLISHED_DEEPSLATE_STAIRS.defaultBlockState()
-                .setValue(StairBlock.FACING, Direction.EAST)
-                .setValue(StairBlock.HALF, Half.BOTTOM)
-                .setValue(StairBlock.SHAPE, net.minecraft.world.level.block.state.properties.StairsShape.OUTER_RIGHT)
-        private val POLISHED_DEEPSLATE_STAIRS_BOTTOM_WEST_OUTER_LEFT: BlockState =
-            Blocks.POLISHED_DEEPSLATE_STAIRS.defaultBlockState()
-                .setValue(StairBlock.FACING, Direction.WEST)
-                .setValue(StairBlock.HALF, Half.BOTTOM)
-                .setValue(StairBlock.SHAPE, net.minecraft.world.level.block.state.properties.StairsShape.OUTER_LEFT)
-        private val POLISHED_DEEPSLATE_STAIRS_BOTTOM_WEST_OUTER_RIGHT: BlockState =
-            Blocks.POLISHED_DEEPSLATE_STAIRS.defaultBlockState()
-                .setValue(StairBlock.FACING, Direction.WEST)
                 .setValue(StairBlock.HALF, Half.BOTTOM)
                 .setValue(StairBlock.SHAPE, net.minecraft.world.level.block.state.properties.StairsShape.OUTER_RIGHT)
         private val LADDER_FACINGS: Array<Direction> = arrayOf(
@@ -6120,10 +5962,6 @@ class SselithRepertoryChunkGenerator(
         /** Spacing of the chiseled-deepslate marker block in the middle of the
          *  axial path (Y=0, centre column). */
         private const val AXIAL_PATH_CHISEL_INTERVAL = 16
-        /** Maze corridor width range (inclusive). Each connection picks a width
-         *  here deterministically from the hash of its endpoints. */
-        private const val MIN_CORRIDOR_WIDTH = 1
-        private const val MAX_CORRIDOR_WIDTH = 3
 
         /** Every Sselith lantern placement (arm-undersides, totem caps,
          *  wall-top decoration, shelf-top decoration) feeds through this
@@ -6175,10 +6013,6 @@ class SselithRepertoryChunkGenerator(
          *  cell-to-cell connection (cellY±1, cellX±1 or cellZ±1) becomes a
          *  stairwell instead of a ladder. */
         private const val STAIR_THRESHOLD = MAZE_CELL_Y
-        @Suppress("unused")
-        private const val AXIS_BRANCH_RANGE = 48
-        @Suppress("unused")
-        private const val MAZE_DENSITY_PERCENT = 100
         /** Max vertical span of a connecting ladder. */
         private const val MAX_CONNECT_Y_DIFF = MAZE_CELL_Y
 
@@ -6227,7 +6061,7 @@ class SselithRepertoryChunkGenerator(
             ConnVec( 0,  1, -1), ConnVec( 0, -1, -1),
         )
 
-        /** Precomputed `isPathwayVec(vIdx)` / `isStairwellVec(vIdx)`
+        /** Precomputed pathway / [isStairwellVec] tests
          *  results, indexed by vIdx. Both predicates are called from
          *  `stairwellAllowed`'s 125-cell × ~16-picks-per-cell scan,
          *  which (after the ±2 widening for stairwell intersection
@@ -6248,10 +6082,6 @@ class SselithRepertoryChunkGenerator(
         private const val PATHWAY_WEST = 1
         private const val PATHWAY_SOUTH = 2
         private const val PATHWAY_NORTH = 3
-
-        /** Vertical-ladder indices into [CONN_VECTORS]. */
-        private const val LADDER_UP_VIDX = 4
-        private const val LADDER_DOWN_VIDX = 5
 
         /** Diagonal-stairwell indices into [CONN_VECTORS]. The 8 stairwells
          *  occupy `[STAIRWELL_VIDX_BASE, STAIRWELL_VIDX_BASE + STAIRWELL_COUNT)`. */
@@ -6442,9 +6272,8 @@ class SselithRepertoryChunkGenerator(
         private const val RING_TYPE_HASH_SALT: Int = 0x7AE2C9D
 
         /** Picker bound: NBT ring count + 1 procedural sentinel. The
-         *  sentinel index returns null from [ringAt], which means
-         *  "let the [LIBRARY_CELL] y=0 concentric-slab + corner
-         *  froglight pattern fire unsuppressed for this cell." */
+         *  sentinel index lets the [LIBRARY_CELL] y=0 concentric-slab
+         *  and corner froglight pattern fire unsuppressed for the cell. */
         private val RING_STYLE_COUNT: Int = RingDecoration.entries.size + 1
 
         /** Authored path-corridor decoration segments. Each NBT is a
@@ -6486,7 +6315,6 @@ class SselithRepertoryChunkGenerator(
         }
 
         private const val PATH_SEGMENT_HASH_SALT: Int = 0x3D2A14F
-        private const val PATH_WIDTH_HASH_SALT: Int = 0x5B91E37
         private const val PATH_SALT_HASH_SALT: Int = 0x2C7D419
         private const val PATH_SEGMENT_TILE_LENGTH: Int = 4
         /** Fraction of straight horizontal corridors that receive any
@@ -6988,7 +6816,7 @@ class SselithRepertoryChunkGenerator(
             RecordCodecBuilder.create { instance ->
                 instance.group(
                     BiomeSource.CODEC.fieldOf("biome_source")
-                        .forGetter(SselithRepertoryChunkGenerator::getBiomeSourceForCodec),
+                        .forGetter(SselithRepertoryChunkGenerator::getBiomeSource),
                 ).apply(instance, ::SselithRepertoryChunkGenerator)
             }
     }
