@@ -67,9 +67,7 @@ object SureibjinEntry {
      *  restart while a player is mid-dream doesn't strand them in
      *  Sureibjin with no original-state restore on wake-up. */
     internal data class ReturnSnapshot(
-        val dimension: ResourceKey<Level>,
-        val x: Double, val y: Double, val z: Double,
-        val yRot: Float, val xRot: Float,
+        val returnPoint: SselithChatTeleport.ReturnPoint,
         val playerStateTag: CompoundTag,
     )
 
@@ -118,9 +116,9 @@ object SureibjinEntry {
         SureibjinReturnSavedData.get(server).put(
             player.uuid,
             ReturnSnapshot(
-                dimension = player.level().dimension(),
-                x = bedPos.x + 0.5, y = bedPos.y + 0.5, z = bedPos.z + 0.5,
-                yRot = player.yRot, xRot = player.xRot,
+                returnPoint = SselithChatTeleport.ReturnPoint.of(player).let {
+                    if (it.ship != null) it else it.copy(x = bedPos.x + 0.5, y = bedPos.y + 0.5, z = bedPos.z + 0.5)
+                },
                 playerStateTag = stateTag,
             ),
         )

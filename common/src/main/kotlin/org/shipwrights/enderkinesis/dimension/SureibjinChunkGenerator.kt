@@ -205,10 +205,6 @@ class SureibjinChunkGenerator(
         info: MutableList<String>, randomState: RandomState, pos: BlockPos,
     ) = Unit
 
-    @Suppress("unused")
-    fun getBiomeSourceForCodec(): BiomeSource = this.biomeSource
-
-
     /**
      * Effective sand surface Y at world `(wx, wz)`. Composite of:
      *
@@ -1737,7 +1733,7 @@ class SureibjinChunkGenerator(
             RecordCodecBuilder.create { instance ->
                 instance.group(
                     BiomeSource.CODEC.fieldOf("biome_source")
-                        .forGetter(SureibjinChunkGenerator::getBiomeSourceForCodec),
+                        .forGetter(SureibjinChunkGenerator::getBiomeSource),
                 ).apply(instance, ::SureibjinChunkGenerator)
             }
     }

@@ -1,8 +1,10 @@
 package org.shipwrights.enderkinesis.dimension
 
+import org.shipwrights.enderkinesis.spell.SpellPlatform
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.BlockEvent
 import dev.architectury.event.events.common.InteractionEvent
+import net.minecraft.world.level.Level
 
 /**
  * Block-uninteractable enforcement for [Sureibjin]. The dream coast can be
@@ -26,13 +28,16 @@ import dev.architectury.event.events.common.InteractionEvent
  */
 object SureibjinBlockGuard {
 
+    fun spellMayChange(level: Level): Boolean = level.dimension() != Sureibjin.LEVEL_KEY
+
     fun init() {
+        // A spell probe is skipped, as on Fabric, where this listener never hears it.
         BlockEvent.BREAK.register { level, _, _, _, _ ->
-            if (level.dimension() == Sureibjin.LEVEL_KEY) EventResult.interruptFalse()
+            if (level.dimension() == Sureibjin.LEVEL_KEY && !SpellPlatform.isPermissionProbe()) EventResult.interruptFalse()
             else EventResult.pass()
         }
         BlockEvent.PLACE.register { level, _, _, _ ->
-            if (level.dimension() == Sureibjin.LEVEL_KEY) EventResult.interruptFalse()
+            if (level.dimension() == Sureibjin.LEVEL_KEY && !SpellPlatform.isPermissionProbe()) EventResult.interruptFalse()
             else EventResult.pass()
         }
         InteractionEvent.RIGHT_CLICK_BLOCK.register { player, _, _, _ ->

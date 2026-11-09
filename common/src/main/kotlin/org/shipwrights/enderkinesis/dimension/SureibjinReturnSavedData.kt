@@ -1,14 +1,10 @@
 package org.shipwrights.enderkinesis.dimension
 
 import java.util.UUID
-import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
-import net.minecraft.resources.ResourceKey
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.MinecraftServer
-import net.minecraft.world.level.Level
 import net.minecraft.world.level.saveddata.SavedData
 
 /**
@@ -57,12 +53,7 @@ internal class SureibjinReturnSavedData : SavedData() {
         for ((uuid, snap) in snapshots) {
             val entry = CompoundTag()
             entry.putUUID("UUID", uuid)
-            entry.putString("Dim", snap.dimension.location().toString())
-            entry.putDouble("X", snap.x)
-            entry.putDouble("Y", snap.y)
-            entry.putDouble("Z", snap.z)
-            entry.putFloat("YRot", snap.yRot)
-            entry.putFloat("XRot", snap.xRot)
+            snap.returnPoint.save(entry)
             entry.put("State", snap.playerStateTag)
             list.add(entry)
         }
@@ -87,15 +78,9 @@ internal class SureibjinReturnSavedData : SavedData() {
             for (i in 0 until list.size) {
                 val entry = list.getCompound(i)
                 val uuid = entry.getUUID("UUID")
-                val dimLoc = ResourceLocation.tryParse(entry.getString("Dim")) ?: continue
-                val dim = ResourceKey.create(Registries.DIMENSION, dimLoc)
+                val point = SselithChatTeleport.ReturnPoint.load(entry) ?: continue
                 data.snapshots[uuid] = SureibjinEntry.ReturnSnapshot(
-                    dimension = dim,
-                    x = entry.getDouble("X"),
-                    y = entry.getDouble("Y"),
-                    z = entry.getDouble("Z"),
-                    yRot = entry.getFloat("YRot"),
-                    xRot = entry.getFloat("XRot"),
+                    returnPoint = point,
                     playerStateTag = entry.getCompound("State"),
                 )
             }

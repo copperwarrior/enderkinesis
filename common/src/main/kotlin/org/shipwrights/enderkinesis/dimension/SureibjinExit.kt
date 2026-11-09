@@ -109,7 +109,7 @@ object SureibjinExit {
         if (snapshot != null) restoreState(player, snapshot)
 
         // No entry record, or the source dim is gone (datapack swap?) — overworld spawn.
-        val targetLevel = snapshot?.let { server.getLevel(it.dimension) }
+        val targetLevel = snapshot?.let { server.getLevel(it.returnPoint.dimension) }
         if (snapshot == null || targetLevel == null) {
             val overworld = server.overworld()
             val spawn = overworld.sharedSpawnPos
@@ -121,11 +121,9 @@ object SureibjinExit {
             return
         }
 
-        player.teleportTo(
-            targetLevel,
-            snapshot.x, snapshot.y, snapshot.z,
-            snapshot.yRot, snapshot.xRot,
-        )
+        val rp = snapshot.returnPoint
+        val landing = rp.landing(targetLevel)
+        player.teleportTo(targetLevel, landing.x, landing.y, landing.z, rp.yRot + landing.yawChange, rp.xRot)
     }
 
     /** Minimal heal to survive the next tick — the snapshot restore (if

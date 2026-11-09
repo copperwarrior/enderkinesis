@@ -438,7 +438,7 @@ object SureibjinSilhouettes {
         val name: String = run {
             val len = 3 + rng.nextInt(10)              // 3..12 chars
             val sb = StringBuilder(len)
-            for (k in 0 until len) {
+            repeat(len) { _ ->
                 sb.append(NAME_CHARS[rng.nextInt(NAME_CHARS.size)])
             }
             sb.toString()
