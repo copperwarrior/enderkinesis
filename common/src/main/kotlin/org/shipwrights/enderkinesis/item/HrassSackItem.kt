@@ -46,10 +46,9 @@ class HrassSackItem(properties: Properties) : Item(properties) {
         }
         val origin = level.toWorldCoordinates(SpellCasting.handOrigin(entity, entity.usedItemHand))
         val look = entity.lookAngle
-        // Odd keys are hands; the vent uses even keys.
         GasJets.hold(
-            level, entity.id * 2L + 1L, GasKind.DRAKE_BREATH, 0L, origin.x, origin.y, origin.z,
-            look.x, look.y, look.z, 1f, GasJetTuning.MASS_PER_TICK,
+            level, entity.id.toLong(), GasKind.DRAKE_BREATH, 0L, origin.x, origin.y, origin.z,
+            look.x, look.y, look.z, 1f, GasJetTuning.MASS_PER_TICK, hand = true,
         )
     }
 

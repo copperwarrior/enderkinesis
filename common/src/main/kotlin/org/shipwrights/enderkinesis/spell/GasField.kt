@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.spell
 
-import com.mojang.logging.LogUtils // TEMP gas debug, remove after the gas run
 import dev.architectury.event.events.common.ChunkEvent
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.TickEvent
@@ -112,6 +111,9 @@ object GasField {
     // The most gas cells that one blowCone call visits for each kind, so a big cloud cannot stall a tick.
     private const val BLOW_SCAN_CAP = 8192
     private const val BLOW_BLEND = 0.5f
+    // The most world cells that one Winds flood visits; a full cone of reach 24 is about 5000.
+    private const val WIND_REACH_CAP = 16384
+    private const val CELL_HALF_DIAGONAL = 0.87
     // Newtons for one unit of (gas amount moved out in a tick) x (push speed). A full-signal vent fed at the rate of a held
     // Hrass Sack (about 0.02 a tick) gives 5.7e6 * 0.02 * 0.35, which is 40 kN.
     private const val VENT_THRUST_PER_FLOW = 5.7e6
@@ -164,8 +166,6 @@ object GasField {
         var count = 0
         // Chunks of persistent gas that are loading: key -> game time when to give up. They thaw when the chunk is ready.
         val awaiting = Long2LongOpenHashMap()
-        // TEMP gas debug, remove after the gas run
-        var dbgWholeChunks = 0; var dbgWholeCells = 0; var dbgDeltaChunks = 0; var dbgDeltaCells = 0; var dbgFlowEntries = 0
 
         val chunkKeys = LongArrayList()
         val indices = IntArrayList()
@@ -212,6 +212,8 @@ object GasField {
         val openCache = Long2ByteOpenHashMap()
         // World column -> highest blocking cell in the ROOF_SCAN cells under the heightmap top.
         val skyBlock = Long2IntOpenHashMap().apply { defaultReturnValue(SKY_UNSCANNED) }
+        // Shipyard column -> highest blocking cell in the ship box.
+        val shipRoof = Long2IntOpenHashMap().apply { defaultReturnValue(SKY_UNSCANNED) }
         // Removed flow arrays wait one tick before reuse, so no pass still holds them.
         val flowPool = ArrayList<FloatArray>()
         val releasedFlows = ArrayList<FloatArray>()
@@ -232,25 +234,6 @@ object GasField {
     private val ventTaken = FloatArray(KINDS.size)
 
     // Game thread only. One map for each kind, by ordinal.
-    // TEMP gas debug, remove after the gas run
-    private val dbgLog = LogUtils.getLogger()
-
-    // TEMP gas debug, remove after the gas run
-    private fun dbgReport(level: ServerLevel, gas: LevelGas) {
-        var cells = 0; var total = 0.0; var strong = 0
-        for (m in gas.chunks.values) {
-            cells += m.size
-            val it = m.values.iterator()
-            while (it.hasNext()) { val a = it.nextFloat(); total += a; if (a >= EXPOSE_MIN) strong++ }
-        }
-        dbgLog.info(
-            "TEMP gas debug server dim={} kind={} cells={} count={} chunks={} totalAmount={} cellsAtOrAbove0.05={} sentWholeChunks={} sentWholeCells={} sentDeltaChunks={} sentDeltaCells={} sentFlowEntries={}",
-            gas.dimension, gas.kind.name, cells, gas.count, gas.chunks.size, total, strong,
-            gas.dbgWholeChunks, gas.dbgWholeCells, gas.dbgDeltaChunks, gas.dbgDeltaCells, gas.dbgFlowEntries,
-        )
-        gas.dbgWholeChunks = 0; gas.dbgWholeCells = 0; gas.dbgDeltaChunks = 0; gas.dbgDeltaCells = 0; gas.dbgFlowEntries = 0
-    }
-
     private val levels = KINDS.map { WeakHashMap<ServerLevel, LevelGas>() }
 
     private fun gasOf(level: ServerLevel, kind: GasKind): LevelGas = levels[kind.ordinal].getOrPut(level) { LevelGas(kind, level.dimensionId) }
@@ -348,9 +331,15 @@ object GasField {
         ChunkEvent.LOAD_DATA.register(ChunkEvent.LoadData { chunk, level, _ ->
             if (level != null) thawQueue.add(ThawRequest(level, chunk.pos.toLong()))
         })
-        LifecycleEvent.SERVER_LEVEL_SAVE.register { level -> if (KINDS.any { gasIn(level, it) != null }) level.gasStore().setDirty() }
+        LifecycleEvent.SERVER_LEVEL_SAVE.register { level ->
+            val store = level.gasStore()
+            store.dropDeletedShips()
+            if (KINDS.any { gasIn(level, it) != null }) store.setDirty()
+        }
         LifecycleEvent.SERVER_STOPPING.register {
             thawQueue.clear()
+            // Jet budgets and parcels in flight go back to the grid first, so the freeze below saves them.
+            GasJets.returnAll()
             // Loaded chunks freeze first, because the world save runs after this event.
             for (perKind in levels) for ((level, gas) in perKind) {
                 val it = gas.chunks.long2ObjectEntrySet().fastIterator()
@@ -786,8 +775,10 @@ object GasField {
      * Gives every gas cell inside the cone (world axes) a flow along [dir], strongest at the apex and down to [farFraction]
      * of [speed] at [length]. The gas then moves by the flow rules, which stop at walls. Ship gas is reached through its
      * transform. A cloud past the scan cap is only partly blown in one call.
+     * Wind reaches only gas that the same wind would reach in the world: world cells that [floodWind] reaches from the
+     * apex, and ship cells that the hull flood marks vented.
      */
-    @Suppress("LongParameterList") // One value for each part of the cone.
+    @Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod") // One value for each part of the cone.
     fun blowCone(
         level: ServerLevel, origin: Vec3, dir: Vec3, length: Double, tanHalfAngle: Double, apexRadius: Double,
         speed: Float, farFraction: Float,
@@ -797,6 +788,7 @@ object GasField {
         val end = origin.add(dir.scale(length))
         coneBox.setMin(minOf(origin.x, end.x) - pad, minOf(origin.y, end.y) - pad, minOf(origin.z, end.z) - pad)
             .setMax(maxOf(origin.x, end.x) + pad, maxOf(origin.y, end.y) + pad, maxOf(origin.z, end.z) + pad)
+        var flooded = false
         for (kind in KINDS) {
             val gas = gasIn(level, kind) ?: continue
             var budget = BLOW_SCAN_CAP
@@ -809,30 +801,97 @@ object GasField {
                 if (ship == null && abs(cx * 16 + 8 - origin.x) > reach || ship == null && abs(cz * 16 + 8 - origin.z) > reach) continue
                 // Far ship chunks would use up the scan cap before the ships in the cone are reached.
                 if (ship != null && !ship.worldAABB.intersectsAABB(coneBox)) continue
-                // The direction in the frame of this chunk.
-                val d = gas.ventWay.set(dir.x, dir.y, dir.z)
-                ship?.transform?.shipToWorldRotation?.transformInverse(d)
-                val dx = d.x; val dy = d.y; val dz = d.z
+                // With no flood result a hold may be sealed, as in exchangeShipCell.
+                val seal = if (ship != null) sealFor(level, ship) ?: continue else null
+                val scale = ship?.transform?.shipToWorldScaling?.x() ?: 1.0
                 var flows: Int2ObjectOpenHashMap<FloatArray>? = null
                 val cells = entry.value.int2FloatEntrySet().fastIterator()
                 while (cells.hasNext() && budget-- > 0) {
                     val i = cells.next().intKey
-                    val p = gas.shipPoint.set(cellX(cx, i) + 0.5, cellY(level.minBuildHeight, i) + 0.5, cellZ(cz, i) + 0.5)
+                    val x = cellX(cx, i); val y = cellY(level.minBuildHeight, i); val z = cellZ(cz, i)
+                    val p = gas.shipPoint.set(x + 0.5, y + 0.5, z + 0.5)
                     if (ship != null) ship.transform.shipToWorld.transformPosition(p)
-                    val rx = p.x - origin.x; val ry = p.y - origin.y; val rz = p.z - origin.z
-                    val along = rx * dir.x + ry * dir.y + rz * dir.z
-                    if (along < 0.0 || along > length) continue
-                    val radius = along * tanHalfAngle + apexRadius
-                    if (rx * rx + ry * ry + rz * rz - along * along > radius * radius) continue
+                    val along = inCone(origin, dir, length, tanHalfAngle, apexRadius, p.x, p.y, p.z, 0.0)
+                    if (along < 0.0) continue
+                    if (seal != null) {
+                        if (!seal.isVented(x, y, z)) continue
+                    } else {
+                        if (!flooded) { floodWind(level, origin, dir, length, tanHalfAngle, apexRadius); flooded = true }
+                        if (!windSeen.contains(BlockPos.asLong(x, y, z))) continue
+                    }
                     val s = speed * (1.0 - (along / length) * (1.0 - farFraction))
+                    val w = gas.ventWay.set(dir.x * s, dir.y * s, dir.z * s)
+                    if (ship != null) shipWind(ship, p, scale, w)
                     val flow = (flows ?: gas.flows.getOrPut(key) { Int2ObjectOpenHashMap() }.also { flows = it }).getOrPut(i) { newFlow(gas) }
-                    flow[0] += ((dx * s).toFloat() - flow[0]) * BLOW_BLEND
-                    flow[1] += ((dy * s).toFloat() - flow[1]) * BLOW_BLEND
-                    flow[2] += ((dz * s).toFloat() - flow[2]) * BLOW_BLEND
+                    flow[0] += (w.x.toFloat() - flow[0]) * BLOW_BLEND
+                    flow[1] += (w.y.toFloat() - flow[1]) * BLOW_BLEND
+                    flow[2] += (w.z.toFloat() - flow[2]) * BLOW_BLEND
                 }
             }
         }
     }
+
+    /**
+     * The world wind [w] (blocks a tick) at world point [p] becomes the flow of a cell of [ship]: relative to the ship
+     * motion at [p] as VS2 drag sees it, in ship axes, in ship cells a tick.
+     */
+    private fun shipWind(ship: Ship, p: Vector3dc, scale: Double, w: Vector3d) {
+        val c = ship.transform.positionInWorld
+        val rx = p.x() - c.x(); val ry = p.y() - c.y(); val rz = p.z() - c.z()
+        val av = ship.angularVelocity
+        val u = ship.velocity
+        w.sub(
+            (av.y() * rz - av.z() * ry + u.x()) / TICKS_PER_SECOND,
+            (av.z() * rx - av.x() * rz + u.y()) / TICKS_PER_SECOND,
+            (av.x() * ry - av.y() * rx + u.z()) / TICKS_PER_SECOND,
+        )
+        ship.transform.shipToWorldRotation.transformInverse(w)
+        w.div(scale)
+    }
+
+    /** Distance along [dir] of the point when it is in the cone widened by [pad], else -1. */
+    @Suppress("LongParameterList") // The cone, the point and the pad.
+    private fun inCone(
+        origin: Vec3, dir: Vec3, length: Double, tanHalfAngle: Double, apexRadius: Double,
+        px: Double, py: Double, pz: Double, pad: Double,
+    ): Double {
+        val rx = px - origin.x; val ry = py - origin.y; val rz = pz - origin.z
+        val along = rx * dir.x + ry * dir.y + rz * dir.z
+        if (along < -pad || along > length + pad) return -1.0
+        val radius = along.coerceAtLeast(0.0) * tanHalfAngle + apexRadius + pad
+        return if (rx * rx + ry * ry + rz * rz - along * along > radius * radius) -1.0 else along.coerceAtLeast(0.0)
+    }
+
+    /**
+     * Fills [windSeen] with the open world cells that air from the cone apex reaches through cell faces inside the cone.
+     * A breadth-first walk, at most [WIND_REACH_CAP] cells; it stops at walls, so a closed room in the cone gets no wind.
+     */
+    @Suppress("LongParameterList") // One value for each part of the cone.
+    private fun floodWind(level: ServerLevel, origin: Vec3, dir: Vec3, length: Double, tanHalfAngle: Double, apexRadius: Double) {
+        windQueue.clear(); windSeen.clear()
+        val start = BlockPos.asLong(Mth.floor(origin.x), Mth.floor(origin.y), Mth.floor(origin.z))
+        windQueue.add(start); windSeen.add(start)
+        var next = 0
+        while (next < windQueue.size && windQueue.size < WIND_REACH_CAP) {
+            windAt.set(windQueue.getLong(next++))
+            for (face in FACES) {
+                windNext.setWithOffset(windAt, face)
+                val n = windNext.asLong()
+                if (windSeen.contains(n)) continue
+                val px = windNext.x + 0.5; val py = windNext.y + 0.5; val pz = windNext.z + 0.5
+                if (inCone(origin, dir, length, tanHalfAngle, apexRadius, px, py, pz, CELL_HALF_DIAGONAL) < 0.0) continue
+                if (!level.isLoaded(windNext) || !open(level, windNext)) continue
+                windSeen.add(n)
+                windQueue.add(n)
+            }
+        }
+    }
+
+    // Game thread only. Scratch for floodWind; windSeen is read by blowCone after the flood.
+    private val windQueue = LongArrayList()
+    private val windSeen = LongOpenHashSet()
+    private val windAt = BlockPos.MutableBlockPos()
+    private val windNext = BlockPos.MutableBlockPos()
 
     /** Blends the flow of [dst] toward the move from [src] at [fraction] of the source gas per tick (blocks per tick). */
     private fun noteMove(level: ServerLevel, gas: LevelGas, src: BlockPos, dst: BlockPos, fraction: Float) {
@@ -892,7 +951,6 @@ object GasField {
         if (time % EXPOSE_EVERY == 0L) expose(level, gas)
         publishLift(level, gas)
         sync(level, gas, time % RESYNC_EVERY == 0L)
-        if (time % 20L == 0L) dbgReport(level, gas) // TEMP gas debug, remove after the gas run
         // Sources between two ticks must see the ships, bodies and blocks where they are then.
         gas.caching = false
         gas.shipsByChunk.clear()
@@ -906,6 +964,7 @@ object GasField {
     private fun startCaching(gas: LevelGas) {
         gas.openCache.clear()
         gas.skyBlock.clear()
+        gas.shipRoof.clear()
         gas.caching = true
         for (n in gas.releasedFlows.indices) {
             if (gas.flowPool.size >= FLOW_POOL_CAP) break
@@ -972,9 +1031,7 @@ object GasField {
         while (it.hasNext()) {
             val key = it.nextLong()
             val cells = gas.chunks.get(key)
-            val dbgWhole = wholeFlows(gas, key) // TEMP gas debug, remove after the gas run
-            gas.dbgWholeChunks++; gas.dbgWholeCells += cells?.size ?: 0; gas.dbgFlowEntries += dbgWhole?.size ?: 0 // TEMP gas debug, remove after the gas run
-            SpellNetwork.sendGas(recipients(level, gas, key), gas.kind, key, cells, dbgWhole)
+            SpellNetwork.sendGas(recipients(level, gas, key), gas.kind, key, cells, wholeFlows(gas, key))
             rememberWhole(gas, key, cells)
         }
         changedFlows(gas, send)
@@ -986,9 +1043,8 @@ object GasField {
             if (!send.contains(key)) {
                 dropAlreadyHeld(gas, key, entry.value)
                 if (entry.value.isNotEmpty()) {
-                    gas.dbgDeltaChunks++; gas.dbgDeltaCells += entry.value.size // TEMP gas debug, remove after the gas run
                     val flows = gas.flowChanged.remove(key)
-                    SpellNetwork.sendGasCells(recipients(level, gas, key), gas.kind, key, entry.value, flows)
+                    SpellNetwork.queueGasCells(recipients(level, gas, key), gas.kind, key, entry.value, flows)
                     if (flows != null) spareFlowChanged(gas, flows)
                 }
             }
@@ -999,14 +1055,14 @@ object GasField {
         val flowsOnly = gas.flowChanged.long2ObjectEntrySet().fastIterator()
         while (flowsOnly.hasNext()) {
             val entry = flowsOnly.next()
-            gas.dbgDeltaChunks++; gas.dbgFlowEntries += entry.value.size // TEMP gas debug, remove after the gas run
-            SpellNetwork.sendGasCells(recipients(level, gas, entry.longKey), gas.kind, entry.longKey, null, entry.value)
+            SpellNetwork.queueGasCells(recipients(level, gas, entry.longKey), gas.kind, entry.longKey, null, entry.value)
             spareFlowChanged(gas, entry.value)
         }
         gas.flowChanged.clear()
+        SpellNetwork.flushGasCells(gas.kind)
     }
 
-    // sendGasCells writes the map into a buffer at once, so it can be reused.
+    // queueGasCells writes the map into a buffer at once, so it can be reused.
     private fun spareFlowChanged(gas: LevelGas, flows: Int2IntOpenHashMap) {
         if (gas.spareFlowChanged.size >= FLOW_POOL_CAP) return
         flows.clear()
@@ -1730,21 +1786,6 @@ object GasField {
         if (set.isEmpty()) gas.pressured.remove(key)
     }
 
-    /** The face of a ship cell that points nearest to world [way], so gas in a tilted ship settles along world up or down. */
-    /** TEMP gas mass debug: the sum of all gas of [level] in the grid, all kinds. */
-    fun totalMass(level: ServerLevel): Double {
-        var sum = 0.0
-        for (kind in KINDS) {
-            val gas = gasIn(level, kind) ?: continue
-            val chunks = gas.chunks.long2ObjectEntrySet().fastIterator()
-            while (chunks.hasNext()) {
-                val cells = chunks.next().value.values.iterator()
-                while (cells.hasNext()) sum += cells.nextFloat()
-            }
-        }
-        return sum
-    }
-
     // Game thread only.
     private val skyPoint = Vector3d()
     private val roofCell = BlockPos.MutableBlockPos()
@@ -1759,9 +1800,26 @@ object GasField {
         ship.transform.shipToWorld.transformPosition(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, skyPoint)
         roofCell.set(skyPoint.x, skyPoint.y, skyPoint.z)
         if (!level.isLoaded(roofCell) || !openToSky(level, gas, roofCell.x, roofCell.y, roofCell.z)) return false
-        val top = minOf(pos.y + ROOF_SCAN, ship.shipAABB?.maxY() ?: pos.y)
+        val box = ship.shipAABB ?: return true
+        val top = minOf(pos.y + ROOF_SCAN, box.maxY())
+        if (gas.caching) {
+            val roof = shipRoof(level, gas, pos.x, pos.z, box)
+            if (roof <= pos.y) return true
+            if (roof <= top) return false
+        }
         for (y in pos.y + 1..top) if (!passes(level, roofCell.set(pos.x, y, pos.z))) return false
         return true
+    }
+
+    /** The highest blocking cell of a ship column within its box, once a tick; [Int.MIN_VALUE] when there is none. */
+    private fun shipRoof(level: ServerLevel, gas: LevelGas, x: Int, z: Int, box: AABBic): Int {
+        val column = BlockPos.asLong(x, 0, z)
+        var roof = gas.shipRoof.get(column)
+        if (roof != SKY_UNSCANNED) return roof
+        roof = Int.MIN_VALUE
+        for (y in box.maxY() downTo maxOf(box.minY(), level.minBuildHeight)) if (!passes(level, roofCell.set(x, y, z))) { roof = y; break }
+        gas.shipRoof.put(column, roof)
+        return roof
     }
 
     // canSeeSky reads sky light, and glass and leaves let it through, so a glass roof would count as open sky.

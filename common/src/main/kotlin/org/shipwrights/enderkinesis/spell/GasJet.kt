@@ -6,6 +6,7 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.util.blockLoaded
 import org.shipwrights.enderkinesis.util.colliderClip
 import org.valkyrienskies.core.api.ships.Ship
@@ -105,6 +106,8 @@ class GasJetParcels(capacity: Int) {
     val tries = IntArray(capacity)
     val push = FloatArray(capacity)
     val frame = LongArray(capacity)
+    /** True once the parcel left the ship of its vent and gave that ship its recoil. */
+    val left = BooleanArray(capacity)
     /** The world position at the last step, so a parcel whose ship is gone can still give its gas to the world. */
     val wx = DoubleArray(capacity); val wy = DoubleArray(capacity); val wz = DoubleArray(capacity)
     /** The last point in an open cell, in the frame [lastFrame]. */
@@ -125,7 +128,7 @@ class GasJetParcels(capacity: Int) {
         s[i] = s[last]; r[i] = r[last]; age[i] = age[last]; frame[i] = frame[last]
         wx[i] = wx[last]; wy[i] = wy[last]; wz[i] = wz[last]
         lx[i] = lx[last]; ly[i] = ly[last]; lz[i] = lz[last]; lastFrame[i] = lastFrame[last]
-        held[i] = held[last]; push[i] = push[last]; wait[i] = wait[last]; tries[i] = tries[last]
+        held[i] = held[last]; push[i] = push[last]; wait[i] = wait[last]; tries[i] = tries[last]; left[i] = left[last]
         ox[i] = ox[last]; oy[i] = oy[last]; oz[i] = oz[last]; oldR[i] = oldR[last]
     }
 }
@@ -148,12 +151,24 @@ interface JetPush {
     @Suppress("LongParameterList") // A body, a point and an impulse.
     fun wall(e: GasJetEmitter, bodyId: Long, x: Double, y: Double, z: Double, jx: Double, jy: Double, jz: Double)
 
-    /** Tests the world segment of a parcel for bodies and entities. True when the parcel hit one and ends. */
-    fun segment(level: Level, e: GasJetEmitter, parcels: GasJetParcels, i: Int, from: Vector3d, to: Vector3d): Boolean
+    /**
+     * Tests the world segment of a parcel for bodies and entities. True when the parcel hit one and ends.
+     * [v] is the world velocity of the parcel in blocks a tick, with the motion of its ship frame added.
+     */
+    @Suppress("LongParameterList") // A parcel, its world segment and its world velocity.
+    fun segment(level: Level, e: GasJetEmitter, parcels: GasJetParcels, i: Int, from: Vector3d, to: Vector3d, v: Vector3dc): Boolean
 }
 
-/** One jet source: its place in its frame, its direction and its parcels. */
-class GasJetEmitter(val id: Long, val kind: GasKind, seed: Long) {
+/** Jet maps, one for each kind and owner type, so a key needs no packed kind or owner bits. */
+val JET_CHANNELS = GasKind.entries.size * 2
+
+fun jetChannel(kind: GasKind, hand: Boolean): Int = kind.ordinal * 2 + if (hand) 1 else 0
+
+/**
+ * One jet source: its place in its frame, its direction and its parcels. [id] is the owner key (a vent BlockPos.asLong,
+ * or an entity id when [hand] is true); [id], [kind] and [hand] together name the jet.
+ */
+class GasJetEmitter(val id: Long, val kind: GasKind, seed: Long, val hand: Boolean = false) {
     var frame = 0L
     var px = 0.0; var py = 0.0; var pz = 0.0
     var dx = 1.0; var dy = 0.0; var dz = 0.0
@@ -178,6 +193,8 @@ class GasJetEmitter(val id: Long, val kind: GasKind, seed: Long) {
     val parcels = GasJetParcels(GasJetTuning.PARCEL_CAP)
     val random: RandomSource = RandomSource.create(seed)
     internal val a = Vector3d(); internal val b = Vector3d(); internal val c = Vector3d()
+    // GasJetSim runs on the server thread and the client thread at once, so its cell scratch lives here.
+    internal val stepCell = BlockPos.MutableBlockPos()
 }
 
 /** The step of a jet, the same on both sides; only the server passes a [JetSink]. */
@@ -202,7 +219,7 @@ object GasJetSim {
 
     private fun emit(level: Level, e: GasJetEmitter) {
         // A nozzle against a wall sends nothing; its budget then stops the drain.
-        if (!e.active || !GasField.open(level, stepAt.set(Math.floor(e.px), Math.floor(e.py), Math.floor(e.pz)))) return
+        if (!e.active || !GasField.open(level, e.stepCell.set(Math.floor(e.px), Math.floor(e.py), Math.floor(e.pz)))) return
         e.carry += GasJetTuning.PARCELS_PER_TICK * e.strength
         val ps = e.parcels
         val speed = GasJetTuning.LAUNCH_SPEED * GasJetTuning.emitterSpeed(e.strength, e.parcelMass)
@@ -228,7 +245,7 @@ object GasJetSim {
             ps.x[i] = e.px + e.dx * d; ps.y[i] = e.py + e.dy * d; ps.z[i] = e.pz + e.dz * d
             ps.vx[i] = e.dx * frameSpeed; ps.vy[i] = e.dy * frameSpeed; ps.vz[i] = e.dz * frameSpeed
             ps.s[i] = d * scale; ps.r[i] = GasJetTuning.R0; ps.age[i] = 0; ps.frame[i] = e.frame
-            ps.held[i] = gas; ps.push[i] = pushMass; ps.wait[i] = 0; ps.tries[i] = 0
+            ps.held[i] = gas; ps.push[i] = pushMass; ps.wait[i] = 0; ps.tries[i] = 0; ps.left[i] = false
             ps.lx[i] = e.px; ps.ly[i] = e.py; ps.lz[i] = e.pz; ps.lastFrame[i] = e.frame
             ps.settlePrevious(i)
             val world = e.c.set(ps.x[i], ps.y[i], ps.z[i])
@@ -305,26 +322,28 @@ object GasJetSim {
         ps.wx[i] = from.x; ps.wy[i] = from.y; ps.wz[i] = from.z
         val end = BlockPos.containing(to.x, to.y, to.z)
         if (!level.blockLoaded(end)) return !finish(level, e, ps, i, sink)
-        if (push != null && ps.push[i] > 0f && push.segment(level, e, ps, i, from, to)) return !finish(level, e, ps, i, sink)
+        if (push != null && ps.push[i] > 0f) {
+            // to - from is the velocity relative to the ship frame; a push needs the world velocity.
+            val v = e.c.set(ps.vx[i], ps.vy[i], ps.vz[i])
+            if (ship != null) absoluteVelocity(ship, from, v)
+            if (push.segment(level, e, ps, i, from, to, v)) return !finish(level, e, ps, i, sink)
+        }
         val hit = level.clip(colliderClip(Vec3(from.x, from.y, from.z), Vec3(to.x, to.y, to.z)))
         if (hit.type == HitResult.Type.MISS) {
             // A step between two solids that touch only by an edge or a corner has no open way over cell faces: it ends here.
-            if (!facesOpen(level, from, to)) return !finish(level, e, ps, i, sink)
+            if (!facesOpen(level, from, to, e.stepCell)) return !finish(level, e, ps, i, sink)
             ps.x[i] += ps.vx[i]; ps.y[i] += ps.vy[i]; ps.z[i] += ps.vz[i]
-            if (ship != null) leaveHull(ship, ps, i, to, e)
+            if (ship != null) leaveHull(ship, ps, i, to, e, push)
             return true
         }
         wallJet(level, e, i, ship, push, hit.location.x, hit.location.y, hit.location.z, hit.blockPos, hit.direction.stepX, hit.direction.stepY, hit.direction.stepZ)
         return true
     }
 
-    // Server and client sim thread only.
-    private val stepAt = BlockPos.MutableBlockPos()
-
     /** A parcel in a closed cell goes back to its last open point, so no hand-off or wall test starts inside a solid. */
     private fun keepOpen(level: Level, e: GasJetEmitter, i: Int) {
         val ps = e.parcels
-        if (GasField.open(level, stepAt.set(Math.floor(ps.x[i]), Math.floor(ps.y[i]), Math.floor(ps.z[i])))) {
+        if (GasField.open(level, e.stepCell.set(Math.floor(ps.x[i]), Math.floor(ps.y[i]), Math.floor(ps.z[i])))) {
             ps.lx[i] = ps.x[i]; ps.ly[i] = ps.y[i]; ps.lz[i] = ps.z[i]; ps.lastFrame[i] = ps.frame[i]
             return
         }
@@ -341,7 +360,7 @@ object GasJetSim {
      * True when the move from the cell of [a] to the cell of [b] has an order of single-axis steps through open cells. A move
      * that changes two or three coordinates would otherwise slip through the gap between diagonal solids.
      */
-    private fun facesOpen(level: Level, a: Vector3d, b: Vector3d): Boolean {
+    private fun facesOpen(level: Level, a: Vector3d, b: Vector3d, step: BlockPos.MutableBlockPos): Boolean {
         val fx = Math.floor(a.x).toInt(); val fy = Math.floor(a.y).toInt(); val fz = Math.floor(a.z).toInt()
         val sx = Math.floor(b.x).toInt() - fx; val sy = Math.floor(b.y).toInt() - fy; val sz = Math.floor(b.z).toInt() - fz
         val changed = (if (sx != 0) 1 else 0) + (if (sy != 0) 1 else 0) + (if (sz != 0) 1 else 0)
@@ -355,7 +374,7 @@ object GasJetSim {
                     1 -> if (sy != 0) y += sy else continue
                     else -> if (sz != 0) z += sz else continue
                 }
-                if (!GasField.open(level, stepAt.set(x, y, z))) { open = false; break }
+                if (!GasField.open(level, step.set(x, y, z))) { open = false; break }
             }
             if (open) return true
         }
@@ -398,11 +417,12 @@ object GasJetSim {
     }
 
     /** A parcel past the hull box of its ship moves on in the world, so it no longer turns with the ship. */
-    private fun leaveHull(ship: Ship, ps: GasJetParcels, i: Int, world: Vector3d, e: GasJetEmitter) {
+    private fun leaveHull(ship: Ship, ps: GasJetParcels, i: Int, world: Vector3d, e: GasJetEmitter, push: JetPush?) {
         val box = ship.worldAABB
         if (world.x >= box.minX() && world.x <= box.maxX() && world.y >= box.minY() && world.y <= box.maxY() &&
             world.z >= box.minZ() && world.z <= box.maxZ()
         ) return
+        recoil(e, i, ship, push, world.x, world.y, world.z)
         val v = e.c.set(ps.vx[i], ps.vy[i], ps.vz[i])
         absoluteVelocity(ship, world, v)
         val scale = ship.transform.shipToWorldScaling.x()
@@ -413,12 +433,35 @@ object GasJetSim {
         ps.settlePrevious(i)
     }
 
-    /** [v] (frame axes) becomes the world velocity of the point [world], with the frame motion of [ship] added. */
-    private fun absoluteVelocity(ship: Ship, world: Vector3d, v: Vector3d) {
+    /**
+     * The parcel leaves [ship], the ship of its vent: the ship takes the recoil of the momentum (relative to the ship) that
+     * the parcel carries out. Momentum lost inside the ship stays inside it, so a jet into a closed hold gives no net force.
+     */
+    @Suppress("LongParameterList") // The parcel, its ship and the exit point.
+    private fun recoil(e: GasJetEmitter, i: Int, ship: Ship, push: JetPush?, x: Double, y: Double, z: Double) {
+        val ps = e.parcels
+        if (ps.left[i] || ship.id != e.frame) return
+        ps.left[i] = true
+        if (push == null || ps.push[i] <= 0f) return
+        val v = e.c.set(ps.vx[i], ps.vy[i], ps.vz[i])
         ship.transform.shipToWorld.transformDirection(v)
-        val r = Vector3d(world).sub(ship.transform.positionInWorld)
-        val spin = ship.angularVelocity.cross(r, Vector3d())
-        v.add(spin.add(ship.velocity).div(TICKS_PER_SECOND))
+        // Speeds are in blocks a tick; the impulse is opposite the momentum carried out.
+        val j = -ps.push[i] * TICKS_PER_SECOND
+        push.wall(e, ship.id, x, y, z, v.x * j, v.y * j, v.z * j)
+    }
+
+    /** [v] (frame axes) becomes the world velocity of the point [world], with the frame motion of [ship] added. */
+    private fun absoluteVelocity(ship: Ship, world: Vector3dc, v: Vector3d) {
+        ship.transform.shipToWorld.transformDirection(v)
+        val c = ship.transform.positionInWorld
+        val rx = world.x() - c.x(); val ry = world.y() - c.y(); val rz = world.z() - c.z()
+        val w = ship.angularVelocity
+        val u = ship.velocity
+        v.add(
+            (w.y() * rz - w.z() * ry + u.x()) / TICKS_PER_SECOND,
+            (w.z() * rx - w.x() * rz + u.y()) / TICKS_PER_SECOND,
+            (w.x() * ry - w.y() * rx + u.z()) / TICKS_PER_SECOND,
+        )
     }
 
     /** The world velocity [v] becomes the velocity relative to [ship], in its axes. */
@@ -439,6 +482,7 @@ object GasJetSim {
         val n = e.b.set(nx.toDouble(), ny.toDouble(), nz.toDouble())
         into?.transform?.shipToWorldRotation?.transform(n)
         val point = e.a.set(hx + n.x * WALL_INSET, hy + n.y * WALL_INSET, hz + n.z * WALL_INSET)
+        if (from != null && into?.id != from.id) recoil(e, i, from, push, hx, hy, hz)
         val v = e.c.set(ps.vx[i], ps.vy[i], ps.vz[i])
         if (from != null) absoluteVelocity(from, point, v)
         // Relative to the wall that was hit, drop the part of the velocity that goes into it.
@@ -449,7 +493,9 @@ object GasJetSim {
         val dot = world.x * n.x + world.y * n.y + world.z * n.z
         if (dot < 0.0) world.sub(n.x * dot, n.y * dot, n.z * dot)
         val scaleFrom = from?.transform?.shipToWorldScaling?.x() ?: 1.0
-        if (push != null && into != null && dot < 0.0 && ps.push[i] > 0f) {
+        // Inside the ship of its vent the parcel's momentum is internal; it pushes that ship only after it left.
+        val inside = into != null && into.id == e.frame && !ps.left[i]
+        if (push != null && into != null && dot < 0.0 && ps.push[i] > 0f && !inside) {
             // The wall takes the normal part that the parcel loses. The speeds here are in blocks a tick.
             val j = dot * ps.push[i] * TICKS_PER_SECOND
             push.wall(e, into.id, point.x, point.y, point.z, n.x * j, n.y * j, n.z * j)

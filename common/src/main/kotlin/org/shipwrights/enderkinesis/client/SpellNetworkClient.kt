@@ -116,7 +116,7 @@ object SpellNetworkClient {
             }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS) { buf, ctx ->
-            val kind = GasKind.values().getOrNull(buf.readUnsignedByte().toInt()) ?: return@registerReceiver
+            val kind = GasKind.entries.getOrNull(buf.readUnsignedByte().toInt()) ?: return@registerReceiver
             val chunk = buf.readLong()
             val cells = Int2FloatOpenHashMap()
             repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), GasField.unpackAmount(buf.readByte().toInt())) }
@@ -124,22 +124,31 @@ object SpellNetworkClient {
             ctx.queue { GasFieldClient.received(kind, chunk, cells, flows) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS_CELLS) { buf, ctx ->
-            val kind = GasKind.values().getOrNull(buf.readUnsignedByte().toInt()) ?: return@registerReceiver
-            val chunk = buf.readLong()
-            val cells = Int2FloatOpenHashMap()
-            repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), GasField.unpackAmount(buf.readByte().toInt())) }
-            val flows = readFlows(buf)
-            ctx.queue { GasFieldClient.changed(kind, chunk, cells, flows) }
+            val kind = GasKind.entries.getOrNull(buf.readUnsignedByte().toInt()) ?: return@registerReceiver
+            // Each chunk entry is a long and two counts at least.
+            val n = buf.readCount(Long.SIZE_BYTES + 2)
+            val chunks = LongArray(n)
+            val cellMaps = ArrayList<Int2FloatOpenHashMap>(n)
+            val flowMaps = ArrayList<Int2IntOpenHashMap>(n)
+            for (c in 0 until n) {
+                chunks[c] = buf.readLong()
+                val cells = Int2FloatOpenHashMap()
+                repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), GasField.unpackAmount(buf.readByte().toInt())) }
+                cellMaps += cells
+                flowMaps += readFlows(buf)
+            }
+            ctx.queue { for (c in 0 until n) GasFieldClient.changed(kind, chunks[c], cellMaps[c], flowMaps[c]) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS_JET) { buf, ctx ->
             val id = buf.readLong()
-            val kind = GasKind.values().getOrNull(buf.readUnsignedByte().toInt())
+            val kind = GasKind.entries.getOrNull(buf.readUnsignedByte().toInt())
+            val hand = buf.readBoolean()
             val stop = buf.readBoolean()
             val frame = buf.readLong()
             val px = buf.readDouble(); val py = buf.readDouble(); val pz = buf.readDouble()
             val dx = buf.readFloat().toDouble(); val dy = buf.readFloat().toDouble(); val dz = buf.readFloat().toDouble()
             val strength = buf.readFloat(); val parcelMass = buf.readFloat(); val start = buf.readLong(); val seed = buf.readLong()
-            if (kind != null) ctx.queue { GasJetClient.received(id, kind, stop, frame, px, py, pz, dx, dy, dz, strength, parcelMass, start, seed) }
+            if (kind != null) ctx.queue { GasJetClient.received(id, kind, hand, stop, frame, px, py, pz, dx, dy, dz, strength, parcelMass, start, seed) }
         }
         GasFieldClient.init()
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.RELEASED) { buf, ctx ->

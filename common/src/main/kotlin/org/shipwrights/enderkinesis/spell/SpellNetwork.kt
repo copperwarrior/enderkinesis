@@ -129,25 +129,72 @@ object SpellNetwork {
     /** The state of a gas jet: start or change, or [stop]. Clients run the parcels from it. */
     fun sendJet(level: ServerLevel, chunk: ChunkPos, e: GasJetEmitter, stop: Boolean) =
         sendTo(level.chunkSource.chunkMap.getPlayers(chunk, false), GAS_JET) { buf ->
-            buf.writeLong(e.id); buf.writeByte(e.kind.ordinal); buf.writeBoolean(stop)
+            buf.writeLong(e.id); buf.writeByte(e.kind.ordinal); buf.writeBoolean(e.hand); buf.writeBoolean(stop)
             buf.writeLong(e.frame)
             buf.writeDouble(e.px); buf.writeDouble(e.py); buf.writeDouble(e.pz)
             buf.writeFloat(e.dx.toFloat()); buf.writeFloat(e.dy.toFloat()); buf.writeFloat(e.dz.toFloat())
             buf.writeFloat(e.strength); buf.writeFloat(e.parcelMass); buf.writeLong(e.startTick); buf.writeLong(e.seed)
         }
 
-    /** A flow of 0 removes it. */
-    fun sendGasCells(players: List<ServerPlayer>, kind: GasKind, chunk: Long, cells: Int2FloatMap?, flows: Int2IntMap?) =
-        sendTo(players, GAS_CELLS) { buf ->
-            buf.writeByte(kind.ordinal)
-            buf.writeLong(chunk)
-            buf.writeVarInt(cells?.size ?: 0)
-            cells?.int2FloatEntrySet()?.forEach { e ->
-                buf.writeVarInt(e.intKey)
-                buf.writeByte(if (e.floatValue <= 0f) 0 else GasField.packAmount(e.floatValue))
-            }
-            writeFlows(buf, flows)
+    private class GasCellBatch {
+        val entries: FriendlyByteBuf = FriendlyByteBuf(Unpooled.buffer())
+        var count = 0
+    }
+
+    // Game thread only. The changed gas chunks of one kind for each player, sent as one GAS_CELLS packet by flushGasCells.
+    private val cellBatches = HashMap<ServerPlayer, GasCellBatch>()
+    private val spareCellBatches = ArrayList<GasCellBatch>()
+    private val cellEntry = FriendlyByteBuf(Unpooled.buffer())
+    private var batchKind: GasKind? = null
+    // Well under the 1 MiB custom payload limit.
+    private const val MAX_CELL_BATCH_BYTES = 512 * 1024
+
+    /** Queues the changed cells and flows of one chunk for [players]. A flow of 0 removes it. The maps can be reused at once. */
+    fun queueGasCells(players: List<ServerPlayer>, kind: GasKind, chunk: Long, cells: Int2FloatMap?, flows: Int2IntMap?) {
+        if (players.isEmpty()) return
+        // A sync that stopped before its flush must not mix its kind into this batch.
+        batchKind?.let { if (it != kind) flushGasCells(it) }
+        batchKind = kind
+        cellEntry.clear()
+        cellEntry.writeLong(chunk)
+        cellEntry.writeVarInt(cells?.size ?: 0)
+        cells?.int2FloatEntrySet()?.forEach { e ->
+            cellEntry.writeVarInt(e.intKey)
+            cellEntry.writeByte(if (e.floatValue <= 0f) 0 else GasField.packAmount(e.floatValue))
         }
+        writeFlows(cellEntry, flows)
+        val size = cellEntry.readableBytes()
+        for (player in players) {
+            val batch = cellBatches.getOrPut(player) { spareCellBatches.removeLastOrNull() ?: GasCellBatch() }
+            if (batch.count > 0 && batch.entries.readableBytes() + size > MAX_CELL_BATCH_BYTES) sendCellBatch(player, kind, batch)
+            batch.entries.writeBytes(cellEntry, cellEntry.readerIndex(), size)
+            batch.count++
+        }
+    }
+
+    /** Sends each player one GAS_CELLS packet with every chunk that [queueGasCells] queued for it. */
+    fun flushGasCells(kind: GasKind) {
+        for ((player, batch) in cellBatches) {
+            sendCellBatch(player, kind, batch)
+            spareCellBatches += batch
+        }
+        cellBatches.clear()
+        batchKind = null
+    }
+
+    private fun sendCellBatch(player: ServerPlayer, kind: GasKind, batch: GasCellBatch) {
+        if (batch.count == 0) return
+        val buf = FriendlyByteBuf(Unpooled.buffer(batch.entries.readableBytes() + BATCH_HEADER_BYTES))
+        buf.writeByte(kind.ordinal)
+        buf.writeVarInt(batch.count)
+        buf.writeBytes(batch.entries)
+        NetworkManager.sendToPlayer(player, GAS_CELLS, buf)
+        batch.entries.clear()
+        batch.count = 0
+    }
+
+    // Kind byte and a count varint.
+    private const val BATCH_HEADER_BYTES = 6
 
     private fun writeFlows(buf: FriendlyByteBuf, flows: Int2IntMap?) {
         buf.writeVarInt(flows?.size ?: 0)

@@ -18,7 +18,7 @@ import kotlin.math.sqrt
 /** The jets of a server level. Owners call [hold] each tick or two; a jet that is not held ends, and its parcels fly out. */
 object GasJets {
     // Server thread only.
-    private val levels = WeakHashMap<ServerLevel, Long2ObjectOpenHashMap<GasJetEmitter>>()
+    private val levels = WeakHashMap<ServerLevel, Array<Long2ObjectOpenHashMap<GasJetEmitter>>>()
     private const val MOVE_RESEND = 0.2
     private const val TURN_RESEND = 0.97
 
@@ -32,21 +32,22 @@ object GasJets {
      * [intake]: the jet may carry only the [mass] that its owner passed, summed over the holds (a vent drains it), and the
      * budget it did not send goes back to this cell. A free source such as the sack passes null.
      * [thrust] is the recoil in newtons whose impulse the parcels carry to what they hit; 0 is no push.
+     * [hand]: [id] is an entity id, not a vent position.
      */
     @Suppress("LongParameterList") // The whole state of an emitter.
     fun hold(
         level: ServerLevel, id: Long, kind: GasKind, frame: Long, px: Double, py: Double, pz: Double,
         dx: Double, dy: Double, dz: Double, strength: Float, mass: Float, thrust: Double = 0.0, intake: BlockPos? = null,
+        hand: Boolean = false,
     ) {
         require(strength in 0f..1f) { "strength $strength" }
-        val map = levels.getOrPut(level) { Long2ObjectOpenHashMap() }
-        val key = id * KIND_SPREAD + kind.ordinal
+        val map = levels.getOrPut(level) { Array(JET_CHANNELS) { Long2ObjectOpenHashMap() } }[jetChannel(kind, hand)]
         val time = level.gameTime
-        var e = map.get(key)
+        var e = map.get(id)
         val fresh = e == null || !e.active
         if (e == null) {
-            e = GasJetEmitter(key, kind, level.random.nextLong())
-            map.put(key, e)
+            e = GasJetEmitter(id, kind, level.random.nextLong(), hand)
+            map.put(id, e)
         }
         if (fresh) {
             e.active = true
@@ -73,13 +74,38 @@ object GasJets {
 
     /** How much of [want] the vent may drain this tick for jet [id], so the jet never holds more than it can send. */
     fun intakeRoom(level: ServerLevel, id: Long, kind: GasKind, want: Float): Float {
-        val e = levels.get(level)?.get(id * KIND_SPREAD + kind.ordinal) ?: return want
+        val e = vent(level, id, kind) ?: return want
         if (e.parcels.n >= GasJetTuning.PARCEL_CAP) return 0f
         return minOf(want, want * BUDGET_TICKS - e.budget).coerceAtLeast(0f)
     }
 
     fun hasBudget(level: ServerLevel, id: Long, kind: GasKind): Boolean =
-        (levels.get(level)?.get(id * KIND_SPREAD + kind.ordinal)?.budget ?: 0f) > 0f
+        (vent(level, id, kind)?.budget ?: 0f) > 0f
+
+    private fun vent(level: ServerLevel, id: Long, kind: GasKind): GasJetEmitter? =
+        levels.get(level)?.get(jetChannel(kind, false))?.get(id)
+
+    /**
+     * Puts the unsent budget of every jet and the gas of every parcel in flight back into the grid, then ends all jets.
+     * Call before the gas grid freezes at server stop, so a save keeps all gas mass.
+     */
+    fun returnAll() {
+        for ((level, maps) in levels) for (map in maps) for (e in map.values) {
+            // Gas that finds no room within the spill walk of forceDeposit is lost; at most a full jet's worth.
+            if (e.budget > 0f) e.budget = GasField.forceDeposit(level, intakePos.set(e.intake), e.budget, e.kind)
+            val ps = e.parcels
+            for (i in 0 until ps.n) {
+                if (ps.held[i] <= 0f) continue
+                // A parcel whose ship is gone goes back at its last world point.
+                val inFrame = ps.frame[i] == 0L || level.shipObjectWorld.allShips.getById(ps.frame[i]) != null
+                val x = if (inFrame) ps.x[i] else ps.wx[i]
+                val y = if (inFrame) ps.y[i] else ps.wy[i]
+                val z = if (inFrame) ps.z[i] else ps.wz[i]
+                ps.held[i] = GasField.forceDeposit(level, shedPos.set(x, y, z), ps.held[i], e.kind)
+            }
+        }
+        levels.clear()
+    }
 
     private fun moved(x: Double, y: Double, z: Double): Boolean = x * x + y * y + z * z > MOVE_RESEND * MOVE_RESEND
 
@@ -94,8 +120,13 @@ object GasJets {
     }
 
     private fun tick(level: ServerLevel) {
-        val map = levels.get(level) ?: return
+        val maps = levels.get(level) ?: return
         val time = level.gameTime
+        for (map in maps) tickChannel(level, map, time)
+        if (maps.all { it.isEmpty() }) levels.remove(level)
+    }
+
+    private fun tickChannel(level: ServerLevel, map: Long2ObjectOpenHashMap<GasJetEmitter>, time: Long) {
         val it = map.long2ObjectEntrySet().fastIterator()
         while (it.hasNext()) {
             val e = it.next().value
@@ -110,15 +141,8 @@ object GasJets {
             if (!e.active && e.budget > 0f) {
                 e.budget = GasField.forceDeposit(level, intakePos.set(e.intake), e.budget, e.kind)
             }
-            if (MASS_DEBUG) {
-                val ps = e.parcels
-                for (n in 0 until ps.n) parcelMass += ps.held[n]
-                parcelMass += e.budget
-            }
             if (!e.active && e.parcels.n == 0 && e.budget <= 0f) it.remove()
         }
-        if (MASS_DEBUG) logMass(level, time)
-        if (map.isEmpty()) levels.remove(level)
     }
 
     private val sink = object : JetSink {
@@ -131,7 +155,7 @@ object GasJets {
 
     /** Gives [mass] to the one cell that holds the parcel. Returns what the cell took. */
     private fun depositInCell(level: ServerLevel, kind: GasKind, p: GasJetParcels, i: Int, mass: Float): Float {
-        val flow = Vector3d(p.vx[i], p.vy[i], p.vz[i])
+        val flow = flowScratch.set(p.vx[i], p.vy[i], p.vz[i])
         val ship = if (p.frame[i] == 0L) null else level.shipObjectWorld.allShips.getById(p.frame[i])
         ship?.transform?.shipToWorld?.transformDirection(flow)
         val pos = shedPos.set(floor(p.x[i]).toInt(), floor(p.y[i]).toInt(), floor(p.z[i]).toInt())
@@ -141,6 +165,8 @@ object GasJets {
     // Server thread only.
     private val shedPos = BlockPos.MutableBlockPos()
     private val intakePos = BlockPos.MutableBlockPos()
+    private val spreadPos = BlockPos.MutableBlockPos()
+    private val flowScratch = Vector3d()
 
     /**
      * Spreads the mass of a stopped parcel over the cells around it by distance, then spills what is left outward. Only
@@ -150,10 +176,10 @@ object GasJets {
     private fun spreadOver27(level: ServerLevel, kind: GasKind, p: GasJetParcels, i: Int, mass: Float, force: Boolean): Float {
         val cx = floor(p.x[i]).toInt(); val cy = floor(p.y[i]).toInt(); val cz = floor(p.z[i]).toInt()
         val reach = p.r[i] + 0.6
-        val flow = Vector3d(p.vx[i], p.vy[i], p.vz[i])
+        val flow = flowScratch.set(p.vx[i], p.vy[i], p.vz[i])
         val ship = if (p.frame[i] == 0L) null else level.shipObjectWorld.allShips.getById(p.frame[i])
         ship?.transform?.shipToWorld?.transformDirection(flow)
-        val pos = BlockPos.MutableBlockPos()
+        val pos = spreadPos
         var left = mass
         var count = walk(level, cx, cy, cz, 1)
         var sum = 0.0
@@ -222,25 +248,6 @@ object GasJets {
         return max(0.0, 1.0 - sqrt(dx * dx + dy * dy + dz * dz) / reach)
     }
 
-    private const val KIND_SPREAD = 8L
-
-    // TEMP gas mass debug, remove after the loop check. Run with -Denderkinesis.gasMassDebug=true or ENDERKINESIS_GAS_MASS_DEBUG=true.
-    private val MASS_DEBUG = (System.getProperty("enderkinesis.gasMassDebug") ?: System.getenv("ENDERKINESIS_GAS_MASS_DEBUG")).toBoolean()
-    private val lastMass = WeakHashMap<ServerLevel, Double>()
-    private var parcelMass = 0.0
-    private val debugLog = com.mojang.logging.LogUtils.getLogger()
-
-    private fun logMass(level: ServerLevel, time: Long) {
-        if (time % 20L != 0L) {
-            parcelMass = 0.0
-            return
-        }
-        val grid = GasField.totalMass(level)
-        val total = grid + parcelMass
-        val before = lastMass.put(level, total)
-        debugLog.info("TEMP gas mass {}: grid={} parcels={} total={} delta={}", level.dimension().location(), grid, parcelMass, total, if (before == null) 0.0 else total - before)
-        parcelMass = 0.0
-    }
     private const val BUDGET_TICKS = 4f
     private const val SPILL_RADIUS = 4
     private const val SPILL_SIDE = 2 * SPILL_RADIUS + 1

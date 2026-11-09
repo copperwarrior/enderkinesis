@@ -7,12 +7,14 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.joml.primitives.AABBd
 import org.shipwrights.enderkinesis.physics.HeldPushes
 import org.shipwrights.enderkinesis.util.containsWorldPoint
 import org.shipwrights.enderkinesis.util.standaloneBodies
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -30,12 +32,11 @@ object GasJetImpacts : JetPush {
     private val centre = Vector3d()
     private val force = Vector3d()
     private val at = Vector3d()
+    private val motion = Vector3d()
 
-    private data class Source(val emitter: Long)
+    private data class Source(val emitter: Long, val kind: GasKind, val hand: Boolean)
 
     override fun wall(e: GasJetEmitter, bodyId: Long, x: Double, y: Double, z: Double, jx: Double, jy: Double, jz: Double) {
-        // A jet that blows into the ship of its own vent gives that ship no push.
-        if (e.frame != 0L && bodyId == e.frame) return
         val size = sqrt(jx * jx + jy * jy + jz * jz)
         if (size <= 0.0 || !size.isFinite()) return
         val sum = e.pushSums.get(bodyId) ?: DoubleArray(SUM_SIZE).also { e.pushSums.put(bodyId, it) }
@@ -44,7 +45,8 @@ object GasJetImpacts : JetPush {
     }
 
     @OptIn(GameTickOnly::class, VsBeta::class)
-    override fun segment(level: Level, e: GasJetEmitter, parcels: GasJetParcels, i: Int, from: Vector3d, to: Vector3d): Boolean {
+    @Suppress("LongParameterList") // Same as JetPush.segment.
+    override fun segment(level: Level, e: GasJetEmitter, parcels: GasJetParcels, i: Int, from: Vector3d, to: Vector3d, v: Vector3dc): Boolean {
         if (level !is ServerLevel) return false
         val pad = parcels.r[i] + 0.1
         box.setMin(min(from.x, to.x) - pad, min(from.y, to.y) - pad, min(from.z, to.z) - pad)
@@ -56,9 +58,9 @@ object GasJetImpacts : JetPush {
             val n = centre.set(to).sub(body.kinematics.position)
             if (n.lengthSquared() <= 1.0e-12) continue
             n.normalize()
-            val v = body.kinematics.velocity
-            val along = ((to.x - from.x) - v.x() / TICKS_PER_SECOND) * n.x +
-                ((to.y - from.y) - v.y() / TICKS_PER_SECOND) * n.y + ((to.z - from.z) - v.z() / TICKS_PER_SECOND) * n.z
+            val u = body.kinematics.velocity
+            val along = (v.x() - u.x() / TICKS_PER_SECOND) * n.x +
+                (v.y() - u.y() / TICKS_PER_SECOND) * n.y + (v.z() - u.z() / TICKS_PER_SECOND) * n.z
             if (along >= 0.0) continue
             val j = along * mass * TICKS_PER_SECOND
             wall(e, body.id, to.x, to.y, to.z, n.x * j, n.y * j, n.z * j)
@@ -71,8 +73,8 @@ object GasJetImpacts : JetPush {
             if (n.lengthSquared() <= 1.0e-12) continue
             n.normalize()
             // Relative to the entity, so it never goes faster than the jet.
-            val v = motionOf(entity)
-            val along = (to.x - from.x - v.x) * n.x + (to.y - from.y - v.y) * n.y + (to.z - from.z - v.z) * n.z
+            val u = motionOf(entity)
+            val along = (v.x() - u.x) * n.x + (v.y() - u.y) * n.y + (v.z() - u.z) * n.z
             if (along >= 0.0) continue
             val j = -along * mass * TICKS_PER_SECOND
             applyEntityPush(entity, -n.x * j, -n.y * j, -n.z * j)
@@ -91,17 +93,25 @@ object GasJetImpacts : JetPush {
             if (sum[6] > 0.0) {
                 force.set(sum[0], sum[1], sum[2]).div(TICK_SECONDS)
                 at.set(sum[3] / sum[6], sum[4] / sum[6], sum[5] / sum[6])
-                if (force.isFinite && at.isFinite) HeldPushes.holdAtWorldPos(Source(e.id), entry.longKey, force, at)
+                if (force.isFinite && at.isFinite) HeldPushes.holdAtWorldPos(Source(e.id, e.kind, e.hand), entry.longKey, force, at)
             }
             sum.fill(0.0)
         }
     }
 
-    // A server player's motion comes from the client, so its deltaMovement goes stale; the position change is real.
-    private fun motionOf(entity: Entity): Vec3 =
-        if (entity is Player) Vec3(entity.x - entity.xo, entity.y - entity.yo, entity.z - entity.zo) else entity.deltaMovement
+    /** World motion of [entity] in blocks a tick. */
+    private fun motionOf(entity: Entity): Vector3d {
+        // A server player's motion comes from the client, so its deltaMovement goes stale; the position change is real.
+        if (entity is Player) return motion.set(entity.x - entity.xo, entity.y - entity.yo, entity.z - entity.zo)
+        val m = entity.deltaMovement
+        motion.set(m.x, m.y, m.z)
+        // VS2 carries a mob on a ship by position, so deltaMovement leaves out the ship motion.
+        val info = (entity as? IEntityDraggingInformationProvider)?.draggingInformation
+        if (info != null && info.isEntityBeingDraggedByAShip()) motion.add(info.addedMovementLastTick)
+        return motion
+    }
 
-    /** The mass of an entity for a push: water density times its hitbox volume, never under [MIN_ENTITY_MASS]. */
+    /** The mass of an entity for a push: [ENTITY_DENSITY] times its hitbox volume, never under [MIN_ENTITY_MASS]. */
     private fun entityMass(entity: Entity): Double {
         val box = entity.boundingBox
         return max(MIN_ENTITY_MASS, ENTITY_DENSITY * box.xsize * box.ysize * box.zsize)
@@ -113,7 +123,8 @@ object GasJetImpacts : JetPush {
         entity.hurtMarked = true
     }
 
-    private const val ENTITY_DENSITY = 1000.0
+    // kg per cubic metre of hitbox: a player is about 78 kg.
+    private const val ENTITY_DENSITY = 120.0
     private const val MIN_ENTITY_MASS = 10.0
     private const val SUM_SIZE = 7
 }

@@ -19,19 +19,13 @@ import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.shipwrights.enderkinesis.blockentity.GasVentBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
-import org.joml.Vector3d
-import org.shipwrights.enderkinesis.physics.HeldPushes
-import org.shipwrights.enderkinesis.physics.LatticeHullVolume
 import org.shipwrights.enderkinesis.spell.GasField
-import org.shipwrights.enderkinesis.spell.GasJetTuning
 import org.shipwrights.enderkinesis.spell.GasJets
 import org.shipwrights.enderkinesis.spell.GasKind
 import org.shipwrights.enderkinesis.spell.voxelsLoaded
 import org.valkyrienskies.mod.common.isBlockInShipyard
 import org.valkyrienskies.core.api.VsBeta
-import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getShipManagingPos
-import kotlin.math.ceil
 
 /** Pulls gas of every kind in from the back face and pushes it out of the front face ([BlockStateProperties.FACING], toward the placer). The redstone signal sets the strength, 0 to 15; it never reverses. */
 class GasVentBlock(properties: BlockBehaviour.Properties) : DirectionalBlock(properties), EntityBlock {
@@ -74,11 +68,6 @@ class GasVentBlock(properties: BlockBehaviour.Properties) : DirectionalBlock(pro
         return BlockEntityTicker { lvl, pos, st, _ -> pass(lvl as ServerLevel, pos, st) }
     }
 
-    // Game thread only; HeldPushes copies the components.
-    private val thrustForce = Vector3d()
-    private val thrustOffset = Vector3d()
-    private val axisCell = BlockPos.MutableBlockPos()
-
     @OptIn(VsBeta::class)
     private fun pass(level: ServerLevel, pos: BlockPos, state: BlockState) {
         val power = state.getValue(BlockStateProperties.POWER)
@@ -91,20 +80,9 @@ class GasVentBlock(properties: BlockBehaviour.Properties) : DirectionalBlock(pro
         // Gas ahead that nears the cap of 2 throttles the drain and the jet, so a chain of vents balances.
         val strength = power / MAX_POWER * GasField.ventThrottle(level, pos, front)
         if (strength <= 0f) return
-        val thrust = GasField.vent(level, pos, front, strength, jetId(pos)).toDouble() * s * s * s
+        val thrust = minOf(GasField.vent(level, pos, front, strength, jetId(pos)).toDouble(), MAX_THRUST_NEWTONS) * s * s * s
+        // The parcels carry the recoil: the ship of the vent gets it only for the gas that leaves the ship (GasJetSim).
         feedJets(level, pos, front, strength, thrust)
-        if (!thrust.isFinite() || thrust <= 0.0) return
-        // The recoil acts on the ship that holds the vent, opposite the jet; a world vent has nothing to push.
-        ship ?: return
-        // A jet into the ship's own blocks or a sealed hold keeps its momentum inside the ship, so the ship gets no net force.
-        if (blowsIntoOwnShip(level, pos, front, ship, strength, s)) return
-        val t = ship.transform
-        thrustForce.set(-front.stepX.toDouble(), -front.stepY.toDouble(), -front.stepZ.toDouble())
-        t.shipToWorldRotation.transform(thrustForce).mul(thrust)
-        // A centre-of-mass offset in ship axes.
-        thrustOffset.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5).sub(t.positionInShip)
-        if (!thrustForce.isFinite || !thrustOffset.isFinite) return
-        HeldPushes.holdAtBodyPos(pos.asLong() to level.dimension(), ship.id, thrustForce, thrustOffset)
     }
 
     /** One jet for each kind the vent drained, from the middle of the front face, in the frame of the vent. */
@@ -126,27 +104,7 @@ class GasVentBlock(properties: BlockBehaviour.Properties) : DirectionalBlock(pro
         }
     }
 
-    /** True when the front cell is in a sealed hold of [ship], or a block of [ship] is on the jet axis within the jet reach. */
-    @Suppress("LongParameterList") // The vent, its ship and the jet speed.
-    private fun blowsIntoOwnShip(level: ServerLevel, pos: BlockPos, front: Direction, ship: Ship, strength: Float, scale: Double): Boolean {
-        axisCell.set(pos).move(front)
-        // No flood result yet: only the axis test decides.
-        val volume = LatticeHullVolume.volumeFor(level, ship)
-        if (volume != null && GasField.open(level, axisCell) && !volume.isVented(axisCell.x, axisCell.y, axisCell.z)) return true
-        var total = 0f
-        for (kind in GasKind.entries) total += GasField.ventMass(kind)
-        val parcelMass = total / (GasJetTuning.PARCELS_PER_TICK * strength)
-        // Ship cells are 1/scale world blocks long.
-        val cells = ceil(GasJetTuning.reach(GasJetTuning.emitterSpeed(strength, parcelMass)) / scale + JET_START).toInt()
-        for (k in 1..cells) {
-            axisCell.set(pos).move(front, k)
-            if (!level.isLoaded(axisCell)) return false
-            if (!GasField.open(level, axisCell)) return level.getShipManagingPos(axisCell)?.id == ship.id
-        }
-        return false
-    }
-
-    private fun jetId(pos: BlockPos): Long = pos.asLong() * 2L
+    private fun jetId(pos: BlockPos): Long = pos.asLong()
 
     /**
      * How much of [give] a Hrass Sack can put in the intake now: none while the vent cannot drain, and never more than
@@ -168,5 +126,7 @@ class GasVentBlock(properties: BlockBehaviour.Properties) : DirectionalBlock(pro
     private companion object {
         const val MAX_POWER = 15f
         const val JET_START = 0.6
+        // Recoil cap of one vent at ship scale 1; it scales with s cubed like the rest of the recoil.
+        const val MAX_THRUST_NEWTONS = 200_000.0
     }
 }

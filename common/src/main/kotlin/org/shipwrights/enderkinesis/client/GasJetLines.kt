@@ -207,8 +207,8 @@ object GasJetLines {
         return shipScale
     }
 
-    // GasJets keys a jet as id * 8 + kind; a vent id is even, a hand id is odd. The vent starts its jet 0.6 in front of its centre.
-    private fun isVent(e: GasJetEmitter): Boolean = (e.id shr 3) and 1L == 0L
+    // The vent starts its jet 0.6 in front of its centre.
+    private fun isVent(e: GasJetEmitter): Boolean = !e.hand
 
     @Suppress("LongParameterList") // A point, its frame and arc, and its two fades.
     private fun addControl(x: Double, y: Double, z: Double, frame: Long, s: Double, out: Double, fadeIn: Double) {

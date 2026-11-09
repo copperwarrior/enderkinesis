@@ -7,7 +7,11 @@ import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.saveddata.SavedData
+import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.isChunkInShipyard
+import org.valkyrienskies.mod.common.shipObjectWorld
 
 private const val NAME = "enderkinesis_gas"
 
@@ -22,6 +26,26 @@ class GasStore(private val level: ServerLevel) : SavedData() {
     private val perKind = Array(GasKind.entries.size) { Long2ObjectOpenHashMap<GasChunkRecord>() }
 
     fun frozen(kind: GasKind): Long2ObjectOpenHashMap<GasChunkRecord> = perKind[kind.ordinal]
+
+    /** Drops frozen shipyard chunks that no ship claims: VS2 deleted that ship, so the chunks never load again. */
+    fun dropDeletedShips() {
+        val ships = level.shipObjectWorld.allShips
+        val dimension = level.dimensionId
+        var dropped = false
+        for (kind in GasKind.entries) {
+            val it = frozen(kind).keys.iterator()
+            while (it.hasNext()) {
+                val key = it.nextLong()
+                val x = ChunkPos.getX(key); val z = ChunkPos.getZ(key)
+                // allShips holds unloaded ships too, so only a deleted ship leaves its claim empty.
+                if (level.isChunkInShipyard(x, z) && ships.getByChunkPos(x, z, dimension) == null) {
+                    it.remove()
+                    dropped = true
+                }
+            }
+        }
+        if (dropped) setDirty()
+    }
 
     override fun save(tag: CompoundTag): CompoundTag {
         val list = ListTag()
