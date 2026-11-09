@@ -9,8 +9,12 @@ import net.minecraft.client.renderer.EffectInstance
 class VolumeEffect(private val name: String, private vararg val samplers: Pair<String, IntSupplier>) {
     private var effect: EffectInstance? = null
 
-    // A program that does not compile fails again on each attempt, so try one time only.
+    // A program that does not compile fails again on each attempt, so try one time only until the next resource reload.
     private var loadFailed = false
+
+    init {
+        RenderThreadEffects.all += this
+    }
 
     /** The loaded program, or null when it did not compile. */
     fun get(): EffectInstance? {
@@ -30,6 +34,13 @@ class VolumeEffect(private val name: String, private vararg val samplers: Pair<S
         effect?.setSampler("DepthSampler", SCENE_DEPTH)
     }
 
+    /** Frees the program; the next [get] loads it again from the current resources. */
+    fun close() {
+        effect?.close()
+        effect = null
+        loadFailed = false
+    }
+
     // Samplers a program does not declare are ignored, so passes can share one sampler set.
     private fun load(): EffectInstance? = try {
         EffectInstance(Minecraft.getInstance().resourceManager, name).also {
@@ -45,4 +56,14 @@ class VolumeEffect(private val name: String, private vararg val samplers: Pair<S
         val LOG = LogUtils.getLogger()
         val SCENE_DEPTH = IntSupplier { VolumeDepth.textureId(Minecraft.getInstance().mainRenderTarget) }
     }
+}
+
+// Render thread only: owners create their programs there and the client reload listener runs there.
+private object RenderThreadEffects {
+    val all = ArrayList<VolumeEffect>()
+}
+
+/** Closes every volume program after a resource reload, so a pack change or a fixed shader takes effect. */
+fun closeVolumeEffects() {
+    for (effect in RenderThreadEffects.all) effect.close()
 }

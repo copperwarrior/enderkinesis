@@ -4,7 +4,7 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.platform.GlStateManager
-import com.mojang.logging.LogUtils // TEMP gas debug, remove after the gas run
+import com.mojang.logging.LogUtils
 import com.mojang.blaze3d.vertex.PoseStack
 import dev.architectury.event.events.client.ClientTickEvent
 import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap
@@ -127,17 +127,8 @@ object GasFieldClient {
 
     // Render (client) thread only.
     private var ticks = 0
-    // TEMP gas debug, remove after the gas run
-    private val dbgLog = LogUtils.getLogger()
-    private var dbgFrame = 0
-    private var dbgNextMs = 0L
-    // TEMP gas debug, remove after the gas run
-    private fun dbgReport(note: String) {
-        val now = System.currentTimeMillis()
-        if (now < dbgNextMs || isEmpty()) return
-        dbgNextMs = now + 1000L
-        for (f in fields) f.dbgReport(note, dbgFrame)
-    }
+    private val log = LogUtils.getLogger()
+    private var preparedCount = 0
     private val fields = GasKind.entries.map { KindField(it) }
 
     private val view = VolumeView()
@@ -175,6 +166,9 @@ object GasFieldClient {
     // Half floats on the CPU: the texture is RGB16F, and a float upload makes the driver convert every texel.
     private val offsetData: ShortBuffer by lazy(LazyThreadSafetyMode.NONE) { BufferUtils.createShortBuffer(SPAN * SPAN_Y * SPAN * 3) }
     private val offsetPool = ArrayList<FloatArray>()
+    // The texels phase A wrote and their offsets, so phase B rewrites only those texels.
+    private val offsetTexels = IntArrayList()
+    private val offsetCells = ArrayList<FloatArray>()
     // 1 for a brick with gas within reach, packed like nowData at brick size.
     private val brickData: ByteBuffer by lazy(LazyThreadSafetyMode.NONE) {
         BufferUtils.createByteBuffer((SPAN / BRICK) * (SPAN_Y / BRICK) * (SPAN / BRICK))
@@ -287,7 +281,6 @@ object GasFieldClient {
     // drawn after it would paint over it). The first call of a frame updates.
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
-        if (IrisCompat.isShaderPackInUse()) dbgReport("skipped:shaderpack") // TEMP gas debug, remove after the gas run
         if (isEmpty() || IrisCompat.isShaderPackInUse()) return
         cpuFrame.begin()
         renderVolumes(poseStack, projection, camera)
@@ -296,7 +289,6 @@ object GasFieldClient {
 
     private fun renderVolumes(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         val eff = effect.get()
-        if (eff == null) dbgReport("skipped:noEffect") // TEMP gas debug, remove after the gas run
         if (eff == null) {
             logLoadFailure("spell_gas_field_volume")
             return
@@ -341,15 +333,14 @@ object GasFieldClient {
         VolumeTextures.bind2D(JET_RUN_UNIT, 0)
         VolumeTextures.bind3D(JET_PAGE_UNIT, 0)
         VolumeTextures.bind3D(JET_ATLAS_UNIT, 0)
-        dbgReport("ok") // TEMP gas debug, remove after the gas run
     }
 
     private var preparedFrame = -1L
 
     private fun prepare(level: ClientLevel, cam: Vec3, frameTime: Float) {
-        dbgFrame++ // TEMP gas debug, remove after the gas run
+        preparedCount++
         cpuLines.begin()
-        GasJetLines.update(level, cam, frameTime, dbgFrame.toLong(), view)
+        GasJetLines.update(level, cam, frameTime, preparedCount.toLong(), view)
         cpuLines.end()
         fields.forEach { it.refresh(level, cam) }
         cpuTiles.begin()
@@ -369,7 +360,7 @@ object GasFieldClient {
     private fun logLoadFailure(program: String) {
         if (loadFailureLogged) return
         loadFailureLogged = true
-        dbgLog.error("Gas volumes are not drawn: the shader program {} did not load (see the earlier warning for the compile log)", program)
+        log.error("Gas volumes are not drawn: the shader program {} did not load (see the earlier warning for the compile log)", program)
     }
 
     private var jetSampleTex = -1
@@ -505,8 +496,6 @@ object GasFieldClient {
         // The frames (0: the world, else a ship id) whose cells or flows changed since the last refresh, so only they rebuild.
         private val dirtyFrames = LongOpenHashSet()
         private var allDirty = false
-        // TEMP gas debug, remove after the gas run
-        var dbgWholeChunks = 0; var dbgWholeCells = 0; var dbgDeltaChunks = 0; var dbgDeltaCells = 0; var dbgKindDrawFrame = -1
 
         inner class GasVolume {
             // Keyed by packed block position. The next build blends from it.
@@ -547,8 +536,6 @@ object GasFieldClient {
             var settling = false
             // True while some cell has not reached its real density, so the build repeats.
             var easing = false
-            // TEMP gas debug, remove after the gas run
-            var dbgWritten = 0; var dbgMax = 0; var dbgDrawFrame = -1
 
             /** At most once a tick, so each blend runs over one tick. Build once more after the last change to settle. */
             fun refresh(minBuildHeight: Int, at: Long, x0: Int, y0: Int, z0: Int) {
@@ -610,7 +597,6 @@ object GasFieldClient {
         fun isEmpty(): Boolean = chunks.isEmpty() && world.shown.isEmpty() && ships.isEmpty() && GasJetClient.isEmpty(kind)
 
         fun received(chunk: Long, cells: Int2FloatOpenHashMap, flowsIn: Int2IntOpenHashMap) {
-            dbgWholeChunks++; dbgWholeCells += cells.size // TEMP gas debug, remove after the gas run
             // The periodic resync resends whole chunks that mostly did not change.
             val same = sameCells(chunks.get(chunk), cells)
             if (cells.isEmpty()) forget(chunk) else chunks.put(chunk, cells)
@@ -653,7 +639,6 @@ object GasFieldClient {
         }
 
         fun changed(chunk: Long, cells: Int2FloatOpenHashMap, flowsIn: Int2IntOpenHashMap) {
-            dbgDeltaChunks++; dbgDeltaCells += cells.size // TEMP gas debug, remove after the gas run
             applyFlows(chunk, flowsIn)
             var have = chunks.get(chunk)
             // The server sends a cell when its float changes, but the client gets the byte, which mostly stays the same.
@@ -1002,7 +987,6 @@ object GasFieldClient {
             eff.safeGetUniform("FlowPeriod").set(FLOW_PERIOD)
             eff.safeGetUniform("FlowMax").set(GasField.FLOW_MAX)
             eff.safeGetUniform("LightColor").set(kind.lightR, kind.lightG, kind.lightB)
-            dbgKindDrawFrame = dbgFrame // TEMP gas debug, remove after the gas run
             world.box?.let { b ->
                 val ox = (b.minX - cam.x).toFloat(); val oy = (b.minY - cam.y).toFloat(); val oz = (b.minZ - cam.z).toFloat()
                 localToView.translation(ox, oy, oz)
@@ -1055,7 +1039,6 @@ object GasFieldClient {
             VolumeTextures.bind3D(OFFSET_A_UNIT, v.offsetTexA)
             VolumeTextures.bind3D(OFFSET_B_UNIT, v.offsetTexB)
             VolumeTextures.bind3D(BRICK_UNIT, v.brickTex)
-            v.dbgDrawFrame = dbgFrame // TEMP gas debug, remove after the gas run
             bindJets(eff, v, b)
             VolumeProxy.draw(eff)
         }
@@ -1080,28 +1063,6 @@ object GasFieldClient {
                 most = maxOf(most, cells.get(GasField.index(minBuildHeight, sx, sy, sz)))
             }
             return most
-        }
-
-        // TEMP gas debug, remove after the gas run
-        fun dbgReport(note: String, frame: Int) {
-            var stored = 0
-            for (m in chunks.values) stored += m.size
-            dbgLog.info(
-                "TEMP gas debug client kind={} note={} recvWholeChunks={} recvWholeCells={} recvDeltaChunks={} recvDeltaCells={} storedChunks={} storedCells={} drawRanThisFrame={}",
-                kind.name, note, dbgWholeChunks, dbgWholeCells, dbgDeltaChunks, dbgDeltaCells, chunks.size, stored, dbgKindDrawFrame == frame,
-            )
-            dbgWholeChunks = 0; dbgWholeCells = 0; dbgDeltaChunks = 0; dbgDeltaCells = 0
-            dbgVolume("world", world, frame)
-            for (e in ships.long2ObjectEntrySet()) dbgVolume("ship" + e.longKey, e.value, frame)
-        }
-
-        // TEMP gas debug, remove after the gas run
-        private fun dbgVolume(name: String, v: GasVolume, frame: Int) {
-            dbgLog.info(
-                "TEMP gas debug client volume kind={} vol={} shownCells={} texCells={} maxDensity={} hasBox={} drawnThisFrame={} dark=({},{},{}) light=({},{},{})",
-                kind.name, name, v.shown.size, v.dbgWritten, v.dbgMax, v.box != null, v.dbgDrawFrame == frame,
-                kind.darkR, kind.darkG, kind.darkB, kind.lightR, kind.lightG, kind.lightB,
-            )
         }
 
         /** Bounds the textures to the cells with gas, plus one clear block, so the gas fades at the edge. */
@@ -1171,7 +1132,6 @@ object GasFieldClient {
             }
             val wasAll = was.long2FloatEntrySet().fastIterator()
             while (wasAll.hasNext()) include(wasAll.next().longKey)
-            v.dbgWritten = 0; v.dbgMax = 0 // TEMP gas debug, remove after the gas run
             if (lx > hx) { v.box = null; v.packedNow = null; return }
             lx = maxOf(rx0, lx - 1); ly = maxOf(ry0, ly - 1); lz = maxOf(rz0, lz - 1)
             hx = minOf(rx1, hx + 1); hy = minOf(ry1, hy + 1); hz = minOf(rz1, hz + 1)
@@ -1185,15 +1145,12 @@ object GasFieldClient {
             if (!swap) MemoryUtil.memSet(MemoryUtil.memAddress0(wasData), 0, used * 2)
             val bw = (w + BRICK - 1) / BRICK; val bh = (h + BRICK - 1) / BRICK; val bd = (d + BRICK - 1) / BRICK
             MemoryUtil.memSet(MemoryUtil.memAddress0(brickData), 0, (bw * bh * bd).toLong())
-            var dbgWritten = 0; var dbgMax = 0 // TEMP gas debug, remove after the gas run
             fun put(p: Long, current: Float, before: Float) {
                 val x = BlockPos.getX(p); val y = BlockPos.getY(p); val z = BlockPos.getZ(p)
                 if (x < lx || x > hx || y < ly || y > hy || z < lz || z > hz) return
                 val i = (x - lx) + w * ((y - ly) + h * (z - lz))
                 if (current > 0f || before > 0f) markBricks(x - lx, y - ly, z - lz, bw, bh, bd)
                 nowData.put(i, packDensity(current))
-                val dbgByte = (current / GasField.MAX_AMOUNT * 255f).toInt().coerceIn(0, 255) // TEMP gas debug, remove after the gas run
-                if (dbgByte > 0) { dbgWritten++; if (dbgByte > dbgMax) dbgMax = dbgByte } // TEMP gas debug, remove after the gas run
                 if (!swap) wasData.put(i, packDensity(before))
             }
             val nowCells = now.long2FloatEntrySet().fastIterator()
@@ -1207,7 +1164,6 @@ object GasFieldClient {
                 val e = wasCells.next()
                 if (!now.containsKey(e.longKey)) put(e.longKey, 0f, e.floatValue)
             }
-            v.dbgWritten = dbgWritten; v.dbgMax = dbgMax // TEMP gas debug, remove after the gas run
             fillFlow(v, minBuildHeight, lx, ly, lz, w, h, d)
             if (!swap) fillFlowWas(v, lx, ly, lz, w, h, d)
             cpuMask.begin()
@@ -1244,9 +1200,9 @@ object GasFieldClient {
             if (v.offsetTexA < 0) { v.offsetTexA = allocateOffsetTexture(); v.offsetsZero = false }
             if (v.offsetTexB < 0) { v.offsetTexB = allocateOffsetTexture(); v.offsetsZero = false }
             if (!(sameBox && v.offsetsZero && v.offsets.isEmpty())) {
-                fillOffsets(v, 0, lx, ly, lz, w, h, d)
+                fillOffsetsA(v, lx, ly, lz, w, h, d)
                 uploadOffsets(v.offsetTexA, w, h, d)
-                fillOffsets(v, 3, lx, ly, lz, w, h, d)
+                fillOffsetsB()
                 uploadOffsets(v.offsetTexB, w, h, d)
                 v.offsetsZero = v.offsets.isEmpty()
             }
@@ -1401,18 +1357,32 @@ object GasFieldClient {
             }
         }
 
-        /** Phase [from] (0: A, 3: B) of the offsets in the box, into [offsetData]. */
+        /** Phase A of the offsets in the box, into [offsetData]. Records the written texels for [fillOffsetsB]. */
         @Suppress("LongParameterList") // Raw box bounds.
-        private fun fillOffsets(v: GasVolume, from: Int, lx: Int, ly: Int, lz: Int, w: Int, h: Int, d: Int) {
+        private fun fillOffsetsA(v: GasVolume, lx: Int, ly: Int, lz: Int, w: Int, h: Int, d: Int) {
             MemoryUtil.memSet(MemoryUtil.memAddress0(offsetData), 0, w.toLong() * h * d * 3 * 2)
+            offsetTexels.clear()
+            offsetCells.clear()
             val it = v.offsets.long2ObjectEntrySet().fastIterator()
             while (it.hasNext()) {
                 val e = it.next()
                 val x = BlockPos.getX(e.longKey) - lx; val y = BlockPos.getY(e.longKey) - ly; val z = BlockPos.getZ(e.longKey) - lz
                 if (x !in 0 until w || y !in 0 until h || z !in 0 until d) continue
                 val o = (x + w * (y + h * z)) * 3
-                for (a in 0..2) offsetData.put(o + a, halfOf(e.value[from + a]))
+                for (a in 0..2) offsetData.put(o + a, halfOf(e.value[a]))
+                offsetTexels.add(o)
+                offsetCells.add(e.value)
             }
+        }
+
+        /** Phase B over the texels [fillOffsetsA] wrote; all other texels are still 0 after the phase A upload. */
+        private fun fillOffsetsB() {
+            for (n in 0 until offsetTexels.size) {
+                val o = offsetTexels.getInt(n)
+                val cell = offsetCells[n]
+                for (a in 0..2) offsetData.put(o + a, halfOf(cell[3 + a]))
+            }
+            offsetCells.clear()
         }
 
         /** The flow of the build before in the box of this one; cells with no flow then read 128 (still). */

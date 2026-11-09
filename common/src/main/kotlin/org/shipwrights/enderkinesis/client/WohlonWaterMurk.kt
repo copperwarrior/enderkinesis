@@ -18,6 +18,7 @@ import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.client.volume.ChunkColumnMask
 import org.shipwrights.enderkinesis.client.volume.DepthTextureCopy
 import org.shipwrights.enderkinesis.client.volume.VolumeComposite
+import org.shipwrights.enderkinesis.client.volume.VolumeDepth
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
 import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
@@ -63,12 +64,13 @@ object WohlonWaterMurk {
     private val view = VolumeView()
     private val effect = VolumeEffect(
         "wohlon_water_murk",
-        "OpaqueDepth" to IntSupplier { opaqueDepth.textureId },
+        "OpaqueDepth" to IntSupplier { depthTexture },
         "ColumnMask" to IntSupplier { columns.textureId },
         "WeightMask" to IntSupplier { weights.textureId },
     )
 
     private var copied = false
+    private var depthTexture = -1
     private var baseY = 0
     private var codeLevel: ClientLevel? = null
     private var camBlockX = 0
@@ -96,7 +98,14 @@ object WohlonWaterMurk {
     fun beforeTranslucent(main: RenderTarget) {
         copied = false
         if (!active()) return
-        opaqueDepth.copyFrom(main)
+        // VolumeDepth runs first and copies the same depth on a split frame.
+        val shared = VolumeDepth.opaqueDepthTextureId()
+        depthTexture = if (shared >= 0) {
+            shared
+        } else {
+            opaqueDepth.copyFrom(main)
+            opaqueDepth.textureId
+        }
         copied = true
     }
 

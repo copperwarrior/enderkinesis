@@ -153,7 +153,6 @@ object EnderkinesisModClient {
         initClientEarly()
         // Forge throws if Sheets loads during mod construction, so this stays out of initClientEarly.
         registerWogorSignMaterials()
-        org.shipwrights.enderkinesis.client.volume.VolumePerf.init()
         org.shipwrights.enderkinesis.compat.distanthorizons.DistantHorizonsCompat.initClient()
         // Orb of Potential client-side packet receivers — keep the
         // server-bound classes out of the client environment.
@@ -505,6 +504,7 @@ object EnderkinesisModClient {
                 WeheloPocketClient.close()
                 WeheloTearRenderTypes.close()
                 SpellScreen.close()
+                org.shipwrights.enderkinesis.client.volume.closeVolumeEffects()
                 // Runs after the vanilla listeners rebuild the atlases, so sprites cached during the rebuild are dropped too.
                 SpellArt.invalidate()
             },

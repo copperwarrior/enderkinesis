@@ -58,8 +58,8 @@ public abstract class LevelRendererVolumeDepthMixin {
         Minecraft mc = Minecraft.getInstance();
         RenderTarget main = mc.getMainRenderTarget();
         Camera camera = mc.gameRenderer.getMainCamera();
-        WohlonWaterMurk.beforeTranslucent(main);
         boolean split = VolumeDepth.INSTANCE.beforeTranslucent(main);
+        WohlonWaterMurk.beforeTranslucent(main);
         original.call(instance, type, poseStack, camX, camY, camZ, projection);
         if (split) {
             // Before the murk, so main holds only the translucent terrain over the gas.

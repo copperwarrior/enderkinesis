@@ -27,6 +27,9 @@ object VolumeDepth {
     // Glass, water, tripwire and clouds over opaque depth: where the march in front of the translucent layer stops.
     private val scene = DepthTextureCopy()
 
+    // The glass copy on a split frame: only tripwire draws between the two, and the user chose to ignore it.
+    private var sceneCopy = scene
+
     // Main depth with particles, just before the clouds: where main depth is nearer after the clouds, a cloud drew.
     private val beforeClouds = DepthTextureCopy()
     private val clearZero = FloatArray(4)
@@ -35,6 +38,7 @@ object VolumeDepth {
     private val opaqueTimer = perf.timer("opaque copy")
     private val glassTimer = perf.timer("glass copy")
     private val alphaTimer = perf.timer("alpha restore")
+    private val sceneTimer = perf.timer("scene copy")
     private val cloudCopyTimer = perf.timer("cloud copy")
     private val cloudTimer = perf.timer("cloud depth")
     private val alphaRestore = VolumeEffect("volume_alpha_restore", "OpaqueColourSampler" to IntSupplier { opaque.colourTextureId })
@@ -50,6 +54,8 @@ object VolumeDepth {
     private var splitWanted = false
     private var captured = false
     private var behindClaimed = false
+    private var opaqueCopied = false
+    private var glassCopied = false
 
     /** True while the passes march the part behind glass and water, just after the translucent layer. */
     var behind = false
@@ -64,6 +70,8 @@ object VolumeDepth {
         captured = false
         behind = false
         behindClaimed = false
+        opaqueCopied = false
+        glassCopied = false
         frame++
         VolumePerf.beginFrame()
     }
@@ -85,8 +93,9 @@ object VolumeDepth {
         // Blits and glClearBuffer obey the scissor; glClearBuffer obeys the colour mask too.
         RenderSystem.disableScissor()
         opaqueTimer.begin()
-        opaque.copyFrom(main)
-        val prevFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING)
+        val prevFbo = boundDrawFramebuffer(main)
+        opaque.copyFrom(main, prevFbo)
+        opaqueCopied = true
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, main.frameBufferId)
         RenderSystem.colorMask(false, false, false, true)
         GL30.glClearBufferfv(GL11.GL_COLOR, 0, clearZero)
@@ -102,6 +111,7 @@ object VolumeDepth {
         glassTimer.begin()
         glass.copyFrom(main)
         glassTimer.end()
+        glassCopied = true
         behind = true
     }
 
@@ -142,13 +152,23 @@ object VolumeDepth {
 
     internal fun opaqueColourTextureId(): Int = opaque.colourTextureId
 
+    /** Main depth from just before the translucent layer, or -1 when no split copied it this frame. */
+    fun opaqueDepthTextureId(): Int = if (opaqueCopied) opaque.textureId else -1
+
     internal fun glassColourTextureId(): Int = glass.colourTextureId
 
     /** Call just before the particle pass. */
     fun capture(main: RenderTarget) {
         if (!wanted) return
         wanted = false
-        scene.copyFrom(main)
+        if (glassCopied) {
+            sceneCopy = glass
+        } else {
+            sceneTimer.begin()
+            scene.copyFrom(main)
+            sceneTimer.end()
+            sceneCopy = scene
+        }
         captured = true
     }
 
@@ -161,11 +181,14 @@ object VolumeDepth {
         return true
     }
 
-    /** Puts the cloud depth into the scene copy: the texels where main depth came nearer during the clouds. */
+    /**
+     * Puts the cloud depth into the scene copy: the texels where main depth came nearer during the clouds. When that is
+     * the glass copy, nothing reads glass depth after the behind pass.
+     */
     fun afterClouds(main: RenderTarget) {
         val effect = cloudDepth.get() ?: return
-        val prevFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING)
-        GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, scene.fbo)
+        val prevFbo = boundDrawFramebuffer(main)
+        GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, sceneCopy.fbo)
         GlStateManager._viewport(0, 0, main.width, main.height)
         RenderSystem.disableScissor()
         RenderSystem.enableDepthTest()
@@ -188,7 +211,7 @@ object VolumeDepth {
         wanted = true
         return when {
             behind -> opaque.textureId
-            captured -> scene.textureId
+            captured -> sceneCopy.textureId
             else -> main.depthTextureId
         }
     }

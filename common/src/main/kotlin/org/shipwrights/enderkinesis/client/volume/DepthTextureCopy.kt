@@ -3,9 +3,22 @@ package org.shipwrights.enderkinesis.client.volume
 import com.mojang.blaze3d.pipeline.RenderTarget
 import com.mojang.blaze3d.platform.GlStateManager
 import java.nio.ByteBuffer
+import net.minecraft.client.Minecraft
 import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL12
 import org.lwjgl.opengl.GL30
+import org.shipwrights.enderkinesis.client.IrisCompat
+
+/**
+ * The draw framebuffer bound during renderLevel. Vanilla keeps main bound there; only Fabulous and shader packs bind
+ * their own targets. A GL query can stall a threaded driver, and our own raw GL binds make a GlStateManager tracker wrong.
+ */
+internal fun boundDrawFramebuffer(main: RenderTarget): Int =
+    if (Minecraft.useShaderTransparency() || IrisCompat.isShaderPackInUse()) {
+        GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING)
+    } else {
+        main.frameBufferId
+    }
 
 /**
  * A depth texture that holds a copy of main depth from one point in the frame. A [colourFormat] above 0 also copies main
@@ -23,10 +36,8 @@ class DepthTextureCopy(private val colourFormat: Int = 0) {
     private var internalFormat = 0
     private var mainTexture = -1
 
-    /** Copies main depth, and colour when [colourFormat] is above 0, now. The framebuffer that was bound stays bound. */
-    fun copyFrom(main: RenderTarget) {
-        // Fabulous binds its own targets around some passes, so restore what was bound, not main.
-        val prevFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING)
+    /** Copies main depth, and colour when [colourFormat] is above 0, now. Then binds [prevFbo], the caller's framebuffer. */
+    fun copyFrom(main: RenderTarget, prevFbo: Int = boundDrawFramebuffer(main)) {
         ensure(main)
         GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, main.frameBufferId)
         GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, fbo)
