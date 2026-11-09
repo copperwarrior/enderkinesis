@@ -10,7 +10,10 @@ import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.block.BaseFireBlock
+import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 /**
  * Ritual of Conflagration: a wave moves out from the rite over [ticks] and sets fire beside every flammable block
@@ -23,29 +26,41 @@ class Conflagration(private val radius: Int, private val ticks: Int) : RitualEff
         val level = context.level
         val center = context.center.immutable()
         val offsets = offsetsByDistance(radius)
-        val cursor = BlockPos.MutableBlockPos()
+        val centre = Vec3.atCenterOf(center)
         val air = BlockPos.MutableBlockPos()
+        val at = BlockPos.MutableBlockPos()
         var next = 0
-        sendWhirlwind(level, center)
+        var reachedSq = -1.0
+        sendWhirlwind(level, center, level.toWorldCoordinates(centre))
         RitualTasks.run(ticks) { tick ->
             val reach = radius * (tick + 1) / ticks.toDouble()
             val reachSq = reach * reach
+            // Each step, so a ship that moved, came or went since the rite began is seen where it is now.
+            val blocks = CrossFrameBlocks(level, centre, radius.toDouble())
+            val o = blocks.origin
             while (next < offsets.size / 3) {
                 val dx = offsets[next * 3]
                 val dy = offsets[next * 3 + 1]
                 val dz = offsets[next * 3 + 2]
                 if (dx * dx + dy * dy + dz * dz > reachSq) break
                 next++
-                cursor.setWithOffset(center, dx, dy, dz)
-                ignite(level, cursor, air)
+                ignite(level, at.set(o.x + dx, o.y + dy, o.z + dz), air)
             }
+            // Ships walk their own cells in the new shell of the wave, so a scaled ship loses none.
+            val m = blocks.visitedMiddle
+            val c = blocks.worldCentre
+            val before = reachedSq
+            blocks.forEachWithin(reach, world = false) { pos, _ ->
+                if (m.distanceSquared(c.x, c.y, c.z) > before) ignite(level, pos, air)
+            }
+            reachedSq = reachSq
         }
         return ItemStack.EMPTY
     }
 
-    private fun sendWhirlwind(level: ServerLevel, center: BlockPos) {
+    private fun sendWhirlwind(level: ServerLevel, center: BlockPos, worldCentre: Vec3) {
         for (player in level.players()) {
-            if (player.blockPosition().distSqr(center) > SEND_RANGE * SEND_RANGE) continue
+            if (player.distanceToSqr(worldCentre) > SEND_RANGE * SEND_RANGE) continue
             val buf = FriendlyByteBuf(Unpooled.buffer())
             buf.writeLong(center.asLong())
             buf.writeVarInt(radius)
@@ -56,7 +71,7 @@ class Conflagration(private val radius: Int, private val ticks: Int) : RitualEff
 
     private fun ignite(level: ServerLevel, pos: BlockPos, air: BlockPos.MutableBlockPos) {
         if (!level.isLoaded(pos) || !level.getBlockState(pos).ignitedByLava()) return
-        for (side in Direction.values()) {
+        for (side in Direction.entries) {
             air.setWithOffset(pos, side)
             if (!level.getBlockState(air).isAir) continue
             level.setBlockAndUpdate(air, BaseFireBlock.getState(level, air))

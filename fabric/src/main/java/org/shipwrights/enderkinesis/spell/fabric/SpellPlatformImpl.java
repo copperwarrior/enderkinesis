@@ -11,12 +11,12 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class SpellPlatformImpl {
     private SpellPlatformImpl() {}
 
-    public static boolean mayBreak(ServerLevel level, BlockPos pos, BlockState state, ServerPlayer player) {
+    public static boolean postBreak(ServerLevel level, BlockPos pos, BlockState state, ServerPlayer player) {
         return PlayerBlockBreakEvents.BEFORE.invoker()
             .beforeBlockBreak(level, player, pos, state, level.getBlockEntity(pos));
     }
 
-    public static boolean mayPlace(ServerLevel level, BlockPos pos, BlockState placed, ServerPlayer player) {
+    public static boolean postPlace(ServerLevel level, BlockPos pos, BlockState placed, ServerPlayer player) {
         return true;
     }
 

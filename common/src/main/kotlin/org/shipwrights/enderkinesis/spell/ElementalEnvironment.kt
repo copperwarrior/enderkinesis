@@ -317,6 +317,7 @@ object ElementalEnvironment {
             for (player in server.playerList.players) rechargeCarried(player)
         })
         BlockEvent.BREAK.register { _, _, state, player, _ ->
+            if (SpellPlatform.isPermissionProbe()) return@register EventResult.pass()
             val block = state.block
             if (block is CropBlock && block.isMaxAge(state)) deed(player, Element.GENESIS)
             EventResult.pass()

@@ -80,10 +80,22 @@ object Selves {
     const val TAG_ITEMS = "Items"
     const val TAG_SELECTED = "Selected"
     private val BOSSES: Set<EntityType<*>> = setOf(EntityType.ENDER_DRAGON, EntityType.WITHER)
+    private const val MAX_SENT_FORMS = 1024
+    private const val MAX_SENT_BODIES = 4096
+    private const val MAX_DRAWN_TAG_BYTES = 16 * 1024
+    // Saved data a creature's look never reads: AI memory, villager trades and gossip, stores, and attributes.
+    private val UNDRAWN_KEYS = listOf(
+        "Brain", "Gossips", "LastGossipDecay", "Offers", "LastRestock", "RestocksToday", "Xp",
+        "Inventory", "Items", "Attributes", "Passengers", "Leash",
+    )
 
     // Server thread only; null while no server runs.
     @Volatile internal var serverData: Data? = null
         private set
+
+    // Server thread only: the table the clients last got, so a broadcast sends only what changed.
+    private val sentForms = HashMap<UUID, Form>()
+    private val sentBodies = HashMap<UUID, UUID>()
 
     // Render thread only.
     @Volatile private var clientForms: Map<UUID, Form> = emptyMap()
@@ -93,11 +105,17 @@ object Selves {
 
     fun init() {
         LifecycleEvent.SERVER_STARTED.register { server -> serverData = data(server) }
-        LifecycleEvent.SERVER_STOPPED.register { _ -> serverData = null }
+        LifecycleEvent.SERVER_STOPPED.register { _ ->
+            serverData = null
+            sentForms.clear()
+            sentBodies.clear()
+        }
         PlayerEvent.PLAYER_JOIN.register { player ->
             val data = data(player.server)
-            send(player, data)
+            sendFull(player, data)
             fit(player, data.forms[player.uuid])
+            // The others get this player's form as a change.
+            broadcast(player.server)
         }
         PlayerEvent.PLAYER_RESPAWN.register { player, conqueredEnd -> onRespawn(player, conqueredEnd) }
     }
@@ -278,15 +296,58 @@ object Selves {
         broadcast(player.server)
     }
 
+    /** Sends every player what changed in the table of online players' forms and of bodies since the last send. */
     internal fun broadcast(server: MinecraftServer) {
         val data = data(server)
-        for (player in server.playerList.players) send(player, data)
+        val forms = onlineForms(server, data)
+        val formRemovals = sentForms.keys.filter { it !in forms }
+        val formChanges = forms.filter { (uuid, form) -> sentForms[uuid] != form }
+        val bodies = bodyOwners(data)
+        val bodyRemovals = sentBodies.keys.filter { it !in bodies }
+        val bodyChanges = bodies.filter { (id, owner) -> sentBodies[id] != owner }
+        if (formRemovals.isEmpty() && formChanges.isEmpty() && bodyRemovals.isEmpty() && bodyChanges.isEmpty()) return
+        sentForms.clear()
+        sentForms.putAll(forms)
+        sentBodies.clear()
+        sentBodies.putAll(bodies)
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        write(buf, full = false, formChanges, formRemovals, bodyChanges, bodyRemovals)
+        for (player in server.playerList.players) NetworkManager.sendToPlayer(player, S2C_FORMS, FriendlyByteBuf(buf.copy()))
     }
 
-    private fun send(player: ServerPlayer, data: Data) {
+    private fun sendFull(player: ServerPlayer, data: Data) {
         val buf = FriendlyByteBuf(Unpooled.buffer())
-        buf.writeVarInt(data.forms.size)
+        write(buf, full = true, onlineForms(player.server, data), emptyList(), bodyOwners(data), emptyList())
+        NetworkManager.sendToPlayer(player, S2C_FORMS, buf)
+    }
+
+    // Only online players are drawn, so offline players' forms stay off the wire and the table stays bounded.
+    private fun onlineForms(server: MinecraftServer, data: Data): Map<UUID, Form> {
+        val out = HashMap<UUID, Form>()
         for ((uuid, form) in data.forms) {
+            if (out.size >= MAX_SENT_FORMS) break
+            if (server.playerList.getPlayer(uuid) != null) out[uuid] = form
+        }
+        return out
+    }
+
+    private fun bodyOwners(data: Data): Map<UUID, UUID> {
+        val out = HashMap<UUID, UUID>()
+        for ((entity, body) in data.bodies) {
+            if (out.size >= MAX_SENT_BODIES) break
+            out[entity] = body.owner
+        }
+        return out
+    }
+
+    @Suppress("LongParameterList") // One section for each part of the table.
+    private fun write(
+        buf: FriendlyByteBuf, full: Boolean,
+        forms: Map<UUID, Form>, formRemovals: List<UUID>, bodies: Map<UUID, UUID>, bodyRemovals: List<UUID>,
+    ) {
+        buf.writeBoolean(full)
+        buf.writeVarInt(forms.size)
+        for ((uuid, form) in forms) {
             buf.writeUUID(uuid)
             when (form) {
                 is Form.Of -> {
@@ -296,20 +357,40 @@ object Selves {
                 is Form.Creature -> {
                     buf.writeBoolean(true)
                     buf.writeResourceLocation(BuiltInRegistries.ENTITY_TYPE.getKey(form.type))
-                    buf.writeNbt(form.tag)
+                    buf.writeNbt(drawnTag(form.tag))
                 }
             }
         }
-        buf.writeVarInt(data.bodies.size)
-        for ((entity, body) in data.bodies) {
+        buf.writeVarInt(formRemovals.size)
+        for (uuid in formRemovals) buf.writeUUID(uuid)
+        buf.writeVarInt(bodies.size)
+        for ((entity, owner) in bodies) {
             buf.writeUUID(entity)
-            buf.writeUUID(body.owner)
+            buf.writeUUID(owner)
         }
-        NetworkManager.sendToPlayer(player, S2C_FORMS, buf)
+        buf.writeVarInt(bodyRemovals.size)
+        for (entity in bodyRemovals) buf.writeUUID(entity)
     }
 
-    /** Client: reads a [send] packet off the network thread; pass the result to [receive] on the render thread. */
-    fun read(buf: FriendlyByteBuf): Pair<Map<UUID, Form>, Map<UUID, UUID>> {
+    /** The creature's saved data less what the client's look-alike never shows, such as memories, trades and stores. */
+    private fun drawnTag(tag: CompoundTag): CompoundTag {
+        val out = tag.copy()
+        for (key in UNDRAWN_KEYS) out.remove(key)
+        // A modded creature with a large store keeps only its type, and is drawn with its default look.
+        return if (out.sizeInBytes() > MAX_DRAWN_TAG_BYTES) CompoundTag() else out
+    }
+
+    class FormsUpdate(
+        val full: Boolean,
+        val forms: Map<UUID, Form>,
+        val formRemovals: List<UUID>,
+        val bodies: Map<UUID, UUID>,
+        val bodyRemovals: List<UUID>,
+    )
+
+    /** Client: reads a forms packet off the network thread; pass the result to [receive] on the render thread. */
+    fun read(buf: FriendlyByteBuf): FormsUpdate {
+        val full = buf.readBoolean()
         val forms = HashMap<UUID, Form>()
         repeat(buf.readVarInt()) {
             val uuid = buf.readUUID()
@@ -319,14 +400,23 @@ object Selves {
                 Form.Of(buf.readUUID())
             }
         }
+        val formRemovals = List(buf.readVarInt()) { buf.readUUID() }
         val bodies = HashMap<UUID, UUID>()
         repeat(buf.readVarInt()) { bodies[buf.readUUID()] = buf.readUUID() }
-        return forms to bodies
+        val bodyRemovals = List(buf.readVarInt()) { buf.readUUID() }
+        return FormsUpdate(full, forms, formRemovals, bodies, bodyRemovals)
     }
 
-    fun receive(state: Pair<Map<UUID, Form>, Map<UUID, UUID>>) {
-        clientForms = state.first
-        clientBodies = state.second
+    fun receive(update: FormsUpdate) {
+        // Copies, so a reader holding the old map never sees it change.
+        val forms = if (update.full) HashMap() else HashMap(clientForms)
+        for (uuid in update.formRemovals) forms.remove(uuid)
+        forms.putAll(update.forms)
+        val bodies = if (update.full) HashMap() else HashMap(clientBodies)
+        for (entity in update.bodyRemovals) bodies.remove(entity)
+        bodies.putAll(update.bodies)
+        clientForms = forms
+        clientBodies = bodies
     }
 
     private fun data(server: MinecraftServer): Data =

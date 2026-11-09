@@ -9,8 +9,13 @@ import net.minecraft.core.Direction
 import net.minecraft.util.Mth
 import net.minecraft.world.level.LightLayer
 import net.minecraft.world.phys.Vec3
+import org.joml.Matrix4dc
 import org.joml.Matrix4f
+import org.joml.Vector3d
 import org.shipwrights.enderkinesis.spell.AbyssalPockets
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getShipManagingPos
 
 // The client light engine still treats phased blocks as solid and dark, so [relight] spreads light in from open neighbours.
 object PocketPortalClient {
@@ -20,6 +25,7 @@ object PocketPortalClient {
     private var lightTick = Long.MIN_VALUE
     // Render thread only.
     private val faces = PortalFaces()
+    private val scratch = Vector3d()
 
     private const val RANGE = 96.0
     // Faces are found once a tick; this covers camera movement until the next tick.
@@ -81,9 +87,21 @@ object PocketPortalClient {
         val ints = faces.ints
         for (f in 0 until faces.size) {
             val o = f * FACE_INTS
-            if (cam.distanceToSqr(ints[o] + 0.5, ints[o + 1] + 0.5, ints[o + 2] + 0.5) > RANGE * RANGE) continue
-            face(c, m, level, f, skyDarken)
+            val toWorld = shipToWorld(level, ints[o], ints[o + 1], ints[o + 2])
+            if (distanceSqr(cam, toWorld, ints[o], ints[o + 1], ints[o + 2]) > RANGE * RANGE) continue
+            face(c, m, level, f, skyDarken, toWorld)
         }
+    }
+
+    // A ship's cells are in the shipyard, so a cell is placed and culled through the ship's render transform.
+    @OptIn(GameTickOnly::class)
+    private fun shipToWorld(level: ClientLevel, x: Int, y: Int, z: Int): Matrix4dc? =
+        (level.getShipManagingPos(x + 0.5, y + 0.5, z + 0.5) as? ClientShip)?.renderTransform?.shipToWorld
+
+    private fun distanceSqr(cam: Vec3, toWorld: Matrix4dc?, x: Int, y: Int, z: Int): Double {
+        scratch.set(x + 0.5, y + 0.5, z + 0.5)
+        toWorld?.transformPosition(scratch)
+        return cam.distanceToSqr(scratch.x, scratch.y, scratch.z)
     }
 
     private fun findFaces(level: ClientLevel, cam: Vec3, pockets: LongSet) {
@@ -94,7 +112,7 @@ object PocketPortalClient {
         val keys = pockets.iterator()
         while (keys.hasNext()) {
             pos.set(keys.nextLong())
-            if (cam.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) > reach * reach) continue
+            if (distanceSqr(cam, shipToWorld(level, pos.x, pos.y, pos.z), pos.x, pos.y, pos.z) > reach * reach) continue
             for (dir in DIRECTIONS) {
                 wall.setWithOffset(pos, dir)
                 if (solid(level, wall)) addFace(level, pos.immutable(), dir)
@@ -125,7 +143,7 @@ object PocketPortalClient {
         }
     }
 
-    private fun face(c: VertexConsumer, m: Matrix4f, level: ClientLevel, f: Int, skyDarken: Float) {
+    private fun face(c: VertexConsumer, m: Matrix4f, level: ClientLevel, f: Int, skyDarken: Float, toWorld: Matrix4dc?) {
         val ints = faces.ints; val o = f * FACE_INTS
         val dir = DIRECTIONS[ints[o + 3]]
         val t1 = TANGENT1[dir.axis.ordinal]; val t2 = TANGENT2[dir.axis.ordinal]
@@ -157,12 +175,9 @@ object PocketPortalClient {
             val lit = Mth.lerp(v, Mth.lerp(u, c0, c1), Mth.lerp(u, c2, c3)) * shade
             val grey = (lit * 255).toInt().coerceIn(0, 255)
             val du = u - 0.5; val dv = v - 0.5
-            c.vertex(
-                m,
-                (cx + t1.stepX * du + t2.stepX * dv).toFloat(),
-                (cy + t1.stepY * du + t2.stepY * dv).toFloat(),
-                (cz + t1.stepZ * du + t2.stepZ * dv).toFloat(),
-            ).color(grey, grey, grey, (alpha(u, v) * 255).toInt().coerceIn(0, 255)).endVertex()
+            scratch.set(cx + t1.stepX * du + t2.stepX * dv, cy + t1.stepY * du + t2.stepY * dv, cz + t1.stepZ * du + t2.stepZ * dv)
+            toWorld?.transformPosition(scratch)
+            c.vertex(m, scratch.x.toFloat(), scratch.y.toFloat(), scratch.z.toFloat()).color(grey, grey, grey, (alpha(u, v) * 255).toInt().coerceIn(0, 255)).endVertex()
         }
         for (i in 0 until GRID) for (j in 0 until GRID) {
             val u0 = i.toFloat() / GRID; val u1 = (i + 1).toFloat() / GRID

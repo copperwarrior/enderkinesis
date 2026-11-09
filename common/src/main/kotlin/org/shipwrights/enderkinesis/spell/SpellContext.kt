@@ -17,6 +17,8 @@ import net.minecraft.world.entity.monster.Enemy
 import net.minecraft.tags.TagKey
 import net.minecraft.util.Mth
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.dimension.SureibjinBlockGuard
+import org.shipwrights.enderkinesis.dimension.YgannAbyssGuard
 import org.shipwrights.enderkinesis.mixin.LivingEntityLastHurtAccessor
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
@@ -96,6 +98,8 @@ class SpellContext(
     /** Checks the owner's permissions as for a change by hand: spawn protection, then the loader's
      *  break and place events. */
     fun mayChange(pos: BlockPos, newState: BlockState): Boolean {
+        // Our dimension guards skip the loader-event probe, and Fabric never sends it to them.
+        if (!SureibjinBlockGuard.spellMayChange(level) || !YgannAbyssGuard.spellMayChange(level, pos)) return false
         val player = ownerPlayer ?: return owner == null
         if (!level.mayInteract(player, pos)) return false
         val old = level.getBlockState(pos)

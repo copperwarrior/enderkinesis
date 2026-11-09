@@ -18,6 +18,9 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.Property
 import net.minecraft.world.phys.Vec3
+import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.shipAwareCanSeeSky
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 class Ritual(
     val id: ResourceLocation,
@@ -95,7 +98,17 @@ sealed interface RitualCondition {
     fun test(level: ServerLevel, center: BlockPos, blocks: List<LayoutBlock>): Boolean
 
     data object Raining : RitualCondition {
-        override fun test(level: ServerLevel, center: BlockPos, blocks: List<LayoutBlock>) = level.isRainingAt(center.above())
+        // As Level.isRainingAt, with the sky test and the biome taken at the world point, so a ship deck works.
+        override fun test(level: ServerLevel, center: BlockPos, blocks: List<LayoutBlock>): Boolean {
+            if (!level.isRaining || !shipAwareCanSeeSky(level, center.above())) return false
+            val world = worldPos(level, center.above())
+            return level.getBiome(world).value().getPrecipitationAt(world) == Biome.Precipitation.RAIN
+        }
+    }
+
+    /** Refuses a center in a ship's shipyard. */
+    data object NotOnShip : RitualCondition {
+        override fun test(level: ServerLevel, center: BlockPos, blocks: List<LayoutBlock>) = level.getShipManagingPos(center) == null
     }
 
     class Dimension(private val key: ResourceKey<Level>) : RitualCondition {
@@ -105,21 +118,24 @@ sealed interface RitualCondition {
     /** The center and every template block see the sky. */
     data object OpenSky : RitualCondition {
         override fun test(level: ServerLevel, center: BlockPos, blocks: List<LayoutBlock>): Boolean {
-            if (!level.canSeeSky(center)) return false
+            if (!shipAwareCanSeeSky(level, center)) return false
             val cursor = BlockPos.MutableBlockPos()
-            return blocks.all { level.canSeeSky(cursor.setWithOffset(center, it.offset)) }
+            return blocks.all { shipAwareCanSeeSky(level, cursor.setWithOffset(center, it.offset)) }
         }
     }
 
     class InBiome(private val biome: ResourceKey<Biome>?, private val tag: TagKey<Biome>?) : RitualCondition {
         override fun test(level: ServerLevel, center: BlockPos, blocks: List<LayoutBlock>): Boolean {
-            val holder = level.getBiome(center)
+            val holder = level.getBiome(worldPos(level, center))
             return (biome != null && holder.`is`(biome)) || (tag != null && holder.`is`(tag))
         }
     }
 
     companion object {
         fun biomeTag(id: ResourceLocation): TagKey<Biome> = TagKey.create(Registries.BIOME, id)
+
+        /** A shipyard pos has a garbage biome and sky: read them at the world point. */
+        internal fun worldPos(level: ServerLevel, pos: BlockPos): BlockPos = BlockPos.containing(level.toWorldCoordinates(pos))
     }
 }
 

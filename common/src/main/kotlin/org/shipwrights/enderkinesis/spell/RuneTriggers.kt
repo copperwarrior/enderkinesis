@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.spell
 
+import org.valkyrienskies.mod.common.toWorldCoordinates
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.InteractionEvent
 import dev.architectury.event.events.common.LifecycleEvent
@@ -108,7 +109,8 @@ object RuneTriggers {
 
     /** No caster, so nothing is spared. Blood's buff goes to the owner if online. */
     private fun cast(level: ServerLevel, rune: Pending) {
-        val centre = Vec3.atCenterOf(rune.pos)
+        // A rune on a ship has a shipyard pos; the cast reads biomes, sky and entities in the world.
+        val centre = level.toWorldCoordinates(Vec3.atCenterOf(rune.pos))
         val owner = rune.owner?.let { level.server.playerList.getPlayer(it) }
         val ctx = SpellContext(level, null, centre, rune.owner, buffRecipient = owner, nearestRecipient = false, use = SpellUse.RUNE)
         // Not an Area cast (a Void rune opens a pocket), but it shows as Area waves.

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.ritual
 
+import org.shipwrights.enderkinesis.spell.SpellPlatform
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -39,6 +40,8 @@ import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.joml.Vector3d
+import org.valkyrienskies.mod.common.getShipsIntersecting
 
 /**
  * Data-driven rituals, `data/<ns>/rituals/<path>.json`. "layout" names a structure-block template
@@ -129,6 +132,7 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
     private fun parseCondition(json: JsonObject): RitualCondition = when (type(json)) {
         "enderkinesis:raining" -> RitualCondition.Raining
         "enderkinesis:open_sky" -> RitualCondition.OpenSky
+        "enderkinesis:not_on_ship" -> RitualCondition.NotOnShip
         "enderkinesis:dimension" ->
             RitualCondition.Dimension(ResourceKey.create(Registries.DIMENSION, location(json.get("dimension")) ?: error("needs \"dimension\"")))
         "enderkinesis:biome" -> {
@@ -204,6 +208,7 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
 
     // Architectury fires PLACE before the block is set on Fabric and after on Forge, so the check waits one task.
     private fun onPlace(level: Level, pos: BlockPos, state: BlockState, placer: Entity?): EventResult {
+        if (SpellPlatform.isPermissionProbe()) return EventResult.pass()
         val server = level as? ServerLevel ?: return EventResult.pass()
         val player = placer as? ServerPlayer ?: return EventResult.pass()
         if (byId.values.none { it.trigger is RitualTrigger.Place && it.center.isTemplateCenter(state) }) return EventResult.pass()
@@ -243,14 +248,15 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
     private fun onProjectile(projectile: Projectile, level: ServerLevel) {
         val shooter = projectile.owner as? ServerPlayer ?: return
         if (projectile.tickCount > 0 || projectile.distanceToSqr(shooter) > SHOT_REACH * SHOT_REACH) return
-        val motion = projectile.deltaMovement
-        if (motion.lengthSqr() < 1.0e-6) return
+        if (projectile.deltaMovement.lengthSqr() < 1.0e-6) return
+        // The look vector, not the arrow velocity: that holds the shooter's own motion, which a moving ship skews.
+        val aim = shooter.lookAngle
         // LevelRenderer.renderSky turns the sun by the time of day about the x axis, after a -90 degree turn about y.
         val angle = level.getTimeOfDay(1f) * Mth.TWO_PI
         val sunX = -Mth.sin(angle).toDouble()
         val sunY = Mth.cos(angle).toDouble()
         if (sunY <= 0.0) return
-        val cos = (motion.x * sunX + motion.y * sunY) / motion.length()
+        val cos = aim.x * sunX + aim.y * sunY
         for (ritual in byId.values) {
             val trigger = ritual.trigger as? RitualTrigger.ProjectileAtSun ?: continue
             if (cos < Math.cos(Math.toRadians(trigger.maxAngle))) continue
@@ -261,8 +267,19 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         }
     }
 
-    private fun findLitCenter(level: ServerLevel, player: ServerPlayer, ritual: Ritual, radius: Double): Pair<BlockPos, Int>? {
-        val feet = player.blockPosition()
+    /** A lit centre near [entity], in the world or in the shipyard of a nearby ship. */
+    private fun findLitCenter(level: ServerLevel, entity: Entity, ritual: Ritual, radius: Double): Pair<BlockPos, Int>? {
+        findLitCenterAround(level, entity.position(), ritual, radius)?.let { return it }
+        val near = entity.boundingBox.inflate(radius, KILL_REACH_DY + 1.0, radius)
+        for (ship in level.getShipsIntersecting(near)) {
+            val feet = ship.transform.worldToShip.transformPosition(entity.x, entity.y, entity.z, Vector3d())
+            findLitCenterAround(level, Vec3(feet.x, feet.y, feet.z), ritual, radius)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findLitCenterAround(level: ServerLevel, at: Vec3, ritual: Ritual, radius: Double): Pair<BlockPos, Int>? {
+        val feet = BlockPos.containing(at)
         val reach = kotlin.math.ceil(radius).toInt()
         val cursor = BlockPos.MutableBlockPos()
         for (dy in -KILL_REACH_DY..KILL_REACH_DY) {
@@ -270,8 +287,8 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
                 for (dx in -reach..reach) {
                     cursor.setWithOffset(feet, dx, dy, dz)
                     if (!ritual.center.isLit(level.getBlockState(cursor))) continue
-                    val ox = player.x - (cursor.x + 0.5)
-                    val oz = player.z - (cursor.z + 0.5)
+                    val ox = at.x - (cursor.x + 0.5)
+                    val oz = at.z - (cursor.z + 0.5)
                     if (ox * ox + oz * oz > radius * radius) continue
                     val rotation = ritual.match(level, cursor)
                     if (rotation >= 0) return cursor.immutable() to rotation
@@ -294,23 +311,6 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         return null
     }
 
-    private fun findCenter(level: ServerLevel, victim: LivingEntity, ritual: Ritual, radius: Double): KillMatch? {
-        val feet = victim.blockPosition()
-        val reach = kotlin.math.ceil(radius).toInt()
-        val cursor = BlockPos.MutableBlockPos()
-        for (dy in -KILL_REACH_DY..KILL_REACH_DY) {
-            for (dz in -reach..reach) {
-                for (dx in -reach..reach) {
-                    cursor.setWithOffset(feet, dx, dy, dz)
-                    if (!ritual.center.isLit(level.getBlockState(cursor))) continue
-                    val ox = victim.x - (cursor.x + 0.5)
-                    val oz = victim.z - (cursor.z + 0.5)
-                    if (ox * ox + oz * oz > radius * radius) continue
-                    val rotation = ritual.match(level, cursor)
-                    if (rotation >= 0) return KillMatch(ritual, cursor.immutable(), rotation)
-                }
-            }
-        }
-        return null
-    }
+    private fun findCenter(level: ServerLevel, victim: LivingEntity, ritual: Ritual, radius: Double): KillMatch? =
+        findLitCenter(level, victim, ritual, radius)?.let { (center, rotation) -> KillMatch(ritual, center, rotation) }
 }

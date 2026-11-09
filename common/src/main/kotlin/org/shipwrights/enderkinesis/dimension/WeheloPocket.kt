@@ -32,6 +32,9 @@ import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.SpellSounds
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
 
 /** One 64-cube pocket for each player, on a grid in one dimension, sealed by an unchangeable Wogor Wood shell. */
@@ -115,14 +118,28 @@ object WeheloPocket {
         val tear = EKEntities.WEHELO_TEAR.get().create(level) ?: return null
         val flat = Vec3(player.lookAngle.x, 0.0, player.lookAngle.z)
         val ahead = if (flat.lengthSqr() < 1.0e-6) Vec3(0.0, 0.0, 1.0) else flat.normalize()
-        val at = player.position().add(ahead.scale(TEAR_REACH))
-        if (level.dimension() == LEVEL_KEY) {
+        val world = player.position().add(ahead.scale(TEAR_REACH))
+        val at = if (level.dimension() == LEVEL_KEY) {
             tear.setup(player.uuid, exit = true, returnFor(player))
+            world
         } else {
-            tear.setup(player.uuid, exit = false, ReturnPoint(level.dimension(), player.x, player.y, player.z, player.yRot, player.xRot))
+            val back = ReturnPoint.of(player)
+            tear.setup(player.uuid, exit = false, back)
+            back.ship?.let { shipyardPoint(level, it.id, world) } ?: world
         }
         tear.moveTo(at.x, at.y, at.z, 0f, 0f)
         return tear.takeIf { level.addFreshEntity(it) }
+    }
+
+    /**
+     * [at] on the ship in SHIPYARD coordinates, so the tear rides the ship (vs_entities/wehelo_tear.json pairs it
+     * with the VS2 shipyard handler). The world point when the ship is gone. Called from openTear on the server thread.
+     */
+    @OptIn(GameTickOnly::class)
+    private fun shipyardPoint(level: ServerLevel, shipId: Long, at: Vec3): Vec3 {
+        val ship = level.shipObjectWorld.allShips.getById(shipId) ?: return at
+        val local = ship.transform.worldToShip.transformPosition(Vector3d(at.x, at.y, at.z))
+        return Vec3(local.x, local.y, local.z)
     }
 
     /** Where an entity arrives in the pocket at [o]; it matches the return point it came from. */
@@ -142,6 +159,7 @@ object WeheloPocket {
 
     /**
      * Back to the entity's return point, moved by how far it is from where it arrived, facing as it faces now.
+     * A return point on a ship follows that ship and turns with it.
      * An entity made in the pocket follows the last entity that left it, or the world origin when none has.
      */
     internal fun leave(entity: Entity): Boolean {
@@ -153,11 +171,9 @@ object WeheloPocket {
         data.setLastLeft(slot, anchor)
         val from = arrival(o)
         val level = server.getLevel(anchor.dimension) ?: server.overworld()
-        return move(
-            entity, level,
-            anchor.x + entity.x - from.x, anchor.y + entity.y - from.y, anchor.z + entity.z - from.z,
-            entity.yRot, entity.xRot,
-        )
+        val landing = anchor.landing(level)
+        val to = landing.offset(entity.x - from.x, entity.y - from.y, entity.z - from.z)
+        return move(entity, level, to.x, to.y, to.z, entity.yRot + landing.yawChange, entity.xRot)
     }
 
     /** Drops the return point of an entity that is gone for good, so the saved data does not grow. */
@@ -172,7 +188,10 @@ object WeheloPocket {
     private fun returnExactly(player: ServerPlayer, to: ReturnPoint): Boolean {
         WeheloPocketData.get(player.server).takeReturn(player.uuid)
         val level = player.server.getLevel(to.dimension)
-        if (level != null) return move(player, level, to.x, to.y, to.z, to.yRot, to.xRot)
+        if (level != null) {
+            val landing = to.landing(level)
+            return move(player, level, landing.x, landing.y, landing.z, to.yRot + landing.yawChange, to.xRot)
+        }
         val spawn = player.server.overworld().sharedSpawnPos
         return move(player, player.server.overworld(), spawn.x + 0.5, spawn.y.toDouble(), spawn.z + 0.5, player.yRot, player.xRot)
     }

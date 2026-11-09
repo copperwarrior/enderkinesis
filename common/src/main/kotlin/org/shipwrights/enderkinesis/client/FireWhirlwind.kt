@@ -1,5 +1,9 @@
+// Client render and tick code only.
+@file:OptIn(GameTickOnly::class)
+
 package org.shipwrights.enderkinesis.client
 
+import org.valkyrienskies.core.api.util.GameTickOnly
 import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.networking.NetworkManager
 import net.minecraft.client.Minecraft
@@ -11,6 +15,9 @@ import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.texture.TextureAtlas
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import net.minecraft.core.BlockPos
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.mod.common.getShipManagingPos
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.Mth
@@ -45,6 +52,7 @@ object FireWhirlwind {
     }
 
     private val whirls = ArrayList<Whirl>()
+    private val centre = Vector3d()
     private var whirlLevel: ClientLevel? = null
 
     fun init() {
@@ -82,7 +90,10 @@ object FireWhirlwind {
                 continue
             }
             val reach = SPAWN_RANGE + whirl.radius
-            if (camera.distanceToSqr(whirl.center.x + 0.5, whirl.center.y + 0.5, whirl.center.z + 0.5) > reach * reach) continue
+            // The rite centre is a shipyard point on a ship; the test and the flames need the world point.
+            centre.set(whirl.center.x + 0.5, whirl.center.y.toDouble(), whirl.center.z + 0.5)
+            (level.getShipManagingPos(whirl.center) as? ClientShip)?.transform?.shipToWorld?.transformPosition(centre)
+            if (camera.distanceToSqr(centre.x, centre.y + 0.5, centre.z) > reach * reach) continue
             spawn(level, whirl, sprite, share)
         }
     }
@@ -92,9 +103,9 @@ object FireWhirlwind {
         val rampIn = (whirl.age / RAMP_IN_TICKS).coerceAtMost(1f)
         val windDown = 1f - ((whirl.age - whirl.ticks).toFloat() / WIND_DOWN_TICKS).coerceIn(0f, 1f)
         val strength = rampIn * windDown * share
-        val cx = whirl.center.x + 0.5
-        val cy = whirl.center.y.toDouble()
-        val cz = whirl.center.z + 0.5
+        val cx = centre.x
+        val cy = centre.y
+        val cz = centre.z
         val front = maxOf(whirl.front(), 1f)
         // The wall's area over the flames alive on it, so each flame covers its share of the wall.
         val alive = WALL_FLAMES_PER_TICK * share * Flame.WALL_LIFE

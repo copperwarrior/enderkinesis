@@ -13,7 +13,10 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.WeatheringCopper
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 /**
  * Ritual of Weathering: for [duration] ticks, blocks within [radius] of the rite age as if years went by.
@@ -50,11 +53,12 @@ object RitualWeathering {
     private const val SEND_RANGE = 160.0
 
     fun start(level: ServerLevel, center: BlockPos, radius: Int, duration: Int) {
-        val at = center.immutable()
-        val cursor = BlockPos.MutableBlockPos()
-        RitualTasks.run(duration) { weather(level, at, radius, cursor) }
+        val centre = Vec3.atCenterOf(center)
+        // Each tick, so a ship that moved, came or went since the rite began is seen where it is now.
+        RitualTasks.run(duration) { weather(level, CrossFrameBlocks(level, centre, radius.toDouble()), radius) }
+        val worldCentre = level.toWorldCoordinates(centre)
         for (player in level.players()) {
-            if (player.blockPosition().distSqr(center) > SEND_RANGE * SEND_RANGE) continue
+            if (player.distanceToSqr(worldCentre) > SEND_RANGE * SEND_RANGE) continue
             val buf = FriendlyByteBuf(Unpooled.buffer())
             buf.writeLong(center.asLong())
             buf.writeVarInt(radius)
@@ -64,18 +68,25 @@ object RitualWeathering {
     }
 
     // Uniform samples in the cube; those outside the sphere are skipped, so the count is a hard cap.
-    private fun weather(level: ServerLevel, center: BlockPos, r: Int, cursor: BlockPos.MutableBlockPos) {
+    private fun weather(level: ServerLevel, blocks: CrossFrameBlocks, r: Int) {
         val random = level.random
+        val pos = BlockPos.MutableBlockPos()
+        val o = blocks.origin
         repeat(SAMPLES_PER_TICK) {
             val dx = random.nextIntBetweenInclusive(-r, r)
             val dy = random.nextIntBetweenInclusive(-r, r)
             val dz = random.nextIntBetweenInclusive(-r, r)
             if (dx * dx + dy * dy + dz * dz > r * r) return@repeat
-            cursor.setWithOffset(center, dx, dy, dz)
-            if (!level.isLoaded(cursor)) return@repeat
-            val aged = aged(level.getBlockState(cursor), random) ?: return@repeat
-            if (random.nextFloat() < STEP_CHANCE) level.setBlockAndUpdate(cursor, aged)
+            age(level, pos.set(o.x + dx, o.y + dy, o.z + dz), random)
         }
+        // Ships sample in their own grid, so a scaled ship ages every block at the world rate.
+        blocks.forEachShipSample(r.toDouble(), SAMPLES_PER_TICK, random) { shipPos, _ -> age(level, shipPos, random) }
+    }
+
+    private fun age(level: ServerLevel, pos: BlockPos, random: RandomSource) {
+        if (!level.isLoaded(pos)) return
+        val aged = aged(level.getBlockState(pos), random) ?: return
+        if (random.nextFloat() < STEP_CHANCE) level.setBlockAndUpdate(pos, aged)
     }
 
     private fun aged(state: BlockState, random: RandomSource): BlockState? {

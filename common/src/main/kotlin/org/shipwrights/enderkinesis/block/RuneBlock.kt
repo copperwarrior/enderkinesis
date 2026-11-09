@@ -21,6 +21,7 @@ import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.entity.BlockEntityTicker
 import net.minecraft.world.level.block.entity.BlockEntityType
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
+import org.valkyrienskies.mod.common.transformAabbToWorld
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
@@ -94,7 +95,8 @@ class RuneBlock(properties: Properties) : BaseEntityBlock(properties), LiquidBlo
     override fun entityInside(state: BlockState, level: Level, pos: BlockPos, entity: Entity) {
         if (level !is ServerLevel || entity.isSpectator) return
         if ((level.getBlockEntity(pos) as? RuneBlockEntity)?.isArmed() != true) return
-        val decal = SHAPES.getValue(state.getValue(FACING)).bounds().move(pos)
+        // VS2 passes the shipyard pos with a world entity box, so compare in the world frame.
+        val decal = level.transformAabbToWorld(SHAPES.getValue(state.getValue(FACING)).bounds().move(pos))
         if (entity.boundingBox.intersects(decal)) RuneTriggers.trigger(level, pos)
     }
 

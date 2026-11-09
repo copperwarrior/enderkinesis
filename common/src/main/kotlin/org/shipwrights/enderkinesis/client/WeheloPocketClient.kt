@@ -22,6 +22,10 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getShipManagingPos
 
 /** Wehelo tears in the world, and the grey, eyed fog inside a pocket. Render thread only. */
 object WeheloPocketClient {
@@ -98,7 +102,14 @@ object WeheloPocketClient {
         }
     }
 
-    private fun centre(tear: WeheloTearEntity): Vec3 = tear.position().add(0.0, WeheloTearEntity.HEIGHT * 0.5, 0.0)
+    /** A tear on a ship sits in the shipyard; VS2 does not move this separate pass, so it uses the ship's render transform. */
+    @OptIn(GameTickOnly::class)
+    private fun centre(tear: WeheloTearEntity): Vec3 {
+        val local = tear.position().add(0.0, WeheloTearEntity.HEIGHT * 0.5, 0.0)
+        val ship = tear.level().getShipManagingPos(local.x, local.y, local.z) as? ClientShip ?: return local
+        val world = ship.renderTransform.shipToWorld.transformPosition(Vector3d(local.x, local.y, local.z))
+        return Vec3(world.x, world.y, world.z)
+    }
 
     private fun phase(tear: WeheloTearEntity, partialTick: Float): Pair<Double, Double> {
         val age = tear.tickCount + partialTick
