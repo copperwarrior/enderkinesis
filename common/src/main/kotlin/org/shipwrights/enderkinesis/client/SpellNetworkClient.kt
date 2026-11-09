@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.client
 
 import dev.architectury.networking.NetworkManager
 import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
@@ -12,6 +13,8 @@ import org.shipwrights.enderkinesis.item.UlderScrollItem
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.spell.AbyssalPockets
 import org.shipwrights.enderkinesis.spell.Element
+import org.shipwrights.enderkinesis.spell.GasField
+import org.shipwrights.enderkinesis.spell.GasKind
 import org.shipwrights.enderkinesis.spell.SpellNetwork
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import org.joml.Quaternionf
@@ -19,11 +22,12 @@ import org.shipwrights.enderkinesis.spell.SpellVisuals
 
 /** Per-entity state lasts until [forget]. The server sends it again when the entity comes back into view. */
 object SpellNetworkClient {
+    private const val FLOW_ENTRY_MIN_BYTES = 4
     private const val MAX_VFX_LIFE = 20 * 60 * 60
 
     /** Two var ints of one byte or more, two ints, and the segment count. */
     private const val MERGED_BEAM_MIN_BYTES = 1 + 4 + 4 + 1 + 1
-    private const val MERGED_SEGMENT_BYTES = 6 * Double.SIZE_BYTES
+    private const val MERGED_SEGMENT_BYTES = 6 * Float.SIZE_BYTES
 
     private val absent = IntOpenHashSet()
 
@@ -43,13 +47,17 @@ object SpellNetworkClient {
             ctx.queue { setPhased(positions, false) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.MERGED) { buf, ctx ->
+            val ox = buf.readDouble()
+            val oy = buf.readDouble()
+            val oz = buf.readDouble()
             val beams = List(buf.readCount(MERGED_BEAM_MIN_BYTES)) {
                 val elements = buf.readVarInt()
                 val parentA = buf.readInt()
                 val parentB = buf.readInt()
                 val fused = buf.readVarInt()
                 val points = List(buf.readCount(MERGED_SEGMENT_BYTES)) {
-                    Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()) to Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble())
+                    Vec3(ox + buf.readFloat(), oy + buf.readFloat(), oz + buf.readFloat()) to
+                        Vec3(ox + buf.readFloat(), oy + buf.readFloat(), oz + buf.readFloat())
                 }
                 ScrollBeamClient.MergedWire(points, elements, parentA, parentB, fused)
             }
@@ -64,9 +72,13 @@ object SpellNetworkClient {
             ctx.queue { SpellVisuals.setClientBits(id, bits, magnitudes) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.FROZEN_POSE) { buf, ctx ->
-            val id = buf.readVarInt()
-            val rotation = Quaternionf(buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat())
-            ctx.queue { SpellVisuals.setClientPose(id, rotation) }
+            val count = buf.readVarInt()
+            val ids = IntArray(count)
+            val rotations = Array(count) {
+                ids[it] = buf.readVarInt()
+                Quaternionf(buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat())
+            }
+            ctx.queue { for (i in 0 until count) SpellVisuals.setClientPose(ids[i], rotations[i]) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.VFX) { buf, ctx ->
             val kind = buf.readByte().toInt()
@@ -104,16 +116,30 @@ object SpellNetworkClient {
             }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS) { buf, ctx ->
+            val kind = GasKind.values().getOrNull(buf.readUnsignedByte().toInt()) ?: return@registerReceiver
             val chunk = buf.readLong()
             val cells = Int2FloatOpenHashMap()
-            repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), (buf.readByte().toInt() and 0xFF) / 255f) }
-            ctx.queue { GasFieldClient.received(chunk, cells) }
+            repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), GasField.unpackAmount(buf.readByte().toInt())) }
+            val flows = readFlows(buf)
+            ctx.queue { GasFieldClient.received(kind, chunk, cells, flows) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS_CELLS) { buf, ctx ->
+            val kind = GasKind.values().getOrNull(buf.readUnsignedByte().toInt()) ?: return@registerReceiver
             val chunk = buf.readLong()
             val cells = Int2FloatOpenHashMap()
-            repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), (buf.readByte().toInt() and 0xFF) / 255f) }
-            ctx.queue { GasFieldClient.changed(chunk, cells) }
+            repeat(buf.readCount(2)) { cells.put(buf.readVarInt(), GasField.unpackAmount(buf.readByte().toInt())) }
+            val flows = readFlows(buf)
+            ctx.queue { GasFieldClient.changed(kind, chunk, cells, flows) }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.GAS_JET) { buf, ctx ->
+            val id = buf.readLong()
+            val kind = GasKind.values().getOrNull(buf.readUnsignedByte().toInt())
+            val stop = buf.readBoolean()
+            val frame = buf.readLong()
+            val px = buf.readDouble(); val py = buf.readDouble(); val pz = buf.readDouble()
+            val dx = buf.readFloat().toDouble(); val dy = buf.readFloat().toDouble(); val dz = buf.readFloat().toDouble()
+            val strength = buf.readFloat(); val parcelMass = buf.readFloat(); val start = buf.readLong(); val seed = buf.readLong()
+            if (kind != null) ctx.queue { GasJetClient.received(id, kind, stop, frame, px, py, pz, dx, dy, dz, strength, parcelMass, start, seed) }
         }
         GasFieldClient.init()
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.RELEASED) { buf, ctx ->
@@ -151,6 +177,19 @@ object SpellNetworkClient {
     fun isAbsent(id: Int): Boolean = absent.contains(id)
 
     /** The world keeps the blocks, but the mesher and collision skip them. Thus re-mesh the neighbours too. */
+    /** Packed int8 x3 flows, as SpellNetwork.writeFlows sends them. */
+    private fun readFlows(buf: FriendlyByteBuf): Int2IntOpenHashMap {
+        val flows = Int2IntOpenHashMap()
+        repeat(buf.readCount(FLOW_ENTRY_MIN_BYTES)) {
+            val i = buf.readVarInt()
+            val x = buf.readByte().toInt() and 0xFF
+            val y = buf.readByte().toInt() and 0xFF
+            val z = buf.readByte().toInt() and 0xFF
+            flows.put(i, x or (y shl 8) or (z shl 16))
+        }
+        return flows
+    }
+
     private fun setPhased(positions: LongArray, isPhased: Boolean) {
         AbyssalPockets.setClientPhased(positions, isPhased)
         val renderer = Minecraft.getInstance().levelRenderer

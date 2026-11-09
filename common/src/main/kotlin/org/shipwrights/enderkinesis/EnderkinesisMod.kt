@@ -240,6 +240,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.spell.BloodPacts.init()
         org.shipwrights.enderkinesis.spell.FrozenBodies.init()
         org.shipwrights.enderkinesis.spell.GasField.init()
+        org.shipwrights.enderkinesis.spell.GasJets.init()
         org.shipwrights.enderkinesis.spell.Absence.init()
         org.shipwrights.enderkinesis.effect.BloodSurgeFades.init()
         org.shipwrights.enderkinesis.spell.SpellHolds.init()

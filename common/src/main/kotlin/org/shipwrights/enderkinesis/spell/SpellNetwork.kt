@@ -6,6 +6,7 @@ import dev.architectury.event.events.common.TickEvent
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
 import it.unimi.dsi.fastutil.ints.Int2FloatMap
+import it.unimi.dsi.fastutil.ints.Int2IntMap
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongArrayList
@@ -15,7 +16,6 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
@@ -28,6 +28,8 @@ import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.mixin.ChunkMapEntityMapAccessor
 import org.shipwrights.enderkinesis.mixin.TrackedEntitySeenByAccessor
 import org.valkyrienskies.mod.common.toWorldCoordinates
+import org.shipwrights.enderkinesis.util.addPointsAlong
+import org.shipwrights.enderkinesis.util.playersHolding
 
 object SpellNetwork {
     val ABSENT: ResourceLocation = EnderkinesisMod.id("spell/absent")
@@ -45,10 +47,13 @@ object SpellNetwork {
     val RELEASED: ResourceLocation = EnderkinesisMod.id("spell/released")
     val GAS: ResourceLocation = EnderkinesisMod.id("spell/gas")
     val GAS_CELLS: ResourceLocation = EnderkinesisMod.id("spell/gas_cells")
+    val GAS_JET: ResourceLocation = EnderkinesisMod.id("spell/gas_jet")
 
     // Game thread only.
     private var holdingMerges = HashSet<ServerPlayer>()
     private val sentMerges = HashSet<ServerPlayer>()
+    // Content hash of the merge state each player last got, so an unchanged state is not sent again.
+    private val lastMerged = HashMap<ServerPlayer, Int>()
     private const val MAX_POSITIONS_PER_PACKET = 4096
 
     /** [from] also picks the players that get the batch, so it is kept when the batch is not [directed]. */
@@ -73,6 +78,7 @@ object SpellNetwork {
         LifecycleEvent.SERVER_STOPPING.register {
             holdingMerges.clear()
             sentMerges.clear()
+            lastMerged.clear()
             pendingShifts.clear()
         }
     }
@@ -83,11 +89,18 @@ object SpellNetwork {
     fun broadcastVisuals(level: ServerLevel, entity: Entity, bits: Int, magnitudes: ByteArray) =
         sendTracking(level, entity, VISUALS) { writeVisuals(it, entity, bits, magnitudes) }
 
-    fun broadcastFrozenPose(level: ServerLevel, entity: Entity, x: Float, y: Float, z: Float, w: Float) =
-        sendTracking(level, entity, FROZEN_POSE) { buf ->
-            buf.writeVarInt(entity.id)
-            buf.writeFloat(x); buf.writeFloat(y); buf.writeFloat(z); buf.writeFloat(w)
+    /** One packet with every frozen pose [player] gets this tick: [count] entity ids, and 4 floats for each. */
+    fun sendFrozenPoses(player: ServerPlayer, ids: IntArray, poses: FloatArray, count: Int) {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeVarInt(count)
+        for (i in 0 until count) {
+            buf.writeVarInt(ids[i])
+            for (k in 0 until 4) buf.writeFloat(poses[i * 4 + k])
         }
+        NetworkManager.sendToPlayer(player, FROZEN_POSE, buf)
+    }
+
+    fun frozenPoseViewers(level: ServerLevel, entity: Entity): Collection<ServerPlayer> = tracking(level, entity)
 
     /** Skips [player], whose client played it from the click. Send it before the visual of the use. */
     fun broadcastUsed(level: ServerLevel, player: ServerPlayer, use: UlderScrollItem.Companion.OtherUse, hand: InteractionHand) =
@@ -100,26 +113,49 @@ object SpellNetwork {
     fun broadcastReleased(level: ServerLevel, player: ServerPlayer, toSelf: Boolean) =
         sendTo(tracking(level, player).filter { toSelf || it !== player }, RELEASED) { buf -> buf.writeVarInt(player.id) }
 
-    /** Null or empty [cells] clears the chunk. */
-    fun sendGas(level: ServerLevel, chunk: Long, cells: Int2FloatMap?) =
-        sendTo(level.chunkSource.chunkMap.getPlayers(ChunkPos(chunk), false), GAS) { buf ->
+    /** Null or empty [cells] clears the chunk. [flows] are packed int8 x3 ([GasField.packFlow]) and replace the chunk's flows. */
+    fun sendGas(players: List<ServerPlayer>, kind: GasKind, chunk: Long, cells: Int2FloatMap?, flows: Int2IntMap?) =
+        sendTo(players, GAS) { buf ->
+            buf.writeByte(kind.ordinal)
             buf.writeLong(chunk)
             buf.writeVarInt(cells?.size ?: 0)
             cells?.int2FloatEntrySet()?.forEach { e ->
                 buf.writeVarInt(e.intKey)
-                buf.writeByte(Mth.clamp(Math.round(e.floatValue * 255f), 1, 255))
+                buf.writeByte(GasField.packAmount(e.floatValue))
             }
+            writeFlows(buf, flows)
         }
 
-    fun sendGasCells(level: ServerLevel, chunk: Long, cells: Int2FloatMap) =
-        sendTo(level.chunkSource.chunkMap.getPlayers(ChunkPos(chunk), false), GAS_CELLS) { buf ->
-            buf.writeLong(chunk)
-            buf.writeVarInt(cells.size)
-            cells.int2FloatEntrySet().forEach { e ->
-                buf.writeVarInt(e.intKey)
-                buf.writeByte(if (e.floatValue <= 0f) 0 else Mth.clamp(Math.round(e.floatValue * 255f), 1, 255))
-            }
+    /** The state of a gas jet: start or change, or [stop]. Clients run the parcels from it. */
+    fun sendJet(level: ServerLevel, chunk: ChunkPos, e: GasJetEmitter, stop: Boolean) =
+        sendTo(level.chunkSource.chunkMap.getPlayers(chunk, false), GAS_JET) { buf ->
+            buf.writeLong(e.id); buf.writeByte(e.kind.ordinal); buf.writeBoolean(stop)
+            buf.writeLong(e.frame)
+            buf.writeDouble(e.px); buf.writeDouble(e.py); buf.writeDouble(e.pz)
+            buf.writeFloat(e.dx.toFloat()); buf.writeFloat(e.dy.toFloat()); buf.writeFloat(e.dz.toFloat())
+            buf.writeFloat(e.strength); buf.writeFloat(e.parcelMass); buf.writeLong(e.startTick); buf.writeLong(e.seed)
         }
+
+    /** A flow of 0 removes it. */
+    fun sendGasCells(players: List<ServerPlayer>, kind: GasKind, chunk: Long, cells: Int2FloatMap?, flows: Int2IntMap?) =
+        sendTo(players, GAS_CELLS) { buf ->
+            buf.writeByte(kind.ordinal)
+            buf.writeLong(chunk)
+            buf.writeVarInt(cells?.size ?: 0)
+            cells?.int2FloatEntrySet()?.forEach { e ->
+                buf.writeVarInt(e.intKey)
+                buf.writeByte(if (e.floatValue <= 0f) 0 else GasField.packAmount(e.floatValue))
+            }
+            writeFlows(buf, flows)
+        }
+
+    private fun writeFlows(buf: FriendlyByteBuf, flows: Int2IntMap?) {
+        buf.writeVarInt(flows?.size ?: 0)
+        flows?.int2IntEntrySet()?.forEach { e ->
+            buf.writeVarInt(e.intKey)
+            buf.writeByte(e.intValue); buf.writeByte(e.intValue shr 8); buf.writeByte(e.intValue shr 16)
+        }
+    }
 
     private fun writeAbsent(buf: FriendlyByteBuf, entity: Entity, absent: Boolean) {
         buf.writeVarInt(entity.id); buf.writeBoolean(absent)
@@ -142,6 +178,7 @@ object SpellNetwork {
 
     /** Join, dimension change and respawn make a new client level; no tracking covers the player's own state. */
     private fun resync(player: ServerPlayer) {
+        lastMerged.remove(player)
         val phased = AbyssalPockets.phasedIn(player.serverLevel())
         if (phased.isNotEmpty()) sendPositions(listOf(player), PHASE, phased.asList())
         sendState(player, player)
@@ -150,8 +187,12 @@ object SpellNetwork {
     /** To the players who track a chunk of the pocket. A client that loads such a chunk later gets its phased blocks
      *  with it ([AbyssalPockets.sendPhasedInChunk]), and a client that unloads one forgets them, so none keeps a stale
      *  hole. */
-    fun broadcastPhase(level: ServerLevel, positions: Collection<Long>, phased: Boolean) =
-        sendPositions(trackingAny(level, chunkCentres(positions)), if (phased) PHASE else UNPHASE, positions)
+    // TEMP pocket debug, remove after the Forge run: returns the recipient count for the pocket log.
+    fun broadcastPhase(level: ServerLevel, positions: Collection<Long>, phased: Boolean): Int {
+        val players = trackingAny(level, chunkCentres(positions))
+        sendPositions(players, if (phased) PHASE else UNPHASE, positions)
+        return players.size
+    }
 
     fun sendPhase(player: ServerPlayer, positions: Collection<Long>) = sendPositions(listOf(player), PHASE, positions)
 
@@ -261,14 +302,31 @@ object SpellNetwork {
 
     fun broadcastMerged(level: ServerLevel, beams: List<BeamManager.MergedBeam>, cuts: Map<Int, Double>) {
         val recipients = HashSet<ServerPlayer>()
-        recipients += trackingAny(level, beams.mapNotNull { it.segments.firstOrNull()?.start })
+        // Anyone near any part of a merged beam sees it, not only players near where it starts.
+        recipients += trackingAny(level, alongSegments(beams))
         for (id in cuts.keys) level.getEntity(id)?.let { recipients += tracking(level, it) }
         if (recipients.isEmpty()) return
         sentMerges += recipients
-        sendTo(recipients, MERGED) { buf -> writeMerged(buf, beams, cuts) }
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        writeMerged(buf, beams, cuts)
+        val hash = buf.hashCode()
+        for (player in recipients) {
+            if (lastMerged.put(player, hash) == hash) continue
+            // copy(): NetworkManager keeps the buffer past send.
+            NetworkManager.sendToPlayer(player, MERGED, FriendlyByteBuf(buf.copy()))
+        }
     }
 
+    private fun alongSegments(beams: List<BeamManager.MergedBeam>): List<Vec3> {
+        val out = ArrayList<Vec3>()
+        for (beam in beams) for (seg in beam.segments) addPointsAlong(seg.start, seg.end, out)
+        return out
+    }
+
+    // Segment points go as floats from the first point: a beam spans at most a few hundred blocks.
     private fun writeMerged(buf: FriendlyByteBuf, beams: List<BeamManager.MergedBeam>, cuts: Map<Int, Double>) {
+        val origin = beams.firstOrNull()?.segments?.firstOrNull()?.start ?: Vec3.ZERO
+        buf.writeDouble(origin.x); buf.writeDouble(origin.y); buf.writeDouble(origin.z)
         buf.writeVarInt(beams.size)
         for (beam in beams) {
             buf.writeVarInt(beam.elements)
@@ -277,8 +335,8 @@ object SpellNetwork {
             buf.writeVarInt(beam.fused)
             buf.writeVarInt(beam.segments.size)
             for (seg in beam.segments) {
-                buf.writeDouble(seg.start.x); buf.writeDouble(seg.start.y); buf.writeDouble(seg.start.z)
-                buf.writeDouble(seg.end.x); buf.writeDouble(seg.end.y); buf.writeDouble(seg.end.z)
+                writeOffset(buf, seg.start, origin)
+                writeOffset(buf, seg.end, origin)
             }
         }
         buf.writeVarInt(cuts.size)
@@ -288,9 +346,16 @@ object SpellNetwork {
         }
     }
 
+    private fun writeOffset(buf: FriendlyByteBuf, point: Vec3, origin: Vec3) {
+        buf.writeFloat((point.x - origin.x).toFloat())
+        buf.writeFloat((point.y - origin.y).toFloat())
+        buf.writeFloat((point.z - origin.z).toFloat())
+    }
+
     private fun clearEndedMerges() {
         if (holdingMerges.isEmpty() && sentMerges.isEmpty()) return
         val ended = holdingMerges.filter { it !in sentMerges && !it.hasDisconnected() }
+        for (player in holdingMerges) if (player !in sentMerges) lastMerged.remove(player)
         if (ended.isNotEmpty()) sendTo(ended, MERGED) { buf -> writeMerged(buf, emptyList(), emptyMap()) }
         holdingMerges = HashSet(sentMerges)
         sentMerges.clear()
@@ -304,18 +369,7 @@ object SpellNetwork {
         return out
     }
 
-    /** A point on a ship counts at its shipyard chunk and at its world chunk. */
-    private fun trackingAny(level: ServerLevel, points: List<Vec3>): Collection<ServerPlayer> {
-        val chunks = HashSet<ChunkPos>()
-        for (point in points) {
-            chunks += ChunkPos(BlockPos.containing(point))
-            chunks += ChunkPos(BlockPos.containing(level.toWorldCoordinates(point)))
-        }
-        if (chunks.size == 1) return level.chunkSource.chunkMap.getPlayers(chunks.first(), false)
-        val out = LinkedHashSet<ServerPlayer>()
-        for (chunk in chunks) out += level.chunkSource.chunkMap.getPlayers(chunk, false)
-        return out
-    }
+    private fun trackingAny(level: ServerLevel, points: List<Vec3>): Collection<ServerPlayer> = level.playersHolding(points)
 
     private inline fun sendTo(players: Collection<ServerPlayer>, id: ResourceLocation, write: (FriendlyByteBuf) -> Unit) {
         if (players.isEmpty()) return

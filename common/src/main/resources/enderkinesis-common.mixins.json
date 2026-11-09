@@ -131,7 +131,7 @@
     "ClientChunkCacheSselithVoidFogMixin",
     "LevelRendererSselithEclipseGlowMixin",
     "LevelChunkLatticeHullVolumeClientMixin",
-    "LevelRendererYgannBarnacleFrameMixin", "LevelChunkYgannBarnacleHullMixin", "LevelChunkWogorBudClientMixin", "ClientPacketListenerYgannBarnacleHullMixin",
+    "LevelRendererYgannBarnacleFrameMixin", "LevelChunkYgannBarnacleHullMixin", "LevelChunkWogorBudClientMixin", "LevelChunkGasSolidClientMixin", "ClientPacketListenerYgannBarnacleHullMixin",
     "LevelRendererSselithRepertorySkyMixin",
     "LevelRendererSureibjinOutlineMixin",
     "LevelRendererSureibjinSilhouettesMixin",
