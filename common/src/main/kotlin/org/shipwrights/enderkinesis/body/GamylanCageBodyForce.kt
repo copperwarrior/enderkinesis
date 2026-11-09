@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.sqrt
 import org.joml.Quaterniond
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.events.CollisionEvent
 import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.core.api.util.PhysTickOnly
@@ -37,8 +38,6 @@ import org.valkyrienskies.core.api.util.UnavailableInKrunch
  */
 object GamylanCageBodyForce {
 
-    /** VS2 world gravity magnitude (m/s²). Matches [OrbGravityCanceller]. */
-    private const val GRAVITY: Double = 10.0
 
     /** Spring stiffness (N / m / kg) used to pin the body to its
      *  hover position during the fade. High enough to keep the body
@@ -125,6 +124,7 @@ object GamylanCageBodyForce {
         vsApi.physTickEvent.on { event, _ ->
             val physLevel = event.world
             val vsDim = physLevel.dimension
+            val gravity = physLevel.gravity()
             val force = Vector3d()
             val torque = Vector3d()
             GamylanCageRegistry.forEachInVsDim(vsDim) { data ->
@@ -141,7 +141,7 @@ object GamylanCageBodyForce {
                 when {
                     tomeTarget != null -> {
                         // Counter-gravity + spring to the tome target.
-                        force.set(0.0, mass * GRAVITY, 0.0)
+                        force.set(0.0, mass * gravity, 0.0)
                         force.x += mass * (TOME_SPRING_K * (tomeTarget.x() - pos.x()) - TOME_DAMPING * vel.x())
                         force.y += mass * (TOME_SPRING_K * (tomeTarget.y() - pos.y()) - TOME_DAMPING * vel.y())
                         force.z += mass * (TOME_SPRING_K * (tomeTarget.z() - pos.z()) - TOME_DAMPING * vel.z())
@@ -149,26 +149,26 @@ object GamylanCageBodyForce {
                     jointed -> {
                         // Joint holds the pose; only cancel gravity so the
                         // solver doesn't spend budget fighting free-fall.
-                        force.set(0.0, mass * GRAVITY, 0.0)
+                        force.set(0.0, mass * gravity, 0.0)
                     }
                     pedestalActive -> {
                         // Drift toward the pedestal home + apply rotation PD
                         // toward identity. Server tick sees rotation-in-range
                         // and issues the weld.
-                        force.set(0.0, mass * GRAVITY, 0.0)
+                        force.set(0.0, mass * gravity, 0.0)
                         force.x += mass * (PEDESTAL_SPRING_K * (data.hoverPos.x - pos.x()) - PEDESTAL_DAMPING * vel.x())
                         force.y += mass * (PEDESTAL_SPRING_K * (data.hoverPos.y - pos.y()) - PEDESTAL_DAMPING * vel.y())
                         force.z += mass * (PEDESTAL_SPRING_K * (data.hoverPos.z - pos.z()) - PEDESTAL_DAMPING * vel.z())
                     }
                     !data.fadeComplete -> {
                         // Hover lock + counter-gravity during fade.
-                        force.set(0.0, mass * GRAVITY, 0.0)
+                        force.set(0.0, mass * gravity, 0.0)
                         force.x += mass * (LOCK_SPRING_K * (data.hoverPos.x - pos.x()) - LOCK_DAMPING * vel.x())
                         force.y += mass * (LOCK_SPRING_K * (data.hoverPos.y - pos.y()) - LOCK_DAMPING * vel.y())
                         force.z += mass * (LOCK_SPRING_K * (data.hoverPos.z - pos.z()) - LOCK_DAMPING * vel.z())
                     }
                     !data.terrainReady -> {
-                        force.set(0.0, mass * GRAVITY, 0.0)
+                        force.set(0.0, mass * gravity, 0.0)
                         force.x -= mass * LOCK_DAMPING * vel.x()
                         force.y -= mass * LOCK_DAMPING * vel.y()
                         force.z -= mass * LOCK_DAMPING * vel.z()

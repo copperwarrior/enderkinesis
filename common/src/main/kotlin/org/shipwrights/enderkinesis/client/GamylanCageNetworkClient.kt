@@ -13,60 +13,17 @@ import org.shipwrights.enderkinesis.body.GamylanCageNetwork
 object GamylanCageNetworkClient {
 
     fun init() {
-        NetworkManager.registerReceiver(NetworkManager.Side.S2C, GamylanCageNetwork.CAGE_ADDED) { buf, _ ->
-            val bodyId = buf.readLong()
-            val captured = buf.readNbt() ?: return@registerReceiver
-            val animation = buf.readNbt() ?: return@registerReceiver
-            val origin = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
-            val hover = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
-            val shapeDims = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
-            val addedAt = buf.readLong()
-            val maxHp = buf.readVarInt()
-            val hp = buf.readVarInt()
-            val hasPlayer = buf.readBoolean()
-            val playerUuid: java.util.UUID?
-            val playerName: String?
-            val playerCustomization: Byte
-            val playerEquipment: List<net.minecraft.world.item.ItemStack>
-            if (hasPlayer) {
-                playerUuid = buf.readUUID()
-                playerName = buf.readUtf()
-                playerCustomization = buf.readByte()
-                val slotCount = buf.readVarInt()
-                playerEquipment = List(slotCount) { buf.readItem() }
-            } else {
-                playerUuid = null
-                playerName = null
-                playerCustomization = 0
-                playerEquipment = emptyList()
-            }
-            val displayedItem = buf.readItem()
-            Minecraft.getInstance().execute {
-                val dim = Minecraft.getInstance().level?.dimension() ?: return@execute
-                val entry = GamylanCageClientRegistry.Entry(
-                    bodyId, captured, animation,
-                    origin, hover, shapeDims, addedAt, maxHp, hp,
-                    playerUuid, playerName,
-                    playerCustomization, playerEquipment,
-                    displayedItem,
-                )
-                GamylanCageClientRegistry.add(dim, entry)
-                if (playerUuid != null && playerName != null) {
-                    val ghost = GamylanCageClientRegistry.renderEntityFor(entry)
-                    if (ghost is net.minecraft.client.player.AbstractClientPlayer) {
-                        installPlayerInfo(ghost, playerUuid, playerName, entry)
-                    }
-                }
-            }
-        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, GamylanCageNetwork.CAGE_ADDED) { buf, _ -> onCageAdded(buf) }
 
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, GamylanCageNetwork.CAGE_REMOVED) { buf, _ ->
             val bodyId = buf.readLong()
+            // False when the cage only left this player's view: it goes without a shatter.
+            val shatter = buf.readBoolean()
             Minecraft.getInstance().execute {
                 val mc = Minecraft.getInstance()
                 val dim = mc.level?.dimension() ?: return@execute
                 val entry = GamylanCageClientRegistry.entryFor(dim, bodyId)
-                if (entry != null) seedShatterFor(entry)
+                if (entry != null && shatter) seedShatterFor(entry)
                 GamylanCageClientRegistry.remove(dim, bodyId)
             }
         }
@@ -111,6 +68,53 @@ object GamylanCageNetworkClient {
                     net.minecraft.sounds.SoundSource.BLOCKS,
                     1.0f, 0.9f + level.random.nextFloat() * 0.2f, false,
                 )
+            }
+        }
+    }
+
+    private fun onCageAdded(buf: FriendlyByteBuf) {
+        val bodyId = buf.readLong()
+        val captured = buf.readNbt() ?: return
+        val animation = buf.readNbt() ?: return
+        val origin = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
+        val hover = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
+        val shapeDims = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
+        val addedAt = buf.readLong()
+        val maxHp = buf.readVarInt()
+        val hp = buf.readVarInt()
+        val hasPlayer = buf.readBoolean()
+        val playerUuid: java.util.UUID?
+        val playerName: String?
+        val playerCustomization: Byte
+        val playerEquipment: List<net.minecraft.world.item.ItemStack>
+        if (hasPlayer) {
+            playerUuid = buf.readUUID()
+            playerName = buf.readUtf()
+            playerCustomization = buf.readByte()
+            val slotCount = buf.readVarInt()
+            playerEquipment = List(slotCount) { buf.readItem() }
+        } else {
+            playerUuid = null
+            playerName = null
+            playerCustomization = 0
+            playerEquipment = emptyList()
+        }
+        val displayedItem = buf.readItem()
+        Minecraft.getInstance().execute {
+            val dim = Minecraft.getInstance().level?.dimension() ?: return@execute
+            val entry = GamylanCageClientRegistry.Entry(
+                bodyId, captured, animation,
+                origin, hover, shapeDims, addedAt, maxHp, hp,
+                playerUuid, playerName,
+                playerCustomization, playerEquipment,
+                displayedItem,
+            )
+            GamylanCageClientRegistry.add(dim, entry)
+            if (playerUuid != null && playerName != null) {
+                val ghost = GamylanCageClientRegistry.renderEntityFor(entry)
+                if (ghost is net.minecraft.client.player.AbstractClientPlayer) {
+                    installPlayerInfo(ghost, playerUuid, playerName, entry)
+                }
             }
         }
     }

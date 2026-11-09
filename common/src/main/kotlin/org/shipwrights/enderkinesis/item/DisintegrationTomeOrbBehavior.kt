@@ -644,7 +644,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         if (book.isEmpty) return VIRTUAL_TOOL
         val tool = VIRTUAL_TOOL.copy()
         val stored = EnchantedBookItem.getEnchantments(book)
-        if (!stored.isEmpty) tool.orCreateTag.put("Enchantments", stored.copy())
+        if (!stored.isEmpty()) tool.orCreateTag.put("Enchantments", stored.copy())
         return tool
     }
 

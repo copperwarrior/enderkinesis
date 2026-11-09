@@ -1,20 +1,10 @@
 package org.shipwrights.enderkinesis.item
 
-import net.minecraft.core.BlockPos
-import net.minecraft.nbt.CompoundTag
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.level.ServerLevel
-import org.joml.Quaterniond
-import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
-import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.internal.joints.VSDistanceJoint
 import org.valkyrienskies.core.internal.joints.VSJoint
 import org.valkyrienskies.core.internal.joints.VSJointPose
-import org.valkyrienskies.mod.common.ValkyrienSkiesMod
-import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
  * Tome of Chaining behavior — builds a loose [VSDistanceJoint] (rope-style) between each
@@ -35,100 +25,31 @@ import org.valkyrienskies.mod.common.getShipManagingPos
  *  Rope tool. VS2's `DEFAULT_COMPLIANCE` (1e-10) is the practical floor for stable rigid
  *  joints in Krunch_Classic; PhysX ignores compliance entirely.
  */
-object ChainingTomeOrbBehavior : TomeOrbBehavior {
+object ChainingTomeOrbBehavior : LengthJointTomeOrbBehavior(NBT_ROPE_LENGTH, MIN_ROPE_LENGTH) {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_chaining")
-
 
     /** Inverse stiffness for the distance limit. Matches VS2's `DEFAULT_COMPLIANCE`. */
     private const val ROPE_COMPLIANCE: Double = 1e-10
 
-    /** NBT key under [OrbOfLinkingBlockEntity.getLinkMetadata] where the rope length is stored. */
-    private const val NBT_ROPE_LENGTH = "RopeLength"
-
-    override fun onLinked(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos)
-        val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos)
-        if (sendCentre == null || recvCentre == null) return
-        val length = sendCentre.distanceTo(recvCentre).toFloat().coerceAtLeast(MIN_ROPE_LENGTH)
-        val data = CompoundTag().apply { putFloat(NBT_ROPE_LENGTH, length) }
-        sendBe.setLinkMetadata(tomeKind, receiverPos, data)
-        tryBindRope(level, sendBe, receiverPos, length)
-    }
-
-    override fun onUnlinking(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        releaseJoint(level, sendBe, receiverPos)
-    }
-
-    override fun serverTick(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val receivers = sendBe.outgoingPeers(tomeKind)
-        if (receivers.isEmpty()) return
-        val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos) ?: return
-        val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
-        for (receiverPos in receivers) {
-            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
-            val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
-            val dx = recvCentre.x - sendCentre.x
-            val dy = recvCentre.y - sendCentre.y
-            val dz = recvCentre.z - sendCentre.z
-            if (dx * dx + dy * dy + dz * dz > maxSq) {
-                sendBe.dropOverDistance(level, tomeKind, receiverPos)
-                continue
-            }
-            if (sendBe.getJointId(tomeKind, receiverPos) < 0 &&
-                !sendBe.isJointPending(tomeKind, receiverPos)) {
-                val storedLength = sendBe.getLinkMetadata(tomeKind, receiverPos)?.getFloat(NBT_ROPE_LENGTH)
-                val length = storedLength?.takeIf { it > 0f }
-                    ?: Math.sqrt(dx * dx + dy * dy + dz * dz).toFloat()
-                tryBindRope(level, sendBe, receiverPos, length)
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------------------------------
-
-    private fun tryBindRope(
-        level: ServerLevel,
-        sendBe: OrbOfLinkingBlockEntity,
-        receiverPos: BlockPos,
-        ropeLength: Float,
-    ) {
-        if (sendBe.getJointId(tomeKind, receiverPos) >= 0) return
-        if (sendBe.isJointPending(tomeKind, receiverPos)) return
-        val sendPos = sendBe.blockPos
-        val sendShip: Ship? = level.getShipManagingPos(sendPos)
-        val recvShip: Ship? = level.getShipManagingPos(receiverPos)
-        if (sendShip == null && recvShip == null) return                 // world↔world — defensive
-        if (sendShip != null && recvShip != null && sendShip.id == recvShip.id) return  // same ship
-
-        // Pose anchor on each body = that orb's block centre. Rotation is irrelevant for a
-        // distance joint (it constrains only scalar separation), so identity quats suffice.
-        val pose0Pos = Vector3d(sendPos.x + 0.5, sendPos.y + 0.5, sendPos.z + 0.5)
-        val pose1Pos = Vector3d(receiverPos.x + 0.5, receiverPos.y + 0.5, receiverPos.z + 0.5)
-
-        val joint: VSJoint = VSDistanceJoint(
-            shipId0 = sendShip?.id,
-            pose0 = VSJointPose(pose0Pos, Quaterniond()),
-            shipId1 = recvShip?.id,
-            pose1 = VSJointPose(pose1Pos, Quaterniond()),
-            maxForceTorque = null,                       // unbreakable under load
-            compliance = ROPE_COMPLIANCE,
-            minDistance = null,                          // fully slack inside the range
-            maxDistance = ropeLength.coerceAtLeast(MIN_ROPE_LENGTH),
-            // stiffness/damping null → rigid distance limit at maxDistance, no spring smoothing.
-        )
-
-        sendBe.addLinkJoint(level, tomeKind, receiverPos, joint)
-    }
-
-    private fun releaseJoint(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        val id = sendBe.clearJointId(tomeKind, receiverPos)
-        sendBe.clearJointPending(tomeKind, receiverPos)
-        if (id < 0) return
-        ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).removeJoint(id)
-    }
-
-    /** Floor on rope length — zero-length ropes would constantly fight numerical noise. Two
-     *  orbs placed at adjacent block positions (≈ 1 m apart) easily clear this. */
-    private const val MIN_ROPE_LENGTH: Float = 0.5f
+    override fun makeJoint(
+        sendShipId: Long?, pose0: VSJointPose, recvShipId: Long?, pose1: VSJointPose, length: Float,
+    ): VSJoint = VSDistanceJoint(
+        shipId0 = sendShipId,
+        pose0 = pose0,
+        shipId1 = recvShipId,
+        pose1 = pose1,
+        maxForceTorque = null,                       // unbreakable under load
+        compliance = ROPE_COMPLIANCE,
+        minDistance = null,                          // fully slack inside the range
+        maxDistance = length.coerceAtLeast(MIN_ROPE_LENGTH),
+        // stiffness/damping null → rigid distance limit at maxDistance, no spring smoothing.
+    )
 }
+
+/** NBT key under [OrbOfLinkingBlockEntity.getLinkMetadata] where the rope length is stored. */
+private const val NBT_ROPE_LENGTH = "RopeLength"
+
+/** Floor on rope length — zero-length ropes would constantly fight numerical noise. Two
+ *  orbs placed at adjacent block positions (≈ 1 m apart) easily clear this. */
+private const val MIN_ROPE_LENGTH: Float = 0.5f

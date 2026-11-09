@@ -13,7 +13,6 @@ import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.level.Level
 import org.joml.Quaternionf
 import org.joml.Vector3d
-import org.valkyrienskies.core.api.bodies.ClientVsBody
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.VsBeta
@@ -342,19 +341,14 @@ object GamylanCageClientRegistry {
      *  captured-time `hoverPos` as a fallback when the level / body
      *  isn't available (early-frame race after add, body gone). On
      *  client the body's `renderTransform` is used for sub-tick
-     *  interpolation; falls back to `kinematics.position` if the body
-     *  isn't a `ClientVsBody` for some reason. */
+     *  interpolation. */
     fun livePosition(entry: Entry): Vector3d {
         val level = Minecraft.getInstance().level ?: return Vector3d(entry.hoverPos)
         val world = try { level.shipObjectWorld } catch (_: Throwable) { return Vector3d(entry.hoverPos) }
         val body = world.allBodies.getById(entry.bodyId) ?: return Vector3d(entry.hoverPos)
-        return if (body is ClientVsBody) {
-            val out = Vector3d()
-            body.renderTransform.toWorld.transformPosition(out)
-            out
-        } else {
-            Vector3d(body.kinematics.position)
-        }
+        val out = Vector3d()
+        body.renderTransform.toWorld.transformPosition(out)
+        return out
     }
 
     /** Resolve the body's CURRENT world rotation as a [Quaternionf]
@@ -364,7 +358,7 @@ object GamylanCageClientRegistry {
         val level = Minecraft.getInstance().level ?: return Quaternionf()
         val world = try { level.shipObjectWorld } catch (_: Throwable) { return Quaternionf() }
         val body = world.allBodies.getById(entry.bodyId) ?: return Quaternionf()
-        val q = if (body is ClientVsBody) body.renderTransform.rotation else body.kinematics.rotation
+        val q = body.renderTransform.rotation
         return Quaternionf(q.x().toFloat(), q.y().toFloat(), q.z().toFloat(), q.w().toFloat())
     }
 
@@ -377,7 +371,7 @@ object GamylanCageClientRegistry {
         val level = Minecraft.getInstance().level ?: return 1f
         val world = try { level.shipObjectWorld } catch (_: Throwable) { return 1f }
         val body = world.allBodies.getById(entry.bodyId) ?: return 1f
-        val s = if (body is ClientVsBody) body.renderTransform.scaling else body.kinematics.transform.scaling
+        val s = body.renderTransform.scaling
         return s.x().toFloat()
     }
 
@@ -435,7 +429,7 @@ object GamylanCageClientRegistry {
                     .`enderkinesis$getDataCustomisation`(),
                 entry.playerCustomizationByte,
             )
-            val slots = net.minecraft.world.entity.EquipmentSlot.values()
+            val slots = net.minecraft.world.entity.EquipmentSlot.entries
             for ((i, stack) in entry.playerEquipment.withIndex()) {
                 if (i >= slots.size) break
                 built.setItemSlot(slots[i], stack)

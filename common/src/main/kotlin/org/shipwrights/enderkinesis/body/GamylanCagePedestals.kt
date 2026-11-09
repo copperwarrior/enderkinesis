@@ -11,6 +11,7 @@ import org.joml.Quaterniondc
 import org.joml.Vector3d
 import org.joml.primitives.AABBd
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.internal.joints.VSFixedJoint
@@ -116,15 +117,13 @@ object GamylanCagePedestals {
         GamylanCageNetwork.broadcastAlign(level, data.bodyId, shipId, sync.hoverInFrame)
     }
 
-    fun sendAlignStates(player: ServerPlayer, level: ServerLevel) {
-        for (data in GamylanCageRegistry.snapshot(level)) {
-            val sync = alignSynced.get(data.bodyId) ?: continue
-            GamylanCageNetwork.sendAlign(player, data.bodyId, sync.shipId, sync.hoverInFrame)
-        }
+    fun sendAlignState(player: ServerPlayer, bodyId: Long) {
+        val sync = alignSynced.get(bodyId) ?: return
+        GamylanCageNetwork.sendAlign(player, bodyId, sync.shipId, sync.hoverInFrame)
     }
 
     // Server level tick (GamylanCagePedestals.tick), on the server thread.
-    @OptIn(GameTickOnly::class)
+    @OptIn(GameTickOnly::class, VsBeta::class) // kinematics is VsBeta
     private fun tickHomes(level: ServerLevel, cages: Collection<GamylanCageData>): Boolean {
         var dirty = false
         for (data in cages) {
@@ -337,6 +336,7 @@ object GamylanCagePedestals {
      *  target-frame up axis, then request a [VSFixedJoint] against the
      *  pedestal's owning frame. Joint id is written back from the async
      *  callback. */
+    @OptIn(VsBeta::class) // kinematics is VsBeta
     private fun requestWeld(
         level: ServerLevel,
         data: GamylanCageData,

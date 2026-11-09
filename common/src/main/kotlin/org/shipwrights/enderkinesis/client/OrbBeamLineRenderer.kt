@@ -121,7 +121,7 @@ object OrbBeamLineRenderer {
      *  well-distributed angle, so adjacent pulses fly off in clearly different directions
      *  AND different trains (per-tome, per-direction) don't lockstep their offsets even at
      *  the same K. */
-    private inline fun pulseAngleFor(pulseIndex: Long, angleSeed: Long, t: Double): Double {
+    private fun pulseAngleFor(pulseIndex: Long, angleSeed: Long, t: Double): Double {
         val hashed = ((pulseIndex xor angleSeed) * 2654435761L) and 0xFFFFFFFFL
         val baseAngle = hashed.toDouble() / 4294967296.0 * (2.0 * Math.PI)
         val drift = WANDER_DRIFT_AMP * Math.sin(t * WANDER_DRIFT_FREQ + pulseIndex * 0.7)
@@ -184,15 +184,12 @@ object OrbBeamLineRenderer {
      *  `|f'(t − L/v)| < v/s = speed/spacing` for whichever per-train values are in play.
      *  With the baseline values the derivative magnitude maxes out around 0.5, well under
      *  the baseline bound of 1.67 cycles/s — per-tome scaling preserves the margin. */
-    private inline fun phaseWarp(advectedTime: Double): Double {
+    private fun phaseWarp(advectedTime: Double): Double {
         return PHASE_WARP_AMP * (
             Math.sin(advectedTime * PHASE_WARP_FREQ_A) +
                 0.55 * Math.sin(advectedTime * PHASE_WARP_FREQ_B + 1.3)
             )
     }
-
-    /** Baseline alpha at pulse troughs — the always-on thin thread between pulses. */
-    private const val BASELINE_ALPHA: Float = 0.15f
 
     /** Eased-sawtooth pulse curve with a **circular leading edge**: alpha rises slowly
      *  through the trailing tail of each pulse, then climbs along a quarter-circle profile
@@ -204,20 +201,10 @@ object OrbBeamLineRenderer {
      *  At a fixed point along the beam over time, this reads as a comet effect: long dim
      *  fading → tiny dark gap → BRIGHT FLASH as the next pulse's leading edge arrives →
      *  smooth fade behind it → repeat. */
-    private inline fun pulseCurve(u: Double): Double {
+    private fun pulseCurve(u: Double): Double {
         val c = u.coerceIn(0.0, 1.0)
         return 1.0 - Math.sqrt(1.0 - c * c)
     }
-
-    /** Vertex samples per block of beam length. Sets how smoothly the per-vertex alpha
-     *  and width curves approximate the envelope. */
-    private const val SAMPLES_PER_BLOCK: Double = 8.0
-
-    /** Floor on sample count so short beams still get a visible pulse curve. */
-    private const val MIN_SAMPLES: Int = 16
-
-    /** Cap on sample count so a 64-block link doesn't allocate hundreds of segments. */
-    private const val MAX_SAMPLES: Int = 256
 
     /** Dedup set — one entry per (orb-pair, tome) triple per frame so a link isn't counted
      *  twice when both endpoints are loaded and each side walks its own outgoing/incoming. */

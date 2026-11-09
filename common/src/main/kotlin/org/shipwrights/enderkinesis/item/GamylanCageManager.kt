@@ -10,9 +10,12 @@ import net.minecraft.core.SectionPos
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.entity.player.Player
+import net.minecraft.world.phys.Vec3
 import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Vector3d
@@ -69,6 +72,9 @@ object GamylanCageManager {
      *  for ping. */
     private const val MAX_ATTACK_RANGE: Double = 6.0
 
+    // Server thread only: the game time of each player's last cage hit, so a packet burst over many cages counts once.
+    private val lastHitTick = HashMap<java.util.UUID, Long>()
+
     /** Mass for the dynamic VS body. During the fade the body is
      *  spring-locked at its hover position by [GamylanCageBodyForce]
      *  (which also cancels gravity); once the fade completes the body
@@ -119,44 +125,7 @@ object GamylanCageManager {
         // because some entities' mobInteract runs unconditionally on
         // certain paths or via other mod events. interruptTrue here
         // halts the vanilla flow entirely.
-        InteractionEvent.INTERACT_ENTITY.register { player, entity, hand ->
-            val stack = player.getItemInHand(hand)
-            if (stack.item !is WandOfGamylanItem) return@register EventResult.pass()
-            if (entity !is LivingEntity) return@register EventResult.pass()
-            if (entity === player) return@register EventResult.pass()
-            if (entity.isPassengerOfSameVehicle(player)) return@register EventResult.pass()
-            if (entity.isRemoved) return@register EventResult.pass()
-            val level = player.level()
-            if (level.isClientSide) return@register EventResult.interruptTrue()
-            val serverLevel = level as? ServerLevel ?: return@register EventResult.pass()
-
-            // Player-target special case. The wand always breaks on
-            // use against a player (one shot, then dust); whether a
-            // capture+kill happens depends on the victim's HP.
-            if (entity is net.minecraft.world.entity.player.Player) {
-                val attacker = player as? ServerPlayer
-                val victim = entity as? ServerPlayer
-                if (attacker != null && victim != null && victim.health < LOW_HP_THRESHOLD) {
-                    tryLowHpPlayerKill(serverLevel, victim, attacker)
-                }
-                // Wand is consumed regardless of HP — using it on a
-                // player at all costs the player the wand. Skip the
-                // shrink for creative attackers so they don't lose it
-                // from their inventory unintentionally.
-                if (!(attacker?.abilities?.instabuild ?: false)) stack.shrink(1)
-                return@register EventResult.interruptTrue()
-            }
-
-            if (capture(serverLevel, entity)) {
-                level.playSound(
-                    null, entity.x, entity.y, entity.z,
-                    org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAPTURE.get(),
-                    net.minecraft.sounds.SoundSource.PLAYERS,
-                    1.0f, 1.0f,
-                )
-            }
-            EventResult.interruptTrue()
-        }
+        InteractionEvent.INTERACT_ENTITY.register(::onInteractEntity)
         // Receive client-side attack-confirmed packets.
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, GamylanCageNetwork.CAGE_ATTACK) { buf, ctx ->
             val bodyId = buf.readLong()
@@ -165,62 +134,26 @@ object GamylanCageManager {
         }
         // Replay every loaded cage's payload to fresh viewers.
         PlayerEvent.PLAYER_JOIN.register { player ->
-            GamylanCageNetwork.sendFullList(player, player.serverLevel())
+            GamylanCageNetwork.refreshViewer(player, player.serverLevel())
+        }
+        PlayerEvent.PLAYER_QUIT.register { player ->
+            lastHitTick.remove(player.uuid)
+            GamylanCageNetwork.forgetViewer(player)
         }
         PlayerEvent.CHANGE_DIMENSION.register { player, _, _ ->
-            GamylanCageNetwork.sendFullList(player, player.serverLevel())
+            GamylanCageNetwork.refreshViewer(player, player.serverLevel())
         }
         // A respawn into a different dimension is not a CHANGE_DIMENSION event.
         PlayerEvent.PLAYER_RESPAWN.register { player, _ ->
-            GamylanCageNetwork.sendFullList(player, player.serverLevel())
+            GamylanCageNetwork.refreshViewer(player, player.serverLevel())
         }
+        // Cages come into and go out of each player's view as they and the cages move.
+        TickEvent.SERVER_LEVEL_POST.register { level -> GamylanCageNetwork.tickViewers(level) }
+        dev.architectury.event.events.common.LifecycleEvent.SERVER_STOPPED.register { GamylanCageNetwork.clearViewers() }
         // Per-tick: flip cages past their fade-end into the fall state.
         // The phys-tick force loop reads `fadeComplete` to decide
         // whether to keep the body pinned or let gravity take over.
-        TickEvent.SERVER_LEVEL_POST.register { level ->
-            val now = level.gameTime
-            var dirty = false
-            for (data in GamylanCageRegistry.snapshot(level)) {
-                // Impact damage accumulated on the phys thread since
-                // the last drain. Applied here so HP mutation +
-                // broadcastHp stay on the server thread.
-                val impactDmg = GamylanCageBodyForce.drainImpactDamage(data.bodyId)
-                if (impactDmg > 0 && data.hp > 0) {
-                    data.hp = (data.hp - impactDmg).coerceAtLeast(0)
-                    data.lastDamageTick = now
-                    dirty = true
-                    if (data.hp <= 0) {
-                        breakCage(level, data)
-                        continue
-                    }
-                    GamylanCageNetwork.broadcastHp(level, data.bodyId, data.hp)
-                    GamylanCageNetwork.broadcastImpact(level, data.bodyId)
-                }
-                if (!data.fadeComplete && now >= data.fadeEndGameTime) {
-                    data.fadeComplete = true
-                    dirty = true
-                }
-                updateTerrainReady(level, data, now)
-                // HP regen: one damage-stage per HP_REGEN_STAGE_INTERVAL_TICKS
-                // of quiet. `lastDamageTick` doubles as the regen timer —
-                // bumping it forward by the interval on each stage restore
-                // means new damage always resets the clock. hp==0 is
-                // filtered by breakCage in onAttackPacket, so we only
-                // observe damaged-but-alive cages here.
-                if (data.lastDamageTick >= 0L &&
-                    data.hp < data.maxHp &&
-                    now - data.lastDamageTick >= HP_REGEN_STAGE_INTERVAL_TICKS
-                ) {
-                    data.hp = (data.hp + HP_REGEN_PER_STAGE).coerceAtMost(data.maxHp)
-                    data.lastDamageTick = if (data.hp >= data.maxHp) -1L else now
-                    GamylanCageNetwork.broadcastHp(level, data.bodyId, data.hp)
-                    dirty = true
-                }
-            }
-            sweepStaleAfterLoad(level, now)
-            if (GamylanCagePedestals.tick(level)) dirty = true
-            if (dirty) GamylanCagePersistence.markDirty(level)
-        }
+        TickEvent.SERVER_LEVEL_POST.register(::tickCages)
         // Hydrate the in-memory registry from disk. VS Core bodies are
         // restored by VS itself with stable ids; we just need our
         // gameplay-state records back so the force loop, damage flow,
@@ -235,6 +168,92 @@ object GamylanCageManager {
         GamylanCageBodyForce.register()
     }
 
+    private fun onInteractEntity(player: Player, entity: Entity, hand: InteractionHand): EventResult {
+        val stack = player.getItemInHand(hand)
+        if (stack.item !is WandOfGamylanItem) return EventResult.pass()
+        if (entity !is LivingEntity) return EventResult.pass()
+        if (entity === player) return EventResult.pass()
+        if (entity.isPassengerOfSameVehicle(player)) return EventResult.pass()
+        if (entity.isRemoved) return EventResult.pass()
+        val level = player.level()
+        if (level.isClientSide) return EventResult.interruptTrue()
+        val serverLevel = level as? ServerLevel ?: return EventResult.pass()
+
+        // Player-target special case. The wand always breaks on
+        // use against a player (one shot, then dust); whether a
+        // capture+kill happens depends on the victim's HP.
+        if (entity is net.minecraft.world.entity.player.Player) {
+            val attacker = player as? ServerPlayer
+            val victim = entity as? ServerPlayer
+            if (attacker != null && victim != null && victim.health < LOW_HP_THRESHOLD) {
+                tryLowHpPlayerKill(serverLevel, victim, attacker)
+            }
+            // Wand is consumed regardless of HP — using it on a
+            // player at all costs the player the wand. Skip the
+            // shrink for creative attackers so they don't lose it
+            // from their inventory unintentionally.
+            if (!(attacker?.abilities?.instabuild ?: false)) stack.shrink(1)
+            return EventResult.interruptTrue()
+        }
+
+        if (capture(serverLevel, entity)) {
+            level.playSound(
+                null, entity.x, entity.y, entity.z,
+                org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAPTURE.get(),
+                net.minecraft.sounds.SoundSource.PLAYERS,
+                1.0f, 1.0f,
+            )
+        }
+        return EventResult.interruptTrue()
+    }
+
+    private fun tickCages(level: ServerLevel) {
+        val now = level.gameTime
+        var dirty = false
+        for (data in GamylanCageRegistry.snapshot(level)) {
+            // Impact damage accumulated on the phys thread since
+            // the last drain. Applied here so HP mutation +
+            // broadcastHp stay on the server thread.
+            val impactDmg = GamylanCageBodyForce.drainImpactDamage(data.bodyId)
+            if (impactDmg > 0 && data.hp > 0) {
+                data.hp = (data.hp - impactDmg).coerceAtLeast(0)
+                data.lastDamageTick = now
+                dirty = true
+                if (data.hp <= 0) {
+                    breakCage(level, data)
+                    continue
+                }
+                GamylanCageNetwork.broadcastHp(level, data.bodyId, data.hp)
+                level.shipObjectWorld.allBodies.getById(data.bodyId)?.kinematics?.position?.let {
+                    GamylanCageNetwork.broadcastImpact(level, data.bodyId, Vec3(it.x(), it.y(), it.z()))
+                }
+            }
+            if (!data.fadeComplete && now >= data.fadeEndGameTime) {
+                data.fadeComplete = true
+                dirty = true
+            }
+            updateTerrainReady(level, data, now)
+            // HP regen: one damage-stage per HP_REGEN_STAGE_INTERVAL_TICKS
+            // of quiet. `lastDamageTick` doubles as the regen timer —
+            // bumping it forward by the interval on each stage restore
+            // means new damage always resets the clock. hp==0 is
+            // filtered by breakCage in onAttackPacket, so we only
+            // observe damaged-but-alive cages here.
+            if (data.lastDamageTick >= 0L &&
+                data.hp < data.maxHp &&
+                now - data.lastDamageTick >= HP_REGEN_STAGE_INTERVAL_TICKS
+            ) {
+                data.hp = (data.hp + HP_REGEN_PER_STAGE).coerceAtMost(data.maxHp)
+                data.lastDamageTick = if (data.hp >= data.maxHp) -1L else now
+                GamylanCageNetwork.broadcastHp(level, data.bodyId, data.hp)
+                dirty = true
+            }
+        }
+        sweepStaleAfterLoad(level, now)
+        if (GamylanCagePedestals.tick(level)) dirty = true
+        if (dirty) GamylanCagePersistence.markDirty(level)
+    }
+
     /** Low-HP player kill flow. The cage is made BEFORE the damage, so it holds the pose and
      *  the items the player had. With keepInventory OFF the cage takes the items and the
      *  inventory is cleared so the death drops nothing; with it ON the items stay for respawn.
@@ -245,7 +264,7 @@ object GamylanCageManager {
     private fun tryLowHpPlayerKill(level: ServerLevel, victim: ServerPlayer, attacker: ServerPlayer) {
         val posePreDeath = snapshotAnimation(victim)
         // Equipment before the clear below — otherwise the ghost renders naked.
-        val equipmentSnapshot = net.minecraft.world.entity.EquipmentSlot.values()
+        val equipmentSnapshot = net.minecraft.world.entity.EquipmentSlot.entries
             .map { victim.getItemBySlot(it).copy() }
         val keepInv = level.gameRules.getBoolean(net.minecraft.world.level.GameRules.RULE_KEEPINVENTORY)
         val savedItems: List<net.minecraft.world.item.ItemStack> =
@@ -431,7 +450,7 @@ object GamylanCageManager {
             // clears the inventory before invoking us — reading slots
             // here would yield empty stacks. Fall back to live slots
             // for callers that didn't pre-snapshot.
-            equipment = equipmentOverride ?: net.minecraft.world.entity.EquipmentSlot.values()
+            equipment = equipmentOverride ?: net.minecraft.world.entity.EquipmentSlot.entries
                 .map { p.getItemBySlot(it).copy() }
         } else {
             customizationByte = 0
@@ -475,8 +494,8 @@ object GamylanCageManager {
         val level = player.serverLevel()
         if (player.isSpectator || !player.isAlive) return
         val data = GamylanCageRegistry.get(level, bodyId) ?: return
-        // One hit for each tick: a packet burst must not break the cage at once.
-        if (data.lastDamageTick == level.gameTime) return
+        // One hit for each tick, for each cage and for each player: a packet burst must not break cages at once.
+        if (data.lastDamageTick == level.gameTime || lastHitTick[player.uuid] == level.gameTime) return
         val body = level.shipObjectWorld.allBodies.getById(data.bodyId)
         val livePos = body?.let { Vector3d(it.kinematics.position) } ?: data.hoverPos
         // From the eye to the surface, not from the feet to the centre: a large or scaled cage
@@ -494,6 +513,7 @@ object GamylanCageManager {
 
         data.hp = (data.hp - DAMAGE_PER_HIT).coerceAtLeast(0)
         data.lastDamageTick = level.gameTime
+        lastHitTick[player.uuid] = level.gameTime
         GamylanCagePersistence.markDirty(level)
         GamylanCageNetwork.broadcastHp(level, bodyId, data.hp)
         if (data.hp <= 0) breakCage(level, data)
@@ -602,6 +622,14 @@ object GamylanCageManager {
         return tag
     }
 
+    /** Solid-box inertia of [CAGE_BODY_MASS] over the full extents of the crystal: width 2·rx, height 2·(midH + tipLen). */
+    private fun boxInertia(dims: Vector3d): Matrix3d {
+        val w = 2.0 * dims.x
+        val h = 2.0 * (dims.y + dims.z)
+        val k = CAGE_BODY_MASS / 12.0
+        return Matrix3d().identity().scale(k * (h * h + w * w), k * (w * w + w * w), k * (w * w + h * h))
+    }
+
     /** Create the cage's VS body as a DYNAMIC body. During the fade
      *  the [GamylanCageBodyForce] phys-tick listener counter-gravity +
      *  spring-locks it at [hoverPos] so it sits as if static; after
@@ -622,7 +650,7 @@ object GamylanCageManager {
                     dimensionId = level.dimensionId,
                     inertiaData = vsCore.newShipInertiaData(
                         Vector3d(), CAGE_BODY_MASS,
-                        Matrix3d().identity().scale(CAGE_BODY_MASS),
+                        boxInertia(shapeDims),
                     ),
                     kinematics = vsCore.newBodyKinematics(
                         Vector3d(), Vector3d(),

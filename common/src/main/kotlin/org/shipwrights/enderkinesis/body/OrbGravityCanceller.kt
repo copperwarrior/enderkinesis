@@ -7,6 +7,7 @@ import org.joml.Vector3dc
 import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.mod.common.dimensionId
 import java.util.concurrent.ConcurrentHashMap
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.util.PhysTickOnly
 
@@ -57,9 +58,6 @@ object OrbBodyRegistry {
         version++
     }
 
-    /** Any thread. */
-    fun isOrb(dimensionId: String, bodyId: Long): Boolean = byDimension[dimensionId]?.containsKey(bodyId) == true
-
     fun forEachIn(dimensionId: String, action: (Long, Vector3dc) -> Unit) {
         byDimension[dimensionId]?.forEach { (id, anchor) -> action(id, anchor) }
     }
@@ -101,8 +99,6 @@ object OrbBodyRegistry {
  *  range the orb is "free", no pull at all. */
 object OrbGravityCanceller {
 
-    /** VS2 world gravity magnitude (m/s²). */
-    private const val GRAVITY: Double = 10.0
     /** Outside this radius (blocks = m) we don't pull at all. */
     private const val ANCHOR_PULL_RANGE: Double = 32.0
     /** Anchor spring stiffness `k` (N / m / kg). Acceleration toward
@@ -154,6 +150,7 @@ object OrbGravityCanceller {
         vsApi.physTickEvent.on { event, _ ->
             val physLevel = event.world
             val dim = physLevel.dimension
+            val gravity = physLevel.gravity()
             val forceScratch = Vector3d()
             val toAnchor = Vector3d()
             val torqueScratch = Vector3d()
@@ -179,7 +176,7 @@ object OrbGravityCanceller {
                 if (mass <= 0.0) continue
 
                 // Counter-gravity.
-                forceScratch.set(0.0, mass * GRAVITY, 0.0)
+                forceScratch.set(0.0, mass * gravity, 0.0)
 
                 val pos = body.kinematics.position
                 val vel = body.kinematics.velocity

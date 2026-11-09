@@ -111,7 +111,7 @@ object PullingTomeOrbBehavior : TomeOrbBehavior {
         val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos) ?: return
         val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
         for (receiverPos in receivers) {
-            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
+            OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
             val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
             val dx = recvCentre.x - sendCentre.x
             val dy = recvCentre.y - sendCentre.y

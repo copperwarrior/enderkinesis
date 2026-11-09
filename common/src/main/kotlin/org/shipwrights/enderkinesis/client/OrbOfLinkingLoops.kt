@@ -13,10 +13,10 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingClientRegistry
 import org.shipwrights.enderkinesis.item.DisintegrationTomeOrbBehavior
 import org.shipwrights.enderkinesis.registry.EKSounds
-import org.valkyrienskies.mod.common.getShipManagingPos
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.random.Random
+import org.shipwrights.enderkinesis.util.blockCentreInWorld
 
 object OrbOfLinkingLoops {
 
@@ -59,7 +59,7 @@ object OrbOfLinkingLoops {
         val humStart = abs(level.gameTime % PULSE_PERIOD_TICKS - PULSE_PEAK_TICKS) < 0.5
         for (be in OrbOfLinkingClientRegistry.sendOrbs(level)) {
             if (be.isRemoved) continue
-            worldCentre(level, be, scratch)
+            level.blockCentreInWorld(be.blockPos, scratch)
             if (player.distanceToSqr(scratch.x, scratch.y, scratch.z) > RANGE_SQR) continue
             for (kind in KINDS) {
                 val map = loops[kind.ordinal]
@@ -73,13 +73,6 @@ object OrbOfLinkingLoops {
         Kind.HUM -> be.blockState.getValue(OrbOfLinkingBlock.ORB_ROLE) != OrbRole.UNBOUND
         Kind.BEAM -> be.outgoingPeers(DisintegrationTomeOrbBehavior.tomeKind).isNotEmpty()
         Kind.GRIND -> be.grinding && wanted(be, Kind.BEAM)
-    }
-
-    /** On a ship, the block position is a shipyard position. */
-    private fun worldCentre(level: ClientLevel, be: OrbOfLinkingBlockEntity, out: Vector3d) {
-        val pos = be.blockPos
-        out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
     }
 
     private class OrbLoop(
@@ -120,7 +113,7 @@ object OrbOfLinkingLoops {
         }
 
         private fun move() {
-            worldCentre(level, be, position)
+            level.blockCentreInWorld(be.blockPos, position)
             x = position.x
             y = position.y
             z = position.z

@@ -31,7 +31,7 @@ object OrbBodyNetworkClient {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, OrbBodyNetwork.ORB_FULL_LIST) { buf, _ ->
             val count = buf.readVarInt()
             val list = ArrayList<Pair<Long, ClientOrbRegistry.Entry>>(count)
-            for (i in 0 until count) {
+            repeat(count) { _ ->
                 val id = buf.readLong()
                 val anchor = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
                 val ft = FractalProjectorBlock.computeFractalType(anchor)

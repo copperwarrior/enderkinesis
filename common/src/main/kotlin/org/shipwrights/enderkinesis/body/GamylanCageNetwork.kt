@@ -2,12 +2,22 @@ package org.shipwrights.enderkinesis.body
 
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.network.FriendlyByteBuf
+import net.minecraft.resources.ResourceKey
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.util.Mth
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.util.playersHolding
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.shipObjectWorld
+import java.util.UUID
 
 /**
  * Channels + server senders for the Wand-of-Ga'Mylan cage sync layer.
@@ -33,24 +43,117 @@ object GamylanCageNetwork {
     val CAGE_ALIGN: ResourceLocation = EnderkinesisMod.id("gamylan_cage/align")
     val CAGE_ATTACK: ResourceLocation = EnderkinesisMod.id("gamylan_cage/attack")
 
-    // ---- S2C senders ----
+    /** How often each player's set of cages in view is checked again, in ticks. */
+    private const val VIEW_CHECK_TICKS = 10L
 
-    fun broadcastAdded(level: ServerLevel, data: GamylanCageData) {
-        val buf = encodeAdded(data)
-        for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_ADDED, FriendlyByteBuf(buf.copy()))
+    private class Known(var dimension: ResourceKey<Level>?) {
+        val ids = LongOpenHashSet()
     }
 
+    // Server thread only. The cages each player's client holds: those within the server view distance.
+    private val known = HashMap<UUID, Known>()
+
+    // ---- S2C senders ----
+
+    /** A new cage goes to the players who can see it; the others get it when it comes into their view. */
+    fun broadcastAdded(level: ServerLevel, data: GamylanCageData) {
+        val buf = encodeAdded(data)
+        for (player in level.players()) {
+            if (!inView(level, player, data)) continue
+            knownFor(player, level).ids.add(data.bodyId)
+            NetworkManager.sendToPlayer(player, CAGE_ADDED, FriendlyByteBuf(buf.copy()))
+        }
+    }
+
+    /** The cage broke or went: clients that hold it show the shatter. */
     fun broadcastRemoved(level: ServerLevel, bodyId: Long) {
-        val buf = FriendlyByteBuf(Unpooled.buffer())
-        buf.writeLong(bodyId)
-        for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_REMOVED, FriendlyByteBuf(buf.copy()))
+        val buf = encodeRemoved(bodyId, shatter = true)
+        for (player in level.players()) {
+            if (known[player.uuid]?.takeIf { it.dimension == level.dimension() }?.ids?.remove(bodyId) != true) continue
+            NetworkManager.sendToPlayer(player, CAGE_REMOVED, FriendlyByteBuf(buf.copy()))
+        }
     }
 
     fun broadcastHp(level: ServerLevel, bodyId: Long, hp: Int) {
         val buf = FriendlyByteBuf(Unpooled.buffer())
         buf.writeLong(bodyId)
         buf.writeVarInt(hp)
-        for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_HP, FriendlyByteBuf(buf.copy()))
+        for (player in holders(level, bodyId)) NetworkManager.sendToPlayer(player, CAGE_HP, FriendlyByteBuf(buf.copy()))
+    }
+
+    /** A joining, respawned or travelling player starts with no cages, then gets the ones in view. */
+    fun refreshViewer(player: ServerPlayer, level: ServerLevel) {
+        known[player.uuid] = Known(level.dimension())
+        updateViewer(player, level)
+    }
+
+    fun forgetViewer(player: ServerPlayer) {
+        known.remove(player.uuid)
+    }
+
+    fun clearViewers() = known.clear()
+
+    fun tickViewers(level: ServerLevel) {
+        if (level.gameTime % VIEW_CHECK_TICKS != 0L) return
+        for (player in level.players()) updateViewer(player, level)
+    }
+
+    /** Sends the cages that came into [player]'s view, and forgets (without a shatter) the ones that left it. */
+    private fun updateViewer(player: ServerPlayer, level: ServerLevel) {
+        val cages = GamylanCageRegistry.snapshot(level)
+        val holder = knownFor(player, level)
+        if (cages.isEmpty() && holder.ids.isEmpty()) return
+        for (data in cages) {
+            val seen = inView(level, player, data)
+            if (seen && holder.ids.add(data.bodyId)) {
+                NetworkManager.sendToPlayer(player, CAGE_ADDED, encodeAdded(data))
+                GamylanCagePedestals.sendAlignState(player, data.bodyId)
+            } else if (!seen && holder.ids.remove(data.bodyId)) {
+                NetworkManager.sendToPlayer(player, CAGE_REMOVED, encodeRemoved(data.bodyId, shatter = false))
+            }
+        }
+        // Cages that went without a removal broadcast (another dimension's record, a cleared registry).
+        if (holder.ids.size > cages.size) {
+            val present = LongOpenHashSet()
+            for (data in cages) present.add(data.bodyId)
+            val gone = holder.ids.iterator()
+            while (gone.hasNext()) {
+                val id = gone.nextLong()
+                if (id in present) continue
+                gone.remove()
+                NetworkManager.sendToPlayer(player, CAGE_REMOVED, encodeRemoved(id, shatter = false))
+            }
+        }
+    }
+
+    private fun knownFor(player: ServerPlayer, level: ServerLevel): Known {
+        val holder = known.getOrPut(player.uuid) { Known(level.dimension()) }
+        // The client keeps its cages per dimension, so a new dimension starts an empty set here.
+        if (holder.dimension != level.dimension()) {
+            holder.dimension = level.dimension()
+            holder.ids.clear()
+        }
+        return holder
+    }
+
+    private fun holders(level: ServerLevel, bodyId: Long): List<ServerPlayer> =
+        level.players().filter { known[it.uuid]?.let { k -> k.dimension == level.dimension() && bodyId in k.ids } == true }
+
+    @OptIn(GameTickOnly::class, VsBeta::class) // kinematics is VsBeta
+    private fun inView(level: ServerLevel, player: ServerPlayer, data: GamylanCageData): Boolean {
+        val live = level.shipObjectWorld.allBodies.getById(data.bodyId)?.kinematics?.position
+        val x = live?.x() ?: data.hoverPos.x
+        val z = live?.z() ?: data.hoverPos.z
+        val range = player.server.playerList.viewDistance + 1
+        return Math.abs((Mth.floor(x) shr 4) - player.chunkPosition().x) <= range &&
+            Math.abs((Mth.floor(z) shr 4) - player.chunkPosition().z) <= range
+    }
+
+    private fun encodeRemoved(bodyId: Long, shatter: Boolean): FriendlyByteBuf {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeLong(bodyId)
+        buf.writeBoolean(shatter)
+        return buf
     }
 
     /** Impact-damage tick — client uses the ping to spawn a light glass
@@ -58,16 +161,19 @@ object GamylanCageNetwork {
      *  matching HP update; the HP update alone doesn't distinguish an
      *  impact from a wand attack, and the two should trigger different
      *  effects. */
-    fun broadcastImpact(level: ServerLevel, bodyId: Long) {
+    fun broadcastImpact(level: ServerLevel, bodyId: Long, at: Vec3) {
         val buf = FriendlyByteBuf(Unpooled.buffer())
         buf.writeLong(bodyId)
-        for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_IMPACT, FriendlyByteBuf(buf.copy()))
+        // A local shatter cloud: only players who hold the cage's chunk can see it.
+        for (player in level.playersHolding(listOf(at))) {
+            NetworkManager.sendToPlayer(player, CAGE_IMPACT, FriendlyByteBuf(buf.copy()))
+        }
     }
 
     /** [hoverInFrame] is in the frame of [shipId] (world when null). A null [hoverInFrame] stops the align loop. */
     fun broadcastAlign(level: ServerLevel, bodyId: Long, shipId: Long?, hoverInFrame: Vector3dc?) {
         val buf = encodeAlign(bodyId, shipId, hoverInFrame)
-        for (player in level.players()) NetworkManager.sendToPlayer(player, CAGE_ALIGN, FriendlyByteBuf(buf.copy()))
+        for (player in holders(level, bodyId)) NetworkManager.sendToPlayer(player, CAGE_ALIGN, FriendlyByteBuf(buf.copy()))
     }
 
     fun sendAlign(player: ServerPlayer, bodyId: Long, shipId: Long?, hoverInFrame: Vector3dc) {
@@ -83,13 +189,6 @@ object GamylanCageNetwork {
         if (shipId != null) buf.writeLong(shipId)
         buf.writeDouble(hoverInFrame.x()); buf.writeDouble(hoverInFrame.y()); buf.writeDouble(hoverInFrame.z())
         return buf
-    }
-
-    fun sendFullList(player: ServerPlayer, level: ServerLevel) {
-        for (data in GamylanCageRegistry.snapshot(level)) {
-            NetworkManager.sendToPlayer(player, CAGE_ADDED, encodeAdded(data))
-        }
-        GamylanCagePedestals.sendAlignStates(player, level)
     }
 
     private fun encodeAdded(data: GamylanCageData): FriendlyByteBuf {

@@ -7,7 +7,6 @@ import net.minecraft.world.item.ItemStack
 import org.joml.Quaterniond
 import org.joml.Quaterniondc
 import org.joml.Vector3d
-import org.joml.Vector3dc
 
 /**
  * Per-cage data record. One instance per VS body that was created by a
@@ -152,7 +151,4 @@ data class GamylanCageData(
 ) {
 
     val hull: GamylanCageShape.Hull by lazy { GamylanCageShape.newHull(shapeDims) }
-
-    fun originAsVector(): Vector3dc = captureOrigin
-    fun hoverAsVector(): Vector3dc = hoverPos
 }

@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.client
 
 import net.minecraft.client.Minecraft
+import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.BlockPos
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.body.ClientOrbRegistry
@@ -54,32 +55,7 @@ object OrbDynamicLightDriver {
         }
 
         val cam = mc.gameRenderer.mainCamera.position
-        val cx = cam.x; val cy = cam.y; val cz = cam.z
-
-        // Collect candidate orbs within range, sorted by distance.
-        val orbs = ClientOrbRegistry.near(level)
-        val candidates = ArrayList<LongArray>(orbs.size)  // bodyId, packedPos, d² bits
-        val scratch = Vector3d()
-        // Same dim guard as [OrbOfPotentialRenderer] — VS2's allBodies
-        // map spans every dim the client has loaded, so a Sselith orb
-        // can still be looked up after the player teleports out. Without
-        // this check, dynamic light bleeds into the overworld at the
-        // same XYZ the Sselith orb occupies.
-        val currentDimId = level.dimensionId
-        for (bodyId in orbs) {
-            if (bodyId == 0L) continue
-            val body = level.shipObjectWorld.allBodies.getById(bodyId) as? ClientVsBody ?: continue
-            if (body.dimension != currentDimId) continue
-            val pos = body.renderTransform.toWorld.transformPosition(scratch.set(0.0, 0.0, 0.0))
-            val dx = pos.x - cx; val dy = pos.y - cy; val dz = pos.z - cz
-            val d2 = dx * dx + dy * dy + dz * dz
-            if (d2 > MAX_RANGE_SQR) continue
-            val bp = BlockPos.containing(pos.x, pos.y, pos.z).asLong()
-            candidates += longArrayOf(bodyId, bp, java.lang.Double.doubleToRawLongBits(d2))
-        }
-        candidates.sortBy { java.lang.Double.longBitsToDouble(it[2]) }
-        val selected = if (candidates.size <= MAX_ORBS) candidates
-                       else candidates.subList(0, MAX_ORBS)
+        val selected = nearestOrbs(level, cam.x, cam.y, cam.z)
 
         // Compute the new active emission set + collect positions
         // whose surrounding sections need re-mesh (orb entered or
@@ -124,5 +100,31 @@ object OrbDynamicLightDriver {
             val sz = BlockPos.getZ(packed) shr 4
             levelRenderer.setSectionDirtyWithNeighbors(sx, sy, sz)
         }
+    }
+
+    /** Orbs within [MAX_RANGE] of the camera as (bodyId, packed block pos, d² bits), nearest first, at most [MAX_ORBS]. */
+    private fun nearestOrbs(level: ClientLevel, cx: Double, cy: Double, cz: Double): List<LongArray> {
+        val orbs = ClientOrbRegistry.near(level)
+        val candidates = ArrayList<LongArray>(orbs.size)  // bodyId, packedPos, d² bits
+        val scratch = Vector3d()
+        // Same dim guard as [OrbOfPotentialRenderer] — VS2's allBodies
+        // map spans every dim the client has loaded, so a Sselith orb
+        // can still be looked up after the player teleports out. Without
+        // this check, dynamic light bleeds into the overworld at the
+        // same XYZ the Sselith orb occupies.
+        val currentDimId = level.dimensionId
+        for (bodyId in orbs) {
+            if (bodyId == 0L) continue
+            val body = level.shipObjectWorld.allBodies.getById(bodyId) as? ClientVsBody ?: continue
+            if (body.dimension != currentDimId) continue
+            val pos = body.renderTransform.toWorld.transformPosition(scratch.set(0.0, 0.0, 0.0))
+            val dx = pos.x - cx; val dy = pos.y - cy; val dz = pos.z - cz
+            val d2 = dx * dx + dy * dy + dz * dz
+            if (d2 > MAX_RANGE_SQR) continue
+            val bp = BlockPos.containing(pos.x, pos.y, pos.z).asLong()
+            candidates += longArrayOf(bodyId, bp, java.lang.Double.doubleToRawLongBits(d2))
+        }
+        candidates.sortBy { java.lang.Double.longBitsToDouble(it[2]) }
+        return if (candidates.size <= MAX_ORBS) candidates else candidates.subList(0, MAX_ORBS)
     }
 }

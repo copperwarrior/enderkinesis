@@ -1,20 +1,10 @@
 package org.shipwrights.enderkinesis.item
 
-import net.minecraft.core.BlockPos
-import net.minecraft.nbt.CompoundTag
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.level.ServerLevel
-import org.joml.Quaterniond
-import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
-import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.internal.joints.VSDistanceJoint
 import org.valkyrienskies.core.internal.joints.VSJoint
 import org.valkyrienskies.core.internal.joints.VSJointPose
-import org.valkyrienskies.mod.common.ValkyrienSkiesMod
-import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
  * Tome of Coupling — [VSDistanceJoint] with min == max so bodies are locked to an exact
@@ -22,87 +12,22 @@ import org.valkyrienskies.mod.common.getShipManagingPos
  * (full 6-DOF weld), and Spring (soft oscillation). Length is captured at link time and
  * persisted on the SEND BE so chunk reload rebinds at the same length.
  */
-object CouplingTomeOrbBehavior : TomeOrbBehavior {
+object CouplingTomeOrbBehavior : LengthJointTomeOrbBehavior(NBT_COUPLING_LENGTH, MIN_COUPLING_LENGTH) {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_coupling")
-
 
     /** Inverse stiffness floor for stable rigid distance constraints. */
     private const val COUPLING_COMPLIANCE: Double = 1e-10
 
-    /** NBT key under [OrbOfLinkingBlockEntity.getLinkMetadata] for the captured length. */
-    private const val NBT_COUPLING_LENGTH = "CouplingLength"
-
-    /** Floor on coupling length — zero-length couplings fight numerical noise indefinitely.
-     *  Two orbs placed at adjacent block positions easily clear this. */
-    private const val MIN_COUPLING_LENGTH: Float = 0.5f
-
-    override fun onLinked(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos)
-        val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos)
-        if (sendCentre == null || recvCentre == null) return
-        val length = sendCentre.distanceTo(recvCentre).toFloat().coerceAtLeast(MIN_COUPLING_LENGTH)
-        val data = CompoundTag().apply { putFloat(NBT_COUPLING_LENGTH, length) }
-        sendBe.setLinkMetadata(tomeKind, receiverPos, data)
-        tryBindCoupling(level, sendBe, receiverPos, length)
-    }
-
-    override fun onUnlinking(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        releaseJoint(level, sendBe, receiverPos)
-    }
-
-    override fun serverTick(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val receivers = sendBe.outgoingPeers(tomeKind)
-        if (receivers.isEmpty()) return
-        val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos) ?: return
-        val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
-        for (receiverPos in receivers) {
-            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
-            val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
-            val dx = recvCentre.x - sendCentre.x
-            val dy = recvCentre.y - sendCentre.y
-            val dz = recvCentre.z - sendCentre.z
-            if (dx * dx + dy * dy + dz * dz > maxSq) {
-                sendBe.dropOverDistance(level, tomeKind, receiverPos)
-                continue
-            }
-            if (sendBe.getJointId(tomeKind, receiverPos) < 0 &&
-                !sendBe.isJointPending(tomeKind, receiverPos)) {
-                val stored = sendBe.getLinkMetadata(tomeKind, receiverPos)?.getFloat(NBT_COUPLING_LENGTH)
-                val length = stored?.takeIf { it > 0f }
-                    ?: Math.sqrt(dx * dx + dy * dy + dz * dz).toFloat()
-                tryBindCoupling(level, sendBe, receiverPos, length)
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------------------------------
-
-    private fun tryBindCoupling(
-        level: ServerLevel,
-        sendBe: OrbOfLinkingBlockEntity,
-        receiverPos: BlockPos,
-        length: Float,
-    ) {
-        if (sendBe.getJointId(tomeKind, receiverPos) >= 0) return
-        if (sendBe.isJointPending(tomeKind, receiverPos)) return
-        val sendPos = sendBe.blockPos
-        val sendShip: Ship? = level.getShipManagingPos(sendPos)
-        val recvShip: Ship? = level.getShipManagingPos(receiverPos)
-        if (sendShip == null && recvShip == null) return                 // world↔world — defensive
-        if (sendShip != null && recvShip != null && sendShip.id == recvShip.id) return  // same ship
-
-        // Anchor on each body = that orb's block centre. Distance joint constrains scalar
-        // separation only; orientation is irrelevant, identity quats suffice.
-        val pose0Pos = Vector3d(sendPos.x + 0.5, sendPos.y + 0.5, sendPos.z + 0.5)
-        val pose1Pos = Vector3d(receiverPos.x + 0.5, receiverPos.y + 0.5, receiverPos.z + 0.5)
+    override fun makeJoint(
+        sendShipId: Long?, pose0: VSJointPose, recvShipId: Long?, pose1: VSJointPose, length: Float,
+    ): VSJoint {
         val clamped = length.coerceAtLeast(MIN_COUPLING_LENGTH)
-
-        val joint: VSJoint = VSDistanceJoint(
-            shipId0 = sendShip?.id,
-            pose0 = VSJointPose(pose0Pos, Quaterniond()),
-            shipId1 = recvShip?.id,
-            pose1 = VSJointPose(pose1Pos, Quaterniond()),
+        return VSDistanceJoint(
+            shipId0 = sendShipId,
+            pose0 = pose0,
+            shipId1 = recvShipId,
+            pose1 = pose1,
             maxForceTorque = null,                       // unbreakable under load
             compliance = COUPLING_COMPLIANCE,
             minDistance = clamped,                       // ← strong: both bounds locked to length
@@ -111,14 +36,12 @@ object CouplingTomeOrbBehavior : TomeOrbBehavior {
             stiffness = null,                            // rigid limit, no spring smoothing
             damping = null,
         )
-
-        sendBe.addLinkJoint(level, tomeKind, receiverPos, joint)
-    }
-
-    private fun releaseJoint(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        val id = sendBe.clearJointId(tomeKind, receiverPos)
-        sendBe.clearJointPending(tomeKind, receiverPos)
-        if (id < 0) return
-        ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).removeJoint(id)
     }
 }
+
+/** NBT key under [OrbOfLinkingBlockEntity.getLinkMetadata] for the captured length. */
+private const val NBT_COUPLING_LENGTH = "CouplingLength"
+
+/** Floor on coupling length — zero-length couplings fight numerical noise indefinitely.
+ *  Two orbs placed at adjacent block positions easily clear this. */
+private const val MIN_COUPLING_LENGTH: Float = 0.5f

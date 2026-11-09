@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.client
 
-import dev.architectury.event.events.client.ClientGuiEvent
 import dev.architectury.event.events.client.ClientTickEvent
 import dev.architectury.networking.NetworkManager
 import net.minecraft.Util
@@ -705,11 +704,6 @@ object ScryingClient {
     /** Bright warm yellow for the SGA runes — #E8C84A, full alpha. Punched up from the
      *  earlier olive (#B8A03A) so the runes clearly pop on top of the brown vignette. */
     private val GLYPH_COLOR_ARGB: Int = 0xFFE8C84A.toInt()
-
-    /** Fraction of the shorter screen dimension used as the "glyph band" around the
-     *  vignette edge — picked to roughly match the visible noise-modulated vignette ring
-     *  in the shader. */
-    private const val VIGNETTE_DEPTH_FRAC: Float = 0.18f
 
     /** GUI ortho-projection Z translation for the vignette quad. 500 keeps it in front of
      *  container slot items (z=100) and tooltips (z=400) — matches the Ygann overlay's

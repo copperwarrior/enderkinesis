@@ -4,6 +4,7 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils
@@ -25,7 +26,6 @@ object OrbEntityCollision {
     private const val COLLISION_EPSILON: Double = 1.0e-12
     private const val SPHERE_RADIUS: Double = 1.5
     private val SPHERE_SHAPE = vsCore.newSphereBodyShape(SPHERE_RADIUS)
-    private const val TICKS_PER_SECOND: Double = 20.0
     private const val INITIAL_CAPACITY = 16
 
     /** Orb positions and per-tick reach for one level and game tick. */

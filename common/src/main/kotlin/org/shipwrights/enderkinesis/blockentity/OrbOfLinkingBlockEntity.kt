@@ -123,7 +123,7 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
         if (best >= 15) return 15
         if (supportState.isRedstoneConductor(level, supportPos)) {
             val orbDir = facing.opposite               // direction from support back to this orb
-            for (dir in net.minecraft.core.Direction.values()) {
+            for (dir in net.minecraft.core.Direction.entries) {
                 if (dir == orbDir) continue
                 val s = level.getSignal(supportPos.relative(dir), dir)
                 if (s > best) best = s
@@ -231,10 +231,6 @@ class OrbOfLinkingBlockEntity(pos: BlockPos, state: BlockState) :
     /** True if this orb currently has any incoming links and no outgoing. Locked into the
      *  "receiver" direction across every tome until all its incoming links are dropped. */
     fun isPureReceive(): Boolean = incoming.isNotEmpty() && outgoing.isEmpty()
-
-    /** True when the orb has no links of any tome in either direction — free to commit
-     *  either way on the next link. */
-    fun isIdle(): Boolean = outgoing.isEmpty() && incoming.isEmpty()
 
     // --- Mutators ----------------------------------------------------------------------------
 

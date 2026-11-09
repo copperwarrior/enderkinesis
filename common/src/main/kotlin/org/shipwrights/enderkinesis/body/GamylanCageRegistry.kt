@@ -59,14 +59,6 @@ object GamylanCageRegistry {
         return ArrayList(perDim.values)
     }
 
-    /** All dim/data pairs — for cross-level scans (release on player
-     *  attack, etc.). */
-    fun allEntries(): Sequence<Pair<ResourceKey<Level>, GamylanCageData>> = sequence {
-        for ((dim, map) in byDimension) {
-            for (data in map.values) yield(dim to data)
-        }
-    }
-
     /** Iterate every cage whose [GamylanCageData.dimId] equals
      *  [vsDimId]. Off-thread safe: callers are the VS2 phys-tick
      *  listener which holds no MC locks. */

@@ -11,13 +11,9 @@ import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.ships.ServerShip
 import org.valkyrienskies.core.api.ships.Ship
-import org.valkyrienskies.core.internal.joints.VSJoint
 import org.valkyrienskies.core.internal.joints.VSJointPose
 import org.valkyrienskies.core.internal.joints.VSRevoluteJoint
 import org.valkyrienskies.core.internal.joints.VSRevoluteJoint.VSRevoluteDriveVelocity
-import org.valkyrienskies.mod.common.ValkyrienSkiesMod
-import org.valkyrienskies.mod.common.dimensionId
-import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
 /**
@@ -40,7 +36,7 @@ import org.valkyrienskies.core.api.util.UnavailableInKrunch
  * Pose-impossible pairings (same ship, world↔world) are refused at the item level; the
  * tryBind path defends against them anyway.
  */
-object HingingTomeOrbBehavior : TomeOrbBehavior {
+object HingingTomeOrbBehavior : JointTomeOrbBehavior() {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_hinging")
 
@@ -65,10 +61,6 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         tryBindHinge(level, sendBe, receiverPos, sendBe.inputSignal)
     }
 
-    override fun onUnlinking(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        releaseJoint(level, sendBe, receiverPos)
-    }
-
     override fun onNeighborChanged(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
         val sampled = sendBe.readActiveFaceSignal(level)
         if (sampled == sendBe.inputSignal) return
@@ -91,29 +83,9 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         }
     }
 
-    override fun serverTick(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity) {
-        val receivers = sendBe.outgoingPeers(tomeKind)
-        if (receivers.isEmpty()) return
-        val sendCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, sendBe.blockPos) ?: return
-        val maxSq = OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE * OrbOfLinkingBlockEntity.MAX_LINK_DISTANCE
-        for (receiverPos in receivers) {
-            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, receiverPos) ?: continue
-            val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
-            val dx = recvCentre.x - sendCentre.x
-            val dy = recvCentre.y - sendCentre.y
-            val dz = recvCentre.z - sendCentre.z
-            if (dx * dx + dy * dy + dz * dz > maxSq) {
-                sendBe.dropOverDistance(level, tomeKind, receiverPos)
-                continue
-            }
-            if (sendBe.getJointId(tomeKind, receiverPos) < 0 &&
-                !sendBe.isJointPending(tomeKind, receiverPos)) {
-                tryBindHinge(level, sendBe, receiverPos, sendBe.inputSignal)
-            }
-        }
+    override fun rebind(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos, distance: Double) {
+        tryBindHinge(level, sendBe, receiverPos, sendBe.inputSignal)
     }
-
-    // -----------------------------------------------------------------------------------------
 
     // Konstant is the only target backend.
     @OptIn(UnavailableInKrunch::class)
@@ -123,49 +95,42 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
         receiverPos: BlockPos,
         power: Int,
     ) {
-        if (sendBe.getJointId(tomeKind, receiverPos) >= 0) return
-        if (sendBe.isJointPending(tomeKind, receiverPos)) return
         val sendPos = sendBe.blockPos
-        val sendShip: Ship? = level.getShipManagingPos(sendPos)
-        val recvShip: Ship? = level.getShipManagingPos(receiverPos)
-        if (sendShip == null && recvShip == null) return                  // world↔world — defensive
-        if (sendShip != null && recvShip != null && sendShip.id == recvShip.id) return  // same ship
+        bind(level, sendBe, receiverPos) { sendShip, recvShip ->
+            val (pose0, pose1) = sendBe.linkJointPoses(tomeKind, receiverPos, sendShip?.id, recvShip?.id) {
+                hingePoses(sendPos, receiverPos, sendShip, recvShip)
+            } ?: return@bind null
 
-        val (pose0, pose1) = sendBe.linkJointPoses(tomeKind, receiverPos, sendShip?.id, recvShip?.id) {
-            hingePoses(sendPos, receiverPos, sendShip, recvShip)
-        } ?: return
+            // Drive: power 0 → free spin; power N → drive holds angular velocity at 0 with
+            // force limit proportional to power.
+            val clampedPower = power.coerceIn(0, 15)
+            val driveVelocity: VSRevoluteDriveVelocity?
+            val driveForceLimit: Float?
+            val driveFreeSpin: Boolean
+            if (clampedPower == 0) {
+                driveVelocity = null
+                driveForceLimit = null
+                driveFreeSpin = true
+            } else {
+                driveVelocity = VSRevoluteDriveVelocity(velocity = 0.0f, autoWake = true)
+                driveForceLimit = MAX_RESISTANCE_TORQUE * (clampedPower / 15.0f)
+                driveFreeSpin = false
+            }
 
-        // Drive: power 0 → free spin; power N → drive holds angular velocity at 0 with
-        // force limit proportional to power.
-        val clampedPower = power.coerceIn(0, 15)
-        val driveVelocity: VSRevoluteDriveVelocity?
-        val driveForceLimit: Float?
-        val driveFreeSpin: Boolean
-        if (clampedPower == 0) {
-            driveVelocity = null
-            driveForceLimit = null
-            driveFreeSpin = true
-        } else {
-            driveVelocity = VSRevoluteDriveVelocity(velocity = 0.0f, autoWake = true)
-            driveForceLimit = MAX_RESISTANCE_TORQUE * (clampedPower / 15.0f)
-            driveFreeSpin = false
+            VSRevoluteJoint(
+                shipId0 = (sendShip as? ServerShip)?.id,
+                pose0 = pose0,
+                shipId1 = (recvShip as? ServerShip)?.id,
+                pose1 = pose1,
+                maxForceTorque = null,                            // unbreakable under load
+                compliance = HINGE_COMPLIANCE,
+                angularLimitPair = null,                          // no hard angular limits
+                driveVelocity = driveVelocity,
+                driveForceLimit = driveForceLimit,
+                driveGearRatio = null,
+                driveFreeSpin = driveFreeSpin,
+            )
         }
-
-        val joint: VSJoint = VSRevoluteJoint(
-            shipId0 = (sendShip as? ServerShip)?.id,
-            pose0 = pose0,
-            shipId1 = (recvShip as? ServerShip)?.id,
-            pose1 = pose1,
-            maxForceTorque = null,                            // unbreakable under load
-            compliance = HINGE_COMPLIANCE,
-            angularLimitPair = null,                          // no hard angular limits
-            driveVelocity = driveVelocity,
-            driveForceLimit = driveForceLimit,
-            driveGearRatio = null,
-            driveFreeSpin = driveFreeSpin,
-        )
-
-        sendBe.addLinkJoint(level, tomeKind, receiverPos, joint)
     }
 
     /** One world hinge frame expressed in each body, so the joint is at rest when it is made. */
@@ -217,12 +182,5 @@ object HingingTomeOrbBehavior : TomeOrbBehavior {
             pose1Rot.set(worldOrientation)
         }
         return VSJointPose(sendLocalPos, pose0Rot) to VSJointPose(pose1Pos, pose1Rot)
-    }
-
-    private fun releaseJoint(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, receiverPos: BlockPos) {
-        val id = sendBe.clearJointId(tomeKind, receiverPos)
-        sendBe.clearJointPending(tomeKind, receiverPos)
-        if (id < 0) return
-        ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).removeJoint(id)
     }
 }
