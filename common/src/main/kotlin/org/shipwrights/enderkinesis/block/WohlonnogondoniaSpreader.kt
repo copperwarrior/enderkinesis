@@ -41,7 +41,7 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.mixin.ChunkMapGetChunksAccessor
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKGameRules
-import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.shipwrights.enderkinesis.util.warmUpClasses
 import org.shipwrights.enderkinesis.worldgen.WohlonWetlandZones
 import org.joml.Vector3d
 import org.valkyrienskies.mod.common.dimensionId
@@ -797,7 +797,7 @@ object WohlonnogondoniaSpreader {
 
     /** Runs the seed path on a tiny sphere, so the first ritual does not load its classes. */
     fun warmClasses() {
-        ClassWarmup.load(SeedJob::class.java, CellCoord::class.java)
+        warmUpClasses(SeedJob::class.java, CellCoord::class.java)
         SeedJob(ArrayDeque(computeSphereCells(BlockPos.ZERO, 2)), 1)
     }
 

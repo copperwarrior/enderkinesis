@@ -23,7 +23,7 @@ import org.shipwrights.enderkinesis.client.volume.VolumeEffect
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
-import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.shipwrights.enderkinesis.util.warmUpClasses
 
 /**
  * A full-bodied ghost of a ritual tree, shaded like the ritual tendrils. When its shape arrives it
@@ -98,7 +98,7 @@ object WohlonTreeGhost {
 
     fun init() {
         // The first ritual of a session loaded these on its frame.
-        ClassWarmup.load(Grid::class.java, Ghost::class.java, Fields::class.java)
+        warmUpClasses(Grid::class.java, Ghost::class.java, Fields::class.java)
         WohlonNoiseTexture.prepare()
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_GHOST) { buf, _ ->
             val portal = BlockPos.of(buf.readLong())

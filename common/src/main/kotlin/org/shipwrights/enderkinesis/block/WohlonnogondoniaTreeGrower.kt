@@ -28,7 +28,7 @@ import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
 import org.shipwrights.enderkinesis.dimension.TreeSegment
 import org.shipwrights.enderkinesis.dimension.TreeTip
-import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.shipwrights.enderkinesis.util.warmUpClasses
 import org.shipwrights.enderkinesis.dimension.WogorTreeSkeleton
 import org.shipwrights.enderkinesis.dimension.WohlonnogondoniaChunkGenerator
 import org.shipwrights.enderkinesis.registry.EKBlocks
@@ -252,7 +252,7 @@ object WohlonnogondoniaTreeGrower {
         }
         // The first ritual of a session loaded these on its ignite tick.
         LifecycleEvent.SERVER_STARTED.register { _ ->
-            ClassWarmup.load(
+            warmUpClasses(
                 TreeBuildParams::class.java, WohlonTreeSite::class.java, TreeJob::class.java, TreeJobsData::class.java,
                 WohlonnogondoniaPortalRitual::class.java, WohlonRitualNetwork::class.java, WohlonRitualTimeline::class.java,
                 org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity::class.java,

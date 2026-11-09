@@ -12,7 +12,7 @@ import org.joml.Matrix4f
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.WohlonRitualNetwork
 import org.shipwrights.enderkinesis.block.WohlonRitualTimeline
-import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.shipwrights.enderkinesis.util.warmUpClasses
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -72,7 +72,7 @@ object WohlonRitualTendrils {
 
     fun init() {
         // The first ritual of a session loaded these on its frame.
-        ClassWarmup.load(Tendril::class.java, TendrilCurve::class.java, Ritual::class.java, WohlonMoteParticle::class.java, WohlonRitualTimeline::class.java)
+        warmUpClasses(Tendril::class.java, TendrilCurve::class.java, Ritual::class.java, WohlonMoteParticle::class.java, WohlonRitualTimeline::class.java)
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_IGNITE) { buf, _ ->
             val candle = BlockPos.of(buf.readLong())
             val sacrifice = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())

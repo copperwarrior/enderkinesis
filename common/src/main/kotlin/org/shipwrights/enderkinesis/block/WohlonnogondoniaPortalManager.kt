@@ -24,7 +24,7 @@ import net.minecraft.world.level.saveddata.SavedData
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
-import org.shipwrights.enderkinesis.util.ClassWarmup
+import org.shipwrights.enderkinesis.util.warmUpClasses
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.tags.BlockTags
@@ -133,7 +133,7 @@ object WohlonnogondoniaPortalManager {
      *  the tick; the per-portal budget recovers across ticks. */
     private const val SEARCH_ATTEMPTS_PER_TICK: Int = 5
 
-    fun warmClasses() = ClassWarmup.load(PendingPortalSearch::class.java)
+    fun warmClasses() = warmUpClasses(PendingPortalSearch::class.java)
 
     private data class PendingPortalSearch(
         val sourceDim: ResourceKey<Level>,
