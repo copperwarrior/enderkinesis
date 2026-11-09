@@ -79,6 +79,7 @@ internal object StrikeNotes {
         val spots = candidates.size / 2
         val picked = ArrayList<FloatArray>()
         if (spots == 0) return picked
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (attempt in 0 until ANCHOR_TRIES) {
             if (picked.size == count) break
             val i = random.nextInt(spots)

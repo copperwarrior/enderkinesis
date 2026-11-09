@@ -15,6 +15,7 @@ import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.spell.SpellMote
 import kotlin.math.cos
 import kotlin.math.sin
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /** The spawn velocity is the starting motion. */
 class SpellParticle(
@@ -55,7 +56,7 @@ class SpellParticle(
         if (landedAt >= 0) {
             xo = x; yo = y; zo = z
             if (age++ >= lifetime) remove()
-            val dry = 1f - smooth((age - landedAt - STAIN_WET_TICKS).toFloat() / (lifetime - landedAt - STAIN_WET_TICKS).coerceAtLeast(1))
+            val dry = 1f - smoothstep((age - landedAt - STAIN_WET_TICKS).toFloat() / (lifetime - landedAt - STAIN_WET_TICKS).coerceAtLeast(1))
             alpha = 0.95f * dry
             return
         }
@@ -123,8 +124,6 @@ class SpellParticle(
 
     override fun getLightColor(partialTick: Float): Int =
         if (mote.glows) LightTexture.FULL_BRIGHT else super.getLightColor(partialTick)
-
-    private fun smooth(x: Float): Float { val t = x.coerceIn(0f, 1f); return t * t * (3f - 2f * t) }
 
     class Provider(private val sprites: SpriteSet, private val mote: SpellMote) : ParticleProvider<SimpleParticleType> {
         override fun createParticle(

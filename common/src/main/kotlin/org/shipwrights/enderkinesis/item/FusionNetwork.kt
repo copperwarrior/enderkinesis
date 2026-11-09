@@ -21,18 +21,16 @@ object FusionNetwork {
     private const val SYNC_RANGE: Double = 128.0 + FusionManager.RADIUS
 
     fun broadcastBubble(level: ServerLevel, wielder: Player, surface: Vec3, center: Vec3, pulling: Boolean) {
-        forNearby(level, center) { player ->
-            val buf = FriendlyByteBuf(Unpooled.buffer())
-            buf.writeVarInt(wielder.id)
-            buf.writeDouble(surface.x)
-            buf.writeDouble(surface.y)
-            buf.writeDouble(surface.z)
-            buf.writeDouble(center.x)
-            buf.writeDouble(center.y)
-            buf.writeDouble(center.z)
-            buf.writeBoolean(pulling)
-            NetworkManager.sendToPlayer(player, S2C_BUBBLE, buf)
-        }
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeVarInt(wielder.id)
+        buf.writeDouble(surface.x)
+        buf.writeDouble(surface.y)
+        buf.writeDouble(surface.z)
+        buf.writeDouble(center.x)
+        buf.writeDouble(center.y)
+        buf.writeDouble(center.z)
+        buf.writeBoolean(pulling)
+        forNearby(level, center) { player -> NetworkManager.sendToPlayer(player, S2C_BUBBLE, FriendlyByteBuf(buf.copy())) }
     }
 
     /** Each neighbor pair once: both ship IDs and their nearest blocks, in shipyard frames. */
@@ -46,25 +44,24 @@ object FusionNetwork {
             if (reverse != null && reverse.otherId == entry.longKey && entry.longKey > entry.value.otherId) continue
             pairs.add(entry.longKey to entry.value)
         }
-        forNearby(level, center) { player ->
-            val buf = FriendlyByteBuf(Unpooled.buffer())
-            buf.writeVarInt(wielder.id)
-            buf.writeVarInt(pairs.size)
-            for ((shipId, neighbor) in pairs) {
-                buf.writeLong(shipId)
-                writeVector(buf, neighbor.ownBlock)
-                buf.writeLong(neighbor.otherId)
-                writeVector(buf, neighbor.otherBlock)
-            }
-            NetworkManager.sendToPlayer(player, S2C_TETHERS, buf)
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeVarInt(wielder.id)
+        buf.writeVarInt(pairs.size)
+        for ((shipId, neighbor) in pairs) {
+            buf.writeLong(shipId)
+            writeVector(buf, neighbor.ownBlock)
+            buf.writeLong(neighbor.otherId)
+            writeVector(buf, neighbor.otherBlock)
         }
+        // Sent again every refresh even when unchanged: the client drops tethers not refreshed in 10 ticks.
+        forNearby(level, center) { player -> NetworkManager.sendToPlayer(player, S2C_TETHERS, FriendlyByteBuf(buf.copy())) }
     }
 
     fun broadcastWeld(level: ServerLevel, point: Vector3dc) {
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        writeVector(buf, point)
         forNearby(level, Vec3(point.x(), point.y(), point.z())) { player ->
-            val buf = FriendlyByteBuf(Unpooled.buffer())
-            writeVector(buf, point)
-            NetworkManager.sendToPlayer(player, S2C_WELD, buf)
+            NetworkManager.sendToPlayer(player, S2C_WELD, FriendlyByteBuf(buf.copy()))
         }
     }
 

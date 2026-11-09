@@ -48,30 +48,6 @@ object SpellFx {
         }
     }
 
-    /** Each particle is its own packet, because a batched [burst] cannot set motion per particle. */
-    fun outwardBlast(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int, speed: Double) {
-        if (held(delivery)) return
-        val count = thin(count)
-        val sphere = delivery as? Delivery.Sphere ?: return burst(level, delivery, particle, fallbackCount(count))
-        val c = sphere.anchor
-        repeat(count) {
-            val (dx, dy, dz) = randomUnit(level)
-            level.sendParticles(particle, c.x, c.y, c.z, 0, dx * speed, dy * speed, dz * speed, 1.0)
-        }
-    }
-
-    fun inwardCollapse(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int, speed: Double) {
-        if (held(delivery)) return
-        val count = thin(count)
-        val sphere = delivery as? Delivery.Sphere ?: return burst(level, delivery, particle, fallbackCount(count))
-        val c = sphere.anchor
-        val r = sphere.radius
-        repeat(count) {
-            val (dx, dy, dz) = randomUnit(level)
-            level.sendParticles(particle, c.x + dx * r, c.y + dy * r, c.z + dz * r, 0, -dx * speed, -dy * speed, -dz * speed, 1.0)
-        }
-    }
-
     /** The band is approximately 3 m tall, so the swirl does not spread across the full sphere. */
     fun swirl(level: ServerLevel, delivery: Delivery, particle: ParticleOptions, count: Int, tangentSpeed: Double) {
         if (held(delivery)) return
@@ -108,10 +84,4 @@ object SpellFx {
     private const val DENSITY = 0.5
 
     private fun fallbackCount(count: Int): Int = (count / 3).coerceAtLeast(4)
-
-    private fun randomUnit(level: ServerLevel): Triple<Double, Double, Double> {
-        val theta = level.random.nextDouble() * 2.0 * Math.PI
-        val phi = Math.acos(2.0 * level.random.nextDouble() - 1.0)
-        return Triple(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta))
-    }
 }

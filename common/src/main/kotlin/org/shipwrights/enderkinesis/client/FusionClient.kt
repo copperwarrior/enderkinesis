@@ -196,7 +196,7 @@ object FusionClient {
             val shipB = ships.getById(tether.shipB) as? ClientShip ?: continue
             val a = shipA.renderTransform.shipToWorld.transformPosition(tetherA.set(tether.a))
             val b = shipB.renderTransform.shipToWorld.transformPosition(tetherB.set(tether.b))
-            for (n in 0 until TETHER_PARTICLES) {
+            repeat(TETHER_PARTICLES) { _ ->
                 val f = random.nextDouble()
                 level.addParticle(DUST, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f, 0.0, 0.0, 0.0)
             }
@@ -208,7 +208,7 @@ object FusionClient {
     private fun burst(point: Vector3d) {
         val level = Minecraft.getInstance().level ?: return
         val random = level.random
-        for (n in 0 until BURST_PARTICLES) {
+        repeat(BURST_PARTICLES) { _ ->
             val gx = random.nextGaussian()
             val gy = random.nextGaussian()
             val gz = random.nextGaussian()
@@ -328,7 +328,7 @@ object FusionClient {
                 rimY = py + e1y * c + e2y * s
                 rimZ = pz + e1z * c + e2z * s
             }
-            for (n in 0 until PARTICLES_PER_STREAM) {
+            repeat(PARTICLES_PER_STREAM) { _ ->
                 val f = random.nextDouble()
                 level.addParticle(DUST, tipX + (rimX - tipX) * f, tipY + (rimY - tipY) * f, tipZ + (rimZ - tipZ) * f, 0.0, 0.0, 0.0)
             }

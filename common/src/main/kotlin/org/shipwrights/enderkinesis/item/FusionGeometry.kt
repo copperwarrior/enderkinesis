@@ -32,7 +32,7 @@ internal object FusionGeometry {
 
     /** The 24 rotations that map the block grid onto itself. */
     private val GRID_ROTATIONS: List<Quaterniond> = buildList {
-        for (x in Direction.values()) for (y in Direction.values()) {
+        for (x in Direction.entries) for (y in Direction.entries) {
             if (x.axis == y.axis) continue
             val xv = Vector3d(x.stepX.toDouble(), x.stepY.toDouble(), x.stepZ.toDouble())
             val yv = Vector3d(y.stepX.toDouble(), y.stepY.toDouble(), y.stepZ.toDouble())

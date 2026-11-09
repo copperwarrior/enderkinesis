@@ -154,9 +154,6 @@ object SpellVfx {
     fun shell(level: ServerLevel, at: Vec3, radius: Double, rgb: Int, life: Int = 14) =
         send(level, Kind.SHELL, at, at, radius.toFloat(), rgb, life)
 
-    fun implode(level: ServerLevel, at: Vec3, radius: Double, rgb: Int, life: Int = 16) =
-        send(level, Kind.IMPLODE, at, at, radius.toFloat(), rgb, life)
-
     fun aegis(level: ServerLevel, at: Vec3, size: Double, rgb: Int, life: Int = 20) =
         send(level, Kind.AEGIS, at, at, size.toFloat(), rgb, life)
 

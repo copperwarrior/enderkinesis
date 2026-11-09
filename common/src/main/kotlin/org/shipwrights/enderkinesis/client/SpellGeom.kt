@@ -6,6 +6,7 @@ import kotlin.math.ln
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import org.shipwrights.enderkinesis.util.smoothstep
 
 object SpellGeom {
     val UP = Vec3(0.0, 1.0, 0.0)
@@ -74,8 +75,8 @@ object SpellGeom {
     fun spread(random: Random, ySquash: Double = 1.0, yLift: Double = 0.0): Vec3 =
         Vec3(gauss(random), gauss(random) * ySquash + yLift, gauss(random)).normalize()
 
-    fun smooth(x: Double): Double { val t = x.coerceIn(0.0, 1.0); return t * t * (3 - 2 * t) }
-    fun smooth(x: Float): Float { val t = x.coerceIn(0f, 1f); return t * t * (3 - 2 * t) }
+    fun smooth(x: Double): Double = smoothstep(x)
+    fun smooth(x: Float): Float = smoothstep(x)
     fun easeOut(t: Double): Double = 1 - (1 - t) * (1 - t) * (1 - t)
 
     fun whiten(rgb: Int, f: Float): Int {

@@ -70,8 +70,6 @@ object ElementEffects {
         Element.VOID -> FusionEffects.VOID
     }
 
-    private val NONE = ElementEffect { _, _, _ -> }
-
     /** Magnitude is the ramp stage (1-4) of a merged Staff of Sundering beam. This value is near the staff's half-second damage. */
     private const val SUNDERING_DAMAGE_PER_STAGE = 1.25f
 

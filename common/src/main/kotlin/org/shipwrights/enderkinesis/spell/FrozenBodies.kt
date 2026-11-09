@@ -27,10 +27,41 @@ import org.valkyrienskies.core.api.VsBeta
 @OptIn(GameTickOnly::class, VsBeta::class)
 object FrozenBodies {
 
-    private class Frozen(val bodyId: Long, val initial: Quaterniond)
+    private class Frozen(val bodyId: Long, initial: Quaterniond) {
+        val initialInverse: Quaterniond = Quaterniond(initial).invert()
+        // The tumble last sent; NaN until the first send.
+        val sent = FloatArray(4) { Float.NaN }
+        var sentChange = true
+        val viewers = HashSet<ServerPlayer>()
+    }
+
+    // Each pose batch holds the frozen poses one player gets this tick. Game thread only.
+    private class PoseBatch {
+        var ids = IntArray(4)
+        var poses = FloatArray(16)
+        var count = 0
+
+        fun add(id: Int, pose: FloatArray) {
+            if (count == ids.size) {
+                ids = ids.copyOf(count * 2)
+                poses = poses.copyOf(count * 8)
+            }
+            ids[count] = id
+            pose.copyInto(poses, count * 4)
+            count++
+        }
+    }
 
     // Game thread only.
     private val frozen = IdentityHashMap<LivingEntity, Frozen>()
+    private val levelMobs = ArrayList<LivingEntity>()
+    private val batches = HashMap<ServerPlayer, PoseBatch>()
+    private val freeBatches = ArrayDeque<PoseBatch>()
+    private val tumble = Quaterniond()
+    private val pose = FloatArray(4)
+
+    // Below this change in the tumble's dot product (about 0.05°) the pose is not sent again.
+    private const val POSE_EPSILON = 1.0e-7
 
     // kg per cubic block of hitbox, near the density of ice.
     private const val DENSITY = 900.0
@@ -102,7 +133,10 @@ object FrozenBodies {
     // An entity that lost the effect without a removal call (milk, `/effect clear`) thaws here.
     private fun follow(level: ServerLevel) {
         if (frozen.isEmpty()) return
-        for ((mob, state) in frozen.entries.filter { it.key.level() === level }.map { it.key to it.value }) {
+        levelMobs.clear()
+        for (mob in frozen.keys) if (mob.level() === level) levelMobs.add(mob)
+        for (mob in levelMobs) {
+            val state = frozen[mob] ?: continue
             if (mob.isRemoved || !mob.isAlive) {
                 frozen.remove(mob)
                 level.deleteStandaloneBody(state.bodyId)
@@ -123,9 +157,50 @@ object FrozenBodies {
             } else mob.teleportTo(p.x(), y, p.z())
             mob.deltaMovement = Vec3.ZERO
             // Send only the rotation since the freeze, because the mob keeps the facing it froze with.
-            val tumble = Quaterniond(body.kinematics.rotation).mul(Quaterniond(state.initial).invert())
-            SpellNetwork.broadcastFrozenPose(level, mob, tumble.x.toFloat(), tumble.y.toFloat(), tumble.z.toFloat(), tumble.w.toFloat())
+            tumble.set(body.kinematics.rotation).mul(state.initialInverse)
+            queuePose(level, mob, state)
         }
+        flushPoses()
+    }
+
+    /** Queues the tumble for the viewers that need it: all of them when it changed, and new viewers always. */
+    private fun queuePose(level: ServerLevel, mob: LivingEntity, state: Frozen) {
+        pose[0] = tumble.x.toFloat(); pose[1] = tumble.y.toFloat(); pose[2] = tumble.z.toFloat(); pose[3] = tumble.w.toFloat()
+        val sent = state.sent
+        // Float components of a unit quaternion have a norm error near 1e-7, so normalise the dot in Double.
+        var dot = 0.0
+        var poseSq = 0.0
+        var sentSq = 0.0
+        for (i in 0..3) {
+            val p = pose[i].toDouble()
+            val q = sent[i].toDouble()
+            dot += p * q
+            poseSq += p * p
+            sentSq += q * q
+        }
+        val cosHalf = Math.abs(dot) / Math.sqrt(poseSq * sentSq)
+        val changed = cosHalf.isNaN() || cosHalf < 1.0 - POSE_EPSILON
+        // The client draws between its last two poses, so one more send after a change makes them equal at rest.
+        val sendAll = changed || state.sentChange
+        state.sentChange = changed
+        if (sendAll) pose.copyInto(sent)
+        val viewers = SpellNetwork.frozenPoseViewers(level, mob)
+        for (viewer in viewers) {
+            if (!sendAll && viewer in state.viewers) continue
+            batches.getOrPut(viewer) { freeBatches.removeFirstOrNull() ?: PoseBatch() }.add(mob.id, if (sendAll) pose else sent)
+        }
+        state.viewers.clear()
+        state.viewers.addAll(viewers)
+    }
+
+    private fun flushPoses() {
+        if (batches.isEmpty()) return
+        for ((player, batch) in batches) {
+            SpellNetwork.sendFrozenPoses(player, batch.ids, batch.poses, batch.count)
+            batch.count = 0
+            freeBatches.addLast(batch)
+        }
+        batches.clear()
     }
 
     // Each entity keeps its hold, so it freezes again when it next loads.

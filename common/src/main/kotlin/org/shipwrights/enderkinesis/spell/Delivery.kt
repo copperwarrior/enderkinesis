@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.spell
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.level.ClipContext
@@ -11,7 +10,14 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.item.AegisBox
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.rayAabbEntry
+import org.shipwrights.enderkinesis.util.standaloneBodyBoxes
+import org.joml.Vector3d
+import org.joml.primitives.AABBdc
+import org.valkyrienskies.mod.common.util.toJOML
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 sealed class Delivery {
     abstract val anchor: Vec3
@@ -57,13 +63,17 @@ sealed class Delivery {
         }
 
         override fun findBlocks(level: Level): List<BlockPos> {
-            val r = Math.ceil(radius).toInt()
-            val cx = Mth.floor(center.x); val cy = Mth.floor(center.y); val cz = Mth.floor(center.z)
+            // The test is on offsets from the middle of the centre cell, whole blocks for world cells, so the world sphere is as
+            // before; each frame walks its own cells, so a scaled ship loses none.
+            val reach = radius + HALF_DIAGONAL
+            val blocks = CrossFrameBlocks(level, center, reach)
             val r2 = radius * radius
+            val ox = blocks.origin.x + 0.5; val oy = blocks.origin.y + 0.5; val oz = blocks.origin.z + 0.5
+            val m = blocks.visitedMiddle
             val out = ArrayList<BlockPos>()
-            for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
-                if (dx * dx + dy * dy + dz * dz > r2) continue
-                out += BlockPos(cx + dx, cy + dy, cz + dz)
+            blocks.forEachWithin(reach) { pos, _ ->
+                val dx = m.x - ox; val dy = m.y - oy; val dz = m.z - oz
+                if (dx * dx + dy * dy + dz * dz <= r2) out += pos.immutable()
             }
             return out
         }
@@ -79,11 +89,36 @@ sealed class Delivery {
             }
 
         override fun findBlocks(level: Level): List<BlockPos> {
-            val length = from.distanceTo(to)
-            val steps = Math.ceil(length / STEP).toInt().coerceAtLeast(1)
+            val worldFrom = level.toWorldCoordinates(from)
+            val worldTo = level.toWorldCoordinates(to)
+            val length = worldFrom.distanceTo(worldTo)
+            val blocks = CrossFrameBlocks(level, worldFrom.lerp(worldTo, 0.5), length * 0.5 + halfWidth)
             val out = LinkedHashSet<BlockPos>()
-            for (i in 0..steps) out += BlockPos.containing(from.lerp(to, i.toDouble() / steps))
+            val cursor = BlockPos.MutableBlockPos()
+            march(worldFrom.x, worldFrom.y, worldFrom.z, worldTo.x, worldTo.y, worldTo.z, cursor, out)
+            // Each ship marches in its own frame, so a scaled ship gets every cell that the line crosses.
+            val a = Vector3d()
+            val b = Vector3d()
+            for (ship in blocks.ships) {
+                ship.transform.worldToShip.transformPosition(worldFrom.x, worldFrom.y, worldFrom.z, a)
+                ship.transform.worldToShip.transformPosition(worldTo.x, worldTo.y, worldTo.z, b)
+                march(a.x, a.y, a.z, b.x, b.y, b.z, cursor, out)
+            }
             return out.toList()
+        }
+
+        @Suppress("LongParameterList") // Raw doubles: no vector for each call.
+        private fun march(
+            ax: Double, ay: Double, az: Double, bx: Double, by: Double, bz: Double,
+            cursor: BlockPos.MutableBlockPos, out: MutableSet<BlockPos>,
+        ) {
+            val dx = bx - ax; val dy = by - ay; val dz = bz - az
+            val steps = Math.ceil(Math.sqrt(dx * dx + dy * dy + dz * dz) / STEP).toInt().coerceAtLeast(1)
+            for (i in 0..steps) {
+                val t = i.toDouble() / steps
+                cursor.set(ax + dx * t, ay + dy * t, az + dz * t)
+                if (cursor !in out) out += cursor.immutable()
+            }
         }
 
         private companion object {
@@ -99,34 +134,49 @@ sealed class Delivery {
         override val anchor: Vec3 get() = origin.add(direction.scale(length * 0.5))
         private val cosHalf = Math.cos(halfAngle)
 
-        fun contains(point: Vec3): Boolean {
-            val to = point.subtract(origin)
-            val dist = to.length()
+        fun contains(point: Vec3): Boolean = contains(point.x, point.y, point.z)
+
+        fun contains(x: Double, y: Double, z: Double): Boolean {
+            val tx = x - origin.x; val ty = y - origin.y; val tz = z - origin.z
+            val dist = Math.sqrt(tx * tx + ty * ty + tz * tz)
             if (dist > length) return false
             if (dist < 1.0e-3) return true
-            return to.dot(direction) / dist >= cosHalf
+            return (tx * direction.x + ty * direction.y + tz * direction.z) / dist >= cosHalf
         }
 
-        private fun visible(level: Level, point: Vec3, target: BlockPos?): Boolean {
+        private fun bodies(level: Level): List<AABBdc> =
+            level.standaloneBodyBoxes(AABB(origin, origin).inflate(length).toJOML())
+
+        /** A standalone body is not a block, so it only casts a shadow. */
+        private fun visible(level: Level, point: Vec3, target: BlockPos?, bodies: List<AABBdc>): Boolean {
             if (shadowed(origin, point, blockers)) return false
+            if (bodies.isNotEmpty()) {
+                val span = point.subtract(origin)
+                val dist = span.length()
+                if (dist > 1.0e-6 && bodies.any { rayAabbEntry(origin, span.scale(1.0 / dist), it) < dist }) return false
+            }
             val hit = level.clip(colliderClip(origin, point))
             return hit.type == HitResult.Type.MISS || (target != null && hit.blockPos == target)
         }
 
-        override fun candidates(ctx: SpellContext): List<Entity> =
-            ctx.level.getEntities(null as Entity?, AABB(origin, origin).inflate(length)) {
+        override fun candidates(ctx: SpellContext): List<Entity> {
+            val bodies = bodies(ctx.level)
+            return ctx.level.getEntities(null as Entity?, AABB(origin, origin).inflate(length)) {
                 val centre = it.boundingBox.center
-                contains(centre) && visible(ctx.level, centre, null)
+                contains(centre) && visible(ctx.level, centre, null, bodies)
             }
+        }
 
         override fun findBlocks(level: Level): List<BlockPos> {
-            val r = Math.ceil(length).toInt()
-            val o = BlockPos.containing(origin)
+            // The cone is in the sphere of its length, and each frame walks its own cells, so scaled ships lose none.
+            val blocks = CrossFrameBlocks(level, origin, length)
             val out = ArrayList<BlockPos>()
-            for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
-                val pos = o.offset(dx, dy, dz)
-                val centre = Vec3.atCenterOf(pos)
-                if (contains(centre) && visible(level, centre, pos)) out += pos
+            val bodies = bodies(level)
+            val m = blocks.visitedMiddle
+            blocks.forEachWithin(length) { pos, _ ->
+                if (!contains(m.x, m.y, m.z)) return@forEachWithin
+                // VS2 clip() gives the SHIPYARD blockPos of a ship hit, so the frame's own pos is the target.
+                if (visible(level, Vec3(m.x, m.y, m.z), pos, bodies)) out += pos.immutable()
             }
             return out
         }
@@ -138,6 +188,9 @@ sealed class Delivery {
     }
 
     companion object {
+        // Half the diagonal of a block: a cell middle is at most this far from any point of the cell.
+        private const val HALF_DIAGONAL = 0.8661
+
         fun shadowed(from: Vec3, to: Vec3, frames: List<AegisBox.Frame>): Boolean {
             if (frames.isEmpty()) return false
             val span = to.subtract(from)

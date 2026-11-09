@@ -224,7 +224,7 @@ class ScalingRobeArmorItem(
         private fun combinedEnchantmentScore(wearer: LivingEntity): Double {
             val stacks = ArrayList<ItemStack>(8)
             // Vanilla armor: HEAD, CHEST, LEGS, FEET. Exclude hands explicitly.
-            for (slot in EquipmentSlot.values()) {
+            for (slot in EquipmentSlot.entries) {
                 if (slot.type == EquipmentSlot.Type.ARMOR) {
                     val s = wearer.getItemBySlot(slot)
                     if (!s.isEmpty) stacks.add(s)

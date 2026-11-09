@@ -24,7 +24,6 @@ import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.inventory.InventoryMenu
 import org.joml.Matrix4f
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import org.joml.Quaternionf
@@ -191,24 +190,13 @@ object StaffGemGlow {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
             sink.registerShader(
                 ShaderInstance(
-                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    provider.preferringModNamespace(),
                     "rendertype_staff_gem_halo",
                     DefaultVertexFormat.POSITION_TEX_COLOR,
                 )
             ) { instance -> shaderInstance = instance }
         }
     }
-
-    // Same workaround as ScryingRenderTypes: ShaderInstance fails on a namespaced shader name.
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
-        ResourceProvider { loc ->
-            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-                val attempt = delegate.getResource(ResourceLocation(namespace, loc.path))
-                if (attempt.isPresent) attempt else delegate.getResource(loc)
-            } else {
-                delegate.getResource(loc)
-            }
-        }
 
     // Each color is the darkest gem texel that the staff model shows, so the halo is not brighter than the gem.
     private val styles: Map<Item, Style> by lazy {
@@ -322,7 +310,7 @@ object StaffGemGlow {
     private fun partModel(source: BakedModel, quads: List<BakedQuad>): BakedModel {
         // renderModelLists reads each direction's list without a null check.
         val culled = EnumMap<Direction, List<BakedQuad>>(Direction::class.java)
-        for (dir in Direction.values()) culled[dir] = emptyList()
+        for (dir in Direction.entries) culled[dir] = emptyList()
         return SimpleBakedModel(
             quads, culled,
             source.useAmbientOcclusion(), source.usesBlockLight(), source.isGui3d,

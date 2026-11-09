@@ -12,6 +12,8 @@ import net.minecraft.world.level.ClipContext
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.util.pickStandaloneBody
+import org.valkyrienskies.mod.common.toWorldCoordinates
 import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
@@ -41,7 +43,8 @@ object SpellCasting {
         val eye = entity.getEyePosition(partialTick)
         val view = entity.getViewVector(partialTick)
         val hit = entity.level().clip(ClipContext(eye, eye.add(view.scale(AIM_CONVERGE)), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity))
-        val distance = if (hit.type == HitResult.Type.MISS) AIM_CONVERGE else hit.location.distanceTo(eye).coerceAtLeast(AIM_MIN)
+        val blockDistance = if (hit.type == HitResult.Type.MISS) AIM_CONVERGE else hit.location.distanceTo(eye)
+        val distance = (entity.level().pickStandaloneBody(eye, view, blockDistance)?.distance ?: blockDistance).coerceAtLeast(AIM_MIN)
         return eye.add(view.scale(distance)).subtract(origin).normalize()
     }
 
@@ -65,7 +68,9 @@ object SpellCasting {
     fun boltPower(charge: Float): Float = BOLT_DAMAGE * (charge * charge + 2f * charge) / 3f
 
     /** [area] marks a cast centred on the caster. */
-    fun burst(ctx: SpellContext, spell: Spell, centre: Vec3, area: Boolean, scale: Float = 1f, waves: Boolean = area) {
+    fun burst(ctx: SpellContext, spell: Spell, hit: Vec3, area: Boolean, scale: Float = 1f, waves: Boolean = area) {
+        // VS2 moves a projectile that strikes a ship into the shipyard, so its hit point can be in either frame.
+        val centre = ctx.level.toWorldCoordinates(hit)
         if (area) SpellVfx.runeCircle(ctx.level, centre, spell.markColour())
         ctx.elements = spell.magnitudes.keys
         for ((element, magnitude) in spell.magnitudes) {
@@ -92,7 +97,8 @@ object SpellCasting {
         }
     }
 
-    fun strikeBlock(ctx: SpellContext, spell: Spell, pos: BlockPos, face: Direction, location: Vec3, scale: Float) {
+    fun strikeBlock(ctx: SpellContext, spell: Spell, pos: BlockPos, face: Direction, hit: Vec3, scale: Float) {
+        val location = ctx.level.toWorldCoordinates(hit)
         SpellVfx.blockStrike(ctx.level, location, spell)
         val struck = ctx.level.getBlockState(pos)
         if (!struck.isAir) ctx.level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, struck), location.x, location.y, location.z, 10, 0.1, 0.1, 0.1, 0.15)
@@ -182,6 +188,8 @@ object SpellCasting {
         val caster = ctx.caster ?: return null
         val end = cone.origin.add(cone.direction.scale(cone.length))
         val hit = ctx.level.clip(ClipContext(cone.origin, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster))
+        val blockDistance = if (hit.type == HitResult.Type.BLOCK) hit.location.distanceTo(cone.origin) else cone.length
+        ctx.level.pickStandaloneBody(cone.origin, cone.direction, blockDistance)?.let { return cone.origin.add(cone.direction.scale(it.distance)) }
         return if (hit.type == HitResult.Type.BLOCK) hit.location else null
     }
 

@@ -34,6 +34,15 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.joml.primitives.AABBd
+import org.joml.primitives.AABBdc
+import org.valkyrienskies.core.api.VsBeta
+import org.shipwrights.enderkinesis.physics.BodyForceQueue
+import org.shipwrights.enderkinesis.util.pickStandaloneBody
+import org.shipwrights.enderkinesis.util.standaloneBodies
+import org.valkyrienskies.core.api.bodies.ServerBaseVsBody
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.mod.common.util.GameToPhysicsAdapter
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.item.ShipCloakingTracker
 import org.shipwrights.enderkinesis.registry.EKEffects
@@ -245,11 +254,76 @@ object NamedEffects {
             }
             target.addEffect(MobEffectInstance(weighted, SpellCurves.ticks(4f, 2f, magnitude)), ctx.caster)
         }
-        if (delivery is Delivery.Sphere) tether(ctx, delivery, magnitude)
+        when (delivery) {
+            is Delivery.Sphere -> tether(ctx, delivery, magnitude)
+            is Delivery.Line, is Delivery.Cone -> rayTether(ctx, delivery)
+            else -> {}
+        }
+    }
+
+    // VS2 keeps lastShipStoodOn for some time after the caster leaves the ship.
+    private fun casterShips(ctx: SpellContext, gtpa: GameToPhysicsAdapter): Set<Long> {
+        val dragging = (ctx.caster as? IEntityDraggingInformationProvider)?.draggingInformation
+        val own = dragging?.takeIf { it.isEntityBeingDraggedByAShip() }?.lastShipStoodOn
+        return own?.let { setOf(it) + gtpa.getAllConnectedShips(it) } ?: emptySet()
+    }
+
+    private fun pullShip(gtpa: GameToPhysicsAdapter, ship: LoadedServerShip, force: Vector3d) {
+        // The replacement takes a body-frame point whose origin is not checked yet; changing it needs a playtest.
+        @Suppress("DEPRECATION")
+        gtpa.applyWorldForceToBodyPos(ship.id, force)
+    }
+
+    @OptIn(VsBeta::class)
+    private fun pullBody(body: ServerBaseVsBody, force: Vector3d) {
+        val at = body.kinematics.position
+        BodyForceQueue.applyWorldForce(body.id, force, Vector3d(at.x(), at.y(), at.z()))
+    }
+
+    /** The [tether] pull on the ships and bodies that a Line ends on, or that a Cone reaches, toward the pull centre. */
+    @OptIn(VsBeta::class)
+    private fun rayTether(ctx: SpellContext, delivery: Delivery) {
+        val level = ctx.level
+        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
+        val excluded = casterShips(ctx, gtpa)
+        val blast = VSGameConfig.SERVER.explosionBlastForce * TNT_RAYS
+        val centre: Vec3
+        val radius: Double
+        val bodies: List<ServerBaseVsBody>
+        when (delivery) {
+            is Delivery.Line -> {
+                val from = level.toWorldCoordinates(delivery.from)
+                centre = level.toWorldCoordinates(delivery.to)
+                val span = centre.subtract(from)
+                radius = span.length() + 1.0
+                val hit = if (span.lengthSqr() < 1.0e-6) null else level.pickStandaloneBody(from, span.normalize(), radius)
+                bodies = listOfNotNull(hit?.let { level.shipObjectWorld.allBodies.getById(it.bodyId) as? ServerBaseVsBody })
+            }
+            is Delivery.Cone -> {
+                centre = level.toWorldCoordinates(delivery.origin)
+                radius = delivery.length
+                val reach = AABBd(centre.x - radius, centre.y - radius, centre.z - radius, centre.x + radius, centre.y + radius, centre.z + radius)
+                bodies = level.standaloneBodies(reach).filter { b ->
+                    val a = b.aabb
+                    delivery.contains(Vec3((a.minX() + a.maxX()) * 0.5, (a.minY() + a.maxY()) * 0.5, (a.minZ() + a.maxZ()) * 0.5))
+                }
+            }
+            else -> return
+        }
+        // The delivery cells hold the struck ship blocks in the shipyard; ship air near the ray does not count.
+        val ships = delivery.blocks(level).mapNotNullTo(HashSet()) {
+            if (level.getBlockState(it).getCollisionShape(level, it).isEmpty) null else level.getLoadedShipManagingPos(it) as? LoadedServerShip
+        }
+        for (ship in ships) {
+            if (ship.id in excluded) continue
+            tetherForce(centre, radius, blast, ship.worldAABB, ship.inertiaData.mass)?.let { pullShip(gtpa, ship, it) }
+        }
+        for (body in bodies) tetherForce(centre, radius, blast, body.aabb, body.inertiaData.mass)?.let { pullBody(body, it) }
     }
 
     /** Approximates the VS2 TNT push without rays: each ship gets the share of rays that its
      *  bounds catch, turned inward. The pull does not grow with the sphere. */
+    @OptIn(VsBeta::class)
     private fun tether(
         ctx: SpellContext,
         sphere: Delivery.Sphere,
@@ -257,10 +331,7 @@ object NamedEffects {
     ) {
         val level = ctx.level
         val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
-        // VS2 keeps lastShipStoodOn for some time after the caster leaves the ship.
-        val dragging = (ctx.caster as? IEntityDraggingInformationProvider)?.draggingInformation
-        val own = dragging?.takeIf { it.isEntityBeingDraggedByAShip() }?.lastShipStoodOn
-        val excluded = own?.let { setOf(it) + gtpa.getAllConnectedShips(it) } ?: emptySet()
+        val excluded = casterShips(ctx, gtpa)
         // World frame, also when a Bolt lands on a ship.
         val c = level.toWorldCoordinates(sphere.center)
         val radius = sphere.radius
@@ -268,28 +339,32 @@ object NamedEffects {
         for (ship in level.shipObjectWorld.loadedShips) {
             val srv = ship as? LoadedServerShip ?: continue
             if (srv.id in excluded || srv.chunkClaimDimension != level.dimensionId) continue
-            val box = srv.worldAABB
-            val nx = c.x.coerceIn(box.minX(), box.maxX())
-            val ny = c.y.coerceIn(box.minY(), box.maxY())
-            val nz = c.z.coerceIn(box.minZ(), box.maxZ())
-            val near = Vec3(nx, ny, nz).distanceTo(c)
-            if (near > radius) continue
-            val middle = Vec3((box.minX() + box.maxX()) * 0.5, (box.minY() + box.maxY()) * 0.5, (box.minZ() + box.maxZ()) * 0.5)
-            val toward = c.subtract(middle)
-            if (toward.lengthSqr() < 1.0e-6) continue
-            val dir = toward.normalize()
-            // Never more than half of all directions.
-            val sx = box.maxX() - box.minX(); val sy = box.maxY() - box.minY(); val sz = box.maxZ() - box.minZ()
-            val facing = abs(dir.x) * sy * sz + abs(dir.y) * sx * sz + abs(dir.z) * sx * sy
-            val share = (facing / near.coerceAtLeast(1.0).pow(2) / (4 * PI)).coerceAtMost(0.5)
-            val falloff = 1 - near / (radius * 2)
-            val mostForMass = srv.inertiaData.mass * TETHER_MAX_SPEED * PHYSICS_TPS
-            val mag = minOf(blast * share * falloff, mostForMass)
-            if (!mag.isFinite() || mag <= 0) continue
-            // The replacement takes a body-frame point whose origin is not checked yet; changing it needs a playtest.
-            @Suppress("DEPRECATION")
-            gtpa.applyWorldForceToBodyPos(srv.id, Vector3d(dir.x * mag, dir.y * mag, dir.z * mag))
+            tetherForce(c, radius, blast, srv.worldAABB, srv.inertiaData.mass)?.let { pullShip(gtpa, srv, it) }
         }
+        for (body in level.standaloneBodies(AABBd(c.x - radius, c.y - radius, c.z - radius, c.x + radius, c.y + radius, c.z + radius))) {
+            tetherForce(c, radius, blast, body.aabb, body.inertiaData.mass)?.let { pullBody(body, it) }
+        }
+    }
+
+    private fun tetherForce(c: Vec3, radius: Double, blast: Double, box: AABBdc, mass: Double): Vector3d? {
+        val nx = c.x.coerceIn(box.minX(), box.maxX())
+        val ny = c.y.coerceIn(box.minY(), box.maxY())
+        val nz = c.z.coerceIn(box.minZ(), box.maxZ())
+        val near = Vec3(nx, ny, nz).distanceTo(c)
+        if (near > radius) return null
+        val middle = Vec3((box.minX() + box.maxX()) * 0.5, (box.minY() + box.maxY()) * 0.5, (box.minZ() + box.maxZ()) * 0.5)
+        val toward = c.subtract(middle)
+        if (toward.lengthSqr() < 1.0e-6) return null
+        val dir = toward.normalize()
+        // Never more than half of all directions.
+        val sx = box.maxX() - box.minX(); val sy = box.maxY() - box.minY(); val sz = box.maxZ() - box.minZ()
+        val facing = abs(dir.x) * sy * sz + abs(dir.y) * sx * sz + abs(dir.z) * sx * sy
+        val share = (facing / near.coerceAtLeast(1.0).pow(2) / (4 * PI)).coerceAtMost(0.5)
+        val falloff = 1 - near / (radius * 2)
+        val mostForMass = mass * TETHER_MAX_SPEED * PHYSICS_TPS
+        val mag = minOf(blast * share * falloff, mostForMass)
+        if (!mag.isFinite() || mag <= 0) return null
+        return Vector3d(dir.x * mag, dir.y * mag, dir.z * mag)
     }
 
     /** A whitelist keeps the effects of other mods safe. */

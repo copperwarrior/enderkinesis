@@ -31,6 +31,7 @@ import net.minecraft.world.level.block.LiquidBlock
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.EntityHitResult
 import net.minecraft.world.phys.HitResult
+import org.shipwrights.enderkinesis.util.pickStandaloneBody
 import org.shipwrights.enderkinesis.duck.ImbuedProjectile
 import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.mixin.ThrownTridentItemAccessor
@@ -262,6 +263,8 @@ object Imbues {
         val to = from.add(projectile.deltaMovement)
         val hit = level.clip(ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, projectile))
         if (hit.type != HitResult.Type.BLOCK || level.getBlockState(hit.blockPos).block !is LiquidBlock) return
+        val step = to.subtract(from)
+        if (level.pickStandaloneBody(from, step.normalize(), hit.location.distanceTo(from)) != null) return
         val imbue = takeFrom(projectile) ?: return
         SpellCasting.strikeBlock(context(projectile, level, imbue), imbue.spell, hit.blockPos, hit.direction, hit.location, imbue.share)
     }

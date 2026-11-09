@@ -85,6 +85,7 @@ internal class FusionTeleport {
         val zAxis = axis(turn, 0.0, 0.0, 1.0)
         var placed: BlockPos? = null
         // A block that needs support, such as a plant, tries other spots; the next try picks a new block.
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (attempt in 0 until PLACE_TRIES) {
             val to = BlockPos.of(pickSpot(level, target, surface) ?: return null)
             val transform = Matrix4d()
@@ -156,7 +157,7 @@ internal class FusionTeleport {
     private fun addFaces(level: ServerLevel, target: LoadedServerShip, surface: Surface, block: Long) {
         val pos = BlockPos.MutableBlockPos().set(block)
         val state = level.getBlockState(pos)
-        for (direction in Direction.values()) {
+        for (direction in Direction.entries) {
             if (!state.isFaceSturdy(level, pos.set(block), direction)) continue
             val next = BlockPos.offset(block, direction)
             if (isFreeSpot(level, target, next)) surface.add(next)
@@ -180,7 +181,7 @@ internal class FusionTeleport {
 
     private fun touchesSturdyFace(level: ServerLevel, spot: Long): Boolean {
         val pos = BlockPos.MutableBlockPos()
-        for (direction in Direction.values()) {
+        for (direction in Direction.entries) {
             pos.set(spot).move(direction)
             val neighbor = level.getBlockState(pos)
             if (!neighbor.isAir && neighbor.isFaceSturdy(level, pos, direction.opposite)) return true

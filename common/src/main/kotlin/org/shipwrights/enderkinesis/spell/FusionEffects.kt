@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.spell
 
+import org.valkyrienskies.mod.common.toWorldCoordinates
 import net.minecraft.core.BlockPos
 import net.minecraft.tags.BlockTags
 import net.minecraft.world.effect.MobEffectInstance
@@ -62,9 +63,11 @@ object FusionEffects {
         val light = EKBlocks.PHANTOM_LIGHT.get()
         var candidates = delivery.blocks(level).filter { level.getBlockState(it).isAir }
         if (delivery is Delivery.Sphere) {
+            val centre = level.toWorldCoordinates(delivery.center)
             candidates = if (delivery.area) {
                 candidates.filter {
-                    val d = Vec3.atCenterOf(it).distanceTo(delivery.center)
+                    // World frame: ship candidates have shipyard positions.
+                    val d = level.toWorldCoordinates(Vec3.atCenterOf(it)).distanceTo(centre)
                     d >= delivery.radius * 0.5 && d <= delivery.radius * 0.8
                 }.shuffled()
             } else candidates.shuffled()
@@ -72,15 +75,17 @@ object FusionEffects {
         var placed = 0
         val cap = 2 + magnitude.toInt()
         // Find the existing lights once, not around each candidate.
-        val lights = NamedEffects.find(level, delivery.bounds().inflate(PHANTOM_LIGHT_SPACING.toDouble()), light).toMutableList()
+        val lights = NamedEffects.find(level, delivery.bounds().inflate(PHANTOM_LIGHT_SPACING.toDouble()), light)
+            .mapTo(ArrayList()) { level.toWorldCoordinates(Vec3.atCenterOf(it)) }
         val spacing2 = PHANTOM_LIGHT_SPACING * PHANTOM_LIGHT_SPACING
         val sound = SpellSounds.FirstChange(ctx, EKSounds.SPELL_SUNFIRE_PHANTOM_LIGHT, SpellSounds.magnitudeVolume(magnitude))
         for (pos in candidates) {
             if (placed >= cap) break
-            if (lights.any { it.distSqr(pos) < spacing2 }) continue
+            val at = level.toWorldCoordinates(Vec3.atCenterOf(pos))
+            if (lights.any { it.distanceToSqr(at) < spacing2 }) continue
             if (ctx.setBlock(pos, light.defaultBlockState())) {
                 placed++
-                lights += pos
+                lights += at
                 sound.at(pos)
             }
         }

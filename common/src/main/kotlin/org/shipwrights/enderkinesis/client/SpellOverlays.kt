@@ -27,6 +27,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * As with the vanilla vignette, overlays draw under the HUD ([renderUnderHud], from `GuiSpellOverlayMixin`).
@@ -58,7 +59,6 @@ object SpellOverlays {
     }
 
     private fun hash2(a: Int, b: Int): Double { val x = sin(a * 127.1 + b * 311.7) * 43758.5453; return x - floor(x) }
-    private fun smooth(x: Double): Double = SpellGeom.smooth(x)
 
     @JvmStatic
     fun renderUnderHud(gfx: GuiGraphics, partialTick: Float) {
@@ -140,7 +140,7 @@ object SpellOverlays {
         b.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR)
         val r0 = min(w, h) * inner; val r1 = max(w, h) * outer
         val r = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val bl = rgb and 0xFF
-        fun a(x: Double, y: Double): Int = (alpha * smooth((hypot(x - w / 2, y - h / 2) - r0) / (r1 - r0)) * 255).roundToInt().coerceIn(0, 255)
+        fun a(x: Double, y: Double): Int = (alpha * smoothstep((hypot(x - w / 2, y - h / 2) - r0) / (r1 - r0)) * 255).roundToInt().coerceIn(0, 255)
         val nx = 24; val ny = 14
         for (i in 0 until nx) for (j in 0 until ny) {
             val x0 = w * i / nx; val x1 = w * (i + 1) / nx; val y0 = h * j / ny; val y1 = h * (j + 1) / ny
@@ -158,13 +158,13 @@ object SpellOverlays {
     private val particleAtlas get() = PARTICLE_ATLAS
 
     private fun frozen(gfx: GuiGraphics, m: Matrix4f, w: Double, h: Double, t: Double, vanillaShows: Boolean) {
-        val a = smooth(t / 0.4)
+        val a = smoothstep(t / 0.4)
         gfx.fill(0, 0, w.toInt(), h.toInt(), argb(0x96C3E6, 0.1 * a))
         if (!vanillaShows) textured(POWDER_SNOW) { b -> quad(b, m, Sprite(POWDER_SNOW, 0f, 0f, 1f, 1f), w / 2, h / 2, w, h, 0xFFFFFF, 0.95 * a) }
     }
 
     private fun crystallized(m: Matrix4f, w: Double, h: Double, t: Double) {
-        val grow = smooth(t / 2.0)
+        val grow = smoothstep(t / 2.0)
         val s = max(8.0, (h / 20).roundToInt().toDouble())
         val calcite = SpellArt.block("calcite")
         val buds = ArrayList<Triple<Double, Double, Double>>()
@@ -219,7 +219,7 @@ object SpellOverlays {
 
     /** Each stem has a fixed seed, so its shape stays the same and only shows more from the base as it grows. */
     private fun entangled(m: Matrix4f, w: Double, h: Double, t: Double) {
-        val grow = smooth(t / 1.4)
+        val grow = smoothstep(t / 1.4)
         val k = max(2.0, (h / 130).roundToInt().toDouble())
         val step = 2 * k
         val vine = SpellArt.block("vine")
