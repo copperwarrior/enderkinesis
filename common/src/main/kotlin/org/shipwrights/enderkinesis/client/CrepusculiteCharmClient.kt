@@ -5,7 +5,7 @@ import net.minecraft.client.Minecraft
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
-import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.item.CrepusculiteCharmManager
 
 /**
  * Client-side levitation for the Crepusculite Charm. While the charm is anywhere in the
@@ -112,18 +112,11 @@ object CrepusculiteCharmClient {
         }
     }
 
-    private fun hasCharm(player: Player): Boolean {
-        val charm = EKItems.CREPUSCULITE_CHARM.get()
-        val inv = player.inventory
-        for (i in 0 until inv.containerSize) {
-            if (inv.getItem(i).`is`(charm)) return true
-        }
-        return false
-    }
+    private fun hasCharm(player: Player): Boolean = CrepusculiteCharmManager.findCharmStack(player) != null
 
     private fun findGroundY(player: Player, client: Minecraft): Double? {
         val level = client.level ?: return null
-        return org.shipwrights.enderkinesis.item.CrepusculiteCharmManager
+        return CrepusculiteCharmManager
             .findGroundY(level, player.blockX, player.blockZ, player.y, GROUND_SCAN)
     }
 }

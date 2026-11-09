@@ -131,14 +131,15 @@ object CrepusculiteCharmManager {
         )
     }
 
-    private fun findCharmStack(player: Player): ItemStack? {
+    /** Searches the inventory, then Curios/Trinkets slots through [AccessoryGatherer]. */
+    fun findCharmStack(player: Player): ItemStack? {
         val charm = EKItems.CREPUSCULITE_CHARM.get()
         val inv = player.inventory
         for (i in 0 until inv.containerSize) {
             val stack = inv.getItem(i)
             if (stack.`is`(charm)) return stack
         }
-        return null
+        return AccessoryGatherer.gather(player).firstOrNull { it.`is`(charm) }
     }
 
     private fun findGroundY(player: ServerPlayer): Double? =
