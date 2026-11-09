@@ -13,6 +13,11 @@ import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
+import org.joml.Quaterniondc
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getShipManagingPos
 import org.shipwrights.enderkinesis.client.AegisContacts
 import org.shipwrights.enderkinesis.client.AegisRenderType
 import org.shipwrights.enderkinesis.client.ScrollBeamClient
@@ -42,15 +47,17 @@ interface SignatureVisual {
     val afterTranslucent: Boolean get() = false
 }
 
-/** The pose origin is [at], so draw at [local] points. Get a buffer just before you write to it,
+/** The pose origin is [at], so draw at [local] points. For an entity on a ship, [at] is its world position and
+ *  the pose carries the ship rotation [turn], so [local] undoes it.  Get a buffer just before you write to it,
  *  and finish before you get the next one: a buffer switch ends the previous batch. */
 class SignatureDraw(
     val e: SignatureEntity, val pose: PoseStack, val buffers: MultiBufferSource, val view: SpellView,
     val at: Vec3, val partialTick: Float, val time: Float, val light: Int, val level: ClientLevel,
+    val turn: Quaterniondc? = null,
 ) {
     val m: Matrix4f get() = pose.last().pose()
 
-    fun local(world: Vec3): Vec3 = world.subtract(at)
+    fun local(world: Vec3): Vec3 = world.subtract(at).let { if (turn == null) it else unturn(turn, it) }
 
     fun glow(): VertexConsumer = buffers.getBuffer(AegisRenderType.FACE_GLOW)
 
@@ -228,9 +235,20 @@ class SignatureRenderer(ctx: EntityRendererProvider.Context) : EntityRenderer<Si
         if (visual.afterTranslucent) { SignatureVisuals.defer(e); return }
         val level = Minecraft.getInstance().level ?: return
         val camera = entityRenderDispatcher.camera
-        val at = e.getPosition(partialTick)
-        val view = SpellView(camera.position.subtract(at), Vec3(camera.leftVector), Vec3(camera.upVector))
-        visual.render(SignatureDraw(e, pose, buffers, view, at, partialTick, SpellClock.time(level, partialTick), light, level))
+        val placed = placeOnShip(level, e.getPosition(partialTick))
+        val at = placed.first
+        val turn = placed.second
+        fun local(v: Vec3) = if (turn == null) v else unturn(turn, v)
+        val view = SpellView(local(camera.position.subtract(at)), local(Vec3(camera.leftVector)), local(Vec3(camera.upVector)))
+        visual.render(SignatureDraw(e, pose, buffers, view, at, partialTick, SpellClock.time(level, partialTick), light, level, turn))
+    }
+
+    // VS2 draws a shipyard entity at the ship's render transform, so the pose origin is the world point and its axes are the ship's.
+    @OptIn(GameTickOnly::class)
+    private fun placeOnShip(level: ClientLevel, pos: Vec3): Pair<Vec3, Quaterniondc?> {
+        val transform = (level.getShipManagingPos(pos.x, pos.y, pos.z) as? ClientShip)?.renderTransform ?: return pos to null
+        val world = transform.shipToWorld.transformPosition(Vector3d(pos.x, pos.y, pos.z))
+        return Vec3(world.x, world.y, world.z) to transform.shipToWorldRotation
     }
 
     /** The visuals reach far past the bounding box, so do not cull by frustum. */
@@ -238,3 +256,6 @@ class SignatureRenderer(ctx: EntityRendererProvider.Context) : EntityRenderer<Si
 
     override fun getTextureLocation(e: SignatureEntity): ResourceLocation = BLOCK_ATLAS
 }
+
+private fun unturn(turn: Quaterniondc, v: Vec3): Vec3 =
+    turn.transformInverse(Vector3d(v.x, v.y, v.z)).let { Vec3(it.x, it.y, it.z) }

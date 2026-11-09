@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.client.signature
 
 import com.mojang.blaze3d.vertex.VertexConsumer
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.client.Minecraft
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.DustParticleOptions
@@ -23,6 +24,7 @@ import org.shipwrights.enderkinesis.client.SpellShapes
 import org.shipwrights.enderkinesis.client.Sprite
 import org.shipwrights.enderkinesis.entity.SignatureEntity
 import org.shipwrights.enderkinesis.spell.Signature
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.shipwrights.enderkinesis.spell.signature.BodySignatures.Faespark
 import org.shipwrights.enderkinesis.spell.signature.BodySignatures.Starfall
 import org.shipwrights.enderkinesis.spell.signature.BodySignatures.HungeringMaw
@@ -241,8 +243,19 @@ object BodySignatureVisuals {
         /** [from] is the offset from the maw at the time the block was eaten. */
         private class Eaten(val state: BlockState, val pos: BlockPos, val from: Vec3, val at: Int)
 
+        private class Near {
+            lateinit var state: BlockState
+            var x = 0.0
+            var y = 0.0
+            var z = 0.0
+        }
+
+        // Two maps swap each tick and their entries are reused, so a maw tick does not allocate for each near block.
         private class Maw {
-            var near = HashMap<Long, BlockState>()
+            var near = Long2ObjectOpenHashMap<Near>()
+            var spare = Long2ObjectOpenHashMap<Near>()
+            val freeNear = ArrayList<Near>()
+            val cursor = BlockPos.MutableBlockPos()
             val eaten = ArrayList<Eaten>()
         }
 
@@ -253,21 +266,30 @@ object BodySignatureVisuals {
             val level = e.level()
             val m = maw(e)
             val p = e.position()
-            for ((key, state) in m.near) {
-                val pos = BlockPos.of(key)
-                if (!level.getBlockState(pos).isAir) continue
-                m.eaten += Eaten(state, pos, Vec3.atCenterOf(pos).subtract(p), e.tickCount)
+            val last = m.near.long2ObjectEntrySet().fastIterator()
+            while (last.hasNext()) {
+                val entry = last.next()
+                if (!level.getBlockState(m.cursor.set(entry.longKey)).isAir) continue
+                val near = entry.value
+                m.eaten += Eaten(near.state, BlockPos.of(entry.longKey), Vec3(near.x - p.x, near.y - p.y, near.z - p.z), e.tickCount)
             }
             m.eaten.removeIf { e.tickCount - it.at > EAT_TICKS }
-            val next = HashMap<Long, BlockState>()
+            val next = m.spare
             val reach = HungeringMaw.TEAR_REACH + 1.5
-            val r = Math.ceil(reach).toInt()
-            val centre = BlockPos.containing(p)
-            for (pos in BlockPos.betweenClosed(centre.offset(-r, -r, -r), centre.offset(r, r, r))) {
-                if (Vec3.atCenterOf(pos).distanceTo(p) > reach) continue
+            val blocks = CrossFrameBlocks(level, p, reach)
+            blocks.forEachWithin(reach) { pos, _ ->
                 val state = level.getBlockState(pos)
-                if (HungeringMaw.eatable(level, pos, state)) next[pos.asLong()] = state
+                if (HungeringMaw.eatable(level, pos, state)) {
+                    val middle = blocks.visitedMiddle
+                    val near = m.freeNear.removeLastOrNull() ?: Near()
+                    near.state = state
+                    near.x = middle.x; near.y = middle.y; near.z = middle.z
+                    next.put(pos.asLong(), near)?.let { m.freeNear += it }
+                }
             }
+            m.freeNear.addAll(m.near.values)
+            m.near.clear()
+            m.spare = m.near
             m.near = next
         }
 

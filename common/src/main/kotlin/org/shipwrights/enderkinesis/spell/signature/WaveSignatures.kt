@@ -29,6 +29,7 @@ import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Signature
 import org.shipwrights.enderkinesis.spell.SpellContext
 import org.shipwrights.enderkinesis.spell.SpellVfx
+import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.world.clipIncludeShips
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -1032,15 +1033,17 @@ object WaveSignatures {
         /** Client and server both call this. */
         fun patch(level: Level, ground: Vec3): List<BlockPos> {
             val centre = BlockPos.containing(ground.x, ground.y - 0.01, ground.z)
-            if (abs(ground.y - (centre.y + 1)) > 0.02) return emptyList()
-            val out = ArrayList<BlockPos>()
+            val under = surface(level, ground.x, ground.z, ground.y + 0.5, 1.0) ?: return emptyList()
+            // A ship deck is not on the world grid, so only a world floor must be a full block.
+            val onShip = level.getShipManagingPos(under.blockPos) != null
+            if (!onShip && abs(ground.y - (centre.y + 1)) > 0.02) return emptyList()
+            val out = LinkedHashSet<BlockPos>()
             for (dx in -1..1) for (dz in -1..1) {
                 if (dx * dx + dz * dz == 2) continue
-                val pos = centre.offset(dx, 0, dz)
-                val top = surfaceY(level, pos.x + 0.5, pos.z + 0.5, ground.y + 0.5, 1.0) ?: continue
-                if (abs(top - ground.y) < 0.02) out += pos
+                val hit = surface(level, centre.x + dx + 0.5, centre.z + dz + 0.5, ground.y + 0.5, 1.0) ?: continue
+                if (abs(hit.location.y - ground.y) < 0.02) out += hit.blockPos
             }
-            return out
+            return out.toList()
         }
 
         /** Client and server both call this. */

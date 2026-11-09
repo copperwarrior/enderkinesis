@@ -23,6 +23,7 @@ import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment
 import org.shipwrights.enderkinesis.spell.NamedEffects
 import org.shipwrights.enderkinesis.spell.SpellContext
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
@@ -114,7 +115,9 @@ object SignatureShips {
     fun push(ship: LoadedServerShip, at: Vec3, impulse: Vec3) = push(ship, at.x, at.y, at.z, impulse.x, impulse.y, impulse.z)
 
     fun push(ship: LoadedServerShip, ax: Double, ay: Double, az: Double, ix: Double, iy: Double, iz: Double) {
-        val ns = BLOCK_KG * 20.0
+        // VS2 scales block mass by s^3, so a block of a scaled ship weighs s^3 block-masses.
+        val s = ship.transform.shipToWorldScaling.x()
+        val ns = BLOCK_KG * 20.0 * s * s * s
         ship.getOrPutAttachment(LauncherRecoilAttachment::class.java) { LauncherRecoilAttachment() }
             .enqueue(Vector3d(ax, ay, az), Vector3d(ix * ns, iy * ns, iz * ns))
     }
@@ -139,26 +142,15 @@ object SignatureShips {
         return out
     }
 
-    /** [world] and [pos] are scratch objects: copy them to keep them after [visit] returns. */
+    /** Visits ship blocks only. [world] and [pos] are scratch objects: copy them to keep them after [visit] returns. */
     inline fun forEachBlockNear(
         level: ServerLevel, centre: Vec3, r: Double, only: LoadedServerShip? = null,
         visit: (ship: LoadedServerShip, world: Vector3d, pos: BlockPos.MutableBlockPos, state: BlockState) -> Unit,
     ) {
-        val local = Vector3d()
-        val world = Vector3d()
-        val pos = BlockPos.MutableBlockPos()
-        val ri = Math.ceil(r).toInt()
-        for (ship in if (only != null) listOf(only) else ships(level, centre, r)) {
-            ship.transform.worldToShip.transformPosition(centre.x, centre.y, centre.z, local)
-            val cx = Math.floor(local.x).toInt(); val cy = Math.floor(local.y).toInt(); val cz = Math.floor(local.z).toInt()
-            for (dx in -ri..ri) for (dy in -ri..ri) for (dz in -ri..ri) {
-                pos.set(cx + dx, cy + dy, cz + dz)
-                val state = level.getBlockState(pos)
-                if (state.isAir) continue
-                ship.transform.shipToWorld.transformPosition(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5, world)
-                val ox = world.x - centre.x; val oy = world.y - centre.y; val oz = world.z - centre.z
-                if (Math.sqrt(ox * ox + oy * oy + oz * oz) <= r) visit(ship, world, pos, state)
-            }
+        val blocks = CrossFrameBlocks(level, centre, r, if (only != null) listOf(only) else ships(level, centre, r))
+        blocks.forEachWithin(r, world = false) { pos, ship ->
+            val state = level.getBlockState(pos)
+            if (!state.isAir) visit(ship as LoadedServerShip, blocks.visitedMiddle, pos, state)
         }
     }
 

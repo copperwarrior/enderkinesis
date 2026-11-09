@@ -47,7 +47,9 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.smoothstep
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 @OptIn(GameTickOnly::class)
@@ -89,15 +91,8 @@ object BodySignatures {
         if (count <= 0) return
         val level = e.level() as ServerLevel
         val spots = ArrayList<BlockPos>()
-        val n = Math.ceil(r).toInt()
-        val c = BlockPos.containing(centre)
-        for (pos in BlockPos.betweenClosed(c.offset(-n, -n, -n), c.offset(n, n, n))) {
-            if (Vec3.atCenterOf(pos).distanceTo(centre) > r) continue
+        CrossFrameBlocks(level, centre, r).forEachWithin(r) { pos, _ ->
             if (level.getBlockState(pos).isAir && BaseFireBlock.canBePlacedAt(level, pos, Direction.UP)) spots += pos.immutable()
-        }
-        for (block in SignatureShips.blocksNear(level, centre, r)) {
-            val above = block.pos.above()
-            if (level.getBlockState(above).isAir && BaseFireBlock.canBePlacedAt(level, above, Direction.UP)) spots += above
         }
         spots.shuffle(java.util.Random(level.random.nextLong()))
         var lit = 0
@@ -127,8 +122,6 @@ object BodySignatures {
         val flat = if (away.lengthSqr() < 1.0e-6) Vec3.ZERO else away.normalize().scale(strength)
         target.spellPush(flat.add(0.0, lift, 0.0))
     }
-
-    private fun smooth(x: Double): Double { val t = x.coerceIn(0.0, 1.0); return t * t * (3 - 2 * t) }
 
     /** Both sides get each fall from [SignatureEntity.seed] and [SignatureEntity.point] ([fall]).
      *  [SignatureEntity.data] holds one landed bit for each meteor. */
@@ -323,13 +316,13 @@ object BodySignatures {
         fun hover(e: SignatureEntity): Double = ((e.data ushr HOVER_SHIFT) and 0xFF) / HOVER_STEPS
 
         /** Both sides call this. */
-        fun hovering(point: Vec3, hover: Double, since: Double): Vec3 = point.add(0.0, hover * smooth(since / GLIDE), 0.0)
+        fun hovering(point: Vec3, hover: Double, since: Double): Vec3 = point.add(0.0, hover * smoothstep(since / GLIDE), 0.0)
 
         fun range(power: Float): Double = RANGE + RANGE_PER_POWER * power
 
         /** Both sides call this. [contact] is relative to the host's middle. */
         fun circling(middle: Vec3, width: Float, contact: Vec3, since: Double): Vec3 {
-            val ease = smooth(since / GLIDE)
+            val ease = smoothstep(since / GLIDE)
             val r = hypot(contact.x, contact.z).coerceAtLeast(0.05)
             val a = atan2(contact.z, contact.x) + CIRCLE_SPIN * since
             val radius = r + (width * 0.5 + CIRCLE_GAP - r) * ease
@@ -420,14 +413,10 @@ object BodySignatures {
 
         private fun freezeWater(e: SignatureEntity, o: Orbit, core: Vec3) {
             val level = e.level() as ServerLevel
-            val r = Math.ceil(WATER_REACH).toInt()
-            val centre = BlockPos.containing(core)
             var froze = false
-            for (pos in BlockPos.betweenClosed(centre.offset(-r, -r, -r), centre.offset(r, r, r))) {
-                if (Vec3.atCenterOf(pos).distanceTo(core) > WATER_REACH) continue
+            CrossFrameBlocks(level, core, WATER_REACH).forEachWithin(WATER_REACH) { pos, _ ->
                 FluidFreezing.frozen(level.getBlockState(pos))?.let { if (e.setBlock(pos.immutable(), it)) froze = true }
             }
-            for (block in SignatureShips.blocksNear(level, core, WATER_REACH)) FluidFreezing.frozen(block.state)?.let { if (e.setBlock(block.pos, it)) froze = true }
             if (froze && (o.freezeSound == NEVER || e.tickCount - o.freezeSound >= SOUND_EVERY)) {
                 o.freezeSound = e.tickCount
                 level.sound(core, EKSounds.SIGNATURE_NORTH_STAR_FREEZE.get())
@@ -472,6 +461,11 @@ object BodySignatures {
         const val TEAR_REACH = 6.0
         private const val TEAR_EVERY = 2
         private const val TEAR_COUNT = 3
+        /** Hard bound of blocks per tear step, so a tiny ship scale cannot eat thousands in one tick. */
+        private const val TEAR_MAX_BLOCKS = 48
+        private const val TEAR_BUDGET_EPSILON = 1.0e-9
+
+        private data class TearCandidate(val pos: BlockPos, val distanceSq: Double, val cost: Double)
         /** A little harder than gravel, and softer than stone. */
         private const val TEAR_HARDNESS = 1.5f
         private const val SHIP_PULL = 0.5
@@ -479,7 +473,8 @@ object BodySignatures {
         /** After this many bounces in one tick, a corner pushes it straight out. */
         private const val BOUNCE_TRIES = 4
         /** More than half a block diagonal, so the search finds each ship block the sphere can touch. */
-        private const val SHIP_BLOCK_REACH = SPHERE + 0.9
+        /** A block can touch the sphere when its middle is this near. */
+        private const val BLOCK_REACH = SPHERE + 0.9
 
         private class Horizon(var drift: Vec3) {
             val kept = ArrayList<Entity>()
@@ -575,25 +570,21 @@ object BodySignatures {
                 best = n
                 bestGap = gap
             }
-            val r = Math.ceil(SPHERE).toInt()
-            val c = BlockPos.containing(at)
-            for (pos in BlockPos.betweenClosed(c.offset(-r, -r, -r), c.offset(r, r, r))) {
+            val blocks = CrossFrameBlocks(level, at, BLOCK_REACH)
+            val near = Vector3d()
+            blocks.forEachWithin(BLOCK_REACH) { pos, ship ->
                 val state = level.getBlockState(pos)
-                if (state.isAir || eatable(level, pos, state)) continue
+                if (state.isAir || eatable(level, pos, state)) return@forEachWithin
                 val shape = state.getCollisionShape(level, pos)
-                if (shape.isEmpty) continue
-                consider(
-                    at.x.coerceIn(pos.x + shape.min(Direction.Axis.X), pos.x + shape.max(Direction.Axis.X)),
-                    at.y.coerceIn(pos.y + shape.min(Direction.Axis.Y), pos.y + shape.max(Direction.Axis.Y)),
-                    at.z.coerceIn(pos.z + shape.min(Direction.Axis.Z), pos.z + shape.max(Direction.Axis.Z)),
+                if (shape.isEmpty) return@forEachWithin
+                // Clamp in the frame of the block, because a ship can turn.
+                if (ship != null) ship.transform.worldToShip.transformPosition(at.x, at.y, at.z, near) else near.set(at.x, at.y, at.z)
+                near.set(
+                    near.x.coerceIn(pos.x + shape.min(Direction.Axis.X), pos.x + shape.max(Direction.Axis.X)),
+                    near.y.coerceIn(pos.y + shape.min(Direction.Axis.Y), pos.y + shape.max(Direction.Axis.Y)),
+                    near.z.coerceIn(pos.z + shape.min(Direction.Axis.Z), pos.z + shape.max(Direction.Axis.Z)),
                 )
-            }
-            for (block in SignatureShips.blocksNear(level, at, SHIP_BLOCK_REACH)) {
-                if (block.state.getCollisionShape(level, block.pos).isEmpty) continue
-                // Clamp in the ship frame, because the ship can turn.
-                val local = toShip(block.ship, at)
-                val p = block.pos
-                val near = SignatureShips.toWorld(block.ship, Vec3(local.x.coerceIn(p.x.toDouble(), p.x + 1.0), local.y.coerceIn(p.y.toDouble(), p.y + 1.0), local.z.coerceIn(p.z.toDouble(), p.z + 1.0)))
+                ship?.transform?.shipToWorld?.transformPosition(near)
                 consider(near.x, near.y, near.z)
             }
             return best
@@ -608,16 +599,22 @@ object BodySignatures {
         /** Remove blocks with no drops and no break effect: the client draws them flying into the maw. */
         private fun tear(e: SignatureEntity, h: Horizon, level: ServerLevel, core: Vec3) {
             val ctx = e.ctx ?: return
-            val r = Math.ceil(TEAR_REACH).toInt()
-            val centre = BlockPos.containing(core)
-            val near = ArrayList<BlockPos>()
-            for (pos in BlockPos.betweenClosed(centre.offset(-r, -r, -r), centre.offset(r, r, r))) {
-                if (Vec3.atCenterOf(pos).distanceTo(core) > TEAR_REACH) continue
-                if (eatable(level, pos, level.getBlockState(pos))) near += pos.immutable()
+            val blocks = CrossFrameBlocks(level, core, TEAR_REACH)
+            val near = ArrayList<TearCandidate>()
+            blocks.forEachWithin(TEAR_REACH) { pos, ship ->
+                if (!eatable(level, pos, level.getBlockState(pos))) return@forEachWithin
+                // A block of a scaled-down ship holds s^3 of a world block, so it costs that much of the budget.
+                val s = ship?.transform?.shipToWorldScaling?.x() ?: 1.0
+                near += TearCandidate(pos.immutable(), blocks.visitedMiddle.distanceSquared(core.x, core.y, core.z), minOf(1.0, s * s * s))
             }
-            near.sortBy { Vec3.atCenterOf(it).distanceToSqr(core) }
+            near.sortBy { it.distanceSq }
             val air = Blocks.AIR.defaultBlockState()
-            for (pos in near.take(TEAR_COUNT)) {
+            var budget = TEAR_COUNT.toDouble()
+            var eaten = 0
+            for ((pos, _, cost) in near) {
+                if (budget <= TEAR_BUDGET_EPSILON || eaten >= TEAR_MAX_BLOCKS) break
+                budget -= cost
+                eaten++
                 // Remove a loose plant on top first, so it does not drop as an item.
                 val above = pos.above()
                 val top = level.getBlockState(above)
@@ -892,21 +889,14 @@ object BodySignatures {
         private fun nearestMetal(level: ServerLevel, at: Vec3): Vec3? {
             var best: Vec3? = null
             var bestD = METAL_REACH * METAL_REACH
-            val r = Math.ceil(METAL_REACH).toInt()
-            val centre = BlockPos.containing(at)
-            for (pos in BlockPos.betweenClosed(centre.offset(-r, -r, -r), centre.offset(r, r, r))) {
-                if (!metal(level.getBlockState(pos))) continue
-                val top = Vec3(pos.x + 0.5, pos.y + 1.0, pos.z + 0.5)
-                val d = top.distanceToSqr(at)
-                if (d < bestD && seen(level, at, top)) { bestD = d; best = top }
-            }
             val top = Vector3d()
-            SignatureShips.forEachBlockNear(level, at, METAL_REACH) { ship, _, pos, state ->
-                if (!metal(state)) return@forEachBlockNear
-                ship.transform.shipToWorld.transformPosition(pos.x + 0.5, pos.y + 1.0, pos.z + 0.5, top)
-                val ox = at.x - top.x; val oy = at.y - top.y; val oz = at.z - top.z
-                val d = ox * ox + oy * oy + oz * oz
-                if (d < bestD) { bestD = d; best = Vec3(top.x, top.y, top.z) }
+            // The top face is half a block above the middle.
+            CrossFrameBlocks(level, at, METAL_REACH + 0.5).forEachWithin(METAL_REACH + 0.5) { pos, ship ->
+                if (!metal(level.getBlockState(pos))) return@forEachWithin
+                top.set(pos.x + 0.5, pos.y + 1.0, pos.z + 0.5)
+                ship?.transform?.shipToWorld?.transformPosition(top)
+                val d = top.distanceSquared(at.x, at.y, at.z)
+                if (d < bestD && seen(level, at, Vec3(top.x, top.y, top.z))) { bestD = d; best = Vec3(top.x, top.y, top.z) }
             }
             return best
         }

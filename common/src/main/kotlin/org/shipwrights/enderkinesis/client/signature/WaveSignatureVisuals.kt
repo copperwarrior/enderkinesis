@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client.signature
 
+import org.valkyrienskies.core.api.util.GameTickOnly
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.animation.KeyframeAnimations
 import net.minecraft.client.renderer.RenderType
@@ -16,6 +17,10 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.shipObjectWorld
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
@@ -38,12 +43,10 @@ import org.shipwrights.enderkinesis.spell.signature.WaveSignatures.YgannsGrasp
 import java.util.Arrays
 import kotlin.math.abs
 import kotlin.math.atan2
-import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -88,9 +91,6 @@ object WaveSignatureVisuals {
         val yaw: Double get() = atan2(lane.side.z, lane.side.x)
     }
 
-    private fun laneOf(e: SignatureEntity, length: Double): LaneLook =
-        e.clientState as? LaneLook ?: LaneLook(WaveSignatures.lane(e.level(), e, length), e.level()).also { e.clientState = it }
-
     /** Shows only the top [h] (0..1) of the texture, so a growing plant is never squashed. */
     private fun plant(c: VertexConsumer, m: Matrix4f, base: Vec3, sprite: Sprite, h: Double, rgb: Int, alpha: Float, light: Int, turn: Double = 0.0, width: Double = 1.0) {
         if (h <= 0.01 || alpha <= 0.004f) return
@@ -104,11 +104,20 @@ object WaveSignatureVisuals {
         }
     }
 
+    /** [x], [y] and [z] can be in the shipyard: the face then follows the ship. */
+    @OptIn(GameTickOnly::class)
     private fun topFace(d: SignatureDraw, c: VertexConsumer, x: Int, z: Int, y: Double, sprite: Sprite, rgb: Int, alpha: Float) {
         val light = d.lightAt(Vec3(x + 0.5, y + 0.5, z + 0.5))
+        val toWorld = (d.level.getShipManagingPos(x + 0.5, y, z + 0.5) as? ClientShip)?.renderTransform?.shipToWorld
+        val corner = Vector3d()
+        fun at(cx: Double, cz: Double): Vec3 {
+            corner.set(cx, y, cz)
+            toWorld?.transformPosition(corner)
+            return d.local(Vec3(corner.x, corner.y, corner.z))
+        }
         SpellShapes.texFace(
-            c, d.m, d.local(Vec3(x.toDouble(), y, z.toDouble())), d.local(Vec3(x + 1.0, y, z.toDouble())),
-            d.local(Vec3(x + 1.0, y, z + 1.0)), d.local(Vec3(x.toDouble(), y, z + 1.0)), sprite, rgb, alpha, light,
+            c, d.m, at(x.toDouble(), z.toDouble()), at(x + 1.0, z.toDouble()),
+            at(x + 1.0, z + 1.0), at(x.toDouble(), z + 1.0), sprite, rgb, alpha, light,
         )
     }
 
@@ -813,7 +822,22 @@ object WaveSignatureVisuals {
         }
     }
 
-    private class ClientBloom(val at: Vec3, val born: Float, val plants: List<Pair<Vec3, Boolean>>, val tiles: List<BlockPos>)
+    /** On a ship deck, [plants] are shipyard points of ship [shipId]. */
+    private class ClientBloom(val at: Vec3, val born: Float, val plants: List<Pair<Vec3, Boolean>>, val tiles: List<BlockPos>, val shipId: Long?)
+
+    @OptIn(GameTickOnly::class)
+    private fun shipPoint(ship: ClientShip, world: Vec3): Vec3 {
+        val p = ship.renderTransform.worldToShip.transformPosition(Vector3d(world.x, world.y, world.z))
+        return Vec3(p.x, p.y, p.z)
+    }
+
+    @OptIn(GameTickOnly::class)
+    private fun bloomWorld(level: Level, b: ClientBloom, p: Vec3): Vec3 {
+        val id = b.shipId ?: return p
+        val transform = (level.shipObjectWorld.allShips.getById(id) as? ClientShip)?.renderTransform ?: return p
+        val world = transform.shipToWorld.transformPosition(Vector3d(p.x, p.y, p.z))
+        return Vec3(world.x, world.y, world.z)
+    }
 
     private class Garden {
         val blooms = ArrayList<ClientBloom>()
@@ -834,6 +858,8 @@ object WaveSignatureVisuals {
             return hand to GardenSanguine.sprays(aim, (e.tickCount + partialTick).toDouble()).map { GardenSanguine.lands(e.level(), hand, it) }
         }
 
+        // Client tick runs on the game thread, where the client ship is read.
+        @OptIn(GameTickOnly::class)
         override fun tick(e: SignatureEntity) {
             val h = garden(e)
             val level = e.level()
@@ -853,7 +879,10 @@ object WaveSignatureVisuals {
                     val y = WaveSignatures.surfaceY(level, x, z, ground.y + 1.0, 3.0) ?: ground.y
                     Vec3(x, y, z) to pr.nextBoolean()
                 }
-                h.blooms += ClientBloom(ground, e.tickCount.toFloat(), plants, GardenSanguine.patch(level, ground))
+                val deck = WaveSignatures.surface(level, ground.x, ground.z, ground.y + 0.5, 1.0)
+                val ship = deck?.let { level.getShipManagingPos(it.blockPos) } as? ClientShip
+                val stored = if (ship == null) plants else plants.map { (p, fungus) -> shipPoint(ship, p) to fungus }
+                h.blooms += ClientBloom(ground, e.tickCount.toFloat(), stored, GardenSanguine.patch(level, ground), ship?.id)
                 repeat(14) { level.addParticle(dust(0.7f, 0.05f, 0.1f, 1.6f), ground.x + r.nextGaussian() * 0.7, ground.y + 0.2, ground.z + r.nextGaussian() * 0.7, 0.0, 0.06, 0.0) }
             }
             h.blooms.removeIf { e.tickCount - it.born > GardenSanguine.BLOOM_LIFE }
@@ -861,7 +890,8 @@ object WaveSignatureVisuals {
                 level.addParticle(dust(0.6f, 0.04f, 0.08f, 1.5f), p.x + r.nextGaussian() * 0.4, p.y + 0.1, p.z + r.nextGaussian() * 0.4, 0.0, 0.05, 0.0)
             }
             for (b in h.blooms) if (r.nextInt(4) == 0) {
-                val (p, _) = b.plants[r.nextInt(b.plants.size)]
+                val (stored, _) = b.plants[r.nextInt(b.plants.size)]
+                val p = bloomWorld(level, b, stored)
                 level.addParticle(dust(1f, 0.45f, 0.45f, 0.9f), p.x, p.y + 0.3, p.z, 0.0, 0.05, 0.0)
             }
             if (h.blooms.isNotEmpty() && e.tickCount % 2 == 0) {
@@ -894,7 +924,8 @@ object WaveSignatureVisuals {
                         topFace(d, c, tile.x, tile.z, tile.y + 1.01, nylium, 0xFFFFFF, SpellGeom.smooth(life) * minOf(1f, a / 4f))
                     }
                     for ((k, spot) in b.plants.withIndex()) {
-                        val (p, isFungus) = spot
+                        val (stored, isFungus) = spot
+                        val p = bloomWorld(d.level, b, stored)
                         plant(c, d.m, d.local(p), if (isFungus) fungus else roots, grow, 0xFFFFFF, 1f, d.lightAt(p.add(0.0, 0.5, 0.0)), k * 1.3)
                     }
                 }

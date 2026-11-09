@@ -36,7 +36,9 @@ import org.shipwrights.enderkinesis.spell.Signature
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import org.shipwrights.enderkinesis.spell.SpellContext
 import org.valkyrienskies.mod.common.world.clipIncludeShips
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.valkyrienskies.mod.common.shipAwareCanSeeSky
 
 object LinkSignatures {
     val ALL: Map<Signature, SignatureBehaviour> = mapOf(
@@ -86,19 +88,19 @@ object LinkSignatures {
     /** Keep [fireChance] low, so that fire stays scattered and does not cover the area. */
     private fun searAround(e: SignatureEntity, centre: Vec3, radius: Double, down: Int, up: Int, fireChance: Float = 0f) {
         val level = e.level() as ServerLevel
-        val c = BlockPos.containing(centre)
-        val ri = Math.ceil(radius).toInt()
-        val pos = BlockPos.MutableBlockPos()
-        for (dx in -ri..ri) for (dz in -ri..ri) {
-            if (dx * dx + dz * dz > radius * radius) continue
-            for (dy in -down..up) {
-                pos.set(c.x + dx, c.y + dy, c.z + dz)
-                val state = level.getBlockState(pos)
-                if (state.isAir) continue
-                sear(e, level, pos)
-                if (fireChance > 0f && level.random.nextFloat() < fireChance && state.ignitedByLava()) {
-                    placeFire(e, level, pos.above(), Direction.UP)
-                }
+        val reach = Math.hypot(radius, maxOf(down, up) + 0.5)
+        val blocks = CrossFrameBlocks(level, centre, reach)
+        // Offsets from the middle of the centre cell: whole blocks for world cells, so the world cylinder is as before.
+        val ox = blocks.origin.x + 0.5; val oy = blocks.origin.y + 0.5; val oz = blocks.origin.z + 0.5
+        val m = blocks.visitedMiddle
+        blocks.forEachWithin(reach) { pos, _ ->
+            val dx = m.x - ox; val dy = m.y - oy; val dz = m.z - oz
+            if (dx * dx + dz * dz > radius * radius || dy < -down - 0.5 || dy >= up + 0.5) return@forEachWithin
+            val state = level.getBlockState(pos)
+            if (state.isAir) return@forEachWithin
+            sear(e, level, pos)
+            if (fireChance > 0f && level.random.nextFloat() < fireChance && state.ignitedByLava()) {
+                placeFire(e, level, pos.above(), Direction.UP)
             }
         }
     }
@@ -415,7 +417,7 @@ object LinkSignatures {
             val at = aimed.entity?.position() ?: aimed.point
             val foot = Vec3(at.x, cast.level.groundNear(at, 2, 16) ?: at.y, at.z)
             val level = cast.level
-            val daylight = level.isDay && !level.isRaining && level.canSeeSky(BlockPos.containing(foot).above())
+            val daylight = level.isDay && !level.isRaining && shipAwareCanSeeSky(level, BlockPos.containing(foot).above())
             level.sound(cast.origin, EKSounds.SIGNATURE_JUDGEMENT_PILLAR_CAST.get(), 1.6f)
             return spawn(cast, foot, LIFE) {
                 point = foot

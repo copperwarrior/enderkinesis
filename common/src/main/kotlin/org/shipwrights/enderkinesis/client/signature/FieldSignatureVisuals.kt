@@ -977,9 +977,8 @@ object FieldSignatureVisuals {
                 (1f - ((age - NetherRift.CLOSE) / NetherRift.OPEN).coerceIn(0f, 1f))
 
         override fun tick(e: SignatureEntity) {
-            // The server keeps it fixed at its point. Do the same here.
+            // The server keeps it fixed; its position syncs exact, which the float point cannot do in the shipyard.
             e.deltaMovement = Vec3.ZERO
-            if (e.position().distanceToSqr(e.point) > 1.0e-6) e.setPos(e.point)
             if (e.tickCount < NetherRift.SPILL_FROM || e.tickCount > NetherRift.SPILL_TO) return
             val level = e.level()
             val r = level.random

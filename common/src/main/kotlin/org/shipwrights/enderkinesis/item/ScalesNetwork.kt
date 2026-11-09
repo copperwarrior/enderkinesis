@@ -59,8 +59,6 @@ object ScalesNetwork {
     /** Reach matches [StaffOfConcealmentItem.REACH] / [StaffOfScalesItem.REACH]. */
     private const val REACH: Double = 64.0
 
-    fun activeShipFor(player: ServerPlayer): LoadedServerShip? = activeByPlayer[player.uuid]
-
     private fun holdsStaff(player: ServerPlayer): Boolean =
         player.mainHandItem.item === EKItems.STAFF_OF_SCALES.get()
 
@@ -121,6 +119,48 @@ object ScalesNetwork {
         return best
     }
 
+    private fun begin(player: ServerPlayer) {
+        if (!holdsStaff(player)) {
+            clearActive(player)
+            return
+        }
+        if (ScalesManager.isDimensionBlacklisted(player)) {
+            player.displayClientMessage(
+                net.minecraft.network.chat.Component.translatable(
+                    "item.enderkinesis.staff_of_scales.blacklisted_dimension"
+                ), true,
+            )
+            return
+        }
+        // Cage body picker runs FIRST — a cage in front of a
+        // ship hull should win, same precedence rule the Wylland
+        // Tome uses. The two cache maps are mutually exclusive
+        // per player; clear the other on every BEGIN.
+        val body = serverRaycastCageBody(player)
+        if (body != null) {
+            activeByPlayer.remove(player.uuid)
+            activeBodyByPlayer[player.uuid] = body
+            sendState(player, body.id, ScalesManager.getCurrentScale(body))
+            return
+        }
+        val ship = serverRaycastShip(player)
+        if (ship == null) {
+            activeByPlayer.remove(player.uuid)
+            activeBodyByPlayer.remove(player.uuid)
+            return
+        }
+        activeBodyByPlayer.remove(player.uuid)
+        activeByPlayer[player.uuid] = ship
+        sendState(player, ship.id, ScalesManager.getCurrentScale(ship))
+    }
+
+    private fun sendState(player: ServerPlayer, id: Long, scale: Double) {
+        val reply = FriendlyByteBuf(io.netty.buffer.Unpooled.buffer())
+        reply.writeLong(id)
+        reply.writeDouble(scale)
+        NetworkManager.sendToPlayer(player, STATE, reply)
+    }
+
     fun init() {
         // The maps hold ship and body references of the session.
         dev.architectury.event.events.common.PlayerEvent.PLAYER_QUIT.register(::clearActive)
@@ -130,48 +170,7 @@ object ScalesNetwork {
         }
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, BEGIN) { _, ctx ->
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
-            ctx.queue {
-                if (!holdsStaff(player)) {
-                    clearActive(player)
-                    return@queue
-                }
-                if (ScalesManager.isDimensionBlacklisted(player)) {
-                    player.displayClientMessage(
-                        net.minecraft.network.chat.Component.translatable(
-                            "item.enderkinesis.staff_of_scales.blacklisted_dimension"
-                        ), true,
-                    )
-                    return@queue
-                }
-                // Cage body picker runs FIRST — a cage in front of a
-                // ship hull should win, same precedence rule the Wylland
-                // Tome uses. The two cache maps are mutually exclusive
-                // per player; clear the other on every BEGIN.
-                val body = serverRaycastCageBody(player)
-                if (body != null) {
-                    activeByPlayer.remove(player.uuid)
-                    activeBodyByPlayer[player.uuid] = body
-                    val current = ScalesManager.getCurrentScale(body)
-                    val reply = FriendlyByteBuf(io.netty.buffer.Unpooled.buffer())
-                    reply.writeLong(body.id)
-                    reply.writeDouble(current)
-                    NetworkManager.sendToPlayer(player, STATE, reply)
-                    return@queue
-                }
-                val ship = serverRaycastShip(player)
-                if (ship == null) {
-                    activeByPlayer.remove(player.uuid)
-                    activeBodyByPlayer.remove(player.uuid)
-                    return@queue
-                }
-                activeBodyByPlayer.remove(player.uuid)
-                activeByPlayer[player.uuid] = ship
-                val current = ScalesManager.getCurrentScale(ship)
-                val reply = FriendlyByteBuf(io.netty.buffer.Unpooled.buffer())
-                reply.writeLong(ship.id)
-                reply.writeDouble(current)
-                NetworkManager.sendToPlayer(player, STATE, reply)
-            }
+            ctx.queue { begin(player) }
         }
 
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, COMMIT) { buf, ctx ->
@@ -184,14 +183,14 @@ object ScalesNetwork {
                 }
                 val body = activeBodyByPlayer[player.uuid]
                 if (body != null) {
-                    val applied = ScalesManager.commitScaleOnBody(player, body, scale)
+                    ScalesManager.commitScaleOnBody(player, body, scale)
                     return@queue
                 }
                 val ship = activeByPlayer[player.uuid]
                 if (ship == null) {
                     return@queue
                 }
-                val applied = ScalesManager.commitScaleOnShip(player, ship, scale)
+                ScalesManager.commitScaleOnShip(player, ship, scale)
             }
         }
 

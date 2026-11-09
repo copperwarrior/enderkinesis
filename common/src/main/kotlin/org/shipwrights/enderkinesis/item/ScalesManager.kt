@@ -91,27 +91,22 @@ object ScalesManager {
     fun isDimensionBlacklisted(level: net.minecraft.world.level.Level): Boolean =
         level.dimension().location() in BLACKLISTED_DIMENSIONS
 
-    /** Apply a new uniform scale. Clamps to [MIN_SCALE, MAX_SCALE].
-     *
-     *  Returns true if applied, false on validation failure (out of range,
-     *  ship unreachable, dimension blacklisted). */
     /** Direct-on-reference variant used by the live stream — the network
      *  layer holds the ship reference picked at BEGIN, so we skip the
      *  by-id lookup entirely (it returns null in some configurations even
      *  when `getLoadedShipManagingPos` resolves the same ship). */
-    fun commitScaleOnShip(player: ServerPlayer, ship: LoadedServerShip, requestedScale: Double): Boolean {
+    fun commitScaleOnShip(player: ServerPlayer, ship: LoadedServerShip, requestedScale: Double) {
         if (isDimensionBlacklisted(player)) {
             player.displayClientMessage(
                 Component.translatable("item.enderkinesis.staff_of_scales.blacklisted_dimension"), true,
             )
-            return false
+            return
         }
         if (!isReachable(player, ship)) {
-            return false
+            return
         }
         val newScale = requestedScale.coerceIn(MIN_SCALE, MAX_SCALE)
         applyScaleViaTeleport(ship, newScale, player.serverLevel())
-        return true
     }
 
     /** Start a 1-second tween that lerps `ship`'s uniform scale back to 1.0.
@@ -185,17 +180,16 @@ object ScalesManager {
      *  [ServerBaseVsBody.setTransform] that takes position + rotation +
      *  scaling in one call. Position / rotation are preserved; only
      *  scaling changes. */
-    fun commitScaleOnBody(player: ServerPlayer, body: ServerBaseVsBody, requestedScale: Double): Boolean {
+    fun commitScaleOnBody(player: ServerPlayer, body: ServerBaseVsBody, requestedScale: Double) {
         if (isDimensionBlacklisted(player)) {
             player.displayClientMessage(
                 Component.translatable("item.enderkinesis.staff_of_scales.blacklisted_dimension"), true,
             )
-            return false
+            return
         }
         val newScale = requestedScale.coerceIn(MIN_SCALE, MAX_SCALE)
         val tf = body.kinematics.transform
         body.setTransform(tf.position, tf.rotation, Vector3d(newScale, newScale, newScale))
-        return true
     }
 
     private fun isReachable(player: ServerPlayer, ship: LoadedServerShip): Boolean {

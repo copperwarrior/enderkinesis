@@ -50,8 +50,12 @@ import org.shipwrights.enderkinesis.spell.SpellCurves
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList
 import org.joml.Matrix4d
+import org.shipwrights.enderkinesis.util.colliderClip
 import org.valkyrienskies.core.api.ships.LoadedServerShip
+import org.valkyrienskies.mod.common.CompatUtil
 import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.toWorldCoordinates
 import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.cos
 import kotlin.math.pow
@@ -516,7 +520,7 @@ object FieldSignatures {
         }
 
         private fun eatArmour(target: LivingEntity) {
-            for (slot in EquipmentSlot.values()) {
+            for (slot in EquipmentSlot.entries) {
                 if (slot.type != EquipmentSlot.Type.ARMOR) continue
                 val stack = target.getItemBySlot(slot)
                 if (stack.isDamageableItem) stack.hurtAndBreak(1, target) { it.broadcastBreakEvent(slot) }
@@ -618,18 +622,21 @@ object FieldSignatures {
             val ri = Math.ceil(reach).toInt()
             val pos = BlockPos.MutableBlockPos()
             var doused = 0
+            val ships = shipsNear(level, cloud.subtract(0.0, fall / 2, 0.0), maxOf(reach, fall / 2))
             for (dx in -ri..ri) for (dz in -ri..ri) {
                 val x = Math.floor(cloud.x).toInt() + dx; val z = Math.floor(cloud.z).toInt() + dz
                 if (horizontal(Vec3(x + 0.5, 0.0, z + 0.5), cloud) > reach) continue
+                // The heightmap does not see ship decks.
                 val top = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z)
                 if (top > cloud.y) continue
                 pos.set(x, top, z)
-                if (level.getBlockState(pos).`is`(BlockTags.FIRE) && douse(e, level, pos)) doused++
+                if (!level.getBlockState(pos).`is`(BlockTags.FIRE)) continue
+                if (ships.isNotEmpty() && !rainReaches(level, cloud.y, Vec3(x + 0.5, top + 0.5, z + 0.5))) continue
+                if (douse(e, level, pos)) doused++
             }
-            val ships = shipsNear(level, cloud.subtract(0.0, fall / 2, 0.0), maxOf(reach, fall / 2))
             for (b in shipBlocksUnder(level, ships) { it.`is`(BlockTags.FIRE) }) {
                 if (horizontal(b.world, cloud) > reach || b.world.y > cloud.y || b.world.y < cloud.y - fall) continue
-                if (douse(e, level, b.pos)) doused++
+                if (rainReaches(level, cloud.y, b.world) && douse(e, level, b.pos)) doused++
             }
             if (doused > 0) level.sound(cloud.subtract(0.0, height, 0.0), EKSounds.SIGNATURE_STORM_CLOUD_DOUSE.get(), 1.5f)
             val box = AABB(cloud, cloud).inflate(reach, 0.0, reach).expandTowards(0.0, -fall, 0.0)
@@ -641,6 +648,10 @@ object FieldSignatures {
                 if (target !== e.caster) target.ticksFrozen = minOf(target.ticksFrozen + 20, target.ticksRequiredToFreeze + 40)
             }
         }
+
+        /** Fire has no collider, so any hit above [fire] is a deck or roof. */
+        private fun rainReaches(level: ServerLevel, cloudY: Double, fire: Vec3): Boolean =
+            level.clip(colliderClip(Vec3(fire.x, cloudY, fire.z), fire)).type == HitResult.Type.MISS
 
         private fun douse(e: SignatureEntity, level: ServerLevel, pos: BlockPos): Boolean {
             if (!e.setBlock(pos.immutable(), Blocks.AIR.defaultBlockState())) return false
@@ -773,13 +784,21 @@ object FieldSignatures {
         private const val RETRY = 40
         private val FIREBALL = Spell(List(FIREBALL_GLYPHS) { Element.PYRE })
 
-        private class State {
+        // The anchor is in the frame of the entity. The synced point is a float, too coarse for shipyard coordinates.
+        private class State(val anchor: Vec3) {
             val failed = HashMap<Int, Int>()
         }
 
+        /** In the frame of the entity: the shipyard frame when the rift rides a ship. */
         fun facing(e: SignatureEntity): Vec3 {
             val a = e.data / 1000.0
             return Vec3(cos(a), 0.0, sin(a))
+        }
+
+        private fun worldFacing(e: SignatureEntity, level: ServerLevel): Vec3 {
+            val face = facing(e)
+            val ship = level.getShipManagingPos(e.x, e.y, e.z) ?: return face
+            return ship.transform.shipToWorld.transformDirection(Vector3d(face.x, face.y, face.z)).let { Vec3(it.x, 0.0, it.z).normalize() }
         }
 
         override fun start(cast: SignatureCast): SignatureEntity {
@@ -787,23 +806,33 @@ object FieldSignatures {
             val at = aimed.entity?.position() ?: aimed.point.let { p ->
                 if (aimed.block == null) p else p.add(cast.caster.eyePosition.subtract(p).normalize().scale(HALF_WIDTH + 0.5))
             }
-            val ground = cast.level.groundNear(at, 1, 6)
-            val foot = if (ground != null) Vec3(at.x, ground + 0.1, at.z) else at.subtract(0.0, HEIGHT / 2, 0.0)
+            // The clip sees ship decks. The block lookup sees only world blocks, so it put the rift under a ship.
+            val deck = WaveSignatures.surface(cast.level, at.x, at.z, at.y + 1.0, 7.0)
+            val foot = if (deck != null) Vec3(at.x, deck.location.y + 0.1, at.z) else at.subtract(0.0, HEIGHT / 2, 0.0)
             val look = cast.caster.lookAngle.let { Vec3(-it.x, 0.0, -it.z) }.let { if (it.lengthSqr() < 1.0e-6) Vec3(1.0, 0.0, 0.0) else it.normalize() }
             cast.level.sound(foot, EKSounds.SIGNATURE_NETHER_RIFT_OPEN.get(), 3f)
-            return spawn(cast, foot, LIFE) {
-                point = foot
-                data = Math.round(Math.atan2(look.z, look.x) * 1000).toInt()
+            // A rift on a deck rides the ship: it lives in the shipyard, in the ship's own axes.
+            val ship = deck?.let { cast.level.getShipManagingPos(it.blockPos) }
+            var anchor = foot
+            var facing = look
+            if (ship != null) {
+                val toShip = ship.transform.worldToShip
+                anchor = toShip.transformPosition(Vector3d(foot.x, foot.y, foot.z)).let { Vec3(it.x, it.y, it.z) }
+                facing = toShip.transformDirection(Vector3d(look.x, 0.0, look.z)).let { Vec3(it.x, 0.0, it.z).normalize() }
+            }
+            return spawn(cast, anchor, LIFE) {
+                state = State(anchor)
+                data = Math.round(Math.atan2(facing.z, facing.x) * 1000).toInt()
             }
         }
 
         override fun tick(e: SignatureEntity) {
+            val level = e.level() as ServerLevel
+            val state = e.state as? State ?: State(e.position()).also { e.state = it }
             // Pin it: a Heat bolt pulls near entities along its path, the rift too.
             e.deltaMovement = Vec3.ZERO
-            if (e.position().distanceToSqr(e.point) > 1.0e-6) e.setPos(e.point)
-            val level = e.level() as ServerLevel
-            val state = e.state as? State ?: State().also { e.state = it }
-            val foot = e.point
+            if (e.position().distanceToSqr(state.anchor) > 1.0e-6) e.setPos(state.anchor)
+            val foot = level.toWorldCoordinates(state.anchor)
             val mid = foot.add(0.0, HEIGHT / 2, 0.0)
             if (e.tickCount == CLOSE) level.sound(mid, EKSounds.SIGNATURE_NETHER_RIFT_CLOSE.get(), 3f)
             if (e.tickCount in OPEN..CLOSE) transport(e, level, foot, state)
@@ -831,7 +860,7 @@ object FieldSignatures {
         private fun fireballs(e: SignatureEntity, level: ServerLevel, mid: Vec3, state: State) {
             val caster = e.caster ?: return
             val random = level.random
-            val face = facing(e)
+            val face = worldFacing(e, level)
             val volley = 1 + (VOLLEY_POWER * e.power).toInt()
             repeat(volley) { k ->
                 val out = if (random.nextBoolean()) face else face.scale(-1.0)
@@ -856,7 +885,7 @@ object FieldSignatures {
                 Level.NETHER -> level.server.getLevel(Level.OVERWORLD)
                 else -> null
             } ?: return
-            val n = facing(e)
+            val n = worldFacing(e, level)
             val across = Vec3(-n.z, 0.0, n.x)
             val box = AABB(foot, foot.add(0.0, HEIGHT, 0.0)).inflate(HALF_WIDTH + 1.0, 0.0, HALF_WIDTH + 1.0)
             val touching = level.getEntities(e, box) {
@@ -892,6 +921,14 @@ object FieldSignatures {
                 if (!border.isWithinBounds(BlockPos(bx, 0, bz))) continue
                 level.getChunk(bx shr 4, bz shr 4)
                 val top = if (nether) minOf(level.minBuildHeight + level.dimensionType().logicalHeight() - 8, level.maxBuildHeight - 2) else level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, bx, bz)
+                // The heightmap does not see ship decks. Nothing is above the deck that this finds.
+                if (!nether) {
+                    val deck = CompatUtil.getShipHeightmapHitAboveWorldHeight(level, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, BlockPos(bx, top, bz))
+                    if (deck != null) {
+                        if (deck.direction == Direction.UP && safeFloor(level, deck.blockPos)) return deck.location
+                        continue
+                    }
+                }
                 var y = top
                 while (y > level.minBuildHeight + 1) {
                     pos.set(bx, y, bz)
@@ -904,10 +941,15 @@ object FieldSignatures {
         }
 
         private fun standable(level: ServerLevel, pos: BlockPos): Boolean {
-            val feet = level.getBlockState(pos); val head = level.getBlockState(pos.above()); val under = level.getBlockState(pos.below())
+            val feet = level.getBlockState(pos); val head = level.getBlockState(pos.above())
             if (!feet.getCollisionShape(level, pos).isEmpty || !feet.fluidState.isEmpty || feet.`is`(BlockTags.FIRE)) return false
             if (!head.getCollisionShape(level, pos.above()).isEmpty || !head.fluidState.isEmpty) return false
-            if (!under.isFaceSturdy(level, pos.below(), Direction.UP)) return false
+            return safeFloor(level, pos.below())
+        }
+
+        private fun safeFloor(level: ServerLevel, pos: BlockPos): Boolean {
+            val under = level.getBlockState(pos)
+            if (!under.isFaceSturdy(level, pos, Direction.UP)) return false
             return !under.`is`(Blocks.MAGMA_BLOCK) && !under.`is`(Blocks.CAMPFIRE) && !under.`is`(Blocks.SOUL_CAMPFIRE) && under.fluidState.isEmpty
         }
     }
