@@ -45,6 +45,7 @@ import org.shipwrights.enderkinesis.client.WohlonStaffGhost;
 import org.shipwrights.enderkinesis.client.SureibjinDreamVignette;
 import org.shipwrights.enderkinesis.client.SureibjinWaterFilm;
 import org.shipwrights.enderkinesis.client.TomeSummonOverlay;
+import org.shipwrights.enderkinesis.client.volume.VolumePerf;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -145,9 +146,13 @@ public abstract class LevelRendererBubblePassMixin {
         SpellCubeFx.captureView(poseStack, projectionMatrix, camera);
 
         // Before the fog, like the orb links.
+        VolumePerf.INSTANCE.getEclipseGlow().begin();
         SselithEclipseGlow.render(poseStack, projectionMatrix, camera, partialTick);
+        VolumePerf.INSTANCE.getEclipseGlow().end();
         WillfaerFlameVolume.render(poseStack, projectionMatrix, camera);
+        VolumePerf.INSTANCE.getHeartFog().begin();
         WohlonPortalVisuals.render(poseStack, projectionMatrix, camera);
+        VolumePerf.INSTANCE.getHeartFog().end();
         WohlonRitualTendrils.render(poseStack, projectionMatrix, camera);
         WohlonRitePedestalVisuals.render(poseStack, projectionMatrix, camera);
         WohlonStaffGhost.render(poseStack, projectionMatrix, camera);
@@ -163,7 +168,9 @@ public abstract class LevelRendererBubblePassMixin {
         WohlonFogWisps.render(poseStack, projectionMatrix, camera);
 
         // World-space fog goes under the screen-space overlays below.
+        VolumePerf.INSTANCE.getVoidFog().begin();
         SselithVoidFog.render(poseStack, projectionMatrix, camera, partialTick);
+        VolumePerf.INSTANCE.getVoidFog().end();
 
         // Each renderRefraction call is a no-op when its effect isn't active.
         // Order: concealment first so scrying/tome-summon see the refracted

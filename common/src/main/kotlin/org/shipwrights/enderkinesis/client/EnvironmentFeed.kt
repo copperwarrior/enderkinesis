@@ -5,10 +5,8 @@ import dev.architectury.networking.NetworkManager
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.MultiBufferSource
-import net.minecraft.core.BlockPos
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
 import org.joml.Vector3d
@@ -16,7 +14,7 @@ import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.ElementalEnvironment
 import org.shipwrights.enderkinesis.spell.SpellCasting
-import org.valkyrienskies.mod.common.getShipsIntersecting
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -73,14 +71,12 @@ object EnvironmentFeed {
         if (player == null || held.isEmpty()) return
 
         val centre = player.position().add(0.0, player.bbHeight * 0.5, 0.0)
-        val origin = BlockPos.containing(centre)
-        val ships = level.getShipsIntersecting(AABB(centre, centre).inflate(ElementalEnvironment.RADIUS + 1.0)).toList()
-        val pos = BlockPos.MutableBlockPos()
+        val blocks = CrossFrameBlocks(level, centre, ElementalEnvironment.RADIUS.toDouble())
         val shipPoint = Vector3d()
         val random = level.random
         val r = ElementalEnvironment.RADIUS
         nonBlockSources.clear()
-        ElementalEnvironment.addPlaceSources(level, origin, nonBlockSources)
+        ElementalEnvironment.addPlaceSources(level, blocks.origin, nonBlockSources)
         ElementalEnvironment.addEntityState(level, player, nonBlockSources)
         ElementalEnvironment.addDeeds(deedTimes, level.gameTime, nonBlockSources)
         // True also when no scroll holds Quintessence, which skips the block check.
@@ -88,26 +84,19 @@ object EnvironmentFeed {
         for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
             val weight = ElementalEnvironment.weight(dx, dy, dz)
             if (weight <= 0.0) continue
-            pos.set(origin.x + dx, origin.y + dy, origin.z + dz)
-            val worldState = level.getBlockState(pos)
-            if (!othersPresent && ElementalEnvironment.givesElement(worldState)) othersPresent = true
-            for ((hand, elements) in held) for (element in elements) {
-                val chance = FEED_CHANCE * weight * ElementalEnvironment.share(worldState, element)
-                if (chance > 0.0 && random.nextDouble() < chance) spawn(player, hand, element, onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random))
-            }
-            // Ship blocks also feed it: map each world cell into shipyard space, then the wisp back to world.
-            for (ship in ships) {
-                ship.transform.worldToShip.transformPosition(origin.x + dx + 0.5, origin.y + dy + 0.5, origin.z + dz + 0.5, shipPoint)
-                pos.set(shipPoint.x, shipPoint.y, shipPoint.z)
+            blocks.forEachAt(dx, dy, dz) { pos, ship ->
                 val state = level.getBlockState(pos)
-                if (state.isAir) continue
+                if (state.isAir) return@forEachAt
                 if (!othersPresent && ElementalEnvironment.givesElement(state)) othersPresent = true
                 for ((hand, elements) in held) for (element in elements) {
                     val chance = FEED_CHANCE * weight * ElementalEnvironment.share(state, element)
                     if (chance <= 0.0 || random.nextDouble() >= chance) continue
                     val p = onFace(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), random)
-                    ship.transform.shipToWorld.transformPosition(p.x, p.y, p.z, shipPoint)
-                    spawn(player, hand, element, Vec3(shipPoint.x, shipPoint.y, shipPoint.z))
+                    val from = if (ship == null) p else {
+                        ship.transform.shipToWorld.transformPosition(p.x, p.y, p.z, shipPoint)
+                        Vec3(shipPoint.x, shipPoint.y, shipPoint.z)
+                    }
+                    spawn(player, hand, element, from)
                 }
             }
         }

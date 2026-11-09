@@ -5,6 +5,7 @@
   "minVersion": "0.8",
   "plugin": "org.shipwrights.enderkinesis.mixin.EnderkinesisMixinPlugin",
   "client": [
+    "DebugScreenOverlayVolumePerfMixin",
     "InventoryScreenIncubationGlowMixin",
     "PlayerRendererSelvesMixin",
     "EntityRenderDispatcherSelvesMixin",
@@ -112,7 +113,6 @@
     "MinecraftItemColorsAccessor",
     "FogRendererWohlonBiomeMixin",
     "ClientLevelWohlonSkyTintMixin",
-    "LevelRendererWohlonWaterMurkMixin",
     "FogRendererIchaericInkMixin",
     "ScreenEffectRendererIchaericInkMixin",
     "GameRendererYgannAbyssOverlayMixin",

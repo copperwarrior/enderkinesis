@@ -7,25 +7,31 @@ import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL12
 import org.lwjgl.opengl.GL30
 
-/** A depth texture that holds a copy of main depth from one point in the frame. Render thread only. */
-class DepthTextureCopy {
+/**
+ * A depth texture that holds a copy of main depth from one point in the frame. A [colourFormat] above 0 also copies main
+ * colour into a texture of that format. Render thread only.
+ */
+class DepthTextureCopy(private val colourFormat: Int = 0) {
     var fbo = -1
         private set
     var textureId = -1
+        private set
+    var colourTextureId = -1
         private set
     private var width = 0
     private var height = 0
     private var internalFormat = 0
     private var mainTexture = -1
 
-    /** Copies main depth now. The framebuffer that was bound stays bound. */
+    /** Copies main depth, and colour when [colourFormat] is above 0, now. The framebuffer that was bound stays bound. */
     fun copyFrom(main: RenderTarget) {
         // Fabulous binds its own targets around some passes, so restore what was bound, not main.
         val prevFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING)
         ensure(main)
         GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, main.frameBufferId)
         GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, fbo)
-        GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST)
+        val bits = if (colourFormat > 0) GL11.GL_DEPTH_BUFFER_BIT or GL11.GL_COLOR_BUFFER_BIT else GL11.GL_DEPTH_BUFFER_BIT
+        GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, bits, GL11.GL_NEAREST)
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo)
     }
 
@@ -55,8 +61,16 @@ class DepthTextureCopy {
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo)
         val attachment = if (stencil) GL30.GL_DEPTH_STENCIL_ATTACHMENT else GL30.GL_DEPTH_ATTACHMENT
         GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, attachment, GL11.GL_TEXTURE_2D, textureId, 0)
-        // Depth only: a colour pass into this framebuffer must write nothing.
-        GL11.glDrawBuffer(GL11.GL_NONE)
+        if (colourFormat > 0) {
+            if (colourTextureId == -1) colourTextureId = GlStateManager._genTexture()
+            VolumeTextures.allocate(colourTextureId, colourFormat, main.width, main.height, GL11.GL_RGBA, GL11.GL_FLOAT, GL11.GL_NEAREST, clampToEdge = true)
+            GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo)
+            GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, colourTextureId, 0)
+            GL11.glDrawBuffer(GL30.GL_COLOR_ATTACHMENT0)
+        } else {
+            // Depth only: a colour pass into this framebuffer must write nothing.
+            GL11.glDrawBuffer(GL11.GL_NONE)
+        }
         GL11.glReadBuffer(GL11.GL_NONE)
         width = main.width
         height = main.height

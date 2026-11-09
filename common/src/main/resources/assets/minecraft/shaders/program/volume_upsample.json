@@ -1,0 +1,28 @@
+{
+  "blend": {
+    "func": "add",
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "zero",
+    "dstalpha": "one"
+  },
+  "vertex": "blit",
+  "fragment": "volume_upsample",
+  "attributes": [ "Position" ],
+  "samplers": [
+    { "name": "DepthSampler" },
+    { "name": "HalfSampler" },
+    { "name": "HalfDepthSampler" },
+    { "name": "OpaqueColourSampler" },
+    { "name": "GlassColourSampler" }
+  ],
+  "uniforms": [
+    { "name": "ProjMat",        "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "OutSize",        "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "DepthParams",    "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "HalfSize",       "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
+    { "name": "DepthTolerance", "type": "float",     "count": 1,  "values": [ 0.01 ] },
+    { "name": "DitherFrame",    "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "BehindOn",       "type": "float",     "count": 1,  "values": [ 0.0 ] }
+  ]
+}

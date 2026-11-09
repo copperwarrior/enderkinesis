@@ -20,6 +20,7 @@ object VolumeComposite {
         /** The pass outputs colour × alpha, so colour above alpha adds light. */
         PREMULTIPLIED(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA),
         ADDITIVE(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE),
+        REPLACE(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO),
     }
 
     fun drawOverMain(

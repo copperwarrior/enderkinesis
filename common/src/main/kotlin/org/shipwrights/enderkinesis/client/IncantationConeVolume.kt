@@ -25,6 +25,7 @@ import org.shipwrights.enderkinesis.item.IncantationOfWindsItem
 import org.shipwrights.enderkinesis.mixin.ParticleVelocityAccessor
 import kotlin.math.abs
 import kotlin.math.sqrt
+import org.joml.Vector3d
 
 /** Volumes from each caster's hand: the Winds gust cone and the River's twisted water column. Render thread only. */
 object IncantationConeVolume {
@@ -129,6 +130,9 @@ object IncantationConeVolume {
     private var uniforms: Uniforms? = null
     private var columnUniforms: Uniforms? = null
     private val localToView = Matrix4f()
+    // Render thread only: the cone axes of the cone that pushCone fills now.
+    private val axisY = Vector3d()
+    private val axisZ = Vector3d()
 
     fun tick(level: ClientLevel) {
         if (level !== lastLevel) {
@@ -346,18 +350,8 @@ object IncantationConeVolume {
         }
     }
 
-    /** False when the cone is out of range. */
-    private fun pushCone(u: Uniforms, cone: Cone): Boolean {
-        val sx = cone.apexX - view.camX
-        val sy = cone.apexY - view.camY
-        val sz = cone.apexZ - view.camZ
-        if (sx * sx + sy * sy + sz * sz > MAX_VIEW_DISTANCE_SQR) return false
-
-        // Cone axes: X along the stream, Y and Z across it.
-        val xx = cone.axisX
-        val xy = cone.axisY
-        val xz = cone.axisZ
-        // Y = X × up, or X × east when the stream is near vertical.
+    /** Sets [axisY] = X × up (or X × east when X is near vertical), normalised, and [axisZ] = X × Y. */
+    private fun crossAxes(xx: Double, xy: Double, xz: Double) {
         var yx: Double
         var yy: Double
         var yz: Double
@@ -374,9 +368,24 @@ object IncantationConeVolume {
         yx /= yLen
         yy /= yLen
         yz /= yLen
-        val zx = xy * yz - xz * yy
-        val zy = xz * yx - xx * yz
-        val zz = xx * yy - xy * yx
+        axisY.set(yx, yy, yz)
+        axisZ.set(xy * yz - xz * yy, xz * yx - xx * yz, xx * yy - xy * yx)
+    }
+
+    /** False when the cone is out of range. */
+    private fun pushCone(u: Uniforms, cone: Cone): Boolean {
+        val sx = cone.apexX - view.camX
+        val sy = cone.apexY - view.camY
+        val sz = cone.apexZ - view.camZ
+        if (sx * sx + sy * sy + sz * sz > MAX_VIEW_DISTANCE_SQR) return false
+
+        // Cone axes: X along the stream, Y and Z across it.
+        val xx = cone.axisX
+        val xy = cone.axisY
+        val xz = cone.axisZ
+        crossAxes(xx, xy, xz)
+        val yx = axisY.x; val yy = axisY.y; val yz = axisY.z
+        val zx = axisZ.x; val zy = axisZ.y; val zz = axisZ.z
 
         // The tail direction in cone axes, as a slope across the aim.
         val tailAxial = maxOf(cone.tailX * xx + cone.tailY * xy + cone.tailZ * xz, MIN_TAIL_AXIAL)

@@ -11,6 +11,7 @@ class ScreenBounds {
     private var maxX = 0f
     private var maxY = 0f
     private val corner = Vector4f()
+    private val rect = IntArray(RECT_SIZE)
 
     val isEmpty: Boolean
         get() = minX >= maxX || minY >= maxY
@@ -47,15 +48,22 @@ class ScreenBounds {
 
     /** Sets the GL scissor box to these bounds on a target of [width] x [height], grown by [pad] pixels. */
     fun applyScissor(width: Int, height: Int, pad: Int) {
-        val x0 = Mth.clamp(Mth.floor((minX * 0.5f + 0.5f) * width) - pad, 0, width)
-        val y0 = Mth.clamp(Mth.floor((minY * 0.5f + 0.5f) * height) - pad, 0, height)
-        val x1 = Mth.clamp(Mth.ceil((maxX * 0.5f + 0.5f) * width) + pad, 0, width)
-        val y1 = Mth.clamp(Mth.ceil((maxY * 0.5f + 0.5f) * height) + pad, 0, height)
-        RenderSystem.enableScissor(x0, y0, x1 - x0, y1 - y0)
+        scissorRect(width, height, pad, rect)
+        RenderSystem.enableScissor(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1])
+    }
+
+    /** Writes the box of [applyScissor] to [out] as x0, y0, x1, y1, with x1 and y1 exclusive. */
+    fun scissorRect(width: Int, height: Int, pad: Int, out: IntArray) {
+        require(out.size >= RECT_SIZE) { "scissorRect needs $RECT_SIZE slots" }
+        out[0] = Mth.clamp(Mth.floor((minX * 0.5f + 0.5f) * width) - pad, 0, width)
+        out[1] = Mth.clamp(Mth.floor((minY * 0.5f + 0.5f) * height) - pad, 0, height)
+        out[2] = Mth.clamp(Mth.ceil((maxX * 0.5f + 0.5f) * width) + pad, 0, width)
+        out[3] = Mth.clamp(Mth.ceil((maxY * 0.5f + 0.5f) * height) + pad, 0, height)
     }
 
     private companion object {
         const val CORNERS = 8
+        const val RECT_SIZE = 4
         const val MIN_W = 1.0e-3f
     }
 }

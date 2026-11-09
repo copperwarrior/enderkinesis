@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.mixin;
 
 import net.minecraft.client.renderer.LevelRenderer;
+import org.shipwrights.enderkinesis.client.MothClothOverlayRenderer;
 import org.shipwrights.enderkinesis.client.SselithEclipseGlow;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,5 +16,12 @@ public abstract class LevelRendererSselithEclipseGlowMixin {
     @Inject(method = "setSectionDirty(IIIZ)V", at = @At("HEAD"))
     private void enderkinesis$markEclipseGlowDirty(int x, int y, int z, boolean playerChanged, CallbackInfo ci) {
         SselithEclipseGlow.markSectionDirty(x, y, z);
+        MothClothOverlayRenderer.onSectionDirty(x, y, z);
+    }
+
+    // Resource reloads and graphics option changes: baked atlas UVs and AO go stale.
+    @Inject(method = "allChanged", at = @At("HEAD"))
+    private void enderkinesis$markMothClothAllDirty(CallbackInfo ci) {
+        MothClothOverlayRenderer.onAllChanged();
     }
 }
