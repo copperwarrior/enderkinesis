@@ -21,6 +21,8 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.RuneBlock
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.CrossFrameBlocks
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 /** A phased block stays in the world data, so ship mass does not change and nothing fills the gap.
  *  Only collision, outline and client meshing ignore it. A restart only brings the blocks back early. */
@@ -106,11 +108,15 @@ object AbyssalPockets {
 
     fun open(ctx: SpellContext, centre: Vec3, radius: Double, ticks: Int): Boolean {
         val r = Math.ceil(radius).toInt()
-        val origin = BlockPos.containing(centre)
-        val inside = BlockPos.betweenClosed(origin.offset(-r, -r, -r), origin.offset(r, r, r))
-            .filter { Vec3.atCenterOf(it).distanceToSqr(centre) <= radius * radius }
-            .map { it.immutable() }
-        return phase(ctx, inside, ticks)
+        val blocks = CrossFrameBlocks(ctx.level, centre, radius)
+        val origin = blocks.origin
+        val inside = ArrayList<BlockPos>()
+        for (dx in -r..r) for (dy in -r..r) for (dz in -r..r) {
+            val cell = Vec3(origin.x + dx + 0.5, origin.y + dy + 0.5, origin.z + dz + 0.5)
+            if (cell.distanceToSqr(blocks.worldCentre) > radius * radius) continue
+            blocks.forEachAt(dx, dy, dz) { pos, _ -> inside += pos.immutable() }
+        }
+        return phase(ctx, inside, ticks, centre)
     }
 
     fun canPhase(ctx: SpellContext, pos: BlockPos): Boolean {
@@ -120,13 +126,30 @@ object AbyssalPockets {
         return state.getDestroySpeed(level, pos) >= 0f && ctx.mayChange(pos, Blocks.AIR.defaultBlockState())
     }
 
-    private fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int): Boolean {
+    private fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int, centre: Vec3): Boolean {
         val level = ctx.level
+        var candidates = 0 // TEMP pocket debug, remove after the Forge run
+        var deniedByPermission = 0 // TEMP pocket debug, remove after the Forge run
+        val rejects = ArrayList<String>() // TEMP pocket debug, remove after the Forge run
         val until = level.gameTime + ticks
         val map = phased.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
         val added = ArrayList<Long>()
         for (pos in positions) {
-            if (!canPhase(ctx, pos)) continue
+            candidates++ // TEMP pocket debug, remove after the Forge run
+            if (!canPhase(ctx, pos)) {
+                // TEMP pocket debug, remove after the Forge run
+                val st = level.getBlockState(pos)
+                val reason = when {
+                    st.isAir -> null
+                    st.hasBlockEntity() -> "block entity"
+                    !st.isCollisionShapeFullBlock(level, pos) -> "not full collision"
+                    st.getDestroySpeed(level, pos) < 0f -> "unbreakable"
+                    else -> "permission refused"
+                }
+                if (reason == "permission refused") deniedByPermission++
+                if (reason != null && rejects.size < 8) rejects += "${pos.toShortString()} ${st.block.descriptionId}: $reason"
+                continue
+            }
             val key = pos.asLong()
             if (!map.containsKey(key)) added += key
             map.put(key, maxOf(map.get(key), until))
@@ -139,10 +162,16 @@ object AbyssalPockets {
                 }
             }
         }
-        if (added.isEmpty()) return false
-        SpellNetwork.broadcastPhase(level, added, true)
-        return true
+        // TEMP pocket debug, remove after the Forge run
+        val recipients = if (added.isEmpty()) 0 else SpellNetwork.broadcastPhase(level, added, true)
+        DEBUG_LOG.info(
+            "TEMP pocket debug: dim={} centre={} candidates={} phased={} deniedByPermission={} recipients={} owner={} firstRejects={}",
+            level.dimension().location(), centre, candidates, added.size, deniedByPermission, recipients, ctx.owner, rejects,
+        )
+        return added.isNotEmpty()
     }
+
+    private val DEBUG_LOG = com.mojang.logging.LogUtils.getLogger() // TEMP pocket debug, remove after the Forge run
 
     private fun expire(level: ServerLevel) {
         val map = phased[level.dimension()] ?: return
@@ -178,7 +207,8 @@ object AbyssalPockets {
     private fun pushOut(level: ServerLevel, pos: BlockPos) {
         val block = AABB(pos)
         for (entity in level.getEntities(null as Entity?, block) { it.isAlive && !it.isSpectator }) {
-            val spot = openSpot(level, entity, pos) ?: continue
+            // A pocket on a ship finds its spot in the shipyard, but the entity lives in the world.
+            val spot = level.toWorldCoordinates(openSpot(level, entity, pos) ?: continue)
             entity.teleportTo(spot.x, spot.y, spot.z)
         }
     }

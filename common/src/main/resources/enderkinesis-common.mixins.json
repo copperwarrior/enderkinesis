@@ -76,6 +76,8 @@
     "EntityRenderDispatcherSselithLightDeathMixin",
     "BlockEntityRenderDispatcherCloakingMixin",
     "ShipBatchRendererCloakingMixin",
+    "ShipSectionCompilerPhasedMixin",
+    "ShipShadeRemovingGetterPhasedMixin",
     "ParticlePositionAccessor",
     "GuiScryingMixin",
     "ItemInHandScryingMixin",
