@@ -42,8 +42,6 @@ object CloakedParticleBuffer {
         captured.computeIfAbsent(particle.renderType) { ArrayList() }.add(particle)
     }
 
-    fun hasCaptured(): Boolean = captured.isNotEmpty()
-
     /** Replicates vanilla [net.minecraft.client.particle.ParticleEngine.render]
      *  preamble/epilogue exactly, with the side FB bound during the draws.
      *

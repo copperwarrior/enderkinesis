@@ -39,10 +39,6 @@ class MiasmaEntity(type: EntityType<out MiasmaEntity>, level: Level) : Entity(ty
         get() = entityData.get(DURATION)
         private set(value) = entityData.set(DURATION, value)
 
-    fun extendTo(tick: Int) {
-        duration = maxOf(duration, tick)
-    }
-
     val height: Float get() = radius * HEIGHT_RATIO
 
     fun contains(point: Vec3): Boolean {

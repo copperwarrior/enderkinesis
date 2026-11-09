@@ -12,13 +12,19 @@ import net.minecraft.client.renderer.EffectInstance
 import net.minecraft.core.BlockPos
 import net.minecraft.world.level.LightLayer
 import net.minecraft.util.Mth
+import org.joml.Matrix4d
 import org.joml.Matrix4f
+import org.joml.Vector3d
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getShipManagingPos
 import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.ritual.RitualWeathering
+import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
 
 /**
  * The Ritual of Weathering's yellow-green ground fog: it grows out from the rite, holds, then thins away.
@@ -30,7 +36,6 @@ object WeatheringFog {
     private const val FADE_SECONDS = 8f
     private const val BELOW = 4f
     private const val ABOVE = 10f
-    private const val TICKS_PER_SECOND = 20f
     private const val NIGHT_FLOOR = 0.15f
     private const val BLOCK_LIGHT_SHARE = 0.7f
     private const val LIGHT_LEVELS = 15f
@@ -55,6 +60,8 @@ object WeatheringFog {
     private val effect = VolumeEffect("ritual_weathering_fog")
     private var uniforms: Uniforms? = null
     private val localToView = Matrix4f()
+    private val localToViewD = Matrix4d()
+    private val camLocal = Vector3d()
 
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, RitualWeathering.S2C_FOG) { buf, _ ->
@@ -94,7 +101,9 @@ object WeatheringFog {
         }
     }
 
-    // Called with the other world-space volumes, before the fog passes.
+    // Called with the other world-space volumes, before the fog passes. The render thread reads the client ship's
+    // render transform, not physics state.
+    @OptIn(GameTickOnly::class)
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         if (fogs.isEmpty()) return
@@ -124,12 +133,18 @@ object WeatheringFog {
             u.fade.set(fog.fade(now))
             u.radius.set(fog.radius)
             u.brightness.set(brightness(level, fog.center, minecraft.frameTime))
-            val ox = (fog.center.x + 0.5 - view.camX).toFloat()
-            val oy = (fog.center.y - view.camY).toFloat()
-            val oz = (fog.center.z + 0.5 - view.camZ).toFloat()
-            localToView.translation(ox, oy, oz)
+            // A rite on a ship has a shipyard centre, so the fog goes through the ship transform.
+            val ship = level.getShipManagingPos(fog.center) as? ClientShip
+            if (ship == null) {
+                localToViewD.translation(fog.center.x + 0.5 - view.camX, fog.center.y - view.camY, fog.center.z + 0.5 - view.camZ)
+            } else {
+                localToViewD.translation(-view.camX, -view.camY, -view.camZ).mul(ship.renderTransform.shipToWorld)
+                    .translate(fog.center.x + 0.5, fog.center.y.toDouble(), fog.center.z + 0.5)
+            }
+            localToView.set(localToViewD)
             u.localToView.set(localToView)
-            u.camLocal.set(-ox, -oy, -oz)
+            localToViewD.invertAffine().getTranslation(camLocal)
+            u.camLocal.set(camLocal.x.toFloat(), camLocal.y.toFloat(), camLocal.z.toFloat())
             u.boxMin.set(-fog.radius, -BELOW, -fog.radius)
             u.boxMax.set(fog.radius, ABOVE, fog.radius)
             if (first) {

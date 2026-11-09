@@ -14,7 +14,6 @@ import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import net.minecraft.world.entity.LivingEntity
 import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.EnderkinesisMod
@@ -56,7 +55,7 @@ object TrypoemiaRender {
 
     fun init() {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
-            sink.registerShader(ShaderInstance(namespaced(provider), "rendertype_trypoemia", FORMAT)) { shader = it }
+            sink.registerShader(ShaderInstance(provider.preferringModNamespace(), "rendertype_trypoemia", FORMAT)) { shader = it }
         }
     }
 
@@ -211,16 +210,6 @@ object TrypoemiaRender {
             out.putFloat(FLOAT_BYTES * 2, c)
             out.putFloat(FLOAT_BYTES * 3, d)
             out.nextElement()
-        }
-    }
-
-    /** [ShaderInstance] reads `shaders/core/<name>` in the minecraft namespace; look in ours first. */
-    private fun namespaced(delegate: ResourceProvider) = ResourceProvider { loc ->
-        if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-            val attempt = delegate.getResource(ResourceLocation(EnderkinesisMod.MOD_ID, loc.path))
-            if (attempt.isPresent) attempt else delegate.getResource(loc)
-        } else {
-            delegate.getResource(loc)
         }
     }
 

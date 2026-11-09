@@ -6,9 +6,8 @@ import dev.architectury.event.events.client.ClientReloadShadersEvent
 import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.ShaderInstance
-import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.client.preferringModNamespace
 
 /**
  * Render type and core shader for the Irreverent Remnant's cubes.
@@ -56,25 +55,11 @@ object RemnantRenderTypes {
             // The wrapper below retries those lookups in our namespace first.
             sink.registerShader(
                 ShaderInstance(
-                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    provider.preferringModNamespace(),
                     "rendertype_irreverent_remnant",
                     DefaultVertexFormat.NEW_ENTITY,
                 ),
             ) { instance -> shaderInstance = instance }
         }
     }
-
-    /** Wraps a [ResourceProvider] so any `minecraft:`-namespaced lookup is
-     *  tried in [namespace] first, falling back to the original. Lets vanilla
-     *  shader loading find files placed in our own namespace. */
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
-        ResourceProvider { loc ->
-            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-                val rewritten = ResourceLocation(namespace, loc.path)
-                val attempt = delegate.getResource(rewritten)
-                if (attempt.isPresent) attempt else delegate.getResource(loc)
-            } else {
-                delegate.getResource(loc)
-            }
-        }
 }

@@ -344,10 +344,6 @@ object EKParticles {
 
     fun leafChip(): EKOceanParticleType = LEAF_CHIP.get() as EKOceanParticleType
 
-    fun bloodMist(): EKOceanParticleType = mote(SpellMote.BLOOD_MIST)
-
-    fun poisonMist(): EKOceanParticleType = mote(SpellMote.POISON_MIST)
-
     fun crystalShard(): EKOceanParticleType = mote(SpellMote.CRYSTAL_SHARD)
 
     fun rotSpore(): EKOceanParticleType = mote(SpellMote.ROT_SPORE)

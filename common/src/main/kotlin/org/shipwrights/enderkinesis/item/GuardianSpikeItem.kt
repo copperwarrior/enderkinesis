@@ -60,7 +60,7 @@ class GuardianSpikeItem(block: Block, props: Properties) : BlockItem(block, prop
         if (supportState.canBeReplaced() || supportState.block is GuardianSpikeBase) return null
         val cell = support.relative(face)
         val local = doubleArrayOf(hit.x - support.x, hit.y - support.y, hit.z - support.z)
-        val toward = Direction.Axis.values().filter { it != face.axis }.mapNotNull { axis ->
+        val toward = Direction.Axis.entries.filter { it != face.axis }.mapNotNull { axis ->
             val l = local[axis.ordinal]
             when {
                 l < EDGE_MARGIN -> Direction.fromAxisAndDirection(axis, Direction.AxisDirection.NEGATIVE)

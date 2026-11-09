@@ -1430,12 +1430,6 @@ object IrreverentRemnantManager {
     /** Live blob count — the pseudo-entity's "size" in the crudest sense. */
     fun blobCount(): Int = data?.blobs?.size ?: 0
 
-    /** Particle radius is uniform now that nothing consolidates, so a
-     *  remnant's size is its particle count and total volume — see
-     *  [blobCount] and [totalVolume]. Hunting keys off cluster volume in
-     *  [assignGoals]. */
-    fun largestRadius(): Double = data?.blobs?.maxOfOrNull { it.radius } ?: 0.0
-
     /** Total volume of remnant present in the dimension. */
     fun totalVolume(): Double = data?.blobs?.sumOf { it.volume } ?: 0.0
 
@@ -1641,7 +1635,6 @@ object IrreverentRemnantManager {
     /** Wander target spread, and how close counts as "arrived" (which is
      *  when a new target is rolled). */
     private const val WANDER_RANGE = 8.0
-    private const val WANDER_ARRIVE = 1.5
 
     /** How near the centroid must come before a waypoint is consumed, how
      *  far a target may drift before the route is redone, how long a route

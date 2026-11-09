@@ -41,16 +41,13 @@ object TransportationNetwork {
         val chunkPos = ChunkPos(sendPos)
         val players = level.chunkSource.chunkMap.getPlayers(chunkPos, false)
         if (players.isEmpty()) return
-        for (player in players) {
-            // Fresh buf per player — `NetworkManager.sendToPlayer` may consume the
-            // underlying ByteBuf, so a single shared buf would fail after the first send.
-            val buf = FriendlyByteBuf(Unpooled.buffer())
-            buf.writeBlockPos(sendPos)
-            buf.writeBlockPos(receiverPos)
-            buf.writeItem(stack)
-            buf.writeVarInt(totalTicks)
-            NetworkManager.sendToPlayer(player, DISPATCH, buf)
-        }
+        // Encoded one time (the stack's NBT can be large); copy(), because sendToPlayer may consume the buffer.
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeBlockPos(sendPos)
+        buf.writeBlockPos(receiverPos)
+        buf.writeItem(stack)
+        buf.writeVarInt(totalTicks)
+        for (player in players) NetworkManager.sendToPlayer(player, DISPATCH, FriendlyByteBuf(buf.copy()))
     }
 
     val CANCEL: ResourceLocation = EnderkinesisMod.id("transportation/cancel")
@@ -62,11 +59,9 @@ object TransportationNetwork {
         val chunkMap = level.chunkSource.chunkMap
         val players = LinkedHashSet(chunkMap.getPlayers(ChunkPos(sendPos), false))
         players.addAll(chunkMap.getPlayers(ChunkPos(receiverPos), false))
-        for (player in players) {
-            val buf = FriendlyByteBuf(Unpooled.buffer())
-            buf.writeBlockPos(sendPos)
-            buf.writeBlockPos(receiverPos)
-            NetworkManager.sendToPlayer(player, CANCEL, buf)
-        }
+        val buf = FriendlyByteBuf(Unpooled.buffer())
+        buf.writeBlockPos(sendPos)
+        buf.writeBlockPos(receiverPos)
+        for (player in players) NetworkManager.sendToPlayer(player, CANCEL, FriendlyByteBuf(buf.copy()))
     }
 }

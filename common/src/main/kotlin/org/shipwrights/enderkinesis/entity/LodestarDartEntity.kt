@@ -909,7 +909,6 @@ class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level)
 
         /** Per-tick heading-blend split. `KEEP` weight on the current direction, `TOWARD`
          *  weight on the desired-to-target direction. ~7-tick half-life on heading change. */
-        private const val STEER_BLEND_KEEP: Double = 0.85
         private const val STEER_BLEND_TOWARD: Double = 0.15
 
         /** Inside this distance from the target, the toward-blend is linearly scaled
@@ -965,6 +964,7 @@ class LodestarDartEntity(type: EntityType<out LodestarDartEntity>, level: Level)
          *  jitter under the OU process. Not used directly — [NOISE_DECAY] and
          *  [NOISE_KICK] together determine actual magnitude; this is the design target
          *  the two constants were tuned against (~6 % of [SPEED]). */
+        @Suppress("unused") // The tuning target of the two constants below, kept as their documented source.
         private const val NOISE_AMPLITUDE: Double = 0.09
 
         /** Per-tick persistence factor for the OU jitter random walk. Each tick's noise

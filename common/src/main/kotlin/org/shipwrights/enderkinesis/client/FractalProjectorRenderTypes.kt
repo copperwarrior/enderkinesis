@@ -7,7 +7,6 @@ import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /**
@@ -137,11 +136,10 @@ object FractalProjectorRenderTypes {
     fun isReady(): Boolean = fractalShader != null && overlayShader != null && haloShader != null
     fun getFractalShader(): ShaderInstance? = fractalShader
     fun getHaloShader(): ShaderInstance? = haloShader
-    fun getOverlayShader(): ShaderInstance? = overlayShader
 
     fun init() {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
-            val ns = namespaced(provider, EnderkinesisMod.MOD_ID)
+            val ns = provider.preferringModNamespace()
             sink.registerShader(
                 ShaderInstance(ns, "rendertype_fractal_projector_fractal", DefaultVertexFormat.POSITION_COLOR_NORMAL)
             ) { instance -> fractalShader = instance }
@@ -153,18 +151,4 @@ object FractalProjectorRenderTypes {
             ) { instance -> overlayShader = instance }
         }
     }
-
-    /** Vanilla [ShaderInstance] builds the resource path as `"shaders/core/" +
-     *  name + ".json"` and bombs on a namespaced name, so wrap the provider
-     *  to retry `minecraft:` lookups under our namespace first. */
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
-        ResourceProvider { loc ->
-            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-                val rewritten = ResourceLocation(namespace, loc.path)
-                val attempt = delegate.getResource(rewritten)
-                if (attempt.isPresent) attempt else delegate.getResource(loc)
-            } else {
-                delegate.getResource(loc)
-            }
-        }
 }

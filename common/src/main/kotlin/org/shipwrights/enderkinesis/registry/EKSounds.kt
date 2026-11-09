@@ -3,7 +3,6 @@ package org.shipwrights.enderkinesis.registry
 import dev.architectury.registry.registries.DeferredRegister
 import dev.architectury.registry.registries.RegistrySupplier
 import net.minecraft.core.registries.Registries
-import net.minecraft.resources.ResourceLocation
 import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.world.level.block.SoundType
@@ -1008,7 +1007,4 @@ object EKSounds {
         SOUNDS.register(name) { SoundEvent.createVariableRangeEvent(EnderkinesisMod.id(name)) }
 
     fun register() = SOUNDS.register()
-
-    @Suppress("unused")
-    private fun id(path: String): ResourceLocation = EnderkinesisMod.id(path)
 }

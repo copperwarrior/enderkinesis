@@ -16,6 +16,7 @@ import net.minecraft.world.level.block.state.BlockState
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.client.model.ConstriliarModel
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * Shared body rendering for the Constriliar's two render paths (the entity renderer
@@ -55,11 +56,6 @@ object ConstriliarBodySkin {
         } else {
             1.0f
         }
-
-    private fun smoothstep(p: Float): Float {
-        val c = p.coerceIn(0f, 1f)
-        return c * c * (3f - 2f * c)
-    }
 
     /** Draw body skin + (phase-permitting) the model overlay. Expects the poseStack to
      *  already be in body model space. */
@@ -225,7 +221,7 @@ object ConstriliarBodySkin {
         val random = RandomSource.create(42L)
         val out = Array(6) { i ->
             random.setSeed(42L)
-            val bakedQuad = blockModel.getQuads(state, Direction.values()[i], random).firstOrNull()
+            val bakedQuad = blockModel.getQuads(state, Direction.entries[i], random).firstOrNull()
             if (bakedQuad != null) {
                 FaceIcon(bakedQuad.sprite, if (bakedQuad.isTinted) bakedQuad.tintIndex else -1)
             } else {

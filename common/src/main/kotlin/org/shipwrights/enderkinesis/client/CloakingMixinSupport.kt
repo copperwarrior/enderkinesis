@@ -83,8 +83,6 @@ object CloakingMixinSupport {
         cancelSuspended.set(suspended)
     }
 
-    fun isCancelSuspended(): Boolean = cancelSuspended.get()
-
     /** Recompute which concealed-ship bubbles currently contain the camera.
      *  Called once per frame from [ConcealmentTransitionWatcher.tick] before
      *  any cancel mixin queries fire this frame. */

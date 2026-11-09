@@ -1,11 +1,9 @@
 package org.shipwrights.enderkinesis.item
 
 import net.minecraft.ChatFormatting
-import net.minecraft.core.BlockPos
 import net.minecraft.network.chat.Component
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionResult
-import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.TooltipFlag
 import net.minecraft.world.item.context.UseOnContext
@@ -14,7 +12,6 @@ import net.minecraft.world.level.block.Block
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
-import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
@@ -90,7 +87,4 @@ class TomeOfScryingItem(properties: Properties) : TomeItem(properties) {
                 .withStyle(ChatFormatting.GOLD),
         )
     }
-
-    @Suppress("unused")
-    private fun keepImports(pos: BlockPos) = pos // intentionally retained for future hooks
 }
