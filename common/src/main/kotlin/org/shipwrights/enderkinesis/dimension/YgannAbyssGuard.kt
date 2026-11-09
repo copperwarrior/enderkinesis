@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.dimension
 
+import org.shipwrights.enderkinesis.spell.SpellPlatform
 import dev.architectury.event.EventResult
 import dev.architectury.event.events.common.BlockEvent
 import dev.architectury.event.events.common.InteractionEvent
@@ -29,6 +30,10 @@ import org.valkyrienskies.core.api.util.GameTickOnly
 @OptIn(GameTickOnly::class)
 object YgannAbyssGuard {
 
+    /** Spells may change ship blocks in the Abyss, the anchors too, but no world block. */
+    fun spellMayChange(level: ServerLevel, pos: BlockPos): Boolean =
+        level.dimension() != YgannAbyss.LEVEL_KEY || level.getLoadedShipManagingPos(pos) != null
+
     fun init() {
         BlockEvent.PLACE.register(::onPlace)
         // Fluids from buckets bypass [BlockEvent.PLACE] on Forge (vanilla doesn't fire
@@ -44,7 +49,8 @@ object YgannAbyssGuard {
         state: net.minecraft.world.level.block.state.BlockState,
         placer: net.minecraft.world.entity.Entity?,
     ): EventResult {
-        if (level.isClientSide) return EventResult.pass()
+        // A spell probe is skipped, as on Fabric, where this listener never hears it.
+        if (level.isClientSide || SpellPlatform.isPermissionProbe()) return EventResult.pass()
         val server = level as? ServerLevel ?: return EventResult.pass()
         if (server.dimension() != YgannAbyss.LEVEL_KEY) return EventResult.pass()
         if (server.getLoadedShipManagingPos(pos) != null) return EventResult.pass()

@@ -11,6 +11,7 @@ import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry.BPath
 import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry.BWaypoint
 import org.shipwrights.enderkinesis.block.YgannBarnacleBlock
 import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
+import org.shipwrights.enderkinesis.util.smoothstep
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.core.api.util.GameTickOnly
@@ -102,7 +103,9 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
 
         if (display == null || display.size != target.size) {
             display = target.mapTo(ArrayList()) { newMorph(it) }
-            be.clientMorph = display as MutableList<Any>
+            @Suppress("UNCHECKED_CAST") // clientMorph is typed Any so the block entity stays client-class free
+            val stored = display as MutableList<Any>
+            be.clientMorph = stored
         }
 
         for (i in display.indices) display[i].update(time)
@@ -200,8 +203,8 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
     /** A hit on the core: every limb lifts and writhes, more toward its tip, then settles back.
      *  The length does not change. */
     private fun applyColonyFlinch(paths: List<BPath>, display: List<MorphPath>, age: Double) {
-        val envelope = if (age < FLINCH_RISE_TICKS) YgannBarnacleColonyDraw.smooth(age / FLINCH_RISE_TICKS)
-            else YgannBarnacleColonyDraw.smooth(
+        val envelope = if (age < FLINCH_RISE_TICKS) smoothstep(age / FLINCH_RISE_TICKS)
+            else smoothstep(
                 1.0 - (age - FLINCH_RISE_TICKS) / (YgannBarnacleBlockEntity.FLINCH_TICKS - FLINCH_RISE_TICKS),
             )
         if (envelope <= 0.0) return
@@ -221,7 +224,7 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
             for (k in points.indices) {
                 val wp = points[k]
                 val s = path.originArc + wp.arcPx
-                val ramp = YgannBarnacleColonyDraw.smooth((s / FLINCH_RAMP_PX).coerceIn(0.0, 1.0)) * envelope
+                val ramp = smoothstep((s / FLINCH_RAMP_PX).coerceIn(0.0, 1.0)) * envelope
                 if (ramp <= 0.0) continue
                 val sway = FLINCH_SWAY_PX * Math.sin(age * FLINCH_SWAY_RATE - s * FLINCH_WAVE_PER_PX)
                 val side = flinchScratch.set(flinchSway[i])
@@ -251,7 +254,7 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
         }
         val start = paths[cut].originArc + cutArc
         val front = start - age * RIPPLE_SPEED_PX_PER_TICK
-        val fadeIn = YgannBarnacleColonyDraw.smooth((age / RIPPLE_FADE_IN_TICKS).coerceIn(0.0, 1.0))
+        val fadeIn = smoothstep((age / RIPPLE_FADE_IN_TICKS).coerceIn(0.0, 1.0))
         for (i in paths.indices) {
             val path = paths[i]
             val onRoute = !rippleEnd[i].isNaN()
@@ -268,7 +271,7 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
                 val wp = points[k]
                 val past = wp.arcPx - baseEnd
                 val s = if (past > 0.0) baseS else path.originArc + wp.arcPx
-                val follow = if (past > 0.0) 1.0 - YgannBarnacleColonyDraw.smooth((past / RIPPLE_ATTACH_PX).coerceIn(0.0, 1.0)) else 1.0
+                val follow = if (past > 0.0) 1.0 - smoothstep((past / RIPPLE_ATTACH_PX).coerceIn(0.0, 1.0)) else 1.0
                 val lift = rippleLiftPx(s, front) * follow * fadeIn
                 if (lift <= 0.0) continue
                 wp.pos.add(
@@ -284,7 +287,7 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
     private fun rippleLiftPx(s: Double, front: Double): Double {
         val x = (s - front) / RIPPLE_WIDTH_PX
         if (x * x > RIPPLE_CUTOFF_SQ) return 0.0
-        val anchor = YgannBarnacleColonyDraw.smooth((s / FLINCH_RAMP_PX).coerceIn(0.0, 1.0))
+        val anchor = smoothstep((s / FLINCH_RAMP_PX).coerceIn(0.0, 1.0))
         return RIPPLE_LIFT_PX * Math.exp(-x * x) * anchor
     }
 
@@ -545,7 +548,7 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
                 setArcs()
                 return
             }
-            val snap = YgannBarnacleColonyDraw.smooth((age / SNAP_TICKS).coerceIn(0.0, 1.0))
+            val snap = smoothstep((age / SNAP_TICKS).coerceIn(0.0, 1.0))
             val last = curPos.size - 1
             for (i in curPos.indices) {
                 if (i <= split) { curPos[i].set(tgtPos[i]); curNrm[i].set(tgtNrm[i]); continue }
@@ -594,7 +597,7 @@ class YgannBarnacleRenderer : BlockEntityRenderer<YgannBarnacleBlockEntity> {
 
         /** Eased progress (0..1) that surges once per heave; below a depth of 1 it never backs up. */
         private fun heave(x: Double): Double {
-            val s = YgannBarnacleColonyDraw.smooth(x)
+            val s = smoothstep(x)
             val w = 2.0 * Math.PI * heaves
             return (s + HEAVE_DEPTH * Math.sin(w * s) / w).coerceIn(0.0, 1.0)
         }

@@ -18,6 +18,7 @@ import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry
 import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry.BPath
 import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.smoothstep
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.toWorldCoordinates
@@ -64,7 +65,7 @@ object YgannBarnacleDeathRenderer {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, YgannBarnacleDeathNetwork.DEATH) { buf, _ ->
             val pos = buf.readBlockPos()
             val seed = buf.readLong()
-            val facing = Direction.values()[buf.readByte().toInt()]
+            val facing = Direction.entries[buf.readByte().toInt()]
             val count = buf.readVarInt().coerceIn(0, YgannBarnacleGeometry.MAX_TENTACLES)
             val reveal = DoubleArray(count) { buf.readFloat().toDouble() }
             Minecraft.getInstance().execute {
@@ -150,7 +151,7 @@ object YgannBarnacleDeathRenderer {
     ) {
         val pos = death.pos
         val ship = level.getShipManagingPos(pos) as? ClientShip
-        val travel = YgannBarnacleColonyDraw.smooth(progress) *
+        val travel = smoothstep(progress) *
             (YgannBarnacleGeometry.TENTACLE_LEN_PX + WITHER_BAND_PX) * DEATH_FRONT_OVERSHOOT
         val light = LevelRenderer.getLightColor(level, pos)
 

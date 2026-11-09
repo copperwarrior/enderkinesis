@@ -13,6 +13,7 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry
 import org.shipwrights.enderkinesis.barnacle.YgannBarnacleGeometry.BWaypoint
 import org.shipwrights.enderkinesis.blockentity.YgannBarnacleBlockEntity
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * Shared box/tube drawing for the Ygann Barnacle colony — the live block-entity
@@ -105,7 +106,7 @@ object YgannBarnacleColonyDraw {
     /** The pulse's strength (0..1) at colony arc [colonyArc]: a band that travels out from the core. */
     private fun pulseAt(colonyArc: Double, time: Double): Double {
         val d = Math.abs(colonyArc - pulsePos(time))
-        return if (d < PULSE_WIDTH_PX) smooth(1.0 - d / PULSE_WIDTH_PX) else 0.0
+        return if (d < PULSE_WIDTH_PX) smoothstep(1.0 - d / PULSE_WIDTH_PX) else 0.0
     }
 
     private fun pulsePos(time: Double): Double = ((time % PULSE_PERIOD_TICKS) / PULSE_PERIOD_TICKS) * PULSE_TRAVEL_PX
@@ -203,11 +204,6 @@ object YgannBarnacleColonyDraw {
         quad(consumer, poseStack, light, c110, c010, c011, c111, 0f, 0f, uw, uh)   // +t2
         quad(consumer, poseStack, light, c100, c110, c111, c101, 0f, 0f, uw, uh)   // +t1
         quad(consumer, poseStack, light, c010, c000, c001, c011, 0f, 0f, uw, uh)   // -t1
-    }
-
-    fun smooth(x: Double): Double {
-        val t = x.coerceIn(0.0, 1.0)
-        return t * t * (3.0 - 2.0 * t)
     }
 
     // Scratch for the segment draw, which runs for each tendril segment in each frame.

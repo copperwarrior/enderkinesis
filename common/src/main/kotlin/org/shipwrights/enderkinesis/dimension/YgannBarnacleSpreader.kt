@@ -80,7 +80,7 @@ object YgannBarnacleSpreader {
             if (!isChunkReady(level, cursor)) return@repeat
             val support = level.getBlockState(cursor)
             if (support.isAir) return@repeat
-            val face = Direction.values()[rng.nextInt(6)]
+            val face = Direction.entries[rng.nextInt(6)]
             val spot = cursor.relative(face)
             if (!isChunkReady(level, spot)) return@repeat
             if (!level.getBlockState(spot).isAir) return@repeat

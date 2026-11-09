@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.blockentity
 
+import net.minecraft.world.phys.AABB
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
@@ -18,6 +19,7 @@ import org.valkyrienskies.mod.common.getShipManagingPos
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
+import org.shipwrights.enderkinesis.util.INFINITE_RENDER_BOX
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKSounds
 import net.minecraft.core.BlockPos
@@ -39,6 +41,10 @@ import org.shipwrights.enderkinesis.util.damageSource
 class YgannBarnacleBlockEntity(pos: BlockPos, state: BlockState) :
     BlockEntity(EKBlockEntities.YGANN_BARNACLE.get(), pos, state),
     BlockEntityPhysicsListener {
+
+    // The visual reaches far from the block; see INFINITE_RENDER_BOX.
+    @Suppress("unused")
+    fun getRenderBoundingBox(): AABB = INFINITE_RENDER_BOX
 
     @Volatile override lateinit var dimension: DimensionId
     /** Growth (maturity 0..1) cached on the game tick for the phys thread's drag. */

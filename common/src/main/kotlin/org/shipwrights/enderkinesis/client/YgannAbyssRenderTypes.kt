@@ -7,7 +7,6 @@ import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
 /**
@@ -105,26 +104,11 @@ object YgannAbyssRenderTypes {
             // forcing us to dump files into vanilla's namespace.
             sink.registerShader(
                 ShaderInstance(
-                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    provider.preferringModNamespace(),
                     "rendertype_abyss_portal",
                     DefaultVertexFormat.POSITION,
                 )
             ) { instance -> shaderInstance = instance }
         }
     }
-
-    /** Wraps a [ResourceProvider] so any `minecraft:`-namespaced lookup is tried in
-     *  [namespace] first, falling back to the original lookup if absent. Lets vanilla
-     *  shader-loading code (which hard-codes the `minecraft:` namespace via string
-     *  concat) load files placed in our mod's namespace. */
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
-        ResourceProvider { loc ->
-            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-                val rewritten = ResourceLocation(namespace, loc.path)
-                val attempt = delegate.getResource(rewritten)
-                if (attempt.isPresent) attempt else delegate.getResource(loc)
-            } else {
-                delegate.getResource(loc)
-            }
-        }
 }

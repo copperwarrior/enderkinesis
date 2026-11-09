@@ -29,6 +29,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * Sky-pass lower-hemisphere dome — must be a dome, not a flat plane, because the sky-pass
@@ -1210,11 +1211,6 @@ object YgannAbyssWrithingSea {
         h = (h xor (h shr 13)) * 1274126177
         h = h xor (h shr 16)
         return (h and 0x7fffffff).toDouble() / 0x7fffffff.toDouble()
-    }
-
-    private fun smoothstep(edge0: Double, edge1: Double, x: Double): Double {
-        val tt = ((x - edge0) / (edge1 - edge0)).coerceIn(0.0, 1.0)
-        return tt * tt * (3.0 - 2.0 * tt)
     }
 
     private fun lerp(a: Float, b: Float, tt: Float): Float = a + (b - a) * tt

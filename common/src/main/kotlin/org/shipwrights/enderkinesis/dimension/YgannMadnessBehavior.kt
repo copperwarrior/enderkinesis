@@ -101,6 +101,7 @@ object YgannMadnessBehavior {
         val vehicle = player.vehicle
         if (vehicle != null) player.stopRiding()
         var teleported = false
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (i in 0 until TELEPORT_ATTEMPTS) {
             val x = startX + (player.random.nextDouble() - 0.5) * (TELEPORT_RANGE * 2.0)
             val y = Mth.clamp(

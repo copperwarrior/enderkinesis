@@ -643,7 +643,7 @@ object YgannBarnacleGeometry {
         val side = sideOut.set(heading).cross(n)
         if (side.lengthSquared() < 1.0e-9) return
         side.normalize()
-        for (tries in 0 until SIDE_CLEAR_TRIES) {
+        repeat(SIDE_CLEAR_TRIES) { _ ->
             val left = sideSolid(hull, base, p, n, side, 1.0)
             val right = sideSolid(hull, base, p, n, side, -1.0)
             if (left == right) return
@@ -945,8 +945,8 @@ object YgannBarnacleGeometry {
      *  centre in block-local space. */
     class FaceFrame(val n: Vector3dc, val t1: Vector3dc, val t2: Vector3dc, val planeOrigin: Vector3dc)
 
-    private val FRAMES: Array<FaceFrame> = Array(Direction.values().size) { i ->
-        val facing = Direction.values()[i]
+    private val FRAMES: Array<FaceFrame> = Array(Direction.entries.size) { i ->
+        val facing = Direction.entries[i]
         val n = Vector3d(facing.stepX.toDouble(), facing.stepY.toDouble(), facing.stepZ.toDouble())
         val ref = if (Math.abs(n.y) > 0.5) Vector3d(1.0, 0.0, 0.0) else Vector3d(0.0, 1.0, 0.0)
         val t1 = Vector3d(ref).cross(n).normalize()
@@ -976,7 +976,6 @@ object YgannBarnacleGeometry {
     private const val STEP_PX = 3.0
     private const val SURFACE_OFFSET = 0.03
     private const val MARCH_START = 0.3
-    private const val MARCH_MAX = 1.6
     private const val MARCH_STEP = 0.05
     private const val MARCH_BACKOUT = 1.5
     private const val MARCH_REFINE_STEPS = 5
