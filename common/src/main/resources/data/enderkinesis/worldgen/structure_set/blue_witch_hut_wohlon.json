@@ -1,0 +1,11 @@
+{
+  "structures": [
+    { "structure": "enderkinesis:blue_witch_hut_wohlon", "weight": 1 }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "salt": 1849302751,
+    "spacing": 48,
+    "separation": 16
+  }
+}

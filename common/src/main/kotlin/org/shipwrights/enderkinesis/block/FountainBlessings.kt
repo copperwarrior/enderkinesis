@@ -122,7 +122,7 @@ object FountainBlessings : SimpleJsonResourceReloadListener(Gson(), "fountain_bl
                 val modifier = AttributeModifier(uuid, "Fountain blessing", GsonHelper.getAsDouble(json, "amount"), operation)
                 Outcome.AttributeBonus(
                     lookup(BuiltInRegistries.ATTRIBUTE, attributeId), modifier,
-                    EquipmentSlot.byName(GsonHelper.getAsString(json, "slot", "mainhand")),
+                    EquipmentSlot.byName(GsonHelper.getAsString(json, "slot", "mainhand") ?: "mainhand"),
                 )
             }
             "repair" -> Outcome.Repair(share(json, type))
@@ -198,7 +198,7 @@ object FountainBlessings : SimpleJsonResourceReloadListener(Gson(), "fountain_bl
     /** The first explicit modifier drops the item's default modifiers (vanilla), so copy those in first. */
     private fun addAttribute(stack: ItemStack, outcome: Outcome.AttributeBonus) {
         if (stack.tag?.contains("AttributeModifiers", net.minecraft.nbt.Tag.TAG_LIST.toInt()) != true) {
-            val defaults = EquipmentSlot.values().flatMap { slot -> stack.getAttributeModifiers(slot).entries().map { Triple(slot, it.key, it.value) } }
+            val defaults = EquipmentSlot.entries.flatMap { slot -> stack.getAttributeModifiers(slot).entries().map { Triple(slot, it.key, it.value) } }
             for ((slot, attribute, modifier) in defaults) stack.addAttributeModifier(attribute, modifier, slot)
         }
         val list = stack.tag?.getList("AttributeModifiers", net.minecraft.nbt.Tag.TAG_COMPOUND.toInt())

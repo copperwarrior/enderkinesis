@@ -1,0 +1,43 @@
+{
+  "processors": [
+    {
+      "processor_type": "minecraft:rule",
+      "rules": [
+        {
+          "input_predicate": {
+            "predicate_type": "minecraft:block_match",
+            "block": "minecraft:lectern"
+          },
+          "location_predicate": {
+            "predicate_type": "minecraft:always_true"
+          },
+          "output_state": {
+            "Name": "minecraft:lectern",
+            "Properties": {
+              "facing": "west",
+              "has_book": "true",
+              "powered": "false"
+            }
+          },
+          "block_entity_modifier": {
+            "type": "minecraft:append_static",
+            "data": {
+              "Page": 0,
+              "Book": {
+                "id": "minecraft:written_book",
+                "Count": 1,
+                "tag": {
+                  "title": "Witch Journal [PLACEHOLDER]",
+                  "author": "Unknown [PLACEHOLDER]",
+                  "pages": [
+                    "{\"translate\":\"book.enderkinesis.witch_journal.page.1\"}"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import net.minecraft.client.model.geom.builders.MeshDefinition
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.KekhekhEntity
+import org.shipwrights.enderkinesis.util.MILLIS_PER_TICK
 
 /** Generated from `SwampPreyFish.bbmodel`. */
 class KekhekhModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<KekhekhEntity>() {
@@ -28,7 +29,6 @@ class KekhekhModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<K
 
     companion object {
         private val ANIMATION_VECTOR_CACHE = Vector3f()
-        private const val MILLIS_PER_TICK = 50f
 
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id(KekhekhEntity.ID_PATH), "main")

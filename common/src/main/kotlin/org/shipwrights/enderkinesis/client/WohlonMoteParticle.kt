@@ -10,6 +10,9 @@ import net.minecraft.client.particle.SpriteSet
 import net.minecraft.client.particle.TextureSheetParticle
 import net.minecraft.core.particles.SimpleParticleType
 import org.joml.Vector3d
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getShipManagingPos
 
 /** Full-bright glitter mote that follows a [Path] over its life: the Wohlon portal swirl and the ritual tendrils. */
 class WohlonMoteParticle private constructor(
@@ -85,6 +88,7 @@ class WohlonMoteParticle private constructor(
         private var spriteSet: SpriteSet? = null
 
         /** Applies the vanilla particle setting, like a non-forced level particle. Client thread only. */
+        @OptIn(GameTickOnly::class)
         fun spawn(level: ClientLevel, path: Path, life: Int, colour: FloatArray, size: Float) {
             val sprites = spriteSet ?: return
             val mc = Minecraft.getInstance()
@@ -93,7 +97,14 @@ class WohlonMoteParticle private constructor(
                 ParticleStatus.DECREASED -> if (level.random.nextInt(3) == 0) return
                 else -> {}
             }
-            mc.particleEngine.add(WohlonMoteParticle(level, path, life, colour, size, sprites))
+            // Adding to the engine skips VS2's level.addParticle transform, so a ship path maps to world here.
+            val start = Vector3d().also { path.at(0f, it) }
+            val ship = level.getShipManagingPos(start.x.toInt() shr 4, start.z.toInt() shr 4) as? ClientShip
+            val worldPath = if (ship == null) path else Path { t, out ->
+                path.at(t, out)
+                ship.transform.shipToWorld.transformPosition(out)
+            }
+            mc.particleEngine.add(WohlonMoteParticle(level, worldPath, life, colour, size, sprites))
         }
     }
 }

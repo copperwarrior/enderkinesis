@@ -11,6 +11,9 @@
   },
   "conditions": [
     {
+      "type": "enderkinesis:not_on_ship"
+    },
+    {
       "type": "enderkinesis:biome",
       "biome": "#enderkinesis:wohlon_portal_valid_biomes"
     }

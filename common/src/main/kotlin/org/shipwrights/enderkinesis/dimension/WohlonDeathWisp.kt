@@ -40,6 +40,7 @@ object WohlonDeathWisp {
         repeat(1 + name.length / CHARS_PER_FLAW) {
             // Swapping a double letter changes nothing, so try again.
             val before = chars.toString()
+            @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
             for (attempt in 0 until FLAW_TRIES) {
                 flaw(chars, random)
                 if (chars.toString() != before) break

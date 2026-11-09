@@ -14,6 +14,7 @@ import net.minecraft.world.entity.AnimationState
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.ShilleagkDeerEntity
+import org.shipwrights.enderkinesis.util.MILLIS_PER_TICK
 
 /** Generated from `SwampDeer(1).bbmodel`. Fix against the source: LegR2 pivot z=10, to match LegL2. */
 class ShilleagkDeerModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<ShilleagkDeerEntity>() {
@@ -77,7 +78,6 @@ class ShilleagkDeerModel(private val bakedRoot: ModelPart) : CachedHierarchicalM
     companion object {
         private val ANIMATION_VECTOR_CACHE = Vector3f()
         private const val TEXTURE_SIZE = 64f
-        private const val MILLIS_PER_TICK = 50f
         private const val WALK_SWING_SPEED = ShilleagkDeerEntity.WALK_GROUND_SPEED * ShilleagkDeerEntity.LIMB_SWING_PER_BLOCK
         private const val RUN_SWING_SPEED = ShilleagkDeerEntity.RUN_GROUND_SPEED * ShilleagkDeerEntity.LIMB_SWING_PER_BLOCK
 

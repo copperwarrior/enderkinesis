@@ -12,6 +12,7 @@ import net.minecraft.client.model.geom.builders.MeshDefinition
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.EauhorranaEntity
+import org.shipwrights.enderkinesis.util.MILLIS_PER_TICK
 
 /** Generated from `SwampPiranha.bbmodel`. */
 class EauhorranaModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<EauhorranaEntity>() {
@@ -42,7 +43,6 @@ class EauhorranaModel(private val bakedRoot: ModelPart) : CachedHierarchicalMode
 
     companion object {
         private val ANIMATION_VECTOR_CACHE = Vector3f()
-        private const val MILLIS_PER_TICK = 50f
         private const val MILLIS_PER_SECOND = 1000f
         private val BITE_MILLIS = (EauhorranaAnimations.bite.lengthInSeconds() * MILLIS_PER_SECOND).toLong()
 

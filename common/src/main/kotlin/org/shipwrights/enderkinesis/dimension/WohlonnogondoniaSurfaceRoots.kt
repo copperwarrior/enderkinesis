@@ -102,7 +102,7 @@ object WohlonnogondoniaSurfaceRoots {
         starburst: Boolean = false,
         waterTopY: Int = Int.MIN_VALUE,
     ): Array<TunnelPath> {
-        val seed = hash32(regionX, regionZ, 0x70F1FA52.toInt())
+        val seed = wohlonHash32(regionX, regionZ, 0x70F1FA52.toInt())
         if ((seed and 0xF) == 0) return EMPTY_PATHS
 
         val startWX = regionX * TUNNEL_REGION_SIZE + regionStartOffset(regionX, regionZ, 1)
@@ -126,8 +126,8 @@ object WohlonnogondoniaSurfaceRoots {
             )
         }
 
-        val startYaw = hash01(seed, 3, 0) * Math.PI * 2.0
-        val startPitch = (hash01(seed, 4, 0) - 0.5) * 0.4
+        val startYaw = wohlonHash01(seed, 3, 0) * Math.PI * 2.0
+        val startPitch = (wohlonHash01(seed, 4, 0) - 0.5) * 0.4
 
         val main = walkPath(
             regionX, regionZ, pathIdx = 0,
@@ -143,7 +143,7 @@ object WohlonnogondoniaSurfaceRoots {
         var stepIdx = TUNNEL_BRANCH_FIRST_STEP
         var branchIdx = 0
         while (stepIdx < main.count - 4) {
-            val branchSeed = hash32(regionX, regionZ, 300 + branchIdx)
+            val branchSeed = wohlonHash32(regionX, regionZ, 300 + branchIdx)
             if ((branchSeed and 0x3) == 0) {
                 val bx = mainPts[stepIdx * 3 + 0].toDouble() + 0.5
                 val by = mainPts[stepIdx * 3 + 1].toDouble()
@@ -251,8 +251,8 @@ object WohlonnogondoniaSurfaceRoots {
         val results = ArrayList<TunnelPath>(pathCount)
         val sliceWidth = (2.0 * Math.PI) / pathCount
         for (i in 0 until pathCount) {
-            val yawJitter = (hash01(seedA, seedB, 700 + i) - 0.5) * STARBURST_YAW_JITTER
-            val pitchJitter = (hash01(seedA, seedB, 800 + i) - 0.5) * STARBURST_PITCH_JITTER
+            val yawJitter = (wohlonHash01(seedA, seedB, 700 + i) - 0.5) * STARBURST_YAW_JITTER
+            val pitchJitter = (wohlonHash01(seedA, seedB, 800 + i) - 0.5) * STARBURST_PITCH_JITTER
             val yaw = i * sliceWidth + yawJitter
             results.add(
                 walkPath(
@@ -320,7 +320,7 @@ object WohlonnogondoniaSurfaceRoots {
         @JvmField var archStartY = 0.0
         @JvmField var archEndY = 0.0
         @JvmField var archHeight = 0.0
-        private val pathSeed = hash32(regionX * 31 + pathIdx, regionZ, 0x2A7C4E5)
+        private val pathSeed = wohlonHash32(regionX * 31 + pathIdx, regionZ, 0x2A7C4E5)
         @JvmField var groundLeft = if (unit(pathSeed) < ARCH_AT_HUB_CHANCE) 0 else runSteps(pathSeed, 1)
         @JvmField var arrived = false
 
@@ -340,6 +340,7 @@ object WohlonnogondoniaSurfaceRoots {
             val firstStep = step
             val points = IntArray(maxSteps * 3)
             var count = 0
+            @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
             for (n in 0 until maxSteps) {
                 var remaining = Double.POSITIVE_INFINITY
                 if (reaching) {
@@ -355,7 +356,7 @@ object WohlonnogondoniaSurfaceRoots {
                 x += cos(yaw) * cosp * TUNNEL_STEP_LEN
                 z += sin(yaw) * cosp * TUNNEL_STEP_LEN
 
-                val turnSeed = hash32(regionX * 31 + pathIdx, regionZ, 100 + step)
+                val turnSeed = wohlonHash32(regionX * 31 + pathIdx, regionZ, 100 + step)
                 yaw += ((turnSeed and 0xFFFF) / 65536.0 - 0.5) * TUNNEL_YAW_TURN
                 pitch = (
                     pitch + (((turnSeed ushr 16) and 0xFFFF) / 65536.0 - 0.5) * TUNNEL_PITCH_TURN
@@ -367,7 +368,7 @@ object WohlonnogondoniaSurfaceRoots {
 
                 if (archLeft == 0 && groundLeft == 0) {
                     // Lift off: pick a span, stretch it past open water, and aim the far foot at the ground there.
-                    val archSeed = hash32(regionX * 31 + pathIdx, regionZ, 500 + step)
+                    val archSeed = wohlonHash32(regionX * 31 + pathIdx, regionZ, 500 + step)
                     // A reaching root sets its last foot down at the target, not past it.
                     var span = Math.min(ARCH_SPAN_MIN + unit(archSeed) * (ARCH_SPAN_MAX - ARCH_SPAN_MIN), remaining)
                     var footX = x + cos(yaw) * span
@@ -411,7 +412,7 @@ object WohlonnogondoniaSurfaceRoots {
 
     /** Steps in a half-buried run between two arches. */
     private fun runSteps(pathSeed: Int, step: Int): Int {
-        val blocks = GROUND_RUN_MIN + unit(hash32(pathSeed, step, 0x6E0D)) * (GROUND_RUN_MAX - GROUND_RUN_MIN)
+        val blocks = GROUND_RUN_MIN + unit(wohlonHash32(pathSeed, step, 0x6E0D)) * (GROUND_RUN_MAX - GROUND_RUN_MIN)
         return Math.max(1, (blocks / TUNNEL_STEP_LEN).toInt())
     }
 
@@ -420,17 +421,5 @@ object WohlonnogondoniaSurfaceRoots {
     /** Hub offset inside a region. Modulo, not a bit mask: the region size is 48, and a mask
      *  of 47 never gives 16 to 31. */
     fun regionStartOffset(regionX: Int, regionZ: Int, axisSalt: Int): Int =
-        Math.floorMod(hash32(regionX, regionZ, axisSalt), TUNNEL_REGION_SIZE)
-
-    fun hash32(a: Int, b: Int, salt: Int): Int {
-        var h = a * 0x9E3779B1.toInt() xor (b * 0x85EBCA77.toInt()) xor (salt * 0xC2B2AE3D.toInt()) xor
-            WohlonWorldSeed.salt
-        h = (h xor (h ushr 15)) * 0x2C1B3C6D.toInt()
-        h = (h xor (h ushr 12)) * 0x297A2D39.toInt()
-        h = h xor (h ushr 15)
-        return h
-    }
-
-    fun hash01(seed: Int, k1: Int, k2: Int): Double =
-        (hash32(seed, k1, k2) and 0x7FFFFFFF) / 2147483648.0
+        Math.floorMod(wohlonHash32(regionX, regionZ, axisSalt), TUNNEL_REGION_SIZE)
 }

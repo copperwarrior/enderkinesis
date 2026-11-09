@@ -149,6 +149,7 @@ class WohlonTrunkBaseFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<N
         if (random.nextFloat() >= KNEE_TREE_CHANCE * share) return
         val wood = EKBlocks.WOGOR_WOOD.get().defaultBlockState()
         val count = KNEE_MIN + random.nextInt(KNEE_MAX - KNEE_MIN + 1)
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (k in 0 until count) {
             val angle = random.nextDouble() * 2.0 * Math.PI
             val dist = KNEE_MIN_DIST + random.nextDouble() * (KNEE_MAX_DIST - KNEE_MIN_DIST)

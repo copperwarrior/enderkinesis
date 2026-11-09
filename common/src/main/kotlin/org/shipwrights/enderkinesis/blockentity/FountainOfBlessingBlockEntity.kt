@@ -131,6 +131,7 @@ class FountainOfBlessingBlockEntity(pos: BlockPos, state: BlockState) :
     private fun updateHeights(level: Level) {
         scan.set(blockPos)
         var top = blockPos.y - 1
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (i in 0..MAX_SURFACE_SCAN) {
             if (!level.getFluidState(scan).`is`(FluidTags.WATER)) break
             top = scan.y
@@ -140,6 +141,7 @@ class FountainOfBlessingBlockEntity(pos: BlockPos, state: BlockState) :
         surfaceY = if (top < blockPos.y) blockPos.y + 1.0 else top + WATER_SURFACE_HEIGHT
         scan.set(blockPos)
         var bottom = blockPos.y
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (i in 1..MAX_SPRING_DEPTH) {
             scan.move(0, -1, 0)
             if (!level.getFluidState(scan).`is`(FluidTags.WATER)) break
@@ -148,6 +150,7 @@ class FountainOfBlessingBlockEntity(pos: BlockPos, state: BlockState) :
         springY = bottom.toDouble()
         heartY = Double.NaN
         scan.set(blockPos.x, Math.floor(surfaceY).toInt() + 1, blockPos.z)
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (i in 1..MAX_HEART_SCAN) {
             if (level.getBlockState(scan).block is HeartOfTheWildBlock) {
                 heartY = scan.y.toDouble()

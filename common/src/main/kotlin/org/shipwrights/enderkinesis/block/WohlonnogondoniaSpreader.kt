@@ -102,14 +102,6 @@ object WohlonnogondoniaSpreader {
     // Scratch for [tickShipTransfer]. Server thread only.
     private val shipTransferScratch = Vector3d()
 
-    /** Per-second biome-change rate at `wohlonSpreadSpeed = 1`.
-     *  The gamerule multiplies this — so `speed = 10` gives
-     *  10 cell flips per second; `speed = 100` gives 100. The
-     *  per-tick allowance is computed as `speed / 20.0` with a
-     *  carry-over accumulator in [spreadBudget], so non-integer
-     *  per-tick rates are honoured exactly over the long run. */
-    private const val SPREAD_PER_SEC_BASE: Int = 1
-
     /** Per-dim SavedData key for the tainted-chunk set. */
     private const val TAINTED_DATA_NAME = "enderkinesis_wohlon_tainted_chunks"
 
@@ -240,12 +232,6 @@ object WohlonnogondoniaSpreader {
 
     /** The ritual tree spread fills its ellipsoid in 3 s. */
     private const val TREE_SPREAD_TICKS: Int = 60
-
-    /** 6 cardinal directions used by the spread trigger to pick
-     *  one random adjacent block per Wohlon-cell random-tick.
-     *  Cached because `Direction.values()` allocates a fresh array
-     *  per call. */
-    private val SPREAD_DIRECTIONS: Array<Direction> = Direction.values()
 
     /** **Visual de-grid #2.** Face / edge / vertex offsets packed
      *  as `IntArray` triples (3 ints per offset). [tickFrontierSpread]

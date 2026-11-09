@@ -60,6 +60,7 @@ class PrismaticGoatModel(private val root: ModelPart) : HierarchicalModel<Prisma
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id("prismatic_goat"), "main")
 
+        @Suppress("LongMethod") // A Blockbench export: one statement for each model part.
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val partdefinition = mesh.root

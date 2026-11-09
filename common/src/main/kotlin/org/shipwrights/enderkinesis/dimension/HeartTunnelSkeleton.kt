@@ -53,9 +53,9 @@ internal object HeartTunnelSkeleton {
             var added = 0
             while (added < n && attempt < total * 64 + 64) {
                 s = s * 0x9E3779B1.toInt() + attempt + 1
-                val theta = hash01(s, attempt, 11) * 2.0 * Math.PI
-                val r = rMin + (rMax - rMin) * hash01(s, attempt, 13)
-                val y = seaLow + (seaHigh - seaLow) * hash01(s, attempt, 17)
+                val theta = wohlonHash01(s, attempt, 11) * 2.0 * Math.PI
+                val r = rMin + (rMax - rMin) * wohlonHash01(s, attempt, 13)
+                val y = seaLow + (seaHigh - seaLow) * wohlonHash01(s, attempt, 17)
                 out[written * 3 + 0] = cx + Math.cos(theta) * r
                 out[written * 3 + 1] = y
                 out[written * 3 + 2] = cz + Math.sin(theta) * r
@@ -109,6 +109,7 @@ internal object HeartTunnelSkeleton {
 
         val influence = HashMap<Node, DoubleArray>()  // node → [Σdx, Σdy, Σdz, count]
 
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (iter in 0 until maxIterations) {
             if (activeCount == 0) break
             influence.clear()
@@ -277,7 +278,7 @@ internal object HeartTunnelSkeleton {
             out += HeartTunnelSegment(a.x, a.y, a.z, b.x, b.y, b.z, a.radius, b.radius)
             return
         }
-        val offset = (hash01(seed, Math.floor(a.x * 7.0).toInt(), Math.floor(b.z * 7.0).toInt()) - 0.5) *
+        val offset = (wohlonHash01(seed, Math.floor(a.x * 7.0).toInt(), Math.floor(b.z * 7.0).toInt()) - 0.5) *
             2.0 * SINUOSITY * (len / SINUOSITY_REFERENCE_LENGTH).coerceAtMost(1.0)
         val mx = (a.x + b.x) * 0.5 - dz / len * offset
         val mz = (a.z + b.z) * 0.5 + dx / len * offset
@@ -305,7 +306,7 @@ internal object HeartTunnelSkeleton {
             return
         }
         val surface = shape.surfaceAt(Math.floor(n.x).toInt(), Math.floor(n.z).toInt())
-        if (hash01(shape.seed, Math.floor(n.x).toInt(), Math.floor(n.z).toInt()) < SINKHOLE_SHARE && surface > n.y + n.radius) {
+        if (wohlonHash01(shape.seed, Math.floor(n.x).toInt(), Math.floor(n.z).toInt()) < SINKHOLE_SHARE && surface > n.y + n.radius) {
             out += HeartTunnelSegment(n.x, n.y, n.z, n.x + dx * SINKHOLE_DRIFT, surface + SINKHOLE_OVERSHOOT, n.z + dz * SINKHOLE_DRIFT,
                 n.radius, n.radius + SINKHOLE_FLARE)
             return
@@ -329,7 +330,7 @@ internal object HeartTunnelSkeleton {
                 val dz = a.z - b.z
                 if (dx * dx + dy * dy + dz * dz > graftSq) continue
                 if (treeDistance(a, b) < GRAFT_MIN_TREE_DISTANCE) continue
-                if (hash01(seed, i, j) >= GRAFT_CHANCE) continue
+                if (wohlonHash01(seed, i, j) >= GRAFT_CHANCE) continue
                 val r = minOf(a.radius, b.radius) * GRAFT_RADIUS_SHARE
                 out += HeartTunnelSegment(a.x, a.y, a.z, b.x, b.y, b.z, r, r)
                 if (++grafts >= GRAFT_MAX) return
@@ -393,18 +394,6 @@ internal object HeartTunnelSkeleton {
         for (c in n.children) sum += countLeavesRecursive(c)
         n.descendantLeaves = sum
         return sum
-    }
-
-    /** xxhash32-style mix → [0, 1). Same bit-mixer the chunk
-     *  generator uses (lifted from [WogorTreeSkeleton]). */
-    private fun hash01(seed: Int, k1: Int, k2: Int): Double {
-        var h = seed * 0x9E3779B1.toInt() xor
-            (k1 * 0x85EBCA77.toInt()) xor
-            (k2 * 0xC2B2AE3D.toInt())
-        h = (h xor (h ushr 15)) * 0x2C1B3C6D.toInt()
-        h = (h xor (h ushr 12)) * 0x297A2D39.toInt()
-        h = h xor (h ushr 15)
-        return (h and 0x7FFFFFFF) / 2147483648.0
     }
 }
 

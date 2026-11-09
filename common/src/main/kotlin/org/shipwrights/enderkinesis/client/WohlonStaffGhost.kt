@@ -29,6 +29,9 @@ import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 import org.shipwrights.enderkinesis.block.WohlonStaffRites
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getShipManagingPos
 import org.shipwrights.enderkinesis.mixin.ClientAdvancementsProgressAccessor
 
 /**
@@ -142,6 +145,8 @@ object WohlonStaffGhost {
         count = 0
     }
 
+    // The render thread reads the client ship's render transform, not physics state.
+    @OptIn(GameTickOnly::class)
     @Suppress("LongParameterList") // One ghost's draw state.
     private fun draw(
         eff: net.minecraft.client.renderer.EffectInstance, pedestal: WohlonRitePedestal, partialTick: Float,
@@ -165,10 +170,15 @@ object WohlonStaffGhost {
         val strength = if (closing < 0) 1f else (1f - (t - closing) / WohlonRitePedestal.CLOSE_TICKS).coerceIn(0f, 1f)
         if (strength <= 0f) return false
 
-        val x = pedestal.x - view.camX
-        val y = pedestal.y + BASE_HEIGHT - view.camY
-        val z = pedestal.z - view.camZ
-        localToViewD.translation(x, y, z)
+        // A ship pedestal lives in shipyard coordinates, so the ghost goes through the ship transform.
+        val ship = Minecraft.getInstance().level?.getShipManagingPos(pedestal.blockPosition()) as? ClientShip
+        if (ship == null) {
+            localToViewD.translation(pedestal.x - view.camX, pedestal.y + BASE_HEIGHT - view.camY, pedestal.z - view.camZ)
+        } else {
+            localToViewD.translation(-view.camX, -view.camY, -view.camZ).mul(ship.renderTransform.shipToWorld)
+                .translate(pedestal.x, pedestal.y + BASE_HEIGHT, pedestal.z)
+        }
+        localToViewD
             .rotateY((now - ghost.startSec) * SPIN_RAD_PER_SEC % (Math.PI * 2.0))
             .scale(1.0 / LOCAL_SCALE)
             .translate(-grid.axisX.toDouble(), 0.0, -grid.axisZ.toDouble())

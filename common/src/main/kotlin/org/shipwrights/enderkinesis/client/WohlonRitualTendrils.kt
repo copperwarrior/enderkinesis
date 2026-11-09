@@ -14,6 +14,7 @@ import org.shipwrights.enderkinesis.block.WohlonRitualNetwork
 import org.shipwrights.enderkinesis.block.WohlonRitualTimeline
 import org.shipwrights.enderkinesis.util.ClassWarmup
 import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.getShipManagingPos
 
 /**
@@ -187,7 +188,9 @@ object WohlonRitualTendrils {
         }, if (grown) 20 else 10, colour, 0.06f)
     }
 
-    // Called with the other world-space volumes, before the fog passes.
+    // Called with the other world-space volumes, before the fog passes. The render thread reads the client ship's
+    // render transform, not physics state.
+    @OptIn(GameTickOnly::class)
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         if (rituals.isEmpty() || !TendrilVolume.begin(poseStack, projection, camera)) return

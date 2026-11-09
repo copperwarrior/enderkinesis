@@ -151,6 +151,7 @@ class CatalogerModel(private val root: ModelPart) : CachedHierarchicalModel<Cata
         val LAYER_LOCATION: ModelLayerLocation =
             ModelLayerLocation(EnderkinesisMod.id("cataloger"), "main")
 
+        @Suppress("LongMethod") // A Blockbench export: one statement for each model part.
         fun createBodyLayer(): LayerDefinition {
             val mesh = MeshDefinition()
             val root = mesh.root

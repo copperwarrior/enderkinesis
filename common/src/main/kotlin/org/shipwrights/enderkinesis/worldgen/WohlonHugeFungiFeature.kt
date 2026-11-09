@@ -29,9 +29,10 @@ class WohlonHugeFungiFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<N
         val waterTopY = context.chunkGenerator().seaLevel - 1
         val pos = BlockPos.MutableBlockPos()
         var placed = false
-        for (shape in HugeWohlonMushroomFeature.Shape.values()) {
+        for (shape in HugeWohlonMushroomFeature.Shape.entries) {
             val chance = if (shape == HugeWohlonMushroomFeature.Shape.LUMPY) LUMPY_CHUNK_CHANCE else CUP_CHUNK_CHANCE
             if (random.nextFloat() >= chance) continue
+            @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
             for (attempt in 0 until CANDIDATES) {
                 val x = x0 + EDGE + random.nextInt(SPAN)
                 val z = z0 + EDGE + random.nextInt(SPAN)

@@ -72,7 +72,7 @@ class HugeWohlonMushroomFeature(
                 val z = unpackZ(packed)
                 var state = capBlock.defaultBlockState()
                 // Only a face open to the outside shows the cap skin; faces into the hollow show the inside texture.
-                for (dir in Direction.values()) {
+                for (dir in Direction.entries) {
                     val nx = x + dir.stepX
                     val ny = y + dir.stepY
                     val nz = z + dir.stepZ
@@ -105,7 +105,7 @@ class HugeWohlonMushroomFeature(
                 val x = unpackX(packed)
                 val y = unpackY(packed)
                 val z = unpackZ(packed)
-                for (dir in Direction.values()) {
+                for (dir in Direction.entries) {
                     if (dir == Direction.DOWN) continue
                     if (!solid.contains(pack(x + dir.stepX, y + dir.stepY, z + dir.stepZ))) {
                         shell += packed

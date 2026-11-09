@@ -87,25 +87,7 @@ object WogorBudRenderer {
             if (bud.faces == 0) continue
             pos.set(bud.pos)
             val ship = level.getShipManagingPos(pos) as? ClientShip
-            if (ship == null) {
-                val dx = pos.x - cameraX; val dy = pos.y - cameraY; val dz = pos.z - cameraZ
-                if (dx * dx + dy * dy + dz * dz > maxDistSq) continue
-                val x0 = dx.toFloat(); val y0 = dy.toFloat(); val z0 = dz.toFloat()
-                val inView = frustum.testAab(
-                    x0 - CULL_PAD, y0 - CULL_PAD, z0 - CULL_PAD, x0 + 1f + CULL_PAD, y0 + 1f + CULL_PAD, z0 + 1f + CULL_PAD,
-                )
-                if (!inView) continue
-                emit.begin(poseStack.last(), x0, y0, z0)
-            } else {
-                // Big world offset in double, only the ship rotation in the float pose (precision; see YgannBarnacleDeathRenderer).
-                poseStack.pushPose()
-                shipOrigin.set(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble())
-                ship.renderTransform.shipToWorld.transformPosition(shipOrigin)
-                poseStack.translate(shipOrigin.x - cameraX, shipOrigin.y - cameraY, shipOrigin.z - cameraZ)
-                val r = ship.renderTransform.shipToWorldRotation
-                poseStack.mulPose(Quaternionf(r.x().toFloat(), r.y().toFloat(), r.z().toFloat(), r.w().toFloat()))
-                emit.begin(poseStack.last(), 0f, 0f, 0f)
-            }
+            if (!beginBud(poseStack, ship, cameraX, cameraY, cameraZ, maxDistSq)) continue
             emit.light = LevelRenderer.getLightColor(level, pos)
 
             val size = Mth.lerp(partialTicks.toDouble(), bud.prevSize, bud.size)
@@ -132,6 +114,33 @@ object WogorBudRenderer {
             }
             if (ship != null) poseStack.popPose()
         }
+    }
+
+    /** Starts [emit] at the bud at [pos]. False when a world bud is too far or out of view. A ship bud pushes a pose. */
+    @OptIn(GameTickOnly::class)
+    private fun beginBud(
+        poseStack: PoseStack, ship: ClientShip?, cameraX: Double, cameraY: Double, cameraZ: Double, maxDistSq: Double,
+    ): Boolean {
+        if (ship == null) {
+            val dx = pos.x - cameraX; val dy = pos.y - cameraY; val dz = pos.z - cameraZ
+            if (dx * dx + dy * dy + dz * dz > maxDistSq) return false
+            val x0 = dx.toFloat(); val y0 = dy.toFloat(); val z0 = dz.toFloat()
+            val inView = frustum.testAab(
+                x0 - CULL_PAD, y0 - CULL_PAD, z0 - CULL_PAD, x0 + 1f + CULL_PAD, y0 + 1f + CULL_PAD, z0 + 1f + CULL_PAD,
+            )
+            if (!inView) return false
+            emit.begin(poseStack.last(), x0, y0, z0)
+        } else {
+            // Big world offset in double, only the ship rotation in the float pose (precision; see YgannBarnacleDeathRenderer).
+            poseStack.pushPose()
+            shipOrigin.set(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble())
+            ship.renderTransform.shipToWorld.transformPosition(shipOrigin)
+            poseStack.translate(shipOrigin.x - cameraX, shipOrigin.y - cameraY, shipOrigin.z - cameraZ)
+            val r = ship.renderTransform.shipToWorldRotation
+            poseStack.mulPose(Quaternionf(r.x().toFloat(), r.y().toFloat(), r.z().toFloat(), r.w().toFloat()))
+            emit.begin(poseStack.last(), 0f, 0f, 0f)
+        }
+        return true
     }
 
     private fun drawBulb(size: Double, rank: Int, variant: Int) {

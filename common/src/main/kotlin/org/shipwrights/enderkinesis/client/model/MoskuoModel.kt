@@ -13,6 +13,7 @@ import net.minecraft.world.entity.AnimationState
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.MoskuoEntity
+import org.shipwrights.enderkinesis.util.MILLIS_PER_TICK
 
 /** Generated from `SwampMosquito.bbmodel`. The clips scale BODYSkinny or BODYFat to zero to show one body. */
 class MoskuoModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<MoskuoEntity>() {
@@ -53,7 +54,6 @@ class MoskuoModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<Mo
 
     companion object {
         private val ANIMATION_VECTOR_CACHE = Vector3f()
-        private const val MILLIS_PER_TICK = 50f
         private const val MOVING_SPEED_SQR = 1.0e-4
 
         val LAYER_LOCATION: ModelLayerLocation =

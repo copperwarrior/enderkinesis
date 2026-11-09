@@ -22,6 +22,7 @@ import org.shipwrights.enderkinesis.dimension.WohlonnogondoniaSurfaceRoots
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import java.util.BitSet
 import java.util.concurrent.ConcurrentHashMap
+import org.shipwrights.enderkinesis.dimension.wohlonHash32
 
 /**
  * Overworld-side root grower.
@@ -133,7 +134,7 @@ object WohlonnogondoniaWorldRootGrower {
 
         if (getGrownData(level).regions.contains(regionPacked)) return
 
-        val pathSeed = WohlonnogondoniaSurfaceRoots.hash32(regionX, regionZ, 0x70F1FA52.toInt())
+        val pathSeed = wohlonHash32(regionX, regionZ, 0x70F1FA52.toInt())
         if ((pathSeed and 0xF) == 0) {
             getGrownData(level).markGrown(regionPacked)
             return

@@ -22,7 +22,6 @@ import net.minecraft.tags.TagKey
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.LeavesBlock
-import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.saveddata.SavedData
@@ -45,6 +44,9 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.shipwrights.enderkinesis.dimension.wohlonHash01
+import org.shipwrights.enderkinesis.dimension.wohlonHash32
+import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
 
 /**
  * Grows a chunkgen-style Child Tree at the heart-candle ritual. Every voxel is planned off-thread, then
@@ -240,7 +242,6 @@ object WohlonnogondoniaTreeGrower {
     /** Candle tendrils of each fresh ignite, by portal, for [WohlonRitualTimeline.riseEnd]. Server thread only. */
     private val igniteCandles = Long2IntOpenHashMap()
     private const val NO_IGNITE = Long.MIN_VALUE
-    private const val TICKS_PER_SECOND = 20.0
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
@@ -442,7 +443,7 @@ object WohlonnogondoniaTreeGrower {
             val x = points[i * 3]; val z = points[i * 3 + 2]
             val angle = (atan2(z - baseZ, x - baseX) + 2.0 * PI) % (2.0 * PI)
             val sector = (angle / (2.0 * PI) * light.size).toInt().coerceIn(0, light.size - 1)
-            if (hash01(seed, i, 77) >= KEEP_IN_SHADE + (1.0 - KEEP_IN_SHADE) * light[sector]) continue
+            if (wohlonHash01(seed, i, 77) >= KEEP_IN_SHADE + (1.0 - KEEP_IN_SHADE) * light[sector]) continue
             kept[n * 3] = x; kept[n * 3 + 1] = points[i * 3 + 1]; kept[n * 3 + 2] = z
             n++
         }
@@ -482,7 +483,7 @@ object WohlonnogondoniaTreeGrower {
 
     /** The ignite tendrils reach the root tips first; the roots then grow along them. */
     private fun holdForIgniteAnimation(level: ServerLevel, job: TreeJob, igniteTick: Long, candles: Int) {
-        val sinceIgnite = (level.gameTime - igniteTick) / TICKS_PER_SECOND
+        val sinceIgnite = (level.gameTime - igniteTick) / TICKS_PER_SECOND.toDouble()
         val end = WohlonRitualTimeline.animationEnd(WohlonRitualTimeline.spreadStart(sinceIgnite, candles))
         job.startTick = level.gameTime + Math.ceil((end - sinceIgnite) * TICKS_PER_SECOND).toLong()
     }
@@ -724,7 +725,7 @@ object WohlonnogondoniaTreeGrower {
         }
         leafVoxels.removeAll(woodVoxels)
 
-        val carved = carveHollow(woodVoxels, leafVoxels, portalPos)
+        carveHollow(woodVoxels, leafVoxels, portalPos)
         // The cells are applied as air at install time, so terrain in the path is cleared too
         // (the off-thread build can't touch the level).
         val tunnelPositions = carveExitTunnel(woodVoxels, leafVoxels, candlePos, params.tunnelYaw, seed, site)
@@ -873,9 +874,9 @@ object WohlonnogondoniaTreeGrower {
         site: WohlonTreeSite,
     ): HashSet<Long> {
         val cells = HashSet<Long>(TUNNEL_MAX_LENGTH * 40)
-        val phaseLong = hash01(seed, 0, 90) * 2.0 * PI
-        val phaseShort = hash01(seed, 0, 91) * 2.0 * PI
-        val phaseSize = hash01(seed, 0, 92) * 2.0 * PI
+        val phaseLong = wohlonHash01(seed, 0, 90) * 2.0 * PI
+        val phaseShort = wohlonHash01(seed, 0, 91) * 2.0 * PI
+        val phaseSize = wohlonHash01(seed, 0, 92) * 2.0 * PI
         var x = candlePos.x + 0.5
         var z = candlePos.z + 0.5
         var floorY = candlePos.y.toDouble()
@@ -1484,30 +1485,30 @@ object WohlonnogondoniaTreeGrower {
         segmentsOut: MutableList<TreeSegment>,
         tipsOut: LongArrayList,
     ) {
-        val rootCount = 8 + ((hash32(seed, 0, 51) ushr 1) and 0x3)
+        val rootCount = 8 + ((wohlonHash32(seed, 0, 51) ushr 1) and 0x3)
         val share = PI * 2.0 / rootCount
         // Painted after the bend, so the arms go round what they cannot break.
         val armSegments = ArrayList<TreeSegment>()
         for (i in 0 until rootCount) {
-            val angleHash = hash01(seed, i, 51)
+            val angleHash = wohlonHash01(seed, i, 51)
             val baseAngle = i * share + (angleHash - 0.5) * share * 0.4
             // Hydrotropism: each arm turns, inside its own share, toward water and lower ground.
             val arm = site.rootArm(
                 baseX, baseZ, baseY.toInt(), baseAngle, share * ROOT_TURN_SHARE,
-                ROOT_REACH_MIN + (hash32(seed, i, 52) ushr 1) % ROOT_REACH_SPREAD,
+                ROOT_REACH_MIN + (wohlonHash32(seed, i, 52) ushr 1) % ROOT_REACH_SPREAD,
             )
             val angle = arm[0]
             val cosA = cos(angle); val sinA = sin(angle)
             val perpX = -sinA; val perpZ = cosA
 
             val reach = arm[1].toInt()
-            val plungeDepth = 18 + ((hash32(seed, i, 53) ushr 1) and 0xF)
-            val wobblePhase = hash01(seed, i, 55) * PI * 2.0
-            val wobbleAmp = 1.0 + hash01(seed, i, 56) * 1.5
-            val walkUndulationPhase = hash01(seed, i, 57) * PI * 2.0
-            val emergenceDY = (hash32(seed, i, 58) ushr 1 and 0x3).toDouble()
-            val riseEnd = 0.12 + hash01(seed, i, 60) * 0.06
-            val walkEnd = 0.70 + hash01(seed, i, 61) * 0.08
+            val plungeDepth = 18 + ((wohlonHash32(seed, i, 53) ushr 1) and 0xF)
+            val wobblePhase = wohlonHash01(seed, i, 55) * PI * 2.0
+            val wobbleAmp = 1.0 + wohlonHash01(seed, i, 56) * 1.5
+            val walkUndulationPhase = wohlonHash01(seed, i, 57) * PI * 2.0
+            val emergenceDY = (wohlonHash32(seed, i, 58) ushr 1 and 0x3).toDouble()
+            val riseEnd = 0.12 + wohlonHash01(seed, i, 60) * 0.06
+            val walkEnd = 0.70 + wohlonHash01(seed, i, 61) * 0.08
 
             val startX = baseX + cosA * 3.0
             val startZ = baseZ + sinA * 3.0
@@ -1816,20 +1817,6 @@ object WohlonnogondoniaTreeGrower {
         return doubleArrayOf(nx / mag, ny / mag, nz / mag)
     }
 
-    // ===================================================
-    //   Hash helpers — ports of chunkgen private fns
-    // ===================================================
-
-    private fun hash32(a: Int, b: Int, salt: Int): Int {
-        var h = a * 0x9E3779B1.toInt() xor (b * 0x85EBCA77.toInt()) xor (salt * 0xC2B2AE3D.toInt())
-        h = (h xor (h ushr 15)) * 0x2C1B3C6D.toInt()
-        h = (h xor (h ushr 12)) * 0x297A2D39.toInt()
-        h = h xor (h ushr 15)
-        return h
-    }
-
-    private fun hash01(seed: Int, k1: Int, k2: Int): Double =
-        (hash32(seed, k1, k2) and 0x7FFFFFFF) / 2147483648.0
 
     // ===================================================
     //   SavedData

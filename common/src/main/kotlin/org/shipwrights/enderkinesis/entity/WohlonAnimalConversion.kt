@@ -252,7 +252,7 @@ object WohlonAnimalConversion {
         if (source.isLeashed) source.dropLeash(true, true)
         (source as LivingEntityDropEquipmentInvoker).`enderkinesis$dropEquipment`()
         // Hands only: horse armour is also in the CHEST slot, and `dropEquipment` drops it already.
-        for (hand in InteractionHand.values()) {
+        for (hand in InteractionHand.entries) {
             val held = source.getItemInHand(hand)
             if (held.isEmpty) continue
             source.spawnAtLocation(held.copy())

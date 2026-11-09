@@ -83,7 +83,7 @@ class WohlemEntity(type: EntityType<out WohlemEntity>, level: Level) : Monster(t
         // An armour stand takes no melee damage, so it would hold the target with no end.
         if (candidate is ArmorStand) return false
         if (candidate.type.`is`(WOHLON_MOBS)) return false
-        for (slot in EquipmentSlot.values()) {
+        for (slot in EquipmentSlot.entries) {
             if (slot.type != EquipmentSlot.Type.ARMOR) continue
             val item = candidate.getItemBySlot(slot).item
             if (item is ArmorItem && item.material === RobeArmorMaterial.BLUE_WITCH) return false

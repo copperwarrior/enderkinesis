@@ -7,6 +7,7 @@ import net.minecraft.world.level.levelgen.structure.StructureType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.worldgen.EndCultTempleStructure
 import org.shipwrights.enderkinesis.worldgen.SselithRuinStructure
+import org.shipwrights.enderkinesis.worldgen.WohlonFlatGroundStructure
 
 /**
  * Custom structure types. Data-pack `worldgen/structure/...` files reference
@@ -27,6 +28,11 @@ object EKStructures {
     val END_CULT_TEMPLE: RegistrySupplier<StructureType<EndCultTempleStructure>> =
         STRUCTURES.register("end_cult_temple") {
             StructureType<EndCultTempleStructure> { EndCultTempleStructure.CODEC }
+        }
+
+    val WOHLON_FLAT_GROUND: RegistrySupplier<StructureType<WohlonFlatGroundStructure>> =
+        STRUCTURES.register("wohlon_flat_ground") {
+            StructureType<WohlonFlatGroundStructure> { WohlonFlatGroundStructure.CODEC }
         }
 
     fun register() = STRUCTURES.register()

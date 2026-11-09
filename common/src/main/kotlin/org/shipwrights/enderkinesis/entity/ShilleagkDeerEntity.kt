@@ -44,6 +44,7 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKParticles
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
 
 /** Wohlon omnivore. It always flees players and predators, grazes Wohlon plants and wades into shallows for fish. */
 class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Level) : PathfinderMob(type, level) {
@@ -269,7 +270,7 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             pos.move(Direction.DOWN)
             if (!level.getFluidState(pos).`is`(FluidTags.WATER)) return Double.NaN
         }
-        for (i in 0 until RIPPLE_MAX_DEPTH_BLOCKS) {
+        repeat(RIPPLE_MAX_DEPTH_BLOCKS) { _ ->
             pos.move(Direction.UP)
             if (!level.getFluidState(pos).`is`(FluidTags.WATER)) {
                 pos.move(Direction.DOWN)
@@ -653,7 +654,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         private const val ANTLER_KNOCKBACK = 1.0
 
         // One walk loop of ShilleagkDeerAnimations.walk (0.5 s) at the design walk speed, in limb swing.
-        private const val TICKS_PER_SECOND = 20f
         private const val WALK_CYCLE_SWING = 0.5f * TICKS_PER_SECOND * WALK_GROUND_SPEED * LIMB_SWING_PER_BLOCK
         // Touch-down is each leg's lowest walk keyframe; offsets are the leg pivots in ShilleagkDeerModel.
         private val FEET = listOf(

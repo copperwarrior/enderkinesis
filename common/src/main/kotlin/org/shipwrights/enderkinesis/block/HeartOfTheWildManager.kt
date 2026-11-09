@@ -317,8 +317,10 @@ object HeartOfTheWildManager : ShipMoveListener {
     private fun tryGrowInChunk(level: ServerLevel, pool: PositionPool): Boolean {
         if (pool.isEmpty()) return false
         var changed = false
+        var planted = 0
 
         val samples = minOf(MAX_SAMPLES_PER_FIRE, pool.size())
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (attempt in 0 until samples) {
             val pos = pool.randomPick(level.random) ?: return changed
             if (!neighboursLoaded(level, pos)) continue
@@ -335,7 +337,8 @@ object HeartOfTheWildManager : ShipMoveListener {
             val growState = prepareGrowState(growBlock, pos, level) ?: continue
             if (level.setBlock(pos, growState, 3)) {
                 pool.remove(pos)
-                return true    // PICKS_PER_CHUNK_PER_FIRE = 1
+                changed = true
+                if (++planted >= PICKS_PER_CHUNK_PER_FIRE) return true
             }
         }
         return changed
@@ -432,7 +435,7 @@ object HeartOfTheWildManager : ShipMoveListener {
      *  cardinals) in which [pos] has a face-sturdy neighbour. */
     private fun pickFaceAdjacentSupport(level: ServerLevel, pos: BlockPos): Direction? {
         val candidates = ArrayList<Direction>(6)
-        for (dir in Direction.values()) {
+        for (dir in Direction.entries) {
             val neighborPos = pos.relative(dir)
             val neighborState = level.getBlockState(neighborPos)
             if (neighborState.isFaceSturdy(level, neighborPos, dir.opposite)) {

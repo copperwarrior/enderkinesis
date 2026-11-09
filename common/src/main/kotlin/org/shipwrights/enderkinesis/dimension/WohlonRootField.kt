@@ -1,5 +1,7 @@
 package org.shipwrights.enderkinesis.dimension
 
+import org.shipwrights.enderkinesis.util.smoothstep
+
 /**
  * The flooded root network. Junction points are scattered unevenly (density and depth drift over
  * hundreds of blocks), and each point links to its natural neighbours: a link exists only if no
@@ -363,11 +365,6 @@ object WohlonRootField {
     }
 
     // ---- helpers ----
-
-    private fun smoothstep(t: Double): Double {
-        val c = t.coerceIn(0.0, 1.0)
-        return c * c * (3.0 - 2.0 * c)
-    }
 
     /** Value noise in `[-1, 1]`, trilinear with smoothstep weights. */
     internal fun noise3(x: Double, y: Double, z: Double, salt: Int): Double {

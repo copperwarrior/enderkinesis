@@ -65,9 +65,9 @@ internal object WogorTreeSkeleton {
         val maxAttempts = count * 16 + 32
         while (written < count && attempt < maxAttempts) {
             s = s * 0x9E3779B1.toInt() + attempt + 1
-            val x = (hash01(s, attempt, 1) - 0.5) * 2.0
-            val y = (hash01(s, attempt, 2) - 0.5) * 2.0
-            val z = (hash01(s, attempt, 3) - 0.5) * 2.0
+            val x = (wohlonHash01(s, attempt, 1) - 0.5) * 2.0
+            val y = (wohlonHash01(s, attempt, 2) - 0.5) * 2.0
+            val z = (wohlonHash01(s, attempt, 3) - 0.5) * 2.0
             attempt++
             if (x * x + y * y + z * z > 1.0) continue
             out[written * 3] = cx + x * rx
@@ -467,21 +467,10 @@ internal object WogorTreeSkeleton {
     private fun smoothNoise1D(t: Double, seed: Int): Double {
         val i = Math.floor(t).toInt()
         val f = t - i
-        val a = hash01(seed, i, 0)
-        val b = hash01(seed, i + 1, 0)
+        val a = wohlonHash01(seed, i, 0)
+        val b = wohlonHash01(seed, i + 1, 0)
         val s = f * f * (3.0 - 2.0 * f)   // smoothstep
         return a + (b - a) * s
-    }
-
-    /** xxhash32-style mix → [0, 1). Same bit-mixer the chunk generator uses. */
-    private fun hash01(seed: Int, k1: Int, k2: Int): Double {
-        var h = seed * 0x9E3779B1.toInt() xor
-            (k1 * 0x85EBCA77.toInt()) xor
-            (k2 * 0xC2B2AE3D.toInt())
-        h = (h xor (h ushr 15)) * 0x2C1B3C6D.toInt()
-        h = (h xor (h ushr 12)) * 0x297A2D39.toInt()
-        h = h xor (h ushr 15)
-        return (h and 0x7FFFFFFF) / 2147483648.0
     }
 }
 
