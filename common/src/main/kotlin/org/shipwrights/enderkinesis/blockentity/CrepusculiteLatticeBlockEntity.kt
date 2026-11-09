@@ -103,6 +103,11 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     private var tintRgb: Int? = null
 
     private val intensityPos = Vector3d()
+    private val zoneCentre = Vector3d()
+    private val zoneAxis = Vector3d()
+    private var marginHx = Double.NaN
+    private var marginHz = Double.NaN
+    private var cachedMargin = 0.0
     private var clientIntensity = 0.0
     private var clientIntensityX = 0
     private var clientIntensityZ = 0
@@ -183,7 +188,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // the ocean's size/shape is constant — a world AABB balloons up to √2 on yawed
         // ships and breathes as they turn. Centre is the local centre in world space.
         val s2w = ship.transform.shipToWorld
-        val centre = Vector3d(
+        val centre = zoneCentre.set(
             (sb.minX() + sb.maxX() + 1) * 0.5,
             (sb.minY() + sb.maxY() + 1) * 0.5,
             (sb.minZ() + sb.maxZ() + 1) * 0.5,
@@ -192,13 +197,13 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val cx = centre.x; val cy = centre.y; val cz = centre.z
         val hx = (sb.maxX() + 1 - sb.minX()) * 0.5
         val hz = (sb.maxZ() + 1 - sb.minZ()) * 0.5
-        val margin = footprintMargin(hx, hz)
+        val margin = marginFor(hx, hz)
         val ax = hx + margin
         val ay = (sb.maxY() + 1 - sb.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
         val az = hz + margin
         if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
         // Ellipse orientation = ship yaw (local X axis in world, horizontal part).
-        val xAxis = Vector3d(1.0, 0.0, 0.0)
+        val xAxis = zoneAxis.set(1.0, 0.0, 0.0)
         s2w.transformDirection(xAxis)
         val yaw = Math.atan2(-xAxis.z, xAxis.x)
         val yawCos = Math.cos(yaw)
@@ -269,6 +274,16 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // (Nether's roof heightmap would give one flat intensity dimension-wide).
         val terrainY = OceanDepth.terrainY(level, Math.floor(lw.x).toInt(), Math.floor(lw.z).toInt(), waterLineY)
         return GerstnerOcean.intensityFor(waterLineY, terrainY)
+    }
+
+    // A pure function of the hull extents, so the cache keeps server and client equal.
+    private fun marginFor(hx: Double, hz: Double): Double {
+        if (hx != marginHx || hz != marginHz) {
+            cachedMargin = footprintMargin(hx, hz)
+            marginHx = hx
+            marginHz = hz
+        }
+        return cachedMargin
     }
 
     // The terrain scan runs again on a new column or sea level, and on a slow cadence for terrain edits.
@@ -830,7 +845,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // SHIP-LOCAL AABB extents, matching the published zone (see serverTick's zone
         // build): a world AABB balloons up to √2 on yawed ships and breathes as they
         // turn. Centre is the local centre transformed to world.
-        val centreL = Vector3d(
+        val centreL = zoneCentre.set(
             (box.minX() + box.maxX() + 1) * 0.5,
             (box.minY() + box.maxY() + 1) * 0.5,
             (box.minZ() + box.maxZ() + 1) * 0.5,
@@ -841,13 +856,13 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val cz = centreL.z
         val hx = (box.maxX() + 1 - box.minX()) * 0.5
         val hz = (box.maxZ() + 1 - box.minZ()) * 0.5
-        val margin = footprintMargin(hx, hz)
+        val margin = marginFor(hx, hz)
         val ax = hx + margin
         val ay = (box.maxY() + 1 - box.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
         val az = hz + margin
         if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) return 0
         // Same yaw the zone publishes — emission points rotate with the hull.
-        val xAxisE = Vector3d(1.0, 0.0, 0.0)
+        val xAxisE = zoneAxis.set(1.0, 0.0, 0.0)
         shipToWorld.transformDirection(xAxisE)
         val yawE = Math.atan2(-xAxisE.z, xAxisE.x)
         val yc = Math.cos(yawE)
