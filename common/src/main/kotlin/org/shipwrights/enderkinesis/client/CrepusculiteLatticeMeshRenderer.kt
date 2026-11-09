@@ -10,11 +10,8 @@ import dev.architectury.event.events.client.ClientReloadShadersEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.ShaderInstance
-import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.packs.resources.ResourceProvider
 import org.joml.Matrix4f
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
 import org.shipwrights.enderkinesis.physics.LatticeCatchZone
 import org.shipwrights.enderkinesis.physics.LatticeRegistry
@@ -67,31 +64,20 @@ object CrepusculiteLatticeMeshRenderer {
         ClientReloadShadersEvent.EVENT.register { provider, sink ->
             sink.registerShader(
                 ShaderInstance(
-                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    provider.preferringModNamespace(),
                     "rendertype_lattice_ocean",
                     DefaultVertexFormat.POSITION_COLOR,
                 )
             ) { instance -> staticShader = instance }
             sink.registerShader(
                 ShaderInstance(
-                    namespaced(provider, EnderkinesisMod.MOD_ID),
+                    provider.preferringModNamespace(),
                     "rendertype_lattice_surface",
                     DefaultVertexFormat.POSITION_COLOR,
                 )
             ) { instance -> surfaceShader = instance }
         }
     }
-
-    // Same workaround as ScryingRenderTypes: ShaderInstance fails on a namespaced shader name.
-    private fun namespaced(delegate: ResourceProvider, namespace: String) =
-        ResourceProvider { loc ->
-            if (loc.namespace == ResourceLocation.DEFAULT_NAMESPACE) {
-                val attempt = delegate.getResource(ResourceLocation(namespace, loc.path))
-                if (attempt.isPresent) attempt else delegate.getResource(loc)
-            } else {
-                delegate.getResource(loc)
-            }
-        }
 
     /** Two-tier LOD so waves stay visible at distance without exploding vertex count.
      *
@@ -197,20 +183,8 @@ object CrepusculiteLatticeMeshRenderer {
     private const val SOFT_EDGE_ON_PHANTOM = false
 
 
-    /** Deep ender-green (#032620). Used for wave troughs. */
-    private const val DEEP_R: Float = 0.0118f
-    private const val DEEP_G: Float = 0.1490f
-    private const val DEEP_B: Float = 0.1255f
 
-    /** Ender purple. Mid-range — the dominant body colour. */
-    private const val ENDER_R: Float = 0.52f
-    private const val ENDER_G: Float = 0.20f
-    private const val ENDER_B: Float = 0.66f
 
-    /** Foam green. Crests only. */
-    private const val FOAM_R: Float = 0.30f
-    private const val FOAM_G: Float = 1.00f
-    private const val FOAM_B: Float = 0.55f
 
 
     /** Base alpha at head-on (cosθ = 1). View-angle falloff scales this down at grazing. */

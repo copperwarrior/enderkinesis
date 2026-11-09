@@ -311,8 +311,7 @@ class OceanParticle(
         /** Subsurface motes only sway a fraction of the surface wave amplitude. */
         private const val DEEP_WAVE_SCALE = 0.3
 
-        // Original ender-particle purple; foam crest green.
-        private const val ENDER_R = 0.52f; private const val ENDER_G = 0.20f; private const val ENDER_B = 0.66f
+        // Foam crest green.
         private const val FOAM_R = 0.30f; private const val FOAM_G = 1.00f; private const val FOAM_B = 0.55f
 
         // Deep ender-green for the subsurface volume: #032620.

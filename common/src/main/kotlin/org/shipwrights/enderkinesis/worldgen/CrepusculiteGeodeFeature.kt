@@ -241,14 +241,12 @@ class CrepusculiteGeodeFeature(codec: Codec<GeodeConfiguration>) : Feature<Geode
                     lattice?.captureSeaLevel(latticePos.y + 0.5)
                     lattice?.parkForWorldgen()
                     val ship = ShipAssembler.assembleToShip(server, blocks)
-                    if (ship != null) {
-                        // Far shipyard chunks do not tick, so a dynamic geode falls into the
-                        // void. Only a parked lattice releases the ship on its first real tick.
-                        if (lattice != null) ship.isStatic = true
-                        org.shipwrights.enderkinesis.dimension.YgannDiscoveries.mark(
-                            ms, ship.id, org.shipwrights.enderkinesis.dimension.YgannDiscoveries.KIND_GEODE,
-                        )
-                    }
+                    // Far shipyard chunks do not tick, so a dynamic geode falls into the
+                    // void. Only a parked lattice releases the ship on its first real tick.
+                    if (lattice != null) ship.isStatic = true
+                    org.shipwrights.enderkinesis.dimension.YgannDiscoveries.mark(
+                        ms, ship.id, org.shipwrights.enderkinesis.dimension.YgannDiscoveries.KIND_GEODE,
+                    )
                 } catch (t: Throwable) {
                     LOG.error("[EK] geode ship assembly threw at {}", latticePos, t)
                 }

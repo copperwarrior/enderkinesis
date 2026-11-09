@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.physics
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonValue
 import com.fasterxml.jackson.databind.JsonNode
+import org.joml.Matrix4dc
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.valkyrienskies.core.api.VsBeta
@@ -12,6 +13,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.io.DataInput
 import java.io.DataOutput
 import java.io.IOException
+import kotlin.math.abs
 import org.valkyrienskies.core.api.util.PhysTickOnly
 
 /**
@@ -88,6 +90,31 @@ class CrepusculiteLatticeForceInducer(
         blocks = packed
     }
 
+    // Physics thread only: ship-local box of [blocks], kept for the block array it was found from.
+    private var boundsOf: IntArray? = null
+    private val bounds = IntArray(6)
+
+    private fun boundsFor(blocks: IntArray): IntArray {
+        if (blocks === boundsOf) return bounds
+        bounds.fill(Int.MAX_VALUE, 0, 3); bounds.fill(Int.MIN_VALUE, 3, 6)
+        var i = 0
+        while (i < blocks.size) {
+            for (a in 0..2) {
+                bounds[a] = minOf(bounds[a], blocks[i + a])
+                bounds[a + 3] = maxOf(bounds[a + 3], blocks[i + a])
+            }
+            i += 3
+        }
+        boundsOf = blocks
+        return bounds
+    }
+
+    // The lowest world Y of a block centre in the box: each axis takes the end that the Y row of [s2w] makes lowest.
+    private fun lowestCentreY(s2w: Matrix4dc, b: IntArray): Double {
+        fun low(m: Double, lo: Int, hi: Int): Double = m * ((if (m >= 0.0) lo else hi) + 0.5)
+        return low(s2w.m01(), b[0], b[3]) + low(s2w.m11(), b[1], b[4]) + low(s2w.m21(), b[2], b[5]) + s2w.m31()
+    }
+
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
         if (physShip.isStatic || physShip.mass <= 0.0) return
         if (fluidDensity <= 0.0) return            // disabled (redstone 15)
@@ -116,6 +143,11 @@ class CrepusculiteLatticeForceInducer(
         val blockHalfHeight = 0.5 * s1
         val scaledSubmergeRamp = submergeRamp * s1
 
+        // heightAt cannot pass this: each wave gives at most a·I + ½a²k·I² ≤ (a + ½a²k)·max(I, I²).
+        val intensity = abs(waveIntensity)
+        val crestY = waterLineY + GerstnerOcean.maxAmplitude * maxOf(intensity, intensity * intensity) + CREST_EPSILON
+        if (lowestCentreY(s2w, boundsFor(blocks)) - blockHalfHeight >= crestY) return
+
         // Centre of mass in world space, plus the ship's world linear/angular velocity, so each
         // block's local point velocity v_p = v + ω × (blockWorld − comWorld) can be damped.
         val comWorld = Vector3d(com.x(), com.y(), com.z())
@@ -132,6 +164,8 @@ class CrepusculiteLatticeForceInducer(
             val cz = blocks[i + 2] + 0.5
             i += 3
 
+            // A block above every crest gets frac 0; skip it before the transform and the wave sum.
+            if (s2w.m01() * cx + s2w.m11() * cy + s2w.m21() * cz + s2w.m31() - blockHalfHeight >= crestY) continue
             world.set(cx, cy, cz)
             s2w.transformPosition(world)
 
@@ -226,5 +260,8 @@ class CrepusculiteLatticeForceInducer(
          *  follower may claim authority. Sized to comfortably exceed normal per-tick scheduling
          *  jitter while still recovering quickly from a broken / chunk-unloaded authority. */
         const val AUTHORITY_STALE_TICKS = 40L
+
+        // Covers float rounding between the crest bound and heightAt.
+        private const val CREST_EPSILON = 1.0e-6
     }
 }

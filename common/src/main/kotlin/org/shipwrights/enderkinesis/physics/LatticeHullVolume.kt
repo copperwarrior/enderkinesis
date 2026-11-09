@@ -85,9 +85,20 @@ object LatticeHullVolume {
         var wetD = 0
             internal set
 
+        /** One bit for each cell of the box (layout of [index] at the flood time): air that reaches the outer shell. */
+        var vent = LongArray(0)
+            internal set
+
         /** Different for each flood result of each volume. 0 before the first result. */
         var wetVersion = 0
             internal set
+
+        internal var floodGeneration = 0
+        internal var floodComplete = false
+
+        /** True when the result comes from a scan of the current box with every ship chunk loaded. */
+        val current: Boolean
+            get() = floodComplete && floodGeneration == generation && !needsScan
 
         internal fun contains(x: Int, y: Int, z: Int): Boolean =
             x - minX in 0 until w && y - minY in 0 until h && z - minZ in 0 until d
@@ -102,11 +113,23 @@ object LatticeHullVolume {
             val word = wet[((ly / LEVELS_PER_WORD) * wetD + lz) * wetW + lx]
             return (word ushr (ly and (LEVELS_PER_WORD - 1))) and 1 != 0
         }
+
+        /** True when air goes from this cell to the outside of the ship in any direction. Outside the box is open. */
+        fun isVented(x: Int, y: Int, z: Int): Boolean {
+            val lx = x - wetMinX
+            val ly = y - wetMinY
+            val lz = z - wetMinZ
+            if (lx !in 0 until wetW || ly !in 0 until wetH || lz !in 0 until wetD) return true
+            val i = (ly * wetD + lz) * wetW + lx
+            return (vent[i ushr 6] ushr (i and 63)) and 1L != 0L
+        }
     }
 
     internal class Flooded(
         val wet: IntArray,
+        val vent: LongArray,
         val generation: Int,
+        val complete: Boolean,
         val minX: Int, val minY: Int, val minZ: Int,
         val w: Int, val h: Int, val d: Int,
     )
@@ -381,11 +404,12 @@ object LatticeHullVolume {
         volume.needsFlood = false
         val faces = volume.faces.clone()
         val generation = volume.generation
+        val complete = !volume.incomplete
         val minX = volume.minX; val minY = volume.minY; val minZ = volume.minZ
         val w = volume.w; val h = volume.h; val d = volume.d
         floodExecutor.execute {
             try {
-                volume.pending.set(Flooded(flood(faces, w, h, d), generation, minX, minY, minZ, w, h, d))
+                volume.pending.set(Flooded(flood(faces, w, h, d), vent(faces, w, h, d), generation, complete, minX, minY, minZ, w, h, d))
             } catch (t: Throwable) {
                 LOG.error("[EK] lattice hull flood failed", t)
             } finally {
@@ -397,9 +421,52 @@ object LatticeHullVolume {
     private fun publish(volume: Volume, flooded: Flooded) {
         if (flooded.generation != volume.generation) return
         volume.wet = flooded.wet
+        volume.vent = flooded.vent
+        volume.floodGeneration = flooded.generation
+        volume.floodComplete = flooded.complete
         volume.wetMinX = flooded.minX; volume.wetMinY = flooded.minY; volume.wetMinZ = flooded.minZ
         volume.wetW = flooded.w; volume.wetH = flooded.h; volume.wetD = flooded.d
         volume.wetVersion = versions.incrementAndGet()
+    }
+
+    /** Plain flood from the padding shell through the open faces, with no gravity: air goes in every direction. */
+    private fun vent(faces: ByteArray, w: Int, h: Int, d: Int): LongArray {
+        val layer = w * d
+        val reached = LongArray((faces.size + 63) ushr 6)
+        val stack = IntArrayList()
+
+        fun enter(from: Int, to: Int, outBit: Int, inBit: Int) {
+            if (faces[from].toInt() and outBit != 0 || faces[to].toInt() and inBit != 0) return
+            val word = to ushr 6
+            val bit = 1L shl (to and 63)
+            if (reached[word] and bit != 0L) return
+            reached[word] = reached[word] or bit
+            stack.add(to)
+        }
+
+        fun seed(i: Int) {
+            if (reached[i ushr 6] and (1L shl (i and 63)) != 0L) return
+            reached[i ushr 6] = reached[i ushr 6] or (1L shl (i and 63))
+            stack.add(i)
+        }
+        for (y in 0 until h) for (z in 0 until d) for (x in 0 until w) {
+            if (x == 0 || y == 0 || z == 0 || x == w - 1 || y == h - 1 || z == d - 1) seed((y * d + z) * w + x)
+        }
+        // Each cell goes on the stack one time, so the work is linear in the box volume.
+        while (!stack.isEmpty) {
+            val i = stack.removeInt(stack.size - 1)
+            val y = i / layer
+            val rem = i - y * layer
+            val z = rem / w
+            val x = rem - z * w
+            if (x > 0) enter(i, i - 1, WEST, EAST)
+            if (x < w - 1) enter(i, i + 1, EAST, WEST)
+            if (z > 0) enter(i, i - w, NORTH, SOUTH)
+            if (z < d - 1) enter(i, i + w, SOUTH, NORTH)
+            if (y > 0) enter(i, i - layer, DOWN, UP)
+            if (y < h - 1) enter(i, i + layer, UP, DOWN)
+        }
+        return reached
     }
 
     /**

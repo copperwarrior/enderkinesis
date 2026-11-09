@@ -330,7 +330,7 @@ class CrepusculiteLatticeBlock(properties: BlockBehaviour.Properties) : Block(pr
             var added = 0
             while (added < MAX_ATTACHED_BLOCKS) {
                 val p = frontier.poll() ?: break
-                for (dir in Direction.values()) {
+                for (dir in Direction.entries) {
                     val n = p.relative(dir)
                     if (n in expanded) continue
                     // canSurvive reads the cells next to n; a read in an unloaded chunk would load it.

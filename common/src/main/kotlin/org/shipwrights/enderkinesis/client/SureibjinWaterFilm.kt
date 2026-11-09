@@ -23,6 +23,7 @@ import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.dimension.Sureibjin
 import org.shipwrights.enderkinesis.dimension.SureibjinChunkGenerator
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * A dark sheet immediately above the Sureibjin sea, for a viewer above the water. The water texture
@@ -183,8 +184,8 @@ object SureibjinWaterFilm {
 
                 val edge = max(abs(gx), abs(gz)).toFloat()
                 val amount = mask[index] *
-                    smooth(WAVE_START_DISTANCE, WAVE_FULL_DISTANCE, flat) *
-                    (1.0f - smooth(WAVE_EDGE_FADE_START, WAVE_EDGE_FADE_END, edge))
+                    smoothstep(WAVE_START_DISTANCE, WAVE_FULL_DISTANCE, flat) *
+                    (1.0f - smoothstep(WAVE_EDGE_FADE_START, WAVE_EDGE_FADE_END, edge))
                 if (amount <= 0.0f) {
                     lift[index] = 0.0f
                     shade[index] = 0.0f
@@ -257,13 +258,8 @@ object SureibjinWaterFilm {
 
     private fun alphaAt(dist: Float, fogStart: Float, fogEnd: Float): Float {
         val fog = ((dist - fogStart) / (fogEnd - fogStart)).coerceIn(0.0f, 1.0f)
-        return Mth.lerp(smooth(0.0f, ALPHA_FAR_DISTANCE, dist), ALPHA_NEAR, ALPHA_FAR) * (1.0f - fog)
+        return Mth.lerp(smoothstep(0.0f, ALPHA_FAR_DISTANCE, dist), ALPHA_NEAR, ALPHA_FAR) * (1.0f - fog)
     }
 
     private fun length(x: Float, y: Float, z: Float): Float = sqrt(x * x + y * y + z * z)
-
-    private fun smooth(edge0: Float, edge1: Float, x: Float): Float {
-        val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0.0f, 1.0f)
-        return t * t * (3.0f - 2.0f * t)
-    }
 }
