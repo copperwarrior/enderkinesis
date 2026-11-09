@@ -187,12 +187,8 @@ object SpellNetwork {
     /** To the players who track a chunk of the pocket. A client that loads such a chunk later gets its phased blocks
      *  with it ([AbyssalPockets.sendPhasedInChunk]), and a client that unloads one forgets them, so none keeps a stale
      *  hole. */
-    // TEMP pocket debug, remove after the Forge run: returns the recipient count for the pocket log.
-    fun broadcastPhase(level: ServerLevel, positions: Collection<Long>, phased: Boolean): Int {
-        val players = trackingAny(level, chunkCentres(positions))
-        sendPositions(players, if (phased) PHASE else UNPHASE, positions)
-        return players.size
-    }
+    fun broadcastPhase(level: ServerLevel, positions: Collection<Long>, phased: Boolean) =
+        sendPositions(trackingAny(level, chunkCentres(positions)), if (phased) PHASE else UNPHASE, positions)
 
     fun sendPhase(player: ServerPlayer, positions: Collection<Long>) = sendPositions(listOf(player), PHASE, positions)
 

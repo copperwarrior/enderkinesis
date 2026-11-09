@@ -116,7 +116,7 @@ object AbyssalPockets {
             if (cell.distanceToSqr(blocks.worldCentre) > radius * radius) continue
             blocks.forEachAt(dx, dy, dz) { pos, _ -> inside += pos.immutable() }
         }
-        return phase(ctx, inside, ticks, centre)
+        return phase(ctx, inside, ticks)
     }
 
     fun canPhase(ctx: SpellContext, pos: BlockPos): Boolean {
@@ -126,30 +126,13 @@ object AbyssalPockets {
         return state.getDestroySpeed(level, pos) >= 0f && ctx.mayChange(pos, Blocks.AIR.defaultBlockState())
     }
 
-    private fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int, centre: Vec3): Boolean {
+    private fun phase(ctx: SpellContext, positions: Iterable<BlockPos>, ticks: Int): Boolean {
         val level = ctx.level
-        var candidates = 0 // TEMP pocket debug, remove after the Forge run
-        var deniedByPermission = 0 // TEMP pocket debug, remove after the Forge run
-        val rejects = ArrayList<String>() // TEMP pocket debug, remove after the Forge run
         val until = level.gameTime + ticks
         val map = phased.getOrPut(level.dimension()) { Long2LongOpenHashMap() }
         val added = ArrayList<Long>()
         for (pos in positions) {
-            candidates++ // TEMP pocket debug, remove after the Forge run
-            if (!canPhase(ctx, pos)) {
-                // TEMP pocket debug, remove after the Forge run
-                val st = level.getBlockState(pos)
-                val reason = when {
-                    st.isAir -> null
-                    st.hasBlockEntity() -> "block entity"
-                    !st.isCollisionShapeFullBlock(level, pos) -> "not full collision"
-                    st.getDestroySpeed(level, pos) < 0f -> "unbreakable"
-                    else -> "permission refused"
-                }
-                if (reason == "permission refused") deniedByPermission++
-                if (reason != null && rejects.size < 8) rejects += "${pos.toShortString()} ${st.block.descriptionId}: $reason"
-                continue
-            }
+            if (!canPhase(ctx, pos)) continue
             val key = pos.asLong()
             if (!map.containsKey(key)) added += key
             map.put(key, maxOf(map.get(key), until))
@@ -162,16 +145,9 @@ object AbyssalPockets {
                 }
             }
         }
-        // TEMP pocket debug, remove after the Forge run
-        val recipients = if (added.isEmpty()) 0 else SpellNetwork.broadcastPhase(level, added, true)
-        DEBUG_LOG.info(
-            "TEMP pocket debug: dim={} centre={} candidates={} phased={} deniedByPermission={} recipients={} owner={} firstRejects={}",
-            level.dimension().location(), centre, candidates, added.size, deniedByPermission, recipients, ctx.owner, rejects,
-        )
+        if (added.isNotEmpty()) SpellNetwork.broadcastPhase(level, added, true)
         return added.isNotEmpty()
     }
-
-    private val DEBUG_LOG = com.mojang.logging.LogUtils.getLogger() // TEMP pocket debug, remove after the Forge run
 
     private fun expire(level: ServerLevel) {
         val map = phased[level.dimension()] ?: return
