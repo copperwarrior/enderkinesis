@@ -41,6 +41,7 @@ object SpellScreen {
         effect = null
         loadFailed = false
         SpellCubeFx.close()
+        DrakeSicknessClient.close()
     }
 
     private fun ease(current: Float, on: Boolean, dt: Double): Float {
@@ -58,6 +59,7 @@ object SpellScreen {
         val self = player != null && entity === player
         hollowed = ease(hollowed, self && player!!.hasEffect(EKEffects.HOLLOWED.get()), dt)
         sag = ease(sag, self && player!!.hasEffect(EKEffects.WEIGHTED.get()), dt)
+        DrakeSicknessClient.update(player?.hasEffect(EKEffects.DRAKE_SICKNESS.get()) == true, dt)
     }
 
     /** Call with `GameRenderer.bobHurt`. A roll about the screen centre keeps the crosshair on the target. */
@@ -81,13 +83,10 @@ object SpellScreen {
         val mc = Minecraft.getInstance()
         // Cube effects go first, so that Hollowed drains them too.
         mc.level?.let { SpellCubeFx.render(SpellClock.time(it, mc.frameTime)) }
+        DrakeSicknessClient.render()
         if (hollowed < 0.005f) return
         val loaded = ensureLoaded(mc) ?: return
         val strength = hollowed
         RefractionPass.run(loaded) { eff -> eff.safeGetUniform("Strength").set(strength) }
     }
-
-    /** 0..1, for the HUD overlays. */
-    fun hollowedAmount(): Float = hollowed
-    fun weightedAmount(): Float = sag
 }

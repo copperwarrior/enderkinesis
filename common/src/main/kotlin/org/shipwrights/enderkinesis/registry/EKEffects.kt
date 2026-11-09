@@ -19,6 +19,7 @@ import org.shipwrights.enderkinesis.effect.CrystallizedEffect
 import org.shipwrights.enderkinesis.effect.EntangledEffect
 import org.shipwrights.enderkinesis.effect.WeightedEffect
 import org.shipwrights.enderkinesis.effect.DiscordEffect
+import org.shipwrights.enderkinesis.effect.DrakeSicknessEffect
 import org.shipwrights.enderkinesis.effect.EnthralledEffect
 import org.shipwrights.enderkinesis.effect.UlderParanoiaEffect
 import org.shipwrights.enderkinesis.effect.BleedingEffect
@@ -51,10 +52,6 @@ object EKEffects {
     val SSELITH_MADNESS: RegistrySupplier<MobEffect> =
         EFFECTS.register("sselith_madness") { SselithMadnessEffect() }
 
-    /** Java-callable static accessor for [SSELITH_MADNESS]'s resolved
-     *  [MobEffect] — used by client mixins that need to check the effect
-     *  without bouncing through the Kotlin object's instance getter. */
-    @JvmStatic
     fun sselithMadnessEffect(): MobEffect = SSELITH_MADNESS.get()
 
     /** Permanent-until-death debuff applied by Wey'ye fruit. See
@@ -90,12 +87,11 @@ object EKEffects {
 
     val BLEEDING: RegistrySupplier<MobEffect> = EFFECTS.register("bleeding") { BleedingEffect() }
 
+    val DRAKE_SICKNESS: RegistrySupplier<MobEffect> = EFFECTS.register("drake_sickness") { DrakeSicknessEffect() }
+
     val BLOODBOUND: RegistrySupplier<MobEffect> = EFFECTS.register("bloodbound") { BloodboundEffect() }
 
     val BLOOD_SURGE: RegistrySupplier<MobEffect> = EFFECTS.register("blood_surge") { BloodSurgeEffect() }
-
-    @JvmStatic
-    fun bloodSurgeEffect(): MobEffect = BLOOD_SURGE.get()
 
     val ROT: RegistrySupplier<MobEffect> = EFFECTS.register("rot") { RotEffect() }
 

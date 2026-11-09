@@ -58,6 +58,7 @@
     "ChannelAccessor",
     "ChannelMuffleMixin",
     "SoundEngineMuffleMixin",
+    "SoundEngineDrakeSicknessMixin",
     "LevelRendererOrbRenderMixin",
     "RenderTargetDepthAccessor",
     "LevelRendererMothClothOverlayMixin",
