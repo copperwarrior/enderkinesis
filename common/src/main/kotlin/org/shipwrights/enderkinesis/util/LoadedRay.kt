@@ -48,7 +48,7 @@ fun ServerLevel.loadedRayRange(origin: Vec3, dir: Vec3, range: Double): Double {
         else -> Double.POSITIVE_INFINITY
     }
     val maxSteps = (range / 16.0).toInt() * 2 + 4
-    for (step in 0 until maxSteps) {
+    repeat(maxSteps) { _ ->
         val t: Double
         if (tMaxX < tMaxZ) {
             t = tMaxX; tMaxX += tDeltaX; cx += stepX

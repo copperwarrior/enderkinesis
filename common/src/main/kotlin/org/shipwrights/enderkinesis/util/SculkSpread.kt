@@ -268,7 +268,7 @@ object SculkSpread {
             // block at their start.
             if (!state.`is`(Blocks.SCULK)) continue
             var hasReplaceableNeighbour = false
-            for (dir in Direction.values()) {
+            for (dir in Direction.entries) {
                 val n = pos.relative(dir)
                 if (converted.contains(n)) continue
                 if (level.getBlockState(n).`is`(CATASTROPHE_REPLACEABLE)) {
