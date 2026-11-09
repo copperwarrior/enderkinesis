@@ -13,6 +13,7 @@ uniform sampler2D Sampler2;
 uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
 uniform vec3 ChunkOffset;
+uniform mat3 ShipMat;
 uniform mat3 IViewRotMat;
 uniform int FogShape;
 uniform vec3 CameraPos;
@@ -23,7 +24,7 @@ out vec2 texCoord0;
 out vec3 worldPos;
 
 void main() {
-    vec3 pos = Position + ChunkOffset;
+    vec3 pos = ShipMat * Position + ChunkOffset;
     gl_Position = ProjMat * ModelViewMat * vec4(pos, 1.0);
 
     vertexDistance = fog_distance(ModelViewMat, IViewRotMat * pos, FogShape);

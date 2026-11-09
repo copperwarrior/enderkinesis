@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import it.unimi.dsi.fastutil.longs.LongArrayList
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.BlockPos
@@ -19,7 +20,7 @@ import org.valkyrienskies.core.api.util.GameTickOnly
  *     new chunk arrives from the server).
  *   - Per-block updates from LevelChunk.setBlockState (via mixin).
  *
- * Read by [MothClothOverlayRenderer] once per frame to draw the glint layer.
+ * Read by [MothClothOverlayRenderer] when [version] changes, to regroup the glint meshes.
  *
  * Positions are packed as longs to avoid the per-entry object churn we'd
  * otherwise pay iterating tens of thousands of blocks in a heavily-clothed
@@ -30,33 +31,34 @@ object MothClothClientPositions {
 
     private val positions = LongOpenHashSet(64)
 
+    /** Goes up on each change of the set, so the renderer regroups only then. */
+    @Volatile
+    var version: Int = 0
+        private set
+
     @JvmStatic
     fun add(pos: BlockPos) {
-        synchronized(positions) { positions.add(pos.asLong()) }
+        synchronized(positions) { if (positions.add(pos.asLong())) version++ }
     }
 
     @JvmStatic
     fun remove(pos: BlockPos) {
-        synchronized(positions) { positions.remove(pos.asLong()) }
+        synchronized(positions) { if (positions.remove(pos.asLong())) version++ }
     }
 
     fun clear() {
-        synchronized(positions) { positions.clear() }
+        synchronized(positions) {
+            if (positions.isEmpty()) return
+            positions.clear()
+            version++
+        }
     }
 
-    /** Iterate visible positions. The [action] receives a mutable BlockPos —
-     *  do not retain it across iterations. */
-    fun forEach(action: (BlockPos.MutableBlockPos) -> Unit) {
-        val scratch = BlockPos.MutableBlockPos()
-        val snapshot = synchronized(positions) { positions.toLongArray() }
-        for (packed in snapshot) {
-            scratch.set(
-                BlockPos.getX(packed),
-                BlockPos.getY(packed),
-                BlockPos.getZ(packed),
-            )
-            action(scratch)
-        }
+    /** Replaces [out] with the packed positions and returns the version they belong to. */
+    fun snapshotInto(out: LongArrayList): Int = synchronized(positions) {
+        out.clear()
+        out.addAll(positions)
+        version
     }
 
     fun size(): Int = synchronized(positions) { positions.size }
@@ -68,7 +70,7 @@ object MothClothClientPositions {
         val found = LongOpenHashSet()
         scanChunkInto(chunk, found)
         if (found.isEmpty()) return
-        synchronized(positions) { positions.addAll(found) }
+        synchronized(positions) { if (positions.addAll(found)) version++ }
     }
 
     private fun scanChunkInto(chunk: LevelChunk, out: LongOpenHashSet) {
@@ -112,9 +114,11 @@ object MothClothClientPositions {
                 scanChunkInto(chunk, fresh)
             }
         }
+        if (fresh == lastShipScanResult) return
         synchronized(positions) {
             positions.removeAll(lastShipScanResult)
             positions.addAll(fresh)
+            version++
         }
         lastShipScanResult = fresh
     }
@@ -137,7 +141,10 @@ object MothClothClientPositions {
                 val packed = iterator.nextLong()
                 val x = BlockPos.getX(packed)
                 val z = BlockPos.getZ(packed)
-                if (x in minX..maxX && z in minZ..maxZ) iterator.remove()
+                if (x in minX..maxX && z in minZ..maxZ) {
+                    iterator.remove()
+                    version++
+                }
             }
         }
     }

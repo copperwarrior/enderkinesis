@@ -12,6 +12,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.io.DataInput
 import java.io.DataOutput
 import java.io.IOException
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.util.PhysTickOnly
 
 /**
@@ -21,7 +22,7 @@ import org.valkyrienskies.core.api.util.PhysTickOnly
  * Control law (accelerations, so behaviour is mass-independent):
  *
  *   a_cmd = KP · (targetY − y) − KD · v_y
- *   F     = clamp(m · (GRAVITY + a_cmd), 0, FORCE_PER_BLOCK · clothCount)
+ *   F     = clamp(m · (g + a_cmd), 0, FORCE_PER_BLOCK · clothCount)
  *
  * The gravity feed-forward makes the hover exact at zero error (no
  * integral term needed), the KD term bleeds vertical speed off as the
@@ -52,7 +53,7 @@ class MothClothForceInducer : ShipPhysicsListener {
         val error = MothClothShipRegistry.TARGET_Y - y
 
         val accelCmd = KP * error - KD * vy
-        val desired = mass * (GRAVITY + accelCmd)
+        val desired = mass * (physLevel.gravity() + accelCmd)
         val maxLift = FORCE_PER_BLOCK * count
         val total = desired.coerceIn(0.0, maxLift)
 
@@ -61,14 +62,15 @@ class MothClothForceInducer : ShipPhysicsListener {
         // so the lift never rotates with the ship and asymmetric cloth
         // placement produces real torque (an unbalanced panel tilts the
         // ship) while balanced cloth lifts cleanly.
-        forceScratch.set(0.0, total / count, 0.0)
+        val perBlock = total / count
+        // vs-core queues the vectors by reference, so each call gets new ones.
         for (packed in positions) {
-            posScratch.set(
+            val pos = Vector3d(
                 net.minecraft.core.BlockPos.getX(packed) + 0.5,
                 net.minecraft.core.BlockPos.getY(packed) + 0.5,
                 net.minecraft.core.BlockPos.getZ(packed) + 0.5,
             )
-            physShip.applyWorldForceToModelPos(forceScratch, posScratch)
+            physShip.applyWorldForceToModelPos(Vector3d(0.0, perBlock, 0.0), pos)
         }
 
         // Minimal angular damping so pendulum swing from off-axis lift
@@ -83,13 +85,10 @@ class MothClothForceInducer : ShipPhysicsListener {
             inertiaWorldScratch.set(rotScratch).mul(physShip.momentOfInertia)
             rotScratch.transpose()
             inertiaWorldScratch.mul(rotScratch)
-            inertiaWorldScratch.transform(torqueScratch.set(omega)).mul(-ANGULAR_DAMP)
-            physShip.applyWorldTorque(torqueScratch)
+            val torque = inertiaWorldScratch.transform(Vector3d(omega)).mul(-ANGULAR_DAMP)
+            physShip.applyWorldTorque(torque)
         }
     }
-    private val forceScratch = Vector3d()
-    private val posScratch = Vector3d()
-    private val torqueScratch = Vector3d()
     private val rotScratch = org.joml.Matrix3d()
     private val inertiaWorldScratch = org.joml.Matrix3d()
 
@@ -127,8 +126,6 @@ class MothClothForceInducer : ShipPhysicsListener {
         fun fromSave(node: JsonNode): MothClothForceInducer =
             AttachmentIo.decode(node, MothClothForceInducer::class.java, { MothClothForceInducer() }, Serializer::deserialize)
 
-        private const val GRAVITY: Double = 10.0
-
         /** Proportional gain (1/s²): commanded acceleration per block of
          *  altitude error. ω = √KP = 0.5 rad/s natural frequency. */
         private const val KP: Double = 0.25
@@ -139,7 +136,7 @@ class MothClothForceInducer : ShipPhysicsListener {
         private const val KD: Double = 1.2
 
         /** Lift capacity in Newtons per moth cloth block — clamps the PD
-         *  output. VS2 gravity is 10 m/s² and unmapped blocks (including
+         *  output. VS2's default gravity is 10 m/s² and unmapped blocks (including
          *  moth cloth itself) default to ~1000 kg, so anything under
          *  10 kN/block couldn't lift the cloth's own weight. 50 kN = the
          *  block lifts itself plus ~4 t of hull. */

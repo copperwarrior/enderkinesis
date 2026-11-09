@@ -50,7 +50,7 @@ class MothClothBlock(val color: DyeColor, properties: BlockBehaviour.Properties)
      *  outward with a small perpendicular jitter. */
     override fun animateTick(state: BlockState, level: Level, pos: BlockPos, random: RandomSource) {
         if (random.nextInt(DUST_CHANCE) != 0) return
-        val face = Direction.values()[random.nextInt(6)]
+        val face = Direction.entries[random.nextInt(6)]
         // Two axes tangent to the face — the point across the face is random
         // in both, the third axis is pinned to the face plane (0 or 1).
         val nx = face.stepX

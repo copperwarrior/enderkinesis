@@ -1,30 +1,30 @@
 package org.shipwrights.enderkinesis.client
 
+import com.mojang.blaze3d.systems.RenderSystem
+import com.mojang.blaze3d.vertex.BufferBuilder
+import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
+import com.mojang.blaze3d.vertex.VertexBuffer
+import com.mojang.blaze3d.vertex.VertexFormat
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongArrayList
+import it.unimi.dsi.fastutil.longs.LongArrays
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.BlockPos
+import net.minecraft.core.SectionPos
 import net.minecraft.util.RandomSource
-import org.joml.Matrix4f
+import org.joml.Matrix3f
+import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.MothClothBlock
 import org.valkyrienskies.core.api.ships.ClientShip
-import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 
 /**
- * Per-frame overlay pass drawing the Moth Cloth glint on top of the base
- * wool (which the vanilla SOLID pass — plus VS2's ship-batched SOLID for
- * ship blocks — already rendered).
- *
- * Runs at the end of {@code LevelRenderer.renderLevel} via
- * {@link org.shipwrights.enderkinesis.mixin.LevelRendererMothClothOverlayMixin}.
- * For each Moth Cloth position tracked in {@link MothClothClientPositions}:
- *   - World blocks: PoseStack translated by (pos - cam), then vanilla block
- *     model is emitted via {@code BlockRenderDispatcher.renderBatched} into
- *     our custom RenderType's buffer.
- *   - Ship blocks: {@code ClientShip.renderTransform.shipToWorld} is
- *     multiplied into the PoseStack before the block-position translate, so
- *     the glint quads follow the ship's orientation exactly.
+ * Draws the Moth Cloth glint over the base wool. Each 16³ section keeps a baked mesh in section-local
+ * coordinates; it is rebuilt only when its block set, block states or light change (LevelRenderer.setSectionDirty).
  */
 @OptIn(GameTickOnly::class)
 object MothClothOverlayRenderer {
@@ -34,7 +34,45 @@ object MothClothOverlayRenderer {
     /** Must keep moth_cloth.fsh's GLINT_CELL_PERIOD seamless across the wrap. */
     private const val WORLD_WRAP: Double = 2000.0
 
+    private const val BUILDER_BYTES = 1 shl 16
+
     private fun wrap(coord: Double): Double = coord - Math.floor(coord / WORLD_WRAP) * WORLD_WRAP
+
+    private class Section {
+        val buffer = VertexBuffer(VertexBuffer.Usage.STATIC)
+        var positions = LongArrayList()
+        var next = LongArrayList()
+        var dirty = true
+        var empty = true
+    }
+
+    // Render thread only, except dirtyKeys and allDirty, which the chunk and light paths may also write.
+    private val sections = Long2ObjectOpenHashMap<Section>()
+    private val dirtyKeys = LongOpenHashSet()
+    @Volatile private var allDirty = false
+    @Volatile private var tracking = false
+    private var seenVersion = -1
+    private val snapshot = LongArrayList()
+    private val gone = LongArrayList()
+    private var builder: BufferBuilder? = null
+    private val buildPose = PoseStack()
+    private val cursor = BlockPos.MutableBlockPos()
+    private val origin = Vector3d()
+    private val shipLinear = Matrix3f()
+    private val identity = Matrix3f()
+
+    /** Block or light change in a section; the glint mesh there and next to it bakes the old AO and light. */
+    @JvmStatic
+    fun onSectionDirty(x: Int, y: Int, z: Int) {
+        if (!tracking) return
+        synchronized(dirtyKeys) { dirtyKeys.add(SectionPos.asLong(x, y, z)) }
+    }
+
+    /** Resource reload or a graphics option change: the atlas UVs or AO in every mesh may be stale. */
+    @JvmStatic
+    fun onAllChanged() {
+        allDirty = true
+    }
 
     @JvmStatic
     fun render(
@@ -49,95 +87,148 @@ object MothClothOverlayRenderer {
         // replaceWithPacketData for shipyard chunks) — rescan them here.
         // Internally rate-limited to once per 2 s.
         MothClothClientPositions.rescanShips(level)
-        if (MothClothClientPositions.size() == 0) return
+        regroup()
+        markDirty()
+        if (sections.isEmpty()) return
 
         val shader = MothClothRenderType.shader ?: return
+        val dirty = sections.long2ObjectEntrySet().fastIterator()
+        while (dirty.hasNext()) {
+            val e = dirty.next()
+            if (e.value.dirty) build(level, e.value, e.longKey)
+        }
+
         // Wrapped: floats lose sub-block precision far from the origin, and the glint repeats over this span.
         shader.getUniform("CameraPos")
             ?.set(wrap(camX).toFloat(), wrap(camY).toFloat(), wrap(camZ).toFloat())
         shader.getUniform("WallTime")
             ?.set(((System.currentTimeMillis() % 1000000L) / 1000.0).toFloat())
+        val shipMat = shader.getUniform("ShipMat")
 
-        val bufferSource = mc.renderBuffers().bufferSource()
-        val buffer = bufferSource.getBuffer(MothClothRenderType.TYPE)
-        val blockRenderer = mc.blockRenderer
-
-        // We use a FRESH identity PoseStack rather than the passed
-        // `poseStack` because the passed one already has the camera
-        // rotation baked in (applied by GameRenderer before renderLevel).
-        // When the buffer is flushed via `endBatch`, the shader's
-        // ModelViewMat uniform is set from RenderSystem's ModelView (also
-        // camera rotation). Emitting with the passed pose would multiply
-        // camera rotation twice, producing the "camera-locked" artifact.
-        // With an identity pose here, the buffer contains vertices at
-        // pure camera-relative world space, and ModelViewMat (camera
-        // rotation) transforms them once into view space.
-        val emitPose = com.mojang.blaze3d.vertex.PoseStack()
-
-        MothClothClientPositions.forEach { pos ->
-            val state = level.getBlockState(pos)
-            if (state.block !is MothClothBlock) return@forEach
-
-            val ship = level.getLoadedShipManagingPos(pos) as? ClientShip
-
-            // Cloaked ships render into the concealment side FB, not the
-            // main FB — our overlay pass runs outside VS2's per-ship
-            // events, so without this gate the glint would keep drawing
-            // in the open air while the Staff of Concealment hides the
-            // ship under it.
-            if (ship != null && ClientShipCloakingState.getProgress(ship.id) > 0.001f) return@forEach
-
-            emitPose.pushPose()
-            if (ship != null) {
-                // Ship block. All large-coordinate math must stay in
-                // doubles: shipToWorld's translation column carries
-                // shipyard-scale values (~28M blocks, float ulp ≈ 2
-                // blocks), so downcasting the full matrix to Matrix4f
-                // yields a multi-block, per-frame-jumping offset. Instead
-                // transform the block origin through shipToWorld in
-                // double precision, translate by the small camera-relative
-                // result, and downcast only the rotation/scale 3×3.
-                val s2w = ship.renderTransform.shipToWorld
-                val origin = s2w.transformPosition(
-                    org.joml.Vector3d(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble()),
-                )
-                emitPose.translate(origin.x - camX, origin.y - camY, origin.z - camZ)
-                // Column-major linear (rotation/scale) part only, no translation.
-                emitPose.mulPoseMatrix(
-                    Matrix4f(
-                        s2w.m00().toFloat(), s2w.m01().toFloat(), s2w.m02().toFloat(), 0f,
-                        s2w.m10().toFloat(), s2w.m11().toFloat(), s2w.m12().toFloat(), 0f,
-                        s2w.m20().toFloat(), s2w.m21().toFloat(), s2w.m22().toFloat(), 0f,
-                        0f, 0f, 0f, 1f,
-                    ),
-                )
-            } else {
-                emitPose.translate(pos.x - camX, pos.y - camY, pos.z - camZ)
-            }
-            blockRenderer.renderBatched(
-                state, BlockPos(pos), level, emitPose, buffer, true, random,
-            )
-            emitPose.popPose()
-        }
-
-        // Flush with the camera rotation pushed into RenderSystem's
-        // model-view stack. Our shader is chunk-style: it expects
-        // UNROTATED camera-relative vertex positions (so worldPos =
-        // pos + CameraPos reconstructs true world coords) and the camera
-        // rotation in ModelViewMat. BufferUploader._drawWithShader sets
-        // ModelViewMat from RenderSystem.getModelViewMatrix(), which is
-        // identity during renderLevel (vanilla entity vertices are fully
-        // CPU-rotated instead) — so without this bracket the geometry
-        // draws unrotated and lands off-screen.
-        val mvStack = com.mojang.blaze3d.systems.RenderSystem.getModelViewStack()
+        // The shader wants camera-relative positions and only the camera rotation in ModelViewMat,
+        // which is identity during renderLevel (vanilla rotates entity vertices on the CPU).
+        val mvStack = RenderSystem.getModelViewStack()
         mvStack.pushPose()
         mvStack.mulPoseMatrix(poseStack.last().pose())
-        com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix()
+        RenderSystem.applyModelViewMatrix()
+        MothClothRenderType.TYPE.setupRenderState()
         try {
-            bufferSource.endBatch(MothClothRenderType.TYPE)
+            val modelView = RenderSystem.getModelViewMatrix()
+            val projection = RenderSystem.getProjectionMatrix()
+            val it = sections.long2ObjectEntrySet().fastIterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                val s = e.value
+                if (s.empty) continue
+                val key = e.longKey
+                val ox = SectionPos.sectionToBlockCoord(SectionPos.x(key))
+                val oy = SectionPos.sectionToBlockCoord(SectionPos.y(key))
+                val oz = SectionPos.sectionToBlockCoord(SectionPos.z(key))
+                val ship = level.getLoadedShipManagingPos(SectionPos.x(key), SectionPos.z(key)) as? ClientShip
+                // Cloaked ships render into the concealment side FB; the glint must not stay in the open air.
+                if (ship != null && ClientShipCloakingState.getProgress(ship.id) > 0.001f) continue
+                if (ship != null) {
+                    // shipToWorld's translation is shipyard-scale (float ulp ≈ 2 blocks): keep it in doubles,
+                    // send only the camera-relative origin and the 3×3 rotation/scale as floats.
+                    val s2w = ship.renderTransform.shipToWorld
+                    s2w.transformPosition(origin.set(ox.toDouble(), oy.toDouble(), oz.toDouble()))
+                    shipLinear.set(
+                        s2w.m00().toFloat(), s2w.m01().toFloat(), s2w.m02().toFloat(),
+                        s2w.m10().toFloat(), s2w.m11().toFloat(), s2w.m12().toFloat(),
+                        s2w.m20().toFloat(), s2w.m21().toFloat(), s2w.m22().toFloat(),
+                    )
+                    shipMat?.set(shipLinear)
+                } else {
+                    origin.set(ox.toDouble(), oy.toDouble(), oz.toDouble())
+                    shipMat?.set(identity)
+                }
+                shader.CHUNK_OFFSET?.set((origin.x - camX).toFloat(), (origin.y - camY).toFloat(), (origin.z - camZ).toFloat())
+                s.buffer.bind()
+                s.buffer.drawWithShader(modelView, projection, shader)
+            }
+            VertexBuffer.unbind()
         } finally {
+            shader.CHUNK_OFFSET?.set(0f, 0f, 0f)
+            shipMat?.set(identity)
+            MothClothRenderType.TYPE.clearRenderState()
             mvStack.popPose()
-            com.mojang.blaze3d.systems.RenderSystem.applyModelViewMatrix()
+            RenderSystem.applyModelViewMatrix()
         }
+    }
+
+    /** Sorts the position set into sections when it changed; a section whose members changed rebuilds. */
+    private fun regroup() {
+        val version = MothClothClientPositions.version
+        if (version == seenVersion) return
+        seenVersion = MothClothClientPositions.snapshotInto(snapshot)
+        for (s in sections.values) s.next.clear()
+        for (n in 0 until snapshot.size) {
+            val p = snapshot.getLong(n)
+            val key = SectionPos.asLong(BlockPos.getX(p) shr 4, BlockPos.getY(p) shr 4, BlockPos.getZ(p) shr 4)
+            var s = sections.get(key)
+            if (s == null) {
+                s = Section()
+                sections.put(key, s)
+            }
+            s.next.add(p)
+        }
+        gone.clear()
+        val it = sections.long2ObjectEntrySet().fastIterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            val s = e.value
+            if (s.next.isEmpty()) {
+                gone.add(e.longKey)
+                continue
+            }
+            LongArrays.unstableSort(s.next.elements(), 0, s.next.size)
+            if (s.next != s.positions) s.dirty = true
+            val swap = s.positions
+            s.positions = s.next
+            s.next = swap
+        }
+        for (n in 0 until gone.size) sections.remove(gone.getLong(n))?.buffer?.close()
+        tracking = !sections.isEmpty()
+    }
+
+    private fun markDirty() {
+        if (allDirty) {
+            allDirty = false
+            for (s in sections.values) s.dirty = true
+        }
+        synchronized(dirtyKeys) {
+            if (dirtyKeys.isEmpty()) return
+            val it = dirtyKeys.iterator()
+            while (it.hasNext()) sections.get(it.nextLong())?.dirty = true
+            dirtyKeys.clear()
+        }
+    }
+
+    private fun build(level: ClientLevel, s: Section, key: Long) {
+        s.dirty = false
+        val ox = SectionPos.sectionToBlockCoord(SectionPos.x(key))
+        val oy = SectionPos.sectionToBlockCoord(SectionPos.y(key))
+        val oz = SectionPos.sectionToBlockCoord(SectionPos.z(key))
+        val out = builder ?: BufferBuilder(BUILDER_BYTES).also { builder = it }
+        val blockRenderer = Minecraft.getInstance().blockRenderer
+        out.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.BLOCK)
+        for (n in 0 until s.positions.size) {
+            cursor.set(s.positions.getLong(n))
+            val state = level.getBlockState(cursor)
+            if (state.block !is MothClothBlock) continue
+            buildPose.pushPose()
+            buildPose.translate((cursor.x - ox).toFloat(), (cursor.y - oy).toFloat(), (cursor.z - oz).toFloat())
+            blockRenderer.renderBatched(state, cursor, level, buildPose, out, true, random)
+            buildPose.popPose()
+        }
+        val rendered = out.end()
+        s.empty = rendered.isEmpty()
+        if (s.empty) {
+            rendered.release()
+            return
+        }
+        s.buffer.bind()
+        s.buffer.upload(rendered)
+        VertexBuffer.unbind()
     }
 }
