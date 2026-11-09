@@ -9,8 +9,7 @@ import kotlin.math.sin
  * with the same `level.gameTime` clock (shared client/server state, pure function of
  * position + time + compile-time constants → no sync packets needed).
  *
- * 16-wave Gerstner spectrum (3 swell λ=13–32, 5 chop λ=1.8–8, 8 capillary λ=0.27–1.4),
- * directions spread across the compass. Per-wave `steepness × amplitude × wavenumber` sum
+ * 16-wave Gerstner spectrum (3 swell λ=14.3–33.7, 5 chop λ=1.85–8.3, 8 capillary λ=0.27–1.4). Per-wave `steepness × amplitude × wavenumber` sum
  * stays under 1.0 even after [CHOPPY], so the trochoidal displacement never self-intersects.
  *
  * Each wave's height carries a Stokes 2nd-order term `−½·a²·k·cos(2φ)`: same `2a`
@@ -22,11 +21,10 @@ object GerstnerOcean {
     private const val TWO_PI = Math.PI * 2.0
 
     /** [dirX, dirZ, amplitude, wavelength, speed (rad/tick), steepness]. */
-    // Hand-shaped 16-wave spectrum. Direction vectors are unit-length. Wavelengths follow
-    // a roughly geometric series with non-harmonic spacing (32, 19, 13, 8, 5, 3.3, 2.4, 1.8,
-    // 1.4, 1.05, 0.85, 0.65, 0.50, 0.40, 0.32, 0.27) so wave components don't lock into
-    // resonance patterns. Amplitudes decay log-style; speeds increase with frequency
-    // (k·omega² ≈ const, the deep-water dispersion relation, hand-tuned not strict).
+    // Hand-shaped 16-wave spectrum. Direction vectors are unit-length. Amplitudes decay log-style; speeds increase
+    // with frequency (deep-water dispersion, hand-tuned not strict). No two large waves are near-perpendicular and no
+    // wavelength ratio is near a small fraction: two strong swells at about 90° made a visible grid of crests.
+    // Server physics and client drawing both read this table, so it must stay one set of literal constants.
     private val WAVES = arrayOf(
         // Q (steepness) cranked toward the self-intersection limit. Stokes 2nd-order is a
         // gentle correction; the *real* peak-sharpening lever is Q (the trochoidal
@@ -35,17 +33,17 @@ object GerstnerOcean {
         // The Σ(CHOPPY·Q·a·k) budget below sits just past 1.0, so the most aligned crests
         // occasionally show a slight fold — that reads as "breaking surf" rather than as a
         // glitch. Dial Qs back to ~0.80 if folds become objectionable.
-        doubleArrayOf( 0.965,  0.259, 1.10, 32.0, 0.030, 0.92),  // dir 15°
-        doubleArrayOf(-0.259,  0.965, 0.75, 19.0, 0.050, 0.88),  // dir 105°
-        doubleArrayOf( 0.574, -0.819, 0.50, 13.0, 0.072, 0.82),  // dir -55°
+        doubleArrayOf( 0.978,  0.208, 1.10, 33.7, 0.029, 0.92),  // dir 12°
+        doubleArrayOf( 0.934, -0.358, 0.75, 22.9, 0.044, 0.88),  // dir -21°
+        doubleArrayOf( 0.588,  0.809, 0.50, 14.3, 0.068, 0.82),  // dir 54°
 
         // Boosted amplitudes and Qs; mid-frequency contribution is what the new mesh
         // resolution (0.75-block grid) most distinctly resolves as visible chop.
-        doubleArrayOf( 0.788,  0.616, 0.36,  8.0, 0.095, 0.60),  // dir 38°
-        doubleArrayOf( 0.208, -0.978, 0.24,  5.0, 0.130, 0.55),  // dir -78°
-        doubleArrayOf(-0.966,  0.259, 0.16,  3.3, 0.175, 0.50),  // dir 165°
-        doubleArrayOf(-0.574, -0.819, 0.11,  2.4, 0.210, 0.45),  // dir -125°
-        doubleArrayOf(-0.087,  0.996, 0.07,  1.8, 0.250, 0.40),  // dir 95°
+        doubleArrayOf( 0.999, -0.052, 0.36,  8.3, 0.096, 0.60),  // dir -3°
+        doubleArrayOf( 0.755,  0.656, 0.24,  5.9, 0.122, 0.55),  // dir 41°
+        doubleArrayOf( 0.530, -0.848, 0.16,  3.7, 0.165, 0.50),  // dir -58°
+        doubleArrayOf(-0.391,  0.921, 0.11,  2.6, 0.205, 0.45),  // dir 113°
+        doubleArrayOf(-0.921,  0.391, 0.07, 1.85, 0.247, 0.40),  // dir 157°
 
         // Half of these are below the mesh's Nyquist limit; kept for buoyancy/splash physics
         // (which sample heightAt at arbitrary world points), but visually only the top 4
@@ -80,10 +78,19 @@ object GerstnerOcean {
      *  capillary detail driving per-vertex colour into the muddy-mid-tone region. */
     val swellMaxAmplitude: Double = computeMaxAmp(0, SWELL_COUNT)
 
-    private fun computeMaxAmp(fromInclusive: Int, toExclusive: Int): Double {
+    // Sureibjin keeps the swell from before the lattice grid fix. Its film is client-only, over vanilla water.
+    private val SUREIBJIN_SWELL = arrayOf(
+        doubleArrayOf( 0.965,  0.259, 1.10, 32.0, 0.030, 0.92),  // dir 15°
+        doubleArrayOf(-0.259,  0.965, 0.75, 19.0, 0.050, 0.88),  // dir 105°
+        doubleArrayOf( 0.574, -0.819, 0.50, 13.0, 0.072, 0.82),  // dir -55°
+    )
+
+    val sureibjinSwellMaxAmplitude: Double = computeMaxAmp(0, SWELL_COUNT, SUREIBJIN_SWELL)
+
+    private fun computeMaxAmp(fromInclusive: Int, toExclusive: Int, waves: Array<DoubleArray> = WAVES): Double {
         var sum = 0.0
         for (i in fromInclusive until toExclusive) {
-            val w = WAVES[i]
+            val w = waves[i]
             val a = w[2]
             val k = TWO_PI / w[3]
             sum += a + 0.5 * a * a * k       // 1st-order amp + Stokes lift at peak
@@ -224,10 +231,17 @@ object GerstnerOcean {
      *
      *  Geometry still uses the full [heightAt] — only the *colour-driving* height is smoothed.
      *  Cost: 3 of the 16 trig calls in [heightAt], so cheaper than the full call. */
-    fun swellHeightAt(x: Double, z: Double, t: Double, intensity: Double): Double {
+    fun swellHeightAt(x: Double, z: Double, t: Double, intensity: Double): Double =
+        swellSum(WAVES, x, z, t, intensity)
+
+    /** [swellHeightAt] with the Sureibjin swell set. */
+    fun sureibjinSwellHeightAt(x: Double, z: Double, t: Double, intensity: Double): Double =
+        swellSum(SUREIBJIN_SWELL, x, z, t, intensity)
+
+    private fun swellSum(waves: Array<DoubleArray>, x: Double, z: Double, t: Double, intensity: Double): Double {
         var dy = 0.0
         for (i in 0 until SWELL_COUNT) {
-            val w = WAVES[i]
+            val w = waves[i]
             val k = TWO_PI / w[3]
             val a = w[2] * intensity
             val p = phase(w, x, z, t)

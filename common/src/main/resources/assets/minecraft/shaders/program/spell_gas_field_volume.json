@@ -1,10 +1,10 @@
 {
   "blend": {
     "func": "add",
-    "srcrgb": "srcalpha",
+    "srcrgb": "1",
     "dstrgb": "1-srcalpha",
-    "srcalpha": "zero",
-    "dstalpha": "one"
+    "srcalpha": "1",
+    "dstalpha": "1-srcalpha"
   },
   "vertex": "volume_proxy",
   "fragment": "spell_gas_field_volume",
@@ -21,13 +21,30 @@
     { "name": "ScreenSize",   "type": "float",     "count": 2,  "values": [ 1.0, 1.0 ] },
     { "name": "FieldNow",     "type": "int",       "count": 1,  "values": [ 4 ] },
     { "name": "FieldWas",     "type": "int",       "count": 1,  "values": [ 5 ] },
+    { "name": "FieldFlow",    "type": "int",       "count": 1,  "values": [ 6 ] },
+    { "name": "FieldFlowWas", "type": "int",       "count": 1,  "values": [ 12 ] },
+    { "name": "FlowOffsetA",  "type": "int",       "count": 1,  "values": [ 13 ] },
+    { "name": "FlowOffsetB",  "type": "int",       "count": 1,  "values": [ 14 ] },
+    { "name": "FlowMax",      "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "FlowPeriod",   "type": "float",     "count": 1,  "values": [ 24.0 ] },
+    { "name": "JitterFrame",  "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "SpellTicks",   "type": "float",     "count": 1,  "values": [ 0.0 ] },
-    { "name": "CameraPos",    "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
+    { "name": "FieldRotation", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
+    { "name": "FieldCorner",  "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
     { "name": "DarkColor",    "type": "float",     "count": 3,  "values": [ 0.14, 0.22, 0.1 ] },
     { "name": "LightColor",   "type": "float",     "count": 3,  "values": [ 0.5, 0.68, 0.29 ] },
     { "name": "FieldOrigin",  "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
     { "name": "FieldSize",    "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
     { "name": "FieldTexSize", "type": "float",     "count": 3,  "values": [ 128.0, 64.0, 128.0 ] },
-    { "name": "FieldBlend",   "type": "float",     "count": 1,  "values": [ 1.0 ] }
+    { "name": "FieldBlend",   "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "Visibility",   "type": "float",     "count": 1,  "values": [ 1.0 ] },
+    { "name": "JetOn",        "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "JetPageDims", "type": "float", "count": 3, "values": [ 1.0, 1.0, 1.0 ] },
+    { "name": "JetPages", "type": "int", "count": 1, "values": [ 7 ] },
+    { "name": "JetSamples", "type": "int", "count": 1, "values": [ 8 ] },
+    { "name": "JetRuns", "type": "int", "count": 1, "values": [ 9 ] },
+    { "name": "JetAtlas", "type": "int", "count": 1, "values": [ 10 ] },
+    { "name": "FieldBricks", "type": "int", "count": 1, "values": [ 11 ] },
+    { "name": "NoiseTex", "type": "int", "count": 1, "values": [ 3 ] }
   ]
 }

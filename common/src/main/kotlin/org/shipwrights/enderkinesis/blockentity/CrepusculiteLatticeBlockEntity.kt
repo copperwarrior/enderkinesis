@@ -25,7 +25,12 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.CrepusculiteLatticeBlock
 import org.shipwrights.enderkinesis.dimension.YgannAbyss
+import org.joml.primitives.AABBd
+import org.shipwrights.enderkinesis.body.bodyHoldsOwnGravity
+import org.shipwrights.enderkinesis.physics.BodyBuoyancy
 import org.shipwrights.enderkinesis.physics.CrepusculiteLatticeForceInducer
+import org.shipwrights.enderkinesis.util.standaloneBodyIds
+import org.valkyrienskies.mod.common.shipObjectWorld
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
 import org.shipwrights.enderkinesis.physics.LatticeCatchZone
 import org.shipwrights.enderkinesis.physics.LatticeHullVolume
@@ -185,9 +190,12 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         )
         s2w.transformPosition(centre)
         val cx = centre.x; val cy = centre.y; val cz = centre.z
-        val ax = (sb.maxX() + 1 - sb.minX()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val hx = (sb.maxX() + 1 - sb.minX()) * 0.5
+        val hz = (sb.maxZ() + 1 - sb.minZ()) * 0.5
+        val margin = footprintMargin(hx, hz)
+        val ax = hx + margin
         val ay = (sb.maxY() + 1 - sb.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val az = (sb.maxZ() + 1 - sb.minZ()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val az = hz + margin
         if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
         // Ellipse orientation = ship yaw (local X axis in world, horizontal part).
         val xAxis = Vector3d(1.0, 0.0, 0.0)
@@ -491,6 +499,44 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
 
         // Free-floating entities in the ship's volume bob on the virtual ocean.
         floatEntities(level, ship, inducer.waterLineY, inducer.waveTime, inducer.waveIntensity)
+        floatBodies(level, ship, inducer)
+    }
+
+    /** Standalone VS bodies in the same wet sea as [floatEntities] get the buoyancy of [BodyBuoyancy]. */
+    private fun floatBodies(
+        level: ServerLevel,
+        ship: org.valkyrienskies.core.api.ships.LoadedServerShip,
+        inducer: CrepusculiteLatticeForceInducer,
+    ) {
+        val zone = publishedZone ?: return
+        val waterLineY = inducer.waterLineY
+        if (waterLineY <= LatticeOcean.bottomY(zone)) return
+        val box = AABBd(
+            zone.cx - zone.boundX, zone.cy - zone.ay, zone.cz - zone.boundZ,
+            zone.cx + zone.boundX, Math.max(zone.cy + zone.ay, waterLineY) + GerstnerOcean.maxAmplitude, zone.cz + zone.boundZ,
+        )
+        val ids = level.standaloneBodyIds(box)
+        if (ids.isEmpty()) return
+        val bodies = level.shipObjectWorld.allBodies
+        val toShip = ship.transform.worldToShip
+        val wake = LatticeOcean.wakeSources(level)
+        for (id in ids) {
+            // A body that its own controller holds up does not sink, so the sea would only lift it away.
+            if (level.bodyHoldsOwnGravity(id)) continue
+            val body = bodies.getById(id) ?: continue
+            val p = body.kinematics.position
+            val b = body.aabb
+            if (LatticeOcean.surfaceY(zone, p.x(), p.z(), wake).isNaN() || b.minY() < LatticeOcean.bottomY(zone)) continue
+            if (!LatticeHullVolume.isWet(level, ship, toShip, p.x(), b.minY(), p.z())) continue
+            val shapeBox = body.collisionShape?.aabb ?: continue
+            BodyBuoyancy.touch(
+                id,
+                BodyBuoyancy.Sea(
+                    waterLineY, inducer.fluidDensity, inducer.waveTime, inducer.waveIntensity,
+                    inducer.dragCoefficient, inducer.angularDragCoefficient, shapeBox,
+                ),
+            )
+        }
     }
 
     /**
@@ -793,9 +839,12 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val cx = centreL.x
         val cy = centreL.y
         val cz = centreL.z
-        val ax = (box.maxX() + 1 - box.minX()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val hx = (box.maxX() + 1 - box.minX()) * 0.5
+        val hz = (box.maxZ() + 1 - box.minZ()) * 0.5
+        val margin = footprintMargin(hx, hz)
+        val ax = hx + margin
         val ay = (box.maxY() + 1 - box.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
-        val az = (box.maxZ() + 1 - box.minZ()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val az = hz + margin
         if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) return 0
         // Same yaw the zone publishes — emission points rotate with the hull.
         val xAxisE = Vector3d(1.0, 0.0, 0.0)
@@ -993,9 +1042,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         val ship = level.getLoadedShipManagingPos(pos) ?: run {
             return
         }
-        val inducer = ship.getAttachment(CrepusculiteLatticeForceInducer::class.java) ?: run {
-            return
-        }
+        ship.getAttachment(CrepusculiteLatticeForceInducer::class.java) ?: return
         // Determine whether any OTHER lattice is still alive on the ship. The straightforward
         // proof is "is `pos` the authority and no follower has claimed in the stale window?"
         // — i.e. either we're the only lattice that's ticked recently, or no lattice has.
@@ -1013,7 +1060,6 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // lattice and the ship didn't fall." The robust fix is to always drop the attachment
         // here; if a follower remains, its next `serverTick` will `getOrPutAttachment` a fresh
         // inducer and claim authority — at most one game tick of dropped buoyancy.
-        val previousAuthority = inducer.authorityHolder
         ship.removeAttachment(CrepusculiteLatticeForceInducer::class.java)
         if (publishedZone != null && isActive(this) && !hasOtherActiveLattice(level, ship)) {
             level.playSound(null, pos, EKSounds.CREPUSCULITE_LATTICE_COLLAPSE.get(), SoundSource.BLOCKS, 1f, 1f)
@@ -1096,11 +1142,36 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // stay non-negative. Safe because the scan volume cap keeps any axis span < 2^21.
         private const val KEY_BIAS = 1 shl 20
         private const val KEY_MASK = (1L shl 21) - 1L
+        // Vertical only: the depth of the ocean below the ship.
         private const val AABB_INFLATE = 1.4
         /** Water ring beyond the hull (blocks). Sized so the inward-only coastline
          *  wobble (LatticeShore.AMP_BLOCKS) plus the fade band never eat into the
          *  hull's own waterline. */
         private const val AABB_MARGIN = 18.0
+
+        // At sqrt(2) - 1 times the larger half-extent, each corner term is at most 1/2, so the box fits.
+        private const val CORNER_FIT_FACTOR = 0.41421356237
+        private const val MARGIN_BISECT_STEPS = 40
+
+        /**
+         * Water ring beyond the hull on all sides: [AABB_MARGIN], plus the smallest extra that puts the hull box
+         * corners inside the ellipse that lies [AABB_MARGIN] inside the rim. Server and client get the same value.
+         */
+        private fun footprintMargin(hx: Double, hz: Double): Double {
+            var lo = 0.0
+            var hi = CORNER_FIT_FACTOR * maxOf(hx, hz)
+            repeat(MARGIN_BISECT_STEPS) {
+                val mid = (lo + hi) * 0.5
+                if (cornersFit(hx, hz, mid)) hi = mid else lo = mid
+            }
+            return AABB_MARGIN + hi
+        }
+
+        private fun cornersFit(hx: Double, hz: Double, extra: Double): Boolean {
+            val fx = hx / (hx + extra)
+            val fz = hz / (hz + extra)
+            return fx * fx + fz * fz <= 1.0
+        }
 
         /** Extra height (blocks) above the ocean added to the entity query box. */
         private const val ENTITY_QUERY_PAD = 2.0
@@ -1130,7 +1201,6 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         /** Surface particles per emission point (one packet) and their spread (blocks).
          *  Cluster size dropped from 4 → 2 — halves surface particles per tick. */
         private const val SURFACE_CLUSTER = 2
-        private const val SURFACE_SPREAD = 0.6
         /** Cap on particle "points" sampled along the surface ellipse per emission. Lowered
          *  from 120 → 60: large ships (an end-ship-sized hull is ≈ 40 here) no longer push
          *  hundreds of surface particles each emit. */

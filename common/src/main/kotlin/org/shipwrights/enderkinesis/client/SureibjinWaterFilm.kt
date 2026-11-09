@@ -42,7 +42,7 @@ object SureibjinWaterFilm {
     const val FOG_END_FRAC: Float = 0.95f
 
     private const val WAVE_INTENSITY: Double = 0.5
-    private val WAVE_LIFT: Double = GerstnerOcean.swellMaxAmplitude * WAVE_INTENSITY
+    private val WAVE_LIFT: Double = GerstnerOcean.sureibjinSwellMaxAmplitude * WAVE_INTENSITY
 
     // The underwater fog colour, #020202.
     private const val FILM_RGB: Float = 0.008f
@@ -191,7 +191,7 @@ object SureibjinWaterFilm {
                     shade[index] = 0.0f
                     continue
                 }
-                val height = GerstnerOcean.swellHeightAt(
+                val height = GerstnerOcean.sureibjinSwellHeightAt(
                     (originX + gx).toDouble(), (originZ + gz).toDouble(), time, WAVE_INTENSITY,
                 ) + WAVE_LIFT
                 val crest = (height / (2.0 * WAVE_LIFT)).toFloat().coerceIn(0.0f, 1.0f)
