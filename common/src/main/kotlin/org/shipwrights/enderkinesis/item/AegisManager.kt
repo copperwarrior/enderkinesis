@@ -16,6 +16,10 @@ import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
 import net.minecraft.world.entity.projectile.Projectile
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.physics.HeldPushes
+import org.shipwrights.enderkinesis.util.massFalloff
+import org.shipwrights.enderkinesis.util.standaloneBodies
+import org.valkyrienskies.mod.common.util.toJOML
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.duck.ImbuedProjectile
@@ -23,11 +27,11 @@ import org.shipwrights.enderkinesis.entity.SpellBoltEntity
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Spell
 import org.shipwrights.enderkinesis.spell.SpellVfx
+import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
-import org.valkyrienskies.mod.common.util.GameToPhysicsAdapter
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Server-side per-tick logic for the Staff of Aegis.
@@ -237,6 +241,7 @@ object AegisManager {
         feedbackTicks.int2LongEntrySet().removeIf { isFeedbackExpired(now, it.longValue) }
     }
 
+    @OptIn(VsBeta::class)
     private fun applyShipEffects(level: ServerLevel, player: Player, frame: AegisBox.Frame) {
         val ridingShip = currentlyDraggingShip(player)
         val aabb = frame.worldAabb
@@ -267,27 +272,20 @@ object AegisManager {
             val cz = (sa.minZ() + sa.maxZ()) * 0.5
             val awayRaw = Vec3(cx - player.x, cy - player.y, cz - player.z)
             val away = if (awayRaw.lengthSqr() < 1e-6) frame.axisZ else awayRaw.normalize()
-            pushShip(gtpa, srv, away)
+            HeldPushes.holdAtBodyPos(this to player.uuid, srv.id, pushForce(srv.inertiaData.mass, away))
+        }
+        for (body in level.standaloneBodies(aabb.toJOML())) {
+            val b = body.aabb
+            val awayRaw = Vec3((b.minX() + b.maxX()) * 0.5 - player.x, (b.minY() + b.maxY()) * 0.5 - player.y, (b.minZ() + b.maxZ()) * 0.5 - player.z)
+            val away = if (awayRaw.lengthSqr() < 1e-6) frame.axisZ else awayRaw.normalize()
+            HeldPushes.holdAtBodyPos(this to player.uuid, body.id, pushForce(body.inertiaData.mass, away))
         }
     }
 
-    /** Queue an invariant-frame world force on `ship`, away from the player,
-     *  via the dimension's GTPA. The force is consumed on the next physics
-     *  tick; magnitude scales with mass so big ships still react and we
-     *  clamp at a minimum so tiny ones don't fly to the moon. */
-    private fun pushShip(
-        gtpa: GameToPhysicsAdapter,
-        ship: LoadedServerShip,
-        away: Vec3,
-    ) {
-        val mass = ship.inertiaData.mass.coerceAtLeast(1.0)
-        val mag = (SHIP_PUSH_FORCE_PER_MASS * mass).coerceAtLeast(SHIP_PUSH_MIN_FORCE)
-        val force = Vector3d(
-            away.x * mag,
-            away.y * mag + mag * SHIP_PUSH_LIFT_FRACTION,
-            away.z * mag,
-        )
-        gtpa.applyWorldForceToBodyPos(ship.id, force)
+    private fun pushForce(mass: Double, away: Vec3): Vector3d {
+        val m = mass.coerceAtLeast(1.0)
+        val mag = (SHIP_PUSH_FORCE_PER_MASS * m * massFalloff(m)).coerceAtLeast(SHIP_PUSH_MIN_FORCE)
+        return Vector3d(away.x * mag, away.y * mag + mag * SHIP_PUSH_LIFT_FRACTION, away.z * mag)
     }
 
     /** The ship the player is currently riding / standing on, or null if

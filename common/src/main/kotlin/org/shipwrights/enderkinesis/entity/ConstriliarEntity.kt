@@ -66,6 +66,8 @@ import org.valkyrienskies.mod.common.util.settings
 import org.valkyrienskies.mod.common.BlockStateInfo
 import java.util.EnumSet
 import java.util.UUID
+import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
@@ -1449,7 +1451,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val exponent = if (netherite > purpur * ANCHOR_MIN_RATIO) {
             // budget(m) = base·(m/purpur)^k, solved so budget(netherite) holds body
             // plus 1.85 blocks of cargo against gravity.
-            val netheriteBudget = ConstriliarShipController.GRAVITY *
+            val netheriteBudget = level().gravity() *
                 (1.0 + NETHERITE_CARRY_BLOCKS) * netherite
             Math.log(netheriteBudget / ConstriliarShipController.LEG_STRENGTH) /
                 Math.log(netherite / purpur)
@@ -1685,7 +1687,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         updateKnees(level, loaded, controller)
         updateLegSwing(level, loaded, controller)
         controller.publish()
-        val burden = loaded.inertiaData.mass + controller.outsideLoad / ConstriliarShipController.GRAVITY
+        val burden = loaded.inertiaData.mass + controller.outsideLoad / level.gravity()
         entityData.set(DATA_STRAINED, controller.exerting || burden > STRAIN_MASS * strengthScale())
         logDebugState(level, loaded, controller, plate, moveVel, submerged)
         if (submerged) return
@@ -2048,7 +2050,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (level.getBlockState(inside).getCollisionShape(level, inside).isEmpty) return
         var best: BlockPos? = null
         var bestSq = Double.MAX_VALUE
-        for (d in Direction.values()) {
+        for (d in Direction.entries) {
             val n = inside.relative(d)
             if (!level.getBlockState(n).getCollisionShape(level, n).isEmpty) continue
             val dSq = Vec3.atCenterOf(n).distanceToSqr(plate.x, plate.y, plate.z)
@@ -2171,7 +2173,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val flightTime = JUMP_TIME_BASE + JUMP_TIME_PER_BLOCK * Math.sqrt(dx * dx + dz * dz)
         controller.queueLaunch(
             dx / flightTime,
-            (target.y - y) / flightTime + 0.5 * ConstriliarShipController.GRAVITY * flightTime,
+            (target.y - y) / flightTime + 0.5 * level().gravity() * flightTime,
             dz / flightTime,
         )
         return Math.max(4, (flightTime * 20.0 * 0.5).toInt())
@@ -2234,7 +2236,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val falling = jumpState is ConstriliarJumpState.Idle && (flailing || vy < -FALL_SPEED)
         if (falling) {
             // At [FALL_SPEED] the body has already dropped v²/2g.
-            if (fallTopY.isNaN()) fallTopY = plate.y + if (flailing) 0.0 else vy * vy / (2.0 * GRAVITY_ACCEL)
+            if (fallTopY.isNaN()) fallTopY = plate.y + if (flailing) 0.0 else vy * vy / (2.0 * level().gravity())
             return
         }
         if (fallTopY.isNaN() || vy < -LANDED_SPEED) return
@@ -3108,7 +3110,6 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
         private const val CARGO_SCAN_INTERVAL = 10
         private const val CARGO_SCAN_BUDGET = 512
-        private const val TICKS_PER_SECOND = 20.0
         private const val DIMENSION_FOLLOW_INTERVAL = 20
         /** Same margin as vanilla Entity.checkBelowWorld. */
         private const val BELOW_WORLD_MARGIN = 64
@@ -3165,7 +3166,6 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         /** Downward speeds (m/s) that mark a fall and its landing, and gravity (m/s²). */
         private const val FALL_SPEED = 5.0
         private const val LANDED_SPEED = 1.0
-        private const val GRAVITY_ACCEL = 10.0
         private const val DAZE_TICKS = 30
         /** The shake starts once this many feet stand and the body is this upright (cos),
          *  or not at all after [DAZE_SETTLE_TICKS]. */

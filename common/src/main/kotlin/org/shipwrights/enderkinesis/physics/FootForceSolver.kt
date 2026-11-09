@@ -40,6 +40,7 @@ internal class FootForceSolver {
         wrench[3] = tx / LEVER; wrench[4] = ty / LEVER; wrench[5] = tz / LEVER
         for (i in 0 until FEET) active[i] = weight[i] > 0.0
         // Each pass drops at least one pulling foot, so FEET + 1 passes always settle.
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (pass in 0..FEET) {
             solveActive()
             if (!unilateral || !dropPullingFeet(nx, ny, nz)) break

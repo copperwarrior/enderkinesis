@@ -492,6 +492,7 @@ object SunderingManager {
         val stage = (rampF * STAGE_COUNT).toInt().coerceIn(1, STAGE_COUNT)
         val centre = trace.finalBlockPos!!
         val candidates = ench.flame
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (i in 0 until candidates) {
             if (level.random.nextDouble() >= FLAME_TICK_CHANCE_PER_LEVEL) continue
             val dx = level.random.nextInt(stage * 2 + 1) - stage
@@ -501,7 +502,7 @@ object SunderingManager {
             if (!level.getBlockState(target).isAir || !level.mayInteract(player, target)) continue
             // Vanilla flame placement rule — at least one neighboring face
             // must be solid / flammable for fire to take hold.
-            val hasNeighbour = Direction.values().any {
+            val hasNeighbour = Direction.entries.any {
                 !level.getBlockState(target.relative(it)).isAir
             }
             if (!hasNeighbour) continue

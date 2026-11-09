@@ -8,6 +8,7 @@ import org.joml.Matrix3dc
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -149,6 +150,8 @@ class ConstriliarShipController(
     /** Physics-thread load ramp per leg, 0..1. */
     @Transient private val footLoad = DoubleArray(4)
     @Transient private val limited = Vector3d()
+    // Physics thread only: the dimension gravity, read at the start of each physics tick.
+    @Transient private var gravity = 0.0
     @Transient private var upset = false
     /** Seconds of exertion left; a limb past its normal hold spends it. */
     /** Load observer: the force each frame applied, and the velocity it acted on. */
@@ -220,6 +223,7 @@ class ConstriliarShipController(
         physTick(physShip, physLevel, DEFAULT_STEP_SECONDS)
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel, delta: Double) {
+        gravity = physLevel.gravity()
         val c = command
         if (physShip.mass <= 0.0) {
             observed = false
@@ -262,7 +266,7 @@ class ConstriliarShipController(
         val mass = physShip.mass
         val v = physShip.velocity
         physShip.applyWorldForceToBodyPos(
-            Vector3d(-v.x() * HOLD_DAMPING, GRAVITY - v.y() * HOLD_DAMPING, -v.z() * HOLD_DAMPING).mul(mass),
+            Vector3d(-v.x() * HOLD_DAMPING, gravity - v.y() * HOLD_DAMPING, -v.z() * HOLD_DAMPING).mul(mass),
         )
         val rotation = physShip.transform.shipToWorldRotation
         val spin = tmp.set(physShip.angularVelocity).mul(-HOLD_DAMPING)
@@ -283,7 +287,7 @@ class ConstriliarShipController(
         val mass = physShip.mass
         if (observed && Math.abs(mass - observedMass) <= observedMass * MASS_CHANGE_SHARE) {
             tmp.set(vel).sub(prevVel).mul(mass / dt).sub(applied)
-            tmp.y += mass * GRAVITY
+            tmp.y += mass * gravity
             tmp.sub(external).mul(Math.min(1.0, dt / LOAD_FILTER_SECONDS))
             external.add(tmp).mul(Math.max(0.0, 1.0 - dt / LOAD_LEAK_SECONDS))
         } else {
@@ -372,7 +376,7 @@ class ConstriliarShipController(
             if (c.kneeContact[i]) count++
         }
         if (count == 0) return false
-        val lift = physShip.mass * GRAVITY * KNEE_LIFT_SHARE
+        val lift = physShip.mass * gravity * KNEE_LIFT_SHARE
         feet.solve(0.0, lift, 0.0, torque.x, torque.y, torque.z, 0.0, 1.0, 0.0, true, FOOT_FRICTION)
         for (i in 0..3) {
             val fx = feet.force[i * 3]
@@ -414,7 +418,7 @@ class ConstriliarShipController(
             val hoverAccel = HOVER_STIFFNESS * heightErr - HOVER_DAMPING * vel.dot(up)
             force.set(up).mul(mass * hoverAccel)
             // Weight relief only while attached — airborne, gravity owns the ship.
-            force.y += mass * GRAVITY
+            force.y += mass * gravity
             // Velocity PD in the surface plane; the along-normal component is stripped
             // so the drive never fights the hover spring.
             accel.set(c.moveVelX, c.moveVelY, c.moveVelZ).sub(vel).mul(MOVE_GAIN)
@@ -479,7 +483,7 @@ class ConstriliarShipController(
         )
         // A foot holds well over the walker's own weight, so it crawls any face on two or
         // three feet; cargo is what can outweigh the grip.
-        val grip = Math.max(FOOT_GRIP * c.strengthScale, c.selfMass * GRAVITY * GRIP_SELF_WEIGHTS)
+        val grip = Math.max(FOOT_GRIP * c.strengthScale, c.selfMass * gravity * GRIP_SELF_WEIGHTS)
         val boost = if (exertLeft > 0.0 || c.shaking) EXERT_BOOST else 1.0
         overLimit = false
         residual.set(torque)
@@ -631,7 +635,6 @@ class ConstriliarShipController(
         const val SUPP_STIFFNESS = 15.0
         const val SUPP_DAMPING = 5.0
         const val SUPP_FORCE_CAP = 10_000.0
-        const val GRAVITY = 10.0
 
         /** The stance feet carry the body wrench in place of the hover and the struts. */
         const val LEGS_CARRY_WEIGHT = true

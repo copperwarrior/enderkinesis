@@ -267,19 +267,6 @@ object WyllandTomeBEWLR : BlockEntityWithoutLevelRenderer(
     }
 
     /**
-     * Draw the open tome at the held-tome's idle pose — covers at
-     * canonical angle, pages at canonical with a gentle sine flop.
-     * Convenience wrapper used by the Cataloger summon mid-dwell.
-     */
-    fun renderOpenIdle(
-        stack: ItemStack,
-        poseStack: PoseStack, bufferSource: MultiBufferSource,
-        packedLight: Int, packedOverlay: Int,
-    ) {
-        renderOpenWithOpenness(stack, 1f, poseStack, bufferSource, packedLight, packedOverlay)
-    }
-
-    /**
      * Draw the tome with a variable [openness] ∈ [0, 1]:
      *  - **`openness = 1`** — covers spread at their canonical
      *    ±22.5° and pages at canonical ±45° (the same look as the

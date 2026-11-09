@@ -10,6 +10,7 @@ import org.valkyrienskies.core.api.world.PhysLevel
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.atan2
 import kotlin.math.sqrt
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.VsBeta
 
@@ -40,7 +41,7 @@ class OarscribeRail : ShipPhysicsListener {
     private var engaged = false
     private var liveDrives = 0
 
-    /** Upward acceleration the rail gives against gravity, 0 to [GRAVITY]. */
+    /** Upward acceleration the rail gives against gravity, 0 to the dimension gravity. */
     private var support = 0.0
 
     /** Part of the force limit the rail used on the last physics tick, 0 to 1. Read on the server thread. */
@@ -89,7 +90,7 @@ class OarscribeRail : ShipPhysicsListener {
         val mass = physShip.mass
         val limit = liveDrives * MAX_FORCE * volume
         val maxForce = minOf(liveDrives * FORCE_PER_KG * mass, limit)
-        val applied = applyLineForce(physShip, speed, maxForce, physicsStepSeconds(delta))
+        val applied = applyLineForce(physShip, speed, maxForce, physicsStepSeconds(delta), physLevel.gravity())
         strain = applied / limit
         applyHeadingTorque(physShip, liveDrives * minOf(TORQUE_PER_KG * mass, MAX_TORQUE * volume))
     }
@@ -118,14 +119,14 @@ class OarscribeRail : ShipPhysicsListener {
     }
 
     /** Returns the size of the force it applied. */
-    private fun applyLineForce(physShip: PhysShip, speed: Double, maxForce: Double, dt: Double): Double {
+    private fun applyLineForce(physShip: PhysShip, speed: Double, maxForce: Double, dt: Double, gravity: Double): Double {
         val velocity = physShip.velocity
         val along = velocity.dot(axisWorld)
         val offset = scratch.set(physShip.transform.positionInWorld).sub(anchor)
         offset.fma(-offset.dot(axisWorld), axisWorld)
         val mass = physShip.mass
         // Learns the weight the ship lacks, so a ship that floats or is held by other blocks is not lifted.
-        support = (support - SUPPORT_KI * offset.y * dt).coerceIn(0.0, GRAVITY)
+        support = (support - SUPPORT_KI * offset.y * dt).coerceIn(0.0, gravity)
         // Acceleration: speed drive along the line, PD back onto the line across it, and the learned support.
         val force = Vector3d(axisWorld).mul(SPEED_GAIN * (speed - along))
             .fma(-LINE_KP, offset)
@@ -162,7 +163,6 @@ class OarscribeRail : ShipPhysicsListener {
         const val DRIVE_LIFETIME_NANOS = 500_000_000L
         const val AXIS_EPSILON = 1e-9
         const val MAX_POWER = 15.0
-        const val GRAVITY = 10.0
 
         /** World blocks per second at full redstone power. */
         const val MAX_SPEED = 2.0
@@ -181,7 +181,7 @@ class OarscribeRail : ShipPhysicsListener {
 
         /**
          * For each writing Oarscribe: newtons for each kilogram of ship, up to [MAX_FORCE]. A little over VS2's
-         * 10 m/s² gravity, so one Oarscribe holds a ship up to 150 t with a little to spare.
+         * default 10 m/s² gravity, so one Oarscribe holds a ship up to 150 t with a little to spare.
          */
         const val FORCE_PER_KG = 12.0
         const val MAX_FORCE = 1_800_000.0

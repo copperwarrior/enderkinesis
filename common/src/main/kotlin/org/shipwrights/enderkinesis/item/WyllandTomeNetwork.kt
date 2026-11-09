@@ -39,6 +39,7 @@ object WyllandTomeNetwork {
     val GRAB_POINT_SYNC: ResourceLocation = EnderkinesisMod.id("wylland_tome/grab_point_sync")
     val GRAB_END: ResourceLocation = EnderkinesisMod.id("wylland_tome/grab_end")
 
+    @Suppress("LongMethod") // A registration list: one short receiver for each packet.
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, BEGIN_GRAB_SHIP) { buf, ctx ->
             val shipId = buf.readLong()

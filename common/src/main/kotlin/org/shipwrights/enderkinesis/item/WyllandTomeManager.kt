@@ -529,7 +529,7 @@ object WyllandTomeManager : ShipMoveListener {
             if (!move.fromShipDeleted && !move.touches(point)) continue
             val world = shipGrabPointWorld(from, g)
             g.pendingAnchor.set(world.x, world.y, world.z)
-            from.getAttachment(WyllandTomeForceInducer::class.java)?.active = false
+            from.getAttachment(WyllandTomeForceInducer::class.java)?.hold = null
             g.shipId = move.toShipId
             g.pendingShipyardPoint = move.mapPoint(point)
             g.loadGraceTicks = LOAD_GRACE_TICKS
@@ -545,9 +545,7 @@ object WyllandTomeManager : ShipMoveListener {
     private fun deactivateShipInducer(level: ServerLevel, g: Grab) {
         val shipId = g.shipId ?: return
         val ship = level.shipObjectWorld.loadedShips.getById(shipId) ?: return
-        ship.getAttachment(WyllandTomeForceInducer::class.java)?.let { ind ->
-            ind.active = false
-        }
+        ship.getAttachment(WyllandTomeForceInducer::class.java)?.hold = null
     }
 
     /** Explicit mouse-delta rotation from the client, only sent while
@@ -957,16 +955,11 @@ object WyllandTomeManager : ShipMoveListener {
         val inducer = ship.getOrPutAttachment(WyllandTomeForceInducer::class.java) {
             WyllandTomeForceInducer()
         }
-        inducer.targetX = target.x
-        inducer.targetY = target.y
-        inducer.targetZ = target.z
-        inducer.localOffsetX = localOffset.x
-        inducer.localOffsetY = localOffset.y
-        inducer.localOffsetZ = localOffset.z
-        // A new object: the physics thread reads the old one, and `set` writes four fields
-        // with no lock.
-        inducer.idealRotation = Quaterniond(idealRotation)
-        inducer.active = true
+        inducer.hold = WyllandTomeForceInducer.Hold(
+            target.x, target.y, target.z,
+            localOffset.x, localOffset.y, localOffset.z,
+            Quaterniond(idealRotation),
+        )
     }
 
     private fun applyToEntity(

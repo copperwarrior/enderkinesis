@@ -582,8 +582,6 @@ class ConstriliarServerGait {
         return best
     }
 
-    fun isGripping(leg: Int): Boolean = gripping[leg]
-
     /** Real support again (the plate's rays, or standing feet): caught feet are plain
      *  footholds from here, and the next fall sweeps afresh. */
     fun releaseCatch() {

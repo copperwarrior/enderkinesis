@@ -7,14 +7,20 @@ import net.minecraft.world.entity.projectile.AbstractHurtingProjectile
 import net.minecraft.world.entity.projectile.Projectile
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.compat.create.CreateWindmillWind
+import org.shipwrights.enderkinesis.physics.HeldPushes
 import org.shipwrights.enderkinesis.physics.WindGales
+import org.shipwrights.enderkinesis.spell.GasField
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.standaloneBodies
+import org.shipwrights.enderkinesis.util.massFalloff
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.mod.common.util.toJOML
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 /** Incantation of Winds: hold right-click to blast a gale along a cone from the caster's view.
  *
- *  Ships feel a [WindGales] wind through VS2 drag. Entities in the cone get a push along the ray from the eye
- *  through their contact point, weaker with distance. The wind also turns fireballs, blows smoke off
+ *  Ships feel a [WindGales] wind through VS2 drag. Standalone bodies and entities in the cone get a push along the
+ *  ray from the eye through their contact point, weaker with distance. The wind also turns fireballs, blows smoke off
  *  fire (and sometimes puts it out), puts out candles, strips snow ([WindBlockEffects]) and speeds up Create windmills. The stream visuals are client-side, in
  *  [org.shipwrights.enderkinesis.client.IncantationOfWindsClient]. */
 @OptIn(GameTickOnly::class)
@@ -32,8 +38,31 @@ class IncantationOfWindsItem(properties: Properties) : IncantationItem(
         val radius = RANGE * TAN_HALF_ANGLE
         val bounds = AABB(eye, eye.add(look.scale(RANGE))).inflate(radius)
         WindGales.cast(level, player.uuid, eye, look, RANGE, TAN_HALF_ANGLE, CONE_APEX_RADIUS)
+        GasField.blowCone(level, eye, look, RANGE, TAN_HALF_ANGLE, CONE_APEX_RADIUS, GAS_BLOW_SPEED, FAR_FORCE_FRACTION.toFloat())
+        pushBodies(level, player, bounds, eye, look)
         pushEntities(level, player, bounds, eye, look)
         WindBlockEffects.blow(level, player, eye, look)
+    }
+
+    @OptIn(VsBeta::class)
+    private fun pushBodies(
+        level: ServerLevel,
+        player: Player,
+        bounds: AABB,
+        eye: net.minecraft.world.phys.Vec3,
+        look: net.minecraft.world.phys.Vec3,
+    ) {
+        val source = this to player.uuid
+        for (body in level.standaloneBodies(bounds.toJOML())) {
+            val b = body.aabb
+            val contact = coneContact(eye, look, b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()) ?: continue
+            HeldPushes.holdAtWorldPos(source, body.id, windAt(eye, look, contact).mul(pushMagnitude(body.inertiaData.mass)), contact)
+        }
+    }
+
+    private fun pushMagnitude(mass: Double): Double {
+        val m = mass.coerceAtLeast(1.0)
+        return (PUSH_FORCE_PER_MASS * m * massFalloff(m)).coerceAtLeast(PUSH_MIN_FORCE)
     }
 
     private fun pushEntities(
@@ -127,7 +156,7 @@ class IncantationOfWindsItem(properties: Properties) : IncantationItem(
         val TAN_HALF_ANGLE = kotlin.math.tan(Math.toRadians(HALF_ANGLE_DEG))
 
         /** Gives the cone a rounded tip so entities that touch the caster still catch the wind. */
-        private const val CONE_APEX_RADIUS = 1.0
+        const val CONE_APEX_RADIUS = 1.0
 
         private val CREATE_LOADED = dev.architectury.platform.Platform.isModLoaded("create")
 
@@ -139,6 +168,15 @@ class IncantationOfWindsItem(properties: Properties) : IncantationItem(
 
         /** Blocks/tick of acceleration for entities caught in the wind, before the distance falloff. */
         private const val ENTITY_PUSH_SPEED = 0.06
+
+        /** N per kg of body mass, so every standalone body feels the same shove (~0.8 m/s² while held). */
+        private const val PUSH_FORCE_PER_MASS = 8.0
+
+        /** Floor so near-massless ships still visibly move. */
+        private const val PUSH_MIN_FORCE = 1_000.0
+
+        /** Blocks/tick of flow that the wind gives gas at the apex; the flow cap is [GasField.FLOW_MAX]. */
+        private const val GAS_BLOW_SPEED = 0.5f
 
         /** Share of the full force left at [RANGE]; the force falls off linearly from the apex. */
         private const val FAR_FORCE_FRACTION = 0.25

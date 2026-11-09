@@ -15,7 +15,16 @@ import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.level.block.state.BlockState
 import org.joml.Vector3d
+import dev.architectury.networking.NetworkManager
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.server.level.ServerPlayer
+import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.body.bodyHoldsOwnGravity
+import org.shipwrights.enderkinesis.physics.HeldPushes
+import org.shipwrights.enderkinesis.physics.BodyLevitation
 import org.shipwrights.enderkinesis.physics.RodLevitationAttachment
+import org.shipwrights.enderkinesis.util.lookedAtBody
+import org.valkyrienskies.core.api.bodies.ServerBaseVsBody
 import org.shipwrights.enderkinesis.physics.ShipGravityHold
 import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
@@ -36,10 +45,9 @@ import org.valkyrienskies.core.api.VsBeta
  *   the attachment's staleness window releases the lift and the assembled ship stays
  *   intact at its hovered position as a regular VS2 ship.
  *
- * - **Nudge on left-clicked ship**: queues a one-shot impulse on the ship's
- *   [RodLevitationAttachment] (shared with the lift path) at the clicked face's
- *   shipyard-frame position, in the player's look direction. Off-COM application means
- *   the click point determines both push and induced spin.
+ * - **Nudge on left-clicked ship**: holds a push for one game tick through [HeldPushes] at the
+ *   clicked cell, in the player's look direction. Off-COM application means the click point
+ *   determines both push and induced spin.
  */
 @OptIn(GameTickOnly::class, VsBeta::class)
 object RodOfLevitationManager {
@@ -50,8 +58,8 @@ object RodOfLevitationManager {
     /** Vertical rise (blocks) from the original block position. */
     private const val LIFT_BLOCKS = 2.0
 
-    /** Per-tick acceleration the nudge produces on the target ship. */
-    private const val NUDGE_ACCEL = 15.0
+    /** m/s², held for one game tick by [HeldPushes]: one click adds 0.25 m/s to a ship or a body. */
+    private const val NUDGE_ACCEL = 5.0
 
     private const val NUDGE_COOLDOWN_TICKS = 5
 
@@ -90,6 +98,14 @@ object RodOfLevitationManager {
 
     private val pending = mutableMapOf<Long, Pending>()
 
+    private class BodyLift(val targetY: Double, var ticksRemaining: Int, val dim: ResourceKey<Level>)
+
+    /** Server thread only. Standalone VS bodies by body id. */
+    private val bodyLifts = mutableMapOf<Long, BodyLift>()
+
+    /** Left-click in the air on a body: the server finds the body again from its own view of the player. */
+    val NUDGE_BODY: ResourceLocation = EnderkinesisMod.id("rod_of_levitation/nudge_body")
+
     /** Server thread only. The key is the player UUID, the value is `MinecraftServer.tickCount`. */
     private val lastNudgeTick = mutableMapOf<java.util.UUID, Int>()
 
@@ -101,6 +117,15 @@ object RodOfLevitationManager {
     }
 
     fun init() {
+        BodyLevitation.register()
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, NUDGE_BODY) { _, ctx ->
+            val player = ctx.player as? ServerPlayer ?: return@registerReceiver
+            ctx.queue {
+                if (InteractionHand.entries.any { player.getItemInHand(it).`is`(EKItems.ROD_OF_LEVITATION.get()) }) {
+                    nudgeBody(player)
+                }
+            }
+        }
         TickEvent.SERVER_LEVEL_POST.register(::onLevelTick)
         InteractionEvent.LEFT_CLICK_BLOCK.register { player, hand, pos, face ->
             handleLeftClick(player, hand, pos, face)
@@ -150,6 +175,41 @@ object RodOfLevitationManager {
         return true
     }
 
+    /** Right-click in the air on the standalone body under the crosshair. Returns false when there is none. */
+    fun liftBody(level: ServerLevel, player: Player): Boolean {
+        val hit = player.lookedAtBody() ?: return false
+        val at = level.shipObjectWorld.allBodies.getById(hit.bodyId)?.kinematics?.position ?: return false
+        bodyLifts[hit.bodyId] = BodyLift(at.y() + LIFT_BLOCKS, DURATION_TICKS, level.dimension())
+        playRodSound(level, EKSounds.ROD_OF_LEVITATION_LIFT.get(), at.x(), at.y(), at.z())
+        return true
+    }
+
+    /** True when a body is under the crosshair, so the click is taken. */
+    private fun nudgeBody(player: Player): Boolean {
+        val hit = player.lookedAtBody() ?: return false
+        val level = player.level() as? ServerLevel ?: return true
+        val body = level.shipObjectWorld.allBodies.getById(hit.bodyId) as? ServerBaseVsBody ?: return true
+        val mass = body.inertiaData.mass
+        if (body.isStatic || mass <= 0.0 || !startNudgeCooldown(player, level.server.tickCount)) return true
+        val look = player.lookAngle
+        val force = Vector3d(look.x, look.y, look.z).mul(mass * NUDGE_ACCEL)
+        val at = player.eyePosition.add(look.scale(hit.distance))
+        HeldPushes.holdAtWorldPos(this to player.uuid, hit.bodyId, force, Vector3d(at.x, at.y, at.z))
+        nudgeFeedback(level, Vector3d(at.x, at.y, at.z))
+        return true
+    }
+
+    private fun tickBodyLifts(level: ServerLevel) {
+        val bodies = level.shipObjectWorld.allBodies
+        val iter = bodyLifts.entries.iterator()
+        while (iter.hasNext()) {
+            val (bodyId, lift) = iter.next()
+            if (lift.dim != level.dimension()) continue
+            if (bodies.getById(bodyId) == null || --lift.ticksRemaining < 0) { iter.remove(); continue }
+            BodyLevitation.touch(bodyId, lift.targetY, cancelGravity = !level.bodyHoldsOwnGravity(bodyId))
+        }
+    }
+
     private fun playRodSound(
         level: ServerLevel, sound: SoundEvent, x: Double, y: Double, z: Double, pitch: Float = 1f,
     ) {
@@ -157,6 +217,7 @@ object RodOfLevitationManager {
     }
 
     private fun onLevelTick(level: ServerLevel) {
+        if (bodyLifts.isNotEmpty()) tickBodyLifts(level)
         if (pending.isEmpty()) return
         val iter = pending.entries.iterator()
         while (iter.hasNext()) {
@@ -274,6 +335,12 @@ object RodOfLevitationManager {
      *  is mirrored client-side, so the ship presence check works there too. */
     private fun handleLeftClick(player: Player, hand: InteractionHand, pos: BlockPos, face: Direction): EventResult {
         if (!player.getItemInHand(hand).`is`(EKItems.ROD_OF_LEVITATION.get())) return EventResult.pass()
+        // A body in front of the block takes the click. Both sides decide, as for ships below.
+        if (player.level() is ServerLevel) {
+            if (nudgeBody(player)) return EventResult.interruptTrue()
+        } else if (player.lookedAtBody() != null) {
+            return EventResult.interruptTrue()
+        }
         val level = player.level()
         // Ship-ness check on whichever side fired the event. If the click isn't on a ship,
         // pass through so vanilla mining still works while the rod is equipped.
@@ -297,9 +364,13 @@ object RodOfLevitationManager {
                         pos.y + 0.5 - com.y(),
                         pos.z + 0.5 - com.z(),
                     )
-                    ship.getOrPutAttachment(RodLevitationAttachment::class.java) { RodLevitationAttachment() }
-                        .queueNudge(force, rel)
-                    nudgeFeedback(level, ship, pos, face)
+                    HeldPushes.holdAtBodyPos(this to player.uuid, ship.id, force, rel)
+                    val p = Vector3d(
+                        pos.x + 0.5 + face.stepX * 0.5,
+                        pos.y + 0.5 + face.stepY * 0.5,
+                        pos.z + 0.5 + face.stepZ * 0.5,
+                    )
+                    nudgeFeedback(level, ship.transform.shipToWorld.transformPosition(p))
                 }
             }
         }
@@ -308,20 +379,8 @@ object RodOfLevitationManager {
         return EventResult.interruptTrue()
     }
 
-    /** [pos] is a shipyard position. The burst spawns on the clicked face, because
-     *  particles at the block centre are hidden inside the block. */
-    private fun nudgeFeedback(
-        level: ServerLevel,
-        ship: org.valkyrienskies.core.api.ships.LoadedServerShip,
-        pos: BlockPos,
-        face: Direction,
-    ) {
-        val p = Vector3d(
-            pos.x + 0.5 + face.stepX * 0.5,
-            pos.y + 0.5 + face.stepY * 0.5,
-            pos.z + 0.5 + face.stepZ * 0.5,
-        )
-        ship.transform.shipToWorld.transformPosition(p)
+    /** [p] is a WORLD position on the clicked surface, because particles inside a block are hidden. */
+    private fun nudgeFeedback(level: ServerLevel, p: Vector3d) {
         level.sendParticles(
             ParticleTypes.REVERSE_PORTAL, p.x, p.y, p.z, NUDGE_PARTICLES,
             NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPREAD, NUDGE_PARTICLE_SPEED,
@@ -333,5 +392,7 @@ object RodOfLevitationManager {
     /** In singleplayer the JVM lives across worlds, and VS2 ids start again in each save. */
     fun clearSession() {
         pending.clear()
+        bodyLifts.clear()
+        BodyLevitation.clearSession()
     }
 }

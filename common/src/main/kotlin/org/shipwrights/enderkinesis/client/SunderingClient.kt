@@ -191,7 +191,7 @@ object SunderingClient {
             // removal in their tick), so the ring is a stable 6-particle
             // cluster rather than the per-tick respawning trail the fire
             // rings use.
-            if (localWielding && !localGlyphRingActive && localPlayer != null) {
+            if (localWielding && !localGlyphRingActive) {
                 spawnGlyphRing(level, localPlayer)
                 localGlyphRingActive = true
             } else if (!localWielding) {
@@ -940,12 +940,6 @@ object SunderingClient {
         consumer.vertex(matrix, innerA.x.toFloat(), innerA.y.toFloat(), innerA.z.toFloat())
             .color(innerR, innerG, innerB_, 0).endVertex()
     }
-
-    private fun lerpToward(p: Vec3, cx: Double, cy: Double, cz: Double, t: Double): Vec3 = Vec3(
-        p.x + (cx - p.x) * t,
-        p.y + (cy - p.y) * t,
-        p.z + (cz - p.z) * t,
-    )
 
     private fun lerpRgb(
         r1: Int, g1: Int, b1: Int,

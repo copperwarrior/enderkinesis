@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.physics
 
 import org.joml.Quaterniond
+import org.joml.Quaterniondc
 import org.joml.Vector3d
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
@@ -34,7 +35,7 @@ import org.valkyrienskies.core.api.VsBeta
  *    Magnitude is derived from the grab-point → cursor error, but
  *    direction is applied through the COM so it generates *no induced
  *    torque*. This eliminates the position-vs-rotation coupling.
- *  - **Rotation driven by a target quaternion** ([idealRotation]).
+ *  - **Rotation driven by a target quaternion** ([Hold.idealRotation]).
  *    Mouse input modifies the target; a PD controller produces torque
  *    to drive the ship there.
  *  - **Inertia-tensor-corrected torque.** The error vector is wrapped
@@ -47,28 +48,20 @@ import org.valkyrienskies.core.api.VsBeta
  *    visible in earlier iterations.
  */
 @OptIn(PhysTickOnly::class, VsBeta::class)
-class WyllandTomeForceInducer(
-    /** Cursor world-space target the grab point should reach. */
-    @Transient var targetX: Double = 0.0,
-    @Transient var targetY: Double = 0.0,
-    @Transient var targetZ: Double = 0.0,
-    /** Grab point in ship-local frame, relative to centre of mass.
-     *  Captured at grab time and held constant so the point on the
-     *  ship's hull tracks the cursor regardless of ship rotation. */
-    @Transient var localOffsetX: Double = 0.0,
-    @Transient var localOffsetY: Double = 0.0,
-    @Transient var localOffsetZ: Double = 0.0,
-    /** Desired world-frame orientation, written by the manager. The PD
-     *  controller drives `shipToWorldRotation` toward this each tick. */
-    @Transient @Volatile var idealRotation: Quaterniond = Quaterniond(),
-    /** Set true by the manager while the player is grabbing this ship,
-     *  false on release. The attachment stays on the ship for cheap
-     *  reuse on a future grab. */
-    @Transient var active: Boolean = false,
-) : ShipPhysicsListener {
+class WyllandTomeForceInducer : ShipPhysicsListener {
+
+    /** The local offsets are the grab point in ship axes, relative to the COM. */
+    class Hold(
+        val targetX: Double, val targetY: Double, val targetZ: Double,
+        val localOffsetX: Double, val localOffsetY: Double, val localOffsetZ: Double,
+        val idealRotation: Quaterniondc,
+    )
+
+    /** Null while no player grabs the ship. The game thread replaces the whole hold, so the physics thread never reads a mixed one. */
+    @Transient @Volatile var hold: Hold? = null
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
-        if (!active) return
+        val hold = hold ?: return
         if (physShip.isStatic || physShip.mass <= 0.0) return
 
         val mass = physShip.mass
@@ -95,16 +88,16 @@ class WyllandTomeForceInducer(
         val comWorld = Vector3d(com.x(), com.y(), com.z())
         s2w.transformPosition(comWorld)
         val grabWorld = Vector3d(
-            com.x() + localOffsetX,
-            com.y() + localOffsetY,
-            com.z() + localOffsetZ,
+            com.x() + hold.localOffsetX,
+            com.y() + hold.localOffsetY,
+            com.z() + hold.localOffsetZ,
         )
         s2w.transformPosition(grabWorld)
 
         // Grab-point → cursor error, scaled by stiffness. Direction is
         // what drives the COM force; magnitude is what determines how
         // fast the ship moves.
-        val idealPos = Vector3d(targetX, targetY, targetZ)
+        val idealPos = Vector3d(hold.targetX, hold.targetY, hold.targetZ)
         val posDiff = Vector3d(idealPos).sub(grabWorld).mul(pConst)
 
         // Quaternion error: rotDiff is the (small) rotation needed to
@@ -112,7 +105,7 @@ class WyllandTomeForceInducer(
         // gives the shortest-arc representation when combined with the
         // `if (w > 0) negate` flip below. Format ported verbatim from
         // VMod PhysgunController.kt:164.
-        val rotDiff = idealRotation
+        val rotDiff = hold.idealRotation
             .mul(rotation.invert(Quaterniond()), Quaterniond())
             .normalize()
             .invert()

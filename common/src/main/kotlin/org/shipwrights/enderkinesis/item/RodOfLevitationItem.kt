@@ -5,6 +5,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.tags.BlockTags
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.InteractionResultHolder
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.effect.MobEffects
 import net.minecraft.world.entity.LivingEntity
@@ -12,6 +13,7 @@ import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.context.UseOnContext
+import net.minecraft.world.level.Level
 import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
@@ -45,11 +47,21 @@ class RodOfLevitationItem(properties: Properties) : Item(properties) {
         return InteractionResult.CONSUME
     }
 
+    override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
+        val stack = player.getItemInHand(hand)
+        if (level !is ServerLevel) return InteractionResultHolder.pass(stack)
+        return if (RodOfLevitationManager.liftBody(level, player)) InteractionResultHolder.consume(stack)
+        else InteractionResultHolder.pass(stack)
+    }
+
     override fun useOn(context: UseOnContext): InteractionResult {
         val level = context.level
         val pos = context.clickedPos
         if (level.isClientSide) return InteractionResult.SUCCESS
         if (level !is ServerLevel) return InteractionResult.PASS
+        // The vanilla crosshair does not see VS bodies, so a body in front of the block gets the click.
+        val player = context.player
+        if (player != null && RodOfLevitationManager.liftBody(level, player)) return InteractionResult.CONSUME
 
         // If the clicked block lives on an existing ship, only the 1×1×1 case is
         // re-liftable — that's an unmodified rod-spawned cube the player wants to

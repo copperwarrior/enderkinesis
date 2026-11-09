@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.physics
 
+import org.shipwrights.enderkinesis.util.massFalloff
 import org.joml.Quaterniond
 import org.joml.Quaterniondc
 import org.joml.Vector3d
@@ -103,7 +104,8 @@ class FusionPullAttachment : ShipPhysicsListener {
         val distance = accel.length()
         if (distance > MIN_DISTANCE) accel.mul(min(MAX_SPEED, POSITION_GAIN * distance) / distance) else accel.zero()
         accel.sub(physShip.velocity).mul(VELOCITY_GAIN)
-        if (accel.lengthSquared() > MAX_ACCELERATION * MAX_ACCELERATION) accel.normalize(MAX_ACCELERATION)
+        val maxAccel = MAX_ACCELERATION * massFalloff(physShip.mass)
+        if (accel.lengthSquared() > maxAccel * maxAccel) accel.normalize(maxAccel)
         physShip.applyWorldForce(Vector3d(accel).mul(physShip.mass * share), point)
         if (now - attractExpiresAt < 0L) applyAttraction(physShip, physLevel)
 

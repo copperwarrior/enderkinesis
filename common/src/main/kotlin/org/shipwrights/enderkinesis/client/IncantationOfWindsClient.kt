@@ -17,7 +17,6 @@ import org.shipwrights.enderkinesis.item.IncantationItem
 import org.shipwrights.enderkinesis.item.IncantationOfTheAbyssItem
 import org.shipwrights.enderkinesis.item.IncantationOfTheRiverItem
 import org.shipwrights.enderkinesis.item.IncantationOfWindsItem
-import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKParticles
 import kotlin.math.cos
 import kotlin.math.sin
@@ -49,7 +48,7 @@ object IncantationOfWindsClient {
 
         for (player in level.players()) {
             val isLocalFp = player === mc.player && localFirstPerson
-            for (hand in InteractionHand.values()) {
+            for (hand in InteractionHand.entries) {
                 val item = player.getItemInHand(hand).item as? IncantationItem ?: continue
                 if (isCastingIncantation(player, hand)) {
                     when (item) {
@@ -252,7 +251,7 @@ object IncantationOfWindsClient {
 
     private fun tickFirstPersonMotes(mc: Minecraft, localFirstPerson: Boolean) {
         val player = mc.player
-        for (hand in InteractionHand.values()) {
+        for (hand in InteractionHand.entries) {
             val list = fpMotes[hand.ordinal]
             // Update existing motes even after the item is put away — they
             // age out in place rather than vanishing.
@@ -303,7 +302,7 @@ object IncantationOfWindsClient {
         player: LocalPlayer,
     ) {
         var drewAny = false
-        for (hand in InteractionHand.values()) {
+        for (hand in InteractionHand.entries) {
             val list = fpMotes[hand.ordinal]
             if (list.isEmpty()) continue
             val arm = if (hand == InteractionHand.MAIN_HAND) player.mainArm else player.mainArm.opposite
@@ -395,11 +394,6 @@ object IncantationOfWindsClient {
         player.isUsingItem &&
             player.usedItemHand == hand &&
             player.getItemInHand(hand).item is IncantationItem
-
-    fun isCastingWinds(player: Player, hand: InteractionHand): Boolean =
-        player.isUsingItem &&
-            player.usedItemHand == hand &&
-            player.getItemInHand(hand).`is`(EKItems.INCANTATION_OF_WINDS.get())
 
     /** 0 → [CAST_FORWARD_MAX] over the first [CAST_RAMP_TICKS] of the cast,
      *  smoothstepped — the hand eases forward like a bow reaching full draw. */

@@ -16,6 +16,7 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.UseAnim
 import net.minecraft.world.level.Level
 import org.shipwrights.enderkinesis.sselith.SselithEclipse
+import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
 
 /** A held cast: 1 XP each second in survival, half a heart each second when the XP is gone; free in creative.
  *  [handColour] tints the idle hand motes on the client. */
@@ -68,7 +69,6 @@ abstract class IncantationItem(
         player.experienceLevel > 0 || player.experienceProgress > 0f
 
     companion object {
-        private const val TICKS_PER_SECOND = 20
         private const val NO_XP_HEALTH_COST = 1.0f
 
         /** ServerPlayers need the explicit motion packet, or the client never feels the push. */

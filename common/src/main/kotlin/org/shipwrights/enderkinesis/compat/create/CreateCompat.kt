@@ -179,9 +179,7 @@ object CreateCompat {
         if (groundDist >= AetherPadBlockEntity.GROUND_MAX_RANGE) return
 
         val proximity = 1.0 - (groundDist / AetherPadBlockEntity.GROUND_MAX_RANGE)
-        val mag = AetherPadBlockEntity.springForcePerPad(
-            serverHostShip.inertiaData.mass, power,
-        ) * proximity
+        val mag = AetherPadBlockEntity.springForcePerPad(power) * proximity
         val fx = -facingWorld.x * mag
         val fy = -facingWorld.y * mag
         val fz = -facingWorld.z * mag

@@ -12,9 +12,14 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.joml.primitives.AABBd
+import org.joml.primitives.AABBdc
+import org.shipwrights.enderkinesis.physics.HeldPushes
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.pickStandaloneBody
+import org.shipwrights.enderkinesis.util.standaloneBodies
+import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.ships.LoadedServerShip
-import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.core.api.util.GameTickOnly
@@ -33,7 +38,7 @@ class IncantationOfTheAbyssItem(properties: Properties) : IncantationItem(
     override fun cast(level: ServerLevel, player: Player) {
         val centre = focus(level, player, 1f)
         crush(level, player, centre)
-        sinkShips(level, centre)
+        sinkShips(level, player, centre)
     }
 
     private fun crush(level: ServerLevel, player: Player, centre: Vec3) {
@@ -68,31 +73,33 @@ class IncantationOfTheAbyssItem(properties: Properties) : IncantationItem(
         victim.airSupply = air
     }
 
-    private fun sinkShips(level: ServerLevel, centre: Vec3) {
-        val gtpa = ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId)
+    @OptIn(VsBeta::class)
+    private fun sinkShips(level: ServerLevel, player: Player, centre: Vec3) {
+        val source = this to player.uuid
         val dim = level.dimensionId
         for (ship in level.shipObjectWorld.loadedShips) {
             val srv = ship as? LoadedServerShip ?: continue
             if (srv.chunkClaimDimension != dim) continue
-            val sa = srv.worldAABB
-            val cx = centre.x.coerceIn(sa.minX(), sa.maxX())
-            val cy = centre.y.coerceIn(sa.minY(), sa.maxY())
-            val cz = centre.z.coerceIn(sa.minZ(), sa.maxZ())
-            val dx = cx - centre.x
-            val dy = cy - centre.y
-            val dz = cz - centre.z
-            if (dx * dx + dy * dy + dz * dz > RADIUS * RADIUS) continue
-            // Speed-limited, so the push stops at the sink speed instead of driving the ship into the ground.
-            val shortfall = SINK_SPEED + srv.velocity.y()
-            if (shortfall <= 0.0) continue
-            val accel = minOf(shortfall * SINK_GAIN, SINK_MAX_ACCEL)
-            val com = srv.transform.positionInWorld
-            gtpa.applyWorldForce(
-                srv.id,
-                Vector3d(0.0, -accel * srv.inertiaData.mass.coerceAtLeast(1.0), 0.0),
-                Vector3d(com.x(), com.y(), com.z()),
-            )
+            val force = sinkForce(centre, srv.worldAABB, srv.velocity.y(), srv.inertiaData.mass) ?: continue
+            HeldPushes.holdAtBodyPos(source, srv.id, force)
         }
+        val reach = AABBd(centre.x - RADIUS, centre.y - RADIUS, centre.z - RADIUS, centre.x + RADIUS, centre.y + RADIUS, centre.z + RADIUS)
+        for (body in level.standaloneBodies(reach)) {
+            val force = sinkForce(centre, body.aabb, body.velocity.y(), body.inertiaData.mass) ?: continue
+            HeldPushes.holdAtBodyPos(source, body.id, force)
+        }
+    }
+
+    private fun sinkForce(centre: Vec3, box: AABBdc, velocityY: Double, mass: Double): Vector3d? {
+        val dx = centre.x.coerceIn(box.minX(), box.maxX()) - centre.x
+        val dy = centre.y.coerceIn(box.minY(), box.maxY()) - centre.y
+        val dz = centre.z.coerceIn(box.minZ(), box.maxZ()) - centre.z
+        if (dx * dx + dy * dy + dz * dz > RADIUS * RADIUS) return null
+        // Speed-limited, so the push stops at the sink speed instead of driving the body into the ground.
+        val shortfall = SINK_SPEED + velocityY
+        if (shortfall <= 0.0) return null
+        val accel = minOf(shortfall * SINK_GAIN, SINK_MAX_ACCEL)
+        return Vector3d(0.0, -accel * mass.coerceAtLeast(1.0), 0.0)
     }
 
     companion object {
@@ -131,7 +138,9 @@ class IncantationOfTheAbyssItem(properties: Properties) : IncantationItem(
             val look = player.getViewVector(partialTick)
             val far = eye.add(look.scale(RANGE))
             val hit = level.clip(ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
-            val end = if (hit.type == HitResult.Type.MISS) far else hit.location
+            val blockEnd = if (hit.type == HitResult.Type.MISS) far else hit.location
+            val body = level.pickStandaloneBody(eye, look, eye.distanceTo(blockEnd))
+            val end = body?.let { eye.add(look.scale(it.distance)) } ?: blockEnd
             val candidates = level.getEntities(player, AABB(eye, end).inflate(1.0)) { e ->
                 e.isAlive && !e.isSpectator && e !== player.vehicle
             }
@@ -146,7 +155,7 @@ class IncantationOfTheAbyssItem(properties: Properties) : IncantationItem(
                 }
             }
             if (entityCentre != null) return entityCentre
-            if (hit.type == HitResult.Type.MISS) return far
+            if (body == null && hit.type == HitResult.Type.MISS) return far
             return end.subtract(look.scale(minOf(RADIUS * 0.5, eye.distanceTo(end))))
         }
     }

@@ -70,11 +70,11 @@ object RiverJetClient {
     }
 
     /** World normal of the hit surface, away from it, or null on a miss. VS2: a ship hit's face is in ship axes, so
-     *  the jet's reverse stands in for it, as on an entity. */
+     *  the jet's reverse stands in for it, as on an entity or a VS body. */
     private fun impactNormal(level: Level, jet: IncantationOfTheRiverItem.Jet, axis: Vec3): Vec3? {
         val block = jet.block
         if (block != null && level.getShipManagingPos(block.blockPos) == null) return Vec3.atLowerCornerOf(block.direction.normal)
-        return if (block == null && jet.entity == null) null else axis.scale(-1.0)
+        return if (block == null && jet.entity == null && jet.bodyId == null) null else axis.scale(-1.0)
     }
 
     private fun isWorldBlockHit(level: Level, jet: IncantationOfTheRiverItem.Jet): Boolean {

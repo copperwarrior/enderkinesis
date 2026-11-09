@@ -11,6 +11,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.spell.BeamGeometry
 import org.shipwrights.enderkinesis.util.EntitylessClip
 import org.shipwrights.enderkinesis.util.loadedRayRange
+import org.shipwrights.enderkinesis.util.pickStandaloneBody
 
 /** One straight-line piece of a Sundering beam. The beam is a polyline of
  *  these segments — first segment from staff tip to the first shield hit
@@ -118,6 +119,7 @@ object SunderingBeamTrace {
         var curDir = dir.normalize()
         var remaining = maxRange
 
+        @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
         for (bounce in 0..MAX_REFLECTIONS) {
             if (remaining <= 0.0) break
             // A server `clip` loads or generates each chunk on its line. The range has no cap
@@ -147,6 +149,13 @@ object SunderingBeamTrace {
             val blockDist = if (blockHit.type == HitResult.Type.BLOCK) {
                 curOrigin.distanceTo(blockHit.location)
             } else Double.MAX_VALUE
+
+            // A body is not a block: the beam stops on it but has no block hit.
+            val bodyHit = level.pickStandaloneBody(curOrigin, curDir, minOf(remaining, blockDist, shieldDist))
+            if (bodyHit != null) {
+                segments.add(BeamSegment(curOrigin, curDir, curOrigin.add(curDir.scale(bodyHit.distance)), bodyHit.distance))
+                return BeamTrace(segments, null)
+            }
 
             if (blockDist < shieldDist) {
                 // Block hit — terminate the polyline here.

@@ -17,10 +17,13 @@ import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.physics.HeldPushes
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.pickStandaloneBody
+import org.shipwrights.enderkinesis.util.massFalloff
+import org.valkyrienskies.core.api.VsBeta
+import org.valkyrienskies.core.api.bodies.ServerBaseVsBody
 import org.valkyrienskies.core.api.ships.ServerShip
-import org.valkyrienskies.mod.common.ValkyrienSkiesMod
-import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.util.IEntityDraggingInformationProvider
@@ -46,6 +49,11 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
         thrustShip(level, player, look)
         brakeFall(player, look)
         RiverWash.wash(level, player, jet)
+        val bodyId = jet.bodyId
+        if (bodyId != null) {
+            pushBody(level, player, bodyId, jet.end, look, pressure)
+            return
+        }
         val target = jet.entity
         if (target != null) {
             if (target.isOnFire) target.clearFire()
@@ -55,7 +63,7 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
             return
         }
         val hit = jet.block ?: return
-        pushShip(level, hit, look, pressure)
+        pushShip(level, player, hit, look, pressure)
         quench(level, player, hit)
     }
 
@@ -76,22 +84,35 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
         if (!info.isEntityBeingDraggedByAShip()) return
         val shipId = info.lastShipStoodOn ?: return
         if (level.shipObjectWorld.loadedShips.getById(shipId) == null) return
-        ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).applyWorldForce(
-            shipId,
+        HeldPushes.holdAtWorldPos(
+            THRUST to player.uuid, shipId,
             Vector3d(-look.x * SHIP_THRUST, -look.y * SHIP_THRUST, -look.z * SHIP_THRUST),
             Vector3d(player.x, player.y, player.z),
         )
     }
 
     /** VS2: a ship hit has a world `location` and a shipyard `blockPos`. */
-    private fun pushShip(level: ServerLevel, hit: BlockHitResult, look: Vec3, pressure: Double) {
+    private fun pushShip(level: ServerLevel, player: Player, hit: BlockHitResult, look: Vec3, pressure: Double) {
         val ship = level.getShipManagingPos(hit.blockPos) as? ServerShip ?: return
-        val mag = (PUSH_FORCE_PER_MASS * ship.inertiaData.mass.coerceAtLeast(1.0)).coerceAtLeast(PUSH_MIN_FORCE) * pressure
-        ValkyrienSkiesMod.getOrCreateGTPA(level.dimensionId).applyWorldForce(
-            ship.id,
+        val mag = pushMagnitude(ship.inertiaData.mass) * pressure
+        HeldPushes.holdAtWorldPos(
+            this to player.uuid, ship.id,
             Vector3d(look.x * mag, look.y * mag, look.z * mag),
             Vector3d(hit.location.x, hit.location.y, hit.location.z),
         )
+    }
+
+    /** The [pushShip] force on a standalone VS body. */
+    @OptIn(VsBeta::class)
+    private fun pushBody(level: ServerLevel, player: Player, bodyId: Long, at: Vec3, look: Vec3, pressure: Double) {
+        val body = level.shipObjectWorld.allBodies.getById(bodyId) as? ServerBaseVsBody ?: return
+        val mag = pushMagnitude(body.inertiaData.mass) * pressure
+        HeldPushes.holdAtWorldPos(this to player.uuid, bodyId, Vector3d(look.x * mag, look.y * mag, look.z * mag), Vector3d(at.x, at.y, at.z))
+    }
+
+    private fun pushMagnitude(mass: Double): Double {
+        val m = mass.coerceAtLeast(1.0)
+        return (PUSH_FORCE_PER_MASS * m * massFalloff(m)).coerceAtLeast(PUSH_MIN_FORCE)
     }
 
     /** Tests the cells round the cell in front of the hit face. Offsets stay in the hit's frame, so ship blocks work. */
@@ -122,8 +143,8 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
     private fun isLitCandle(state: net.minecraft.world.level.block.state.BlockState): Boolean =
         state.block is AbstractCandleBlock && state.getValue(AbstractCandleBlock.LIT)
 
-    /** The jet from the eye: [end] is the impact point, or the far end on a miss. */
-    class Jet(val end: Vec3, val length: Double, val entity: Entity?, val block: BlockHitResult?)
+    /** The jet from the eye: [end] is the impact point, or the far end on a miss. [bodyId] is a standalone VS body. */
+    class Jet(val end: Vec3, val length: Double, val entity: Entity?, val block: BlockHitResult?, val bodyId: Long? = null)
 
     companion object {
         /** Jet reach along the view, blocks. */
@@ -151,6 +172,7 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
 
         /** Newtons on the caster's ship, against the aim. Not mass-relative, so a small boat moves and a big ship barely. */
         private const val SHIP_THRUST = 12_000.0
+        private const val THRUST = "thrust"
 
         /** Blocks/tick of recoil on a falling or elytra-flying caster not on a ship. Near gravity (0.08), so aiming
          *  down slows a fall. */
@@ -196,7 +218,13 @@ class IncantationOfTheRiverItem(properties: Properties) : IncantationItem(
                     bestDistSqr = distSqr
                 }
             }
-            return Jet(bestPoint, kotlin.math.sqrt(bestDistSqr), best, if (best == null) block else null)
+            val length = kotlin.math.sqrt(bestDistSqr)
+            // Neither clip() nor getEntities sees a VS body.
+            val body = level.pickStandaloneBody(eye, player.getViewVector(partialTick), length)
+            if (body != null) {
+                return Jet(eye.add(player.getViewVector(partialTick).scale(body.distance)), body.distance, null, null, body.bodyId)
+            }
+            return Jet(bestPoint, length, best, if (best == null) block else null)
         }
     }
 }

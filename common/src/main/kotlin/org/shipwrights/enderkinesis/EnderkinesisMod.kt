@@ -185,6 +185,8 @@ object EnderkinesisMod {
         // via [OrbWorldData] and rehydrated into memory each time a
         // server level loads.
         org.shipwrights.enderkinesis.body.OrbGravityCanceller.register()
+        org.shipwrights.enderkinesis.physics.BodyForceQueue.register()
+        org.shipwrights.enderkinesis.physics.HeldPushes.register()
         dev.architectury.event.events.common.LifecycleEvent.SERVER_LEVEL_LOAD.register { level ->
             org.shipwrights.enderkinesis.body.OrbBodyRegistry.rehydrate(level)
         }
@@ -374,6 +376,8 @@ object EnderkinesisMod {
             org.shipwrights.enderkinesis.spell.RuneCollisionRouter.clearSession()
             org.shipwrights.enderkinesis.blockentity.EyeroscopeBlockEntity.clearSession()
             org.shipwrights.enderkinesis.item.RodOfLevitationManager.clearSession()
+            org.shipwrights.enderkinesis.physics.BodyForceQueue.clearSession()
+            org.shipwrights.enderkinesis.physics.HeldPushes.clearSession()
             org.shipwrights.enderkinesis.item.CrepusculiteCharmManager.clearSession()
             org.shipwrights.enderkinesis.item.ScalesManager.clearSession()
             org.shipwrights.enderkinesis.dimension.MothClothShipRegistry.clearSession()

@@ -30,15 +30,16 @@ class LauncherRecoilAttachment : ShipPhysicsListener {
     }
 
     override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
+        physTick(physShip, physLevel, 0.0)
+    }
+
+    override fun physTick(physShip: PhysShip, physLevel: PhysLevel, delta: Double) {
+        val stepsPerSecond = 1.0 / physicsStepSeconds(delta)
         while (true) {
             val recoil = pending.poll() ?: break
             // Impulse (N·s) delivered as a one-phys-tick force.
-            val force = Vector3d(recoil.impulseX, recoil.impulseY, recoil.impulseZ).mul(PHYS_TPS)
+            val force = Vector3d(recoil.impulseX, recoil.impulseY, recoil.impulseZ).mul(stepsPerSecond)
             physShip.applyWorldForce(force, Vector3d(recoil.posX, recoil.posY, recoil.posZ))
         }
-    }
-
-    companion object {
-        private const val PHYS_TPS = 60.0
     }
 }

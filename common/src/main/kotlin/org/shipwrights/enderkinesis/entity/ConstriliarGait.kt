@@ -17,6 +17,8 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.shipwrights.enderkinesis.util.gravity
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * Client-side procedural gait + 2-bone IK for the Constriliar's legs. World-space foot
@@ -530,7 +532,7 @@ class ConstriliarGait {
         // swings about it as a pendulum the knee's motion drives.
         val hangAngle = atan2(downY, downX * fx + downZ * fz)
         val kneeAccel = (dirX * accelOut) * fx + (dirZ * accelOut + accelZ) * fz
-        val pendulum = swingCalf(leg, kneeAccel)
+        val pendulum = swingCalf(leg, kneeAccel, entityRef?.level()?.gravity()?.toFloat() ?: return)
         val calf = (wrapRad(hangAngle - pendulum - thigh) + KNEE_HANG_BEND).coerceIn(KNEE_MIN_BEND, KNEE_MAX_BEND)
         smoothJoints(leg, hipYaw, thigh, calf, tau)
         tremble(leg)
@@ -542,7 +544,7 @@ class ConstriliarGait {
      * that speeds forward leaves the calf behind, and at the end of a swing the calf
      * swings through. Lightly damped, so it settles when the knee stops.
      */
-    private fun swingCalf(leg: Int, kneeAccel: Float): Float {
+    private fun swingCalf(leg: Int, kneeAccel: Float, gravity: Float): Float {
         val now = System.nanoTime()
         if (!calfLive[leg]) {
             calfSwing[leg] = 0f
@@ -559,7 +561,7 @@ class ConstriliarGait {
         var theta = calfSwing[leg]
         var rate = calfSwingRate[leg]
         repeat(steps) {
-            val alpha = -(GRAVITY_MS2 * sin(theta) + accel * cos(theta)) / CALF_LENGTH_M - CALF_DAMPING * rate
+            val alpha = -(gravity * sin(theta) + accel * cos(theta)) / CALF_LENGTH_M - CALF_DAMPING * rate
             rate += alpha * h
             theta = (theta + rate * h).coerceIn(-CALF_MAX_SWING, CALF_MAX_SWING)
         }
@@ -823,11 +825,6 @@ class ConstriliarGait {
                 .fma(rise * climb + lift * arc, up)
         }
 
-        private fun smoothstep(t: Double): Double {
-            val c = t.coerceIn(0.0, 1.0)
-            return c * c * (3.0 - 2.0 * c)
-        }
-
         private fun smootherstep(t: Double): Double {
             val c = t.coerceIn(0.0, 1.0)
             return c * c * c * (c * (c * 6.0 - 15.0) + 10.0)
@@ -980,7 +977,6 @@ class ConstriliarGait {
         private const val CALF_MAX_DRIVE = 30f
         private const val CALF_MAX_SWING = 1.2f
         private const val CALF_STEP_SECONDS = 1f / 120f
-        private const val GRAVITY_MS2 = 9.8f
         /** Model px per tick² in m/s²: 1/16 block, 20 ticks a second. */
         private const val PX_TICK2_TO_MS2 = 400f / 16f
         /** Least reach of a hanging foot out along its leg's diagonal (px). */

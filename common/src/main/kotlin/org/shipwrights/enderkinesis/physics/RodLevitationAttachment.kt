@@ -2,27 +2,19 @@ package org.shipwrights.enderkinesis.physics
 
 import org.shipwrights.enderkinesis.util.ServerTicks
 import org.joml.Vector3d
-import org.joml.Vector3dc
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
-import java.util.concurrent.atomic.AtomicReference
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.VsBeta
 
 /**
- * Per-ship attachment used by the Rod of Levitation. Wears two hats so a single ship can
- * be the target of both behaviours simultaneously:
+ * The Rod of Levitation lift on one ship. The nudge goes through [HeldPushes].
  *
  * - Touch-driven hover: while [touch] keeps being called from the game thread (the manager
  *   does so each game tick until the 4-second window expires), the phys tick applies a
  *   P-controlled force toward [targetWorldY]. The manager also calls [ShipGravityHold.hold],
  *   which cancels gravity. A stale touch releases the ship cleanly.
- *
- * - Queued one-shot impulse: [queueNudge] parks a (force, COM-relative position) pair
- *   that the next phys tick consumes via `applyWorldForceToBodyPos`. That single tick of
- *   force is the "slight nudge" — translation + induced torque both come out of the
- *   off-COM application.
  */
 @OptIn(PhysTickOnly::class, VsBeta::class)
 class RodLevitationAttachment : ShipPhysicsListener {
@@ -30,24 +22,16 @@ class RodLevitationAttachment : ShipPhysicsListener {
     @Volatile private var lastTouchTick: Int = NEVER
     @Volatile private var targetWorldY: Double = Double.NaN
 
-    private val pendingNudge = AtomicReference<Pair<Vector3dc, Vector3dc>?>(null)
-
     fun touch(target: Double) {
         targetWorldY = target
         lastTouchTick = ServerTicks.now
     }
 
-    fun queueNudge(force: Vector3dc, comRelative: Vector3dc) {
-        pendingNudge.set(force to comRelative)
+    override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
+        physTick(physShip, physLevel, 0.0)
     }
 
-    override fun physTick(physShip: PhysShip, physLevel: PhysLevel) {
-        // One-shot impulse first — consumes the slot whether or not the ship is liftable.
-        val nudge = pendingNudge.getAndSet(null)
-        if (nudge != null && !physShip.isStatic && physShip.mass > 0.0) {
-            physShip.applyWorldForceToBodyPos(Vector3d(nudge.first), Vector3d(nudge.second))
-        }
-
+    override fun physTick(physShip: PhysShip, physLevel: PhysLevel, delta: Double) {
         // Touch-driven lift. Three explicit stages:
         //   Stage 1 (rise):  currentY is more than HOVER_THRESHOLD below targetY → drive
         //                    velocity to MAX_LIFT_VEL upward.
@@ -55,29 +39,33 @@ class RodLevitationAttachment : ShipPhysicsListener {
         //                    to zero (block hangs in place).
         //   Stage 3 (release): manager stops touching → staleness check trips → we
         //                      return early, gravity resumes (no lift force applied).
-        if (ServerTicks.now - lastTouchTick > STALENESS_TICKS) return        // ← Stage 3
+        if (isStale(lastTouchTick)) return        // ← Stage 3
         if (physShip.isStatic || physShip.mass <= 0.0) return
         val target = targetWorldY
         if (target.isNaN()) return
 
-        val mass = physShip.mass
-        val currentY = physShip.transform.positionInWorld.y()
-        val currentVy = physShip.velocity.y()
-        val targetVy = if (target - currentY > HOVER_THRESHOLD) {
-            MAX_LIFT_VEL                                    // ← Stage 1
-        } else {
-            0.0                                             // ← Stage 2
-        }
-        // F = m · Δv/Δt drives velocity to targetVy in one phys tick. It assumes
-        // [ShipGravityHold] has cancelled gravity.
-        val forceY = mass * (targetVy - currentVy) / PHYS_DT
+        // It assumes [ShipGravityHold] has cancelled gravity.
+        val forceY = liftForceY(physShip.mass, physShip.transform.positionInWorld.y(), physShip.velocity.y(), target, physicsStepSeconds(delta))
         physShip.applyWorldForceToBodyPos(Vector3d(0.0, forceY, 0.0))
     }
 
     companion object {
-        /** Approximate phys tick interval (s). VS2's phys runs ~60 Hz; the exact value
-         *  only affects responsiveness, not correctness. */
-        private const val PHYS_DT = 1.0 / 60.0
+        /** The lift force on a target of [mass] at [currentY], without gravity, for a physics step of [stepSeconds]. */
+        fun liftForceY(mass: Double, currentY: Double, currentVy: Double, targetY: Double, stepSeconds: Double): Double {
+            val targetVy = if (targetY - currentY > HOVER_THRESHOLD) {
+                MAX_LIFT_VEL                                    // ← Stage 1
+            } else {
+                0.0                                             // ← Stage 2
+            }
+            // F = m · Δv/Δt drives velocity to targetVy in one phys tick, up to the acceleration cap.
+            return mass * ((targetVy - currentVy) / stepSeconds).coerceIn(-MAX_LIFT_ACCEL, MAX_LIFT_ACCEL)
+        }
+
+        /** Game-tick slack on the touch heartbeat, shared with the body lift. */
+        fun isStale(touchTick: Int): Boolean = ServerTicks.now - touchTick > STALENESS_TICKS
+
+        /** m/s². Stops a ship pinned under a ceiling from getting a huge force. */
+        private const val MAX_LIFT_ACCEL = 20.0
 
         /** Rise velocity during Stage 1 (m/s). */
         private const val MAX_LIFT_VEL = 4.0

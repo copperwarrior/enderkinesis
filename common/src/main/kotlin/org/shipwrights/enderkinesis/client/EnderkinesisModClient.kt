@@ -161,6 +161,7 @@ object EnderkinesisModClient {
         org.shipwrights.enderkinesis.client.YgannBarnacleDeathRenderer.initClient()
         // Irreverent Remnant — receives blob syncs and draws them as cubes.
         org.shipwrights.enderkinesis.client.remnant.IrreverentRemnantClient.init()
+        RodOfLevitationClient.init()
 
         // Spawn-egg tinting: the vanilla template model has two tinted
         // layers (0 = shell, 1 = spots), which vanilla eggs fill from
