@@ -40,6 +40,7 @@ import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.sqrt
 import kotlin.random.Random
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /**
  * The Silverpoint's viewfinder. While the use is held, a square frame shows on the screen and the scroll wheel zooms
@@ -204,7 +205,6 @@ object SilverpointView {
 
     /** The use was released: the next frame's level depth is read back for the sketch. */
     fun capture() {
-        SilverpointDebug.log("capture: pending={} queued={}", pending, gatherings.size)
         pending = true
         // As a strike: a dye in the other hand at release washes the sketch.
         val player = Minecraft.getInstance().player
@@ -217,14 +217,13 @@ object SilverpointView {
         if (!pending) return
         pending = false
         val minecraft = Minecraft.getInstance()
-        val level = minecraft.level ?: return SilverpointDebug.log("afterLevel: no level")
-        val shot = readShot(minecraft) ?: return SilverpointDebug.log("afterLevel: no shot")
+        val level = minecraft.level ?: return
+        val shot = readShot(minecraft) ?: return
         // The square's field of view; the sketch is drawn through it, so the paper holds exactly the frame.
         val halfTan = shot.side / shot.screenHeight.toFloat() / shot.focal
         val projection = Matrix4f().setPerspective(2f * atan(halfTan), 1f, NEAR, RANGE * 1.5f)
         val frustum = Frustum(shot.rotation, projection).also { it.prepare(shot.eye.x, shot.eye.y, shot.eye.z) }
         gatherings.addLast(Gathering(level, shot, SketchScene.SceneCamera(shot.rotation, projection), halfTan, frustum, pendingColour))
-        SilverpointDebug.log("afterLevel: shot side={} read={}x{}", shot.side, shot.readWidth, shot.readHeight)
     }
 
     private fun readShot(minecraft: Minecraft): Shot? {
@@ -269,7 +268,6 @@ object SilverpointView {
     fun frame() {
         val gathering = gatherings.firstOrNull() ?: return
         if (Minecraft.getInstance().level !== gathering.level) {
-            SilverpointDebug.log("frame: level changed, {} sketches dropped", gatherings.size)
             gatherings.forEach { it.bake?.close() }
             gatherings.clear()
             return
@@ -292,7 +290,6 @@ object SilverpointView {
         gathering.seenCount = seen
         extendPastEdge(gathering)
         gathering.bake = startBake(gathering)
-        SilverpointDebug.log("frame: gathered {} blocks, {} past the edge, bake={}", seen, gathering.blocks.size - seen, gathering.bake != null)
         if (gathering.bake == null) {
             gatherings.removeFirst()
             return
@@ -506,7 +503,6 @@ object SilverpointView {
                 val fade = depthFade(feet.distanceTo(eye).toFloat(), cut)
                 if (fade < MIN_FADE) null else SketchScene.ViewEntity(feet.subtract(eye), entity, fade)
             }
-        SilverpointDebug.log("startBake: {} blocks kept after fades, {} entities", blocks.size, entities.size)
         if (blocks.isEmpty() && entities.isEmpty()) return null
         val scene = SketchScene.ofCamera(blocks, entities, gathering.camera)
         val spec = SketchSpec(SketchSubject.Picture(VIEW_KEY), Random.nextInt(), StrikeReadout.SKETCH_SIZE, notes = true, colour = gathering.colour)
@@ -522,8 +518,7 @@ object SilverpointView {
             } else {
                 SilverpointPicture.pack(resolution, ByteArray(resolution * resolution) { i -> (image.getPixelRGBA(i % resolution, i / resolution) ushr 24).toByte() })
             }
-        } ?: return SilverpointDebug.log("send: no image (sketch shader not loaded?)")
-        SilverpointDebug.log("send: {} {} bytes", id, packed.size)
+        } ?: return
         // This client shows its own picture at once; the store has it for everyone else.
         SketchPictures.put(id, packed)
         SilverpointNetwork.sendPicture(id, packed)
@@ -555,10 +550,5 @@ object SilverpointView {
 
     /** 1 before the cut, falling to 0 over [DEPTH_FADE_SPAN] past it, so the back of the content has no hard edge. */
     private fun depthFade(distance: Float, cut: Float): Float = 1f - smoothstep(cut, cut + DEPTH_FADE_SPAN, distance)
-
-    private fun smoothstep(from: Float, to: Float, value: Float): Float {
-        val t = ((value - from) / (to - from)).coerceIn(0f, 1f)
-        return t * t * (3f - 2f * t)
-    }
 
 }

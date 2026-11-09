@@ -26,7 +26,6 @@ class SilverpointItem(properties: Properties) : Item(properties) {
      * the client sketches the framed view and sends it; the paper comes from [SilverpointNetwork].
      */
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
-        if (level.isClientSide) org.shipwrights.enderkinesis.client.SilverpointDebug.log("use: viewfinder start")
         player.startUsingItem(hand)
         return InteractionResultHolder.consume(player.getItemInHand(hand))
     }
@@ -37,7 +36,6 @@ class SilverpointItem(properties: Properties) : Item(properties) {
 
     override fun releaseUsing(stack: ItemStack, level: Level, entity: LivingEntity, timeLeft: Int) {
         if (entity !is Player) return
-        if (level.isClientSide) org.shipwrights.enderkinesis.client.SilverpointDebug.log("releaseUsing: held {} ticks", getUseDuration(stack) - timeLeft)
         if (level.isClientSide && entity.isLocalPlayer) SilverpointView.capture()
         if (entity is ServerPlayer) SilverpointNetwork.allow(entity)
         entity.cooldowns.addCooldown(this, VIEW_COOLDOWN)

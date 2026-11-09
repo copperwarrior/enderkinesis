@@ -11,6 +11,7 @@ import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.util.FastColor
 import org.joml.Matrix4f
 import kotlin.math.floor
+import org.shipwrights.enderkinesis.util.smoothstep
 
 /** Straight GUI lines drawn as pencil strokes: a slow wobble, pressure in width and tone, overshoot and lifted ends. */
 object SketchStroke {
@@ -82,7 +83,7 @@ object SketchStroke {
         val s = t * length
         val pressure = noise(s / PRESSURE_SPAN, seed + 17)
         // The pencil lands and lifts: the ends thin and fade.
-        val lift = minOf(smooth(s / LIFT), smooth((length - s) / LIFT))
+        val lift = minOf(smoothstep(s / LIFT), smoothstep((length - s) / LIFT))
         val width = lerp(WIDTH_MIN, WIDTH_MAX, pressure) * (0.4f + 0.6f * lift)
         val offset = (noise(s / WOBBLE_SPAN, seed) - 0.5f) * 2f * WOBBLE + side * width / 2f
         val a = (alpha * (0.55f + 0.45f * pressure) * lift * 255f).toInt().coerceIn(0, 255)
@@ -102,11 +103,6 @@ object SketchStroke {
         var h = seed * 374761393 + i * 668265263
         h = (h xor (h ushr 13)) * 1274126177
         return ((h xor (h ushr 16)) and 0xFFFFFF) / 0xFFFFFF.toFloat()
-    }
-
-    private fun smooth(t: Float): Float {
-        val c = t.coerceIn(0f, 1f)
-        return c * c * (3f - 2f * c)
     }
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
