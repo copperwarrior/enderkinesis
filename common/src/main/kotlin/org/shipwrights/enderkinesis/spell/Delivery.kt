@@ -149,14 +149,16 @@ sealed class Delivery {
 
         /** A standalone body is not a block, so it only casts a shadow. */
         private fun visible(level: Level, point: Vec3, target: BlockPos?, bodies: List<AABBdc>): Boolean {
-            if (shadowed(origin, point, blockers)) return false
-            if (bodies.isNotEmpty()) {
-                val span = point.subtract(origin)
-                val dist = span.length()
-                if (dist > 1.0e-6 && bodies.any { rayAabbEntry(origin, span.scale(1.0 / dist), it) < dist }) return false
-            }
+            if (shadowed(origin, point, blockers) || bodyShadowed(point, bodies)) return false
             val hit = level.clip(colliderClip(origin, point))
             return hit.type == HitResult.Type.MISS || (target != null && hit.blockPos == target)
+        }
+
+        private fun bodyShadowed(point: Vec3, bodies: List<AABBdc>): Boolean {
+            if (bodies.isEmpty()) return false
+            val span = point.subtract(origin)
+            val dist = span.length()
+            return dist > 1.0e-6 && bodies.any { rayAabbEntry(origin, span.scale(1.0 / dist), it) < dist }
         }
 
         override fun candidates(ctx: SpellContext): List<Entity> {
@@ -173,12 +175,21 @@ sealed class Delivery {
             val out = ArrayList<BlockPos>()
             val bodies = bodies(level)
             val m = blocks.visitedMiddle
-            blocks.forEachWithin(length) { pos, _ ->
-                if (!contains(m.x, m.y, m.z)) return@forEachWithin
-                // VS2 clip() gives the SHIPYARD blockPos of a ship hit, so the frame's own pos is the target.
-                if (visible(level, Vec3(m.x, m.y, m.z), pos, bodies)) out += pos.immutable()
+            val shadows = ConeShadowPass(level, blocks.worldCentre, blocks.ships)
+            var tests = 0
+            blocks.forEachWithin(length) { pos, ship ->
+                if (tests >= MAX_VISIBILITY_TESTS || !contains(m.x, m.y, m.z)) return@forEachWithin
+                tests++
+                val point = Vec3(m.x, m.y, m.z)
+                if (shadowed(origin, point, blockers) || bodyShadowed(point, bodies)) return@forEachWithin
+                if (shadows.lit(pos, ship)) out += pos.immutable()
             }
             return out
+        }
+
+        private companion object {
+            // A full cone of 12 blocks at scale 1 is about 500 cells, so this binds only on much scaled-down ships.
+            const val MAX_VISIBILITY_TESTS = 65_536
         }
     }
 

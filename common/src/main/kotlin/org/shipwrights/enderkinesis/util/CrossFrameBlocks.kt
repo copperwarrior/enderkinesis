@@ -66,12 +66,20 @@ class CrossFrameBlocks(val level: Level, centre: Vec3, reach: Double, shipsNear:
             val outSq = r2 + SHIP_FRAME_MARGIN * (1.0 + r2)
             // A scaled ship has 1/scale of its cells in one world block.
             val minScale = minOf(scale.x(), scale.y(), scale.z())
-            val si = if (minScale > 0.0) Math.ceil(r / minScale).toInt() else ri
-            for (dx in -si..si) for (dy in -si..si) for (dz in -si..si) {
-                cursor.set(cx + dx, cy + dy, cz + dz)
+            // The span cap keeps a much scaled-down ship to at most 129³ cells; it does not bind at scale 1 up to reach 64.
+            val si = (if (minScale > 0.0) Math.ceil(r / minScale).toInt() else ri).coerceAtMost(MAX_SHIP_SPAN)
+            // Only the ship's block bounds plus one cell: cells farther out hold no ship block and no face of one.
+            val box = ship.shipAABB ?: continue
+            val x0 = maxOf(cx - si, box.minX() - 1); val x1 = minOf(cx + si, box.maxX() + 1)
+            val y0 = maxOf(cy - si, box.minY() - 1); val y1 = minOf(cy + si, box.maxY() + 1)
+            val z0 = maxOf(cz - si, box.minZ() - 1); val z1 = minOf(cz + si, box.maxZ() + 1)
+            for (x in x0..x1) for (y in y0..y1) for (z in z0..z1) {
+                cursor.set(x, y, z)
                 if (uniform && scaleSq * shipPoint.distanceSquared(cursor.x + 0.5, cursor.y + 0.5, cursor.z + 0.5) > outSq) continue
                 ship.transform.shipToWorld.transformPosition(cursor.x + 0.5, cursor.y + 0.5, cursor.z + 0.5, visitedMiddle)
-                if (visitedMiddle.distanceSquared(worldCentre.x, worldCentre.y, worldCentre.z) <= r2) action(cursor, ship)
+                if (visitedMiddle.distanceSquared(worldCentre.x, worldCentre.y, worldCentre.z) > r2) continue
+                // A server read of an unloaded shipyard cell loads its chunk.
+                if (level.isLoaded(cursor)) action(cursor, ship)
             }
         }
     }
@@ -111,5 +119,6 @@ class CrossFrameBlocks(val level: Level, centre: Vec3, reach: Double, shipsNear:
         const val SHIP_FRAME_MARGIN = 1.0e-6
         // Caps the samples of a much scaled-down ship, so one tick stays cheap.
         const val MAX_SAMPLE_FACTOR = 16
+        const val MAX_SHIP_SPAN = 64
     }
 }

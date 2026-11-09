@@ -137,7 +137,8 @@ object FusionEffects {
             target.addEffect(MobEffectInstance(hollowed, SpellCurves.ticks(4f, 2f, magnitude)), ctx.caster)
         }
         when (ctx.use) {
-            SpellUse.FORWARD -> pocket(ctx, delivery, magnitude)
+            SpellUse.FORWARD ->
+                if (delivery is Delivery.Sphere && !delivery.area) absentOrPocket(ctx, delivery, magnitude) else pocket(ctx, delivery, magnitude)
             SpellUse.AREA, SpellUse.RUNE -> if (delivery is Delivery.Sphere) {
                 val radius = 3.0 + 0.5 * magnitude
                 level.addFreshEntity(SingularityEntity(
@@ -145,14 +146,16 @@ object FusionEffects {
                     ctx.caster?.uuid, SpellCurves.ticks(1.5f, 0.5f, magnitude),
                 ))
             }
-            // An imbued shot that strikes no creature opens a Pocket, so it is never wasted.
-            SpellUse.IMBUE -> {
-                val living = delivery.living(ctx)
-                val struck = if (delivery is Delivery.Sphere) living.minByOrNull { it.position().distanceToSqr(delivery.center) } else living.firstOrNull()
-                if (struck != null) struck.addEffect(MobEffectInstance(EKEffects.ABSENT.get(), SpellCurves.ticks(2f, 0.5f, magnitude)), ctx.caster)
-                else pocket(ctx, delivery, magnitude)
-            }
+            SpellUse.IMBUE -> absentOrPocket(ctx, delivery, magnitude)
         }
+    }
+
+    // A shot or bolt that strikes a creature makes it Absent; one that strikes none opens a Pocket, so it is never wasted.
+    private fun absentOrPocket(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
+        val living = delivery.living(ctx)
+        val struck = if (delivery is Delivery.Sphere) living.minByOrNull { it.position().distanceToSqr(delivery.center) } else living.firstOrNull()
+        if (struck != null) struck.addEffect(MobEffectInstance(EKEffects.ABSENT.get(), SpellCurves.ticks(2f, 0.5f, magnitude)), ctx.caster)
+        else pocket(ctx, delivery, magnitude)
     }
 
     // A held shape opens the pocket once each pulse, which keeps it open.
