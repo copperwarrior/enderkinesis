@@ -16,15 +16,23 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.client.renderer.ShaderInstance
 import org.joml.Matrix4f
+import org.lwjgl.opengl.GL11
+import org.lwjgl.opengl.GL30
 import org.shipwrights.enderkinesis.item.SketchSpec
 import org.shipwrights.enderkinesis.item.SketchSubject
 import kotlin.math.ceil
+
+/** A baked sketch that a page draws with its top-left corner at ([x], [y]) in GUI pixels. Call [close] to free it. */
+interface BakedSketch {
+    fun render(graphics: GuiGraphics, x: Int, y: Int)
+    fun close()
+}
 
 /**
  * A graphite sketch of [spec], with field notes placed from its seed. The sketch is static, so it bakes once into a
  * texture and each frame only blits it. Call [close] to free the texture.
  */
-class StrikeSketch(private val spec: SketchSpec) {
+class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
 
     /** A sketch of a scene built here, not from [spec]'s subject. */
     internal constructor(spec: SketchSpec, scene: SketchScene) : this(spec) {
@@ -41,45 +49,22 @@ class StrikeSketch(private val spec: SketchSpec) {
     private var sketch: TextureTarget? = null
     private var sketchScale = 0
 
-    fun render(graphics: GuiGraphics, x: Int, y: Int) {
-        val scale = ceil(Minecraft.getInstance().window.guiScale).toInt().coerceAtLeast(1)
+    override fun render(graphics: GuiGraphics, x: Int, y: Int) {
+        val scale = guiPixelScale()
         if (scale != sketchScale) {
             close()
             sketchScale = scale
         }
         val subject = spec.subject
         if (subject is SketchSubject.Picture) {
-            SketchPictures.textureId(subject.key)?.let { blit(graphics, x, y, it, glRows = false) }
+            SketchPictures.textureId(subject.key)?.let { blit(graphics, x, y, size, size, it, glRows = false) }
             return
         }
         val texture = sketch ?: bake(scale)?.also { sketch = it } ?: return
-        blit(graphics, x, y, texture.colorTextureId, glRows = true)
+        blit(graphics, x, y, size, size, texture.colorTextureId, glRows = true)
     }
 
-    private fun blit(graphics: GuiGraphics, x: Int, y: Int, textureId: Int, glRows: Boolean) {
-        RenderSystem.setShader(GameRenderer::getPositionTexShader)
-        RenderSystem.setShaderTexture(0, textureId)
-        RenderSystem.enableBlend()
-        RenderSystem.defaultBlendFunc()
-        val matrix = graphics.pose().last().pose()
-        val x0 = x.toFloat()
-        val y0 = y.toFloat()
-        val x1 = (x + size).toFloat()
-        val y1 = (y + size).toFloat()
-        // A render target's texture starts at the bottom row.
-        val top = if (glRows) 1f else 0f
-        val bottom = 1f - top
-        val builder = Tesselator.getInstance().builder
-        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX)
-        builder.vertex(matrix, x0, y0, 0f).uv(0f, top).endVertex()
-        builder.vertex(matrix, x0, y1, 0f).uv(0f, bottom).endVertex()
-        builder.vertex(matrix, x1, y1, 0f).uv(1f, bottom).endVertex()
-        builder.vertex(matrix, x1, y0, 0f).uv(1f, top).endVertex()
-        BufferUploader.drawWithShader(builder.end())
-        RenderSystem.disableBlend()
-    }
-
-    fun close() {
+    override fun close() {
         sketch?.destroyBuffers()
         sketch = null
     }
@@ -87,7 +72,25 @@ class StrikeSketch(private val spec: SketchSpec) {
     /** The sketch at [scale] pixels per GUI pixel, top row first, or null when the subject cannot draw. */
     fun bakeImage(scale: Int): NativeImage? = bake(scale)?.let(::topFirst)
 
-    private fun bake(scale: Int): TextureTarget? {
+    /**
+     * Bakes the sketch into [atlas] with its bottom-left corner on GL pixel ([glX], [glY]). Returns false when the
+     * sketch shader is not loaded yet; a subject that cannot draw leaves its square empty and returns true.
+     */
+    internal fun bakeInto(atlas: TextureTarget, scale: Int, glX: Int, glY: Int): Boolean {
+        if (shader == null) return false
+        val out = bake(scale, scratch(size * scale).shaded()) ?: return true
+        GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, out.frameBufferId)
+        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, atlas.frameBufferId)
+        GL30.glBlitFramebuffer(
+            0, 0, out.width, out.height, glX, glY, glX + out.width, glY + out.height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST,
+        )
+        GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, 0)
+        Minecraft.getInstance().mainRenderTarget.bindWrite(true)
+        return true
+    }
+
+    /** [into] receives the shaded sketch; without it, the sketch goes into a new target that the caller owns. */
+    private fun bake(scale: Int, into: TextureTarget? = null): TextureTarget? {
         val shader = shader ?: return null
         if (unavailable) return null
         val scene = scene ?: SketchScene.of(spec.subject)?.also { scene = it }
@@ -96,19 +99,17 @@ class StrikeSketch(private val spec: SketchSpec) {
             return null
         }
         val resolution = size * scale
+        val targets = scratch(resolution)
         val camera = scene.camera
-        val projection = camera?.projection ?: orthographic(fitView(resolution, scene))
+        val projection = camera?.projection ?: orthographic(fitView(targets.colour, scene))
         val orient: (PoseStack) -> Unit = if (camera != null) {
             { it.mulPoseMatrix(camera.rotation) }
         } else {
             isometric(scene)
         }
-        val colour = renderScene(resolution, normals = false, projection, orient, scene)
-        val normals = renderScene(resolution, normals = true, projection, orient, scene)
-        val out = shade(shader, colour, normals, scale, size, spec.seed, frame, rebuilt = camera != null, wash = spec.colour)
-        colour.destroyBuffers()
-        normals.destroyBuffers()
-        return out
+        val colour = renderScene(targets.colour, normals = false, projection, orient, scene)
+        val normals = renderScene(targets.normals, normals = true, projection, orient, scene)
+        return shade(shader, colour, normals, scale, size, spec.seed, frame, rebuilt = camera != null, wash = spec.colour, into)
     }
 
     /** The view centre and half-width, in pose units, that holds the whole render. */
@@ -118,14 +119,14 @@ class StrikeSketch(private val spec: SketchSpec) {
      * Every subject fills the frame: widen until nothing touches the edge, then fit to the drawn outline. A fit that
      * zooms in far is measured again, because a few pixels of outline give a poor fit.
      */
-    private fun fitView(resolution: Int, scene: SketchScene): View {
+    private fun fitView(target: TextureTarget, scene: SketchScene): View {
+        val resolution = target.width
         var view = View(0f, 0f, scene.extentHint)
         var widenings = 0
         var refines = 0
         while (true) {
-            val target = renderScene(resolution, normals = false, orthographic(view), isometric(scene), scene)
+            renderScene(target, normals = false, orthographic(view), isometric(scene), scene)
             val bounds = readBack(target) { StrikeSketchMeasure.bounds(it, scene.fitAlpha) }
-            target.destroyBuffers()
             if (bounds == null) return view
             val touches = bounds[0] == 0 || bounds[1] == 0 || bounds[2] == resolution - 1 || bounds[3] == resolution - 1
             if (touches && widenings < FIT_WIDENINGS) {
@@ -163,15 +164,75 @@ class StrikeSketch(private val spec: SketchSpec) {
     }
 
     private fun renderScene(
-        resolution: Int, normals: Boolean, projection: Matrix4f, orient: (PoseStack) -> Unit, scene: SketchScene,
-    ): TextureTarget = newTarget(resolution).also { drawInto(it, normals, projection, orient, scene, 0, scene.parts) }
+        target: TextureTarget, normals: Boolean, projection: Matrix4f, orient: (PoseStack) -> Unit, scene: SketchScene,
+    ): TextureTarget {
+        target.clear(Minecraft.ON_OSX)
+        drawInto(target, normals, projection, orient, scene, 0, scene.parts)
+        return target
+    }
+
+    /** The pass targets of one resolution. [shaded] is made only for atlas bakes, whose result is copied out at once. */
+    private class Scratch(private val resolution: Int) {
+        val colour = newTarget(resolution)
+        val normals = newTarget(resolution)
+        private var shadedTarget: TextureTarget? = null
+
+        fun shaded(): TextureTarget = shadedTarget ?: blankTarget(resolution, depth = false).also { shadedTarget = it }
+
+        fun destroy() {
+            colour.destroyBuffers()
+            normals.destroyBuffers()
+            shadedTarget?.destroyBuffers()
+        }
+    }
 
     companion object {
-        internal fun newTarget(resolution: Int): TextureTarget {
-            val target = TextureTarget(resolution, resolution, true, Minecraft.ON_OSX)
+        internal fun newTarget(resolution: Int): TextureTarget = blankTarget(resolution, depth = true)
+
+        private fun blankTarget(resolution: Int, depth: Boolean): TextureTarget = blankTarget(resolution, resolution, depth)
+
+        internal fun blankTarget(width: Int, height: Int, depth: Boolean): TextureTarget {
+            val target = TextureTarget(width, height, depth, Minecraft.ON_OSX)
             target.setClearColor(0f, 0f, 0f, 0f)
             target.clear(Minecraft.ON_OSX)
             return target
+        }
+
+        // Render thread only. Bakes reuse these targets, so a run of bakes does not make and free targets for each pass.
+        private val scratchPool = object : LinkedHashMap<Int, Scratch>(SCRATCH_RESOLUTIONS + 1, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Scratch>): Boolean {
+                if (size <= SCRATCH_RESOLUTIONS) return false
+                eldest.value.destroy()
+                return true
+            }
+        }
+
+        private fun scratch(resolution: Int): Scratch = scratchPool.getOrPut(resolution) { Scratch(resolution) }
+
+        internal fun guiPixelScale(): Int = ceil(Minecraft.getInstance().window.guiScale).toInt().coerceAtLeast(1)
+
+        /** Draws [textureId] over [width] by [height] GUI pixels at ([x], [y]); [glRows] marks a render target's texture. */
+        internal fun blit(graphics: GuiGraphics, x: Int, y: Int, width: Int, height: Int, textureId: Int, glRows: Boolean) {
+            RenderSystem.setShader(GameRenderer::getPositionTexShader)
+            RenderSystem.setShaderTexture(0, textureId)
+            RenderSystem.enableBlend()
+            RenderSystem.defaultBlendFunc()
+            val matrix = graphics.pose().last().pose()
+            val x0 = x.toFloat()
+            val y0 = y.toFloat()
+            val x1 = (x + width).toFloat()
+            val y1 = (y + height).toFloat()
+            // A render target's texture starts at the bottom row.
+            val top = if (glRows) 1f else 0f
+            val bottom = 1f - top
+            val builder = Tesselator.getInstance().builder
+            builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX)
+            builder.vertex(matrix, x0, y0, 0f).uv(0f, top).endVertex()
+            builder.vertex(matrix, x0, y1, 0f).uv(0f, bottom).endVertex()
+            builder.vertex(matrix, x1, y1, 0f).uv(1f, bottom).endVertex()
+            builder.vertex(matrix, x1, y0, 0f).uv(1f, top).endVertex()
+            BufferUploader.drawWithShader(builder.end())
+            RenderSystem.disableBlend()
         }
 
         /** Colour with item lighting, or view-space normals for the sketch's inner edges, for parts [from] until [to]. */
@@ -197,18 +258,18 @@ class StrikeSketch(private val spec: SketchSpec) {
             Minecraft.getInstance().mainRenderTarget.bindWrite(true)
         }
 
-        /** Graphite over [colour] and its [normals], both in GL row order; the inputs stay open. */
+        /** Graphite over [colour] and its [normals], both in GL row order; the inputs stay open. [into] defaults to a new target. */
+        @Suppress("LongParameterList") // The pass inputs, the sketch settings and the output target.
         internal fun shade(
             shader: ShaderInstance, colour: TextureTarget, normals: TextureTarget,
-            scale: Int, size: Int, seed: Int, frame: SketchFrame, rebuilt: Boolean, wash: Boolean,
+            scale: Int, size: Int, seed: Int, frame: SketchFrame, rebuilt: Boolean, wash: Boolean, into: TextureTarget? = null,
         ): TextureTarget {
             val resolution = colour.width
             val measure = readBack(colour) { StrikeSketchMeasure.of(it) }
             val notes = if (frame.notes) StrikeNotes.layout(measure, seed, size, frame) else NoteLayout.NONE
 
-            val out = TextureTarget(resolution, resolution, false, Minecraft.ON_OSX)
-            out.setClearColor(0f, 0f, 0f, 0f)
-            out.clear(Minecraft.ON_OSX)
+            val out = into ?: blankTarget(resolution, depth = false)
+            if (into != null) out.clear(Minecraft.ON_OSX)
             out.bindWrite(true)
             RenderSystem.setShader { shader }
             RenderSystem.setShaderTexture(0, colour.colorTextureId)
@@ -288,6 +349,8 @@ class StrikeSketch(private val spec: SketchSpec) {
         private const val FIT_REFINES = 2
         private const val FIT_REFINE_ZOOM = 2f
         private const val FIT_MIN_FRACTION = 0.02f
+        // Inline pages, framed sketches and the viewfinder each bake at one resolution or a few.
+        private const val SCRATCH_RESOLUTIONS = 3
         const val ISO_PITCH = 30f
 
         // Viewfinder rebuilds fade out over this part of the render at the left and right; chosen in the preview.

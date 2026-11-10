@@ -4,12 +4,14 @@ import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.StringTag
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Style
+import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.sselith.BookPaginator
 import org.shipwrights.enderkinesis.sselith.Sselith
 import java.util.Random
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Helpers for building the transient `WRITTEN_BOOK` stacks tomes hand back from
@@ -60,7 +62,13 @@ object TomeLore {
 
     private fun englishResource(bookName: String) = "/assets/enderkinesis/texts/english/books/$bookName.md"
 
-    private fun hasEnglishSource(bookName: String) = TomeLore::class.java.getResource(englishResource(bookName)) != null
+    private fun hasEnglishSource(bookName: String): Boolean =
+        ENGLISH_SOURCES.getOrPut(bookName) { TomeLore::class.java.getResource(englishResource(bookName)) != null }
+
+    private val ENGLISH_SOURCES = ConcurrentHashMap<String, Boolean>()
+
+    private fun englishPages(bookName: String): List<Component> =
+        ENGLISH_BOOK_CACHE.getOrPut(bookName) { parsePaginatedMarkdown(englishResource(bookName)) }
 
     /** Book-tag string: the Sselith source that the pages came from. */
     const val SOURCE_KEY = "EnderkinesisSource"
@@ -68,45 +76,74 @@ object TomeLore {
     fun sselithSource(book: ItemStack): String? = book.tag?.getString(SOURCE_KEY)?.ifEmpty { null }
 
     /**
-     * [book] after the Scroll of Unravelling passes stored on [tome]. The passes run on the source text before
-     * pagination, so sketch tags and `[page]` lines stay, and the same seed gives the same pages on client and server.
+     * The book that [tome] shows: [writtenBook] after the Scroll of Unravelling passes stored on it. The result is kept
+     * for each item, pass count and seed, so a tome with a Sselith source must build its written book from its item only.
      */
-    fun unravelled(book: ItemStack, tome: ItemStack): ItemStack {
-        val passes = tome.unravelPasses
-        if (passes <= 0) return book
+    fun shownBook(tome: ItemStack, writtenBook: () -> ItemStack): ItemStack {
+        val passes = tome.unravelPasses.coerceAtMost(MAX_UNRAVEL_PASSES)
+        if (passes <= 0) return writtenBook()
+        val key = ShownKey(tome.item, passes, tome.unravelSeed)
+        synchronized(SHOWN) { SHOWN[key] }?.let { return it.copy() }
+        val book = writtenBook()
         val source = sselithSource(book) ?: return book
-        val seed = tome.unravelSeed
-        val key = UnravelKey(source, passes, seed)
+        val shown = unravelled(book, source, passes, key.seed)
+        synchronized(SHOWN) { SHOWN[key] = shown.copy() }
+        return shown
+    }
+
+    /**
+     * [book] after [passes] Scroll of Unravelling passes. The passes run on the source text before pagination, so
+     * sketch tags and `[page]` lines stay, and the same seed gives the same pages on client and server.
+     */
+    private fun unravelled(book: ItemStack, source: String, passes: Int, seed: Long): ItemStack {
         val pages = if (passes >= MAX_UNRAVEL_PASSES && hasEnglishSource(source)) {
-            ENGLISH_BOOK_CACHE.getOrPut(source) { parsePaginatedMarkdown(englishResource(source)) }
+            englishPages(source)
         } else {
-            synchronized(UNRAVELLED) { UNRAVELLED[key] } ?: parsePaginatedMarkdown(sselithResource(source)) { section, text ->
-                unravelText(text, passes, seed, section)
-            }.also { synchronized(UNRAVELLED) { UNRAVELLED[key] = it } }
+            paginateSections(sectionsAfter(source, seed, passes))
         }
         val tag = checkNotNull(book.tag)
         return bake(tag.getString("title"), tag.getString("author"), pages, serifPages = true)
             .also { it.orCreateTag.putString(SOURCE_KEY, source) }
     }
 
-    private fun unravelText(text: String, passes: Int, seed: Long, section: Int): String {
-        var out = text
-        for (step in 0 until passes) {
+    /** The source sections after [passes] passes. A miss starts from the deepest pass that is still cached. */
+    private fun sectionsAfter(source: String, seed: Long, passes: Int): List<String>? {
+        var done = passes
+        var sections: List<String>? = null
+        while (sections == null && done > 0) {
+            sections = synchronized(PASSES) { PASSES[PassKey(source, seed, done)] }
+            if (sections == null) done--
+        }
+        var out = sections ?: SSELITH_SECTION_CACHE[source] ?: sectionTexts(sselithResource(source))
+            ?.also { SSELITH_SECTION_CACHE[source] = it } ?: return null
+        for (step in done until passes) {
             // The last allowed pass reads every word, so a tome at the cap is all English.
             val fraction = if (step == MAX_UNRAVEL_PASSES - 1) 1.0 else ScrollOfUnravelling.HOLY_NUMBER_FRACTION
-            out = Sselith.translateToEnglish(out, fraction, Random(31 * (31 * seed + step) + section))
+            out = out.mapIndexed { section, text -> Sselith.translateToEnglish(text, fraction, Random(31 * (31 * seed + step) + section)) }
+            synchronized(PASSES) { PASSES[PassKey(source, seed, step + 1)] = out }
         }
         return out
     }
 
-    private data class UnravelKey(val source: String, val passes: Int, val seed: Long)
+    private data class ShownKey(val item: Item, val passes: Int, val seed: Long)
 
-    private const val UNRAVELLED_LIMIT = 32
+    /** The sections of [source] after [passes] passes with [seed]. */
+    private data class PassKey(val source: String, val seed: Long, val passes: Int)
 
-    // Client and server threads both read it. pageCount runs often, and each miss reads the whole book again.
-    private val UNRAVELLED = object : LinkedHashMap<UnravelKey, List<Component>>(UNRAVELLED_LIMIT, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<UnravelKey, List<Component>>) = size > UNRAVELLED_LIMIT
+    private const val SHOWN_LIMIT = 32
+
+    // A tome reaches the cap one pass at a time, so this holds every pass of a few tomes.
+    private const val PASSES_LIMIT = 4 * MAX_UNRAVEL_PASSES
+
+    // Client and server threads both read these. Lectern loads and page counts build the shown book again.
+    private val SHOWN = lruMap<ShownKey, ItemStack>(SHOWN_LIMIT)
+    private val PASSES = lruMap<PassKey, List<String>>(PASSES_LIMIT)
+
+    private fun <K, V> lruMap(limit: Int): LinkedHashMap<K, V> = object : LinkedHashMap<K, V>(limit, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>) = size > limit
     }
+
+    private val SSELITH_SECTION_CACHE = ConcurrentHashMap<String, List<String>>()
 
     /** Cache of parsed Sselith books — the parsed page list is immutable once loaded. */
     private val SSELITH_BOOK_CACHE =
@@ -119,7 +156,7 @@ object TomeLore {
     fun englishStoredPages(book: ItemStack): List<String>? {
         val source = sselithSource(book) ?: return null
         if (!hasEnglishSource(source)) return null
-        return parsePaginatedMarkdown(englishResource(source)).map { it.string }
+        return englishPages(source).map { it.string }
     }
 
     /** Build a written-book stack from a plain-text source in `assets/enderkinesis/texts/loot_books/`.
@@ -201,11 +238,14 @@ object TomeLore {
      * Translation makes the Sselith text longer than the English source, and the book screen cuts
      * text below line 14.
      */
-    fun parsePaginatedMarkdown(resource: String, transform: (Int, String) -> String = { _, text -> text }): List<Component> =
-        parseSections(resource)?.withIndex()?.flatMap { (i, section) ->
-            val (sh, sb) = section
-            paginateWithBreaks(transform(i, if (sh == null) sb else "$sh\n\n$sb")).map { Component.literal(it) }
-        } ?: listOf(Component.literal("(the pages are blank)"))
+    fun parsePaginatedMarkdown(resource: String): List<Component> = paginateSections(sectionTexts(resource))
+
+    private fun sectionTexts(resource: String): List<String>? =
+        parseSections(resource)?.map { (sh, sb) -> if (sh == null) sb else "$sh\n\n$sb" }
+
+    private fun paginateSections(sections: List<String>?): List<Component> =
+        sections?.flatMap { section -> paginateWithBreaks(section).map { Component.literal(it) } }
+            ?: listOf(Component.literal("(the pages are blank)"))
 
     // A `[page]` line forces a page break; two in a row leave one blank page between them. The tag never prints.
     private val PAGE_BREAK = Regex("""\n*\[page]\n*""")

@@ -65,11 +65,12 @@ abstract class TomeItem(properties: Properties) : Item(properties) {
      * The transient `WRITTEN_BOOK` stack a `BookViewScreen` renders when this tome is opened from
      * a lectern. The returned stack is throw-away — vanilla never sees it persisted, it just
      * paginates it; the real tome stack on the lectern is untouched.
+     * A book with a Sselith source must come from the item only, because [shownBook] caches it for each item.
      */
     abstract fun writtenBook(stack: ItemStack): ItemStack
 
     /** [writtenBook] after the Scroll of Unravelling passes on [stack]; every screen and page count reads this one. */
-    fun shownBook(stack: ItemStack): ItemStack = TomeLore.unravelled(writtenBook(stack), stack)
+    fun shownBook(stack: ItemStack): ItemStack = TomeLore.shownBook(stack) { writtenBook(stack) }
 
     /** Page count for the comparator and the lectern's page-turn clamp. */
     open fun pageCount(stack: ItemStack): Int = WrittenBookItem.getPageCount(shownBook(stack))
