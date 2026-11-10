@@ -45,7 +45,6 @@ interface RitualEffect {
             EnderkinesisMod.id("weathering") to { json -> Weathering.parse(json) },
             EnderkinesisMod.id("erase_sun") to { _ -> EraseSun },
             EnderkinesisMod.id("conflagration") to { json -> Conflagration.parse(json) },
-            EnderkinesisMod.id("swap_selves") to { json -> SwapSelves.parse(json) },
         )
 
         fun parse(json: JsonObject): RitualEffect? {

@@ -166,7 +166,6 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         BlockEvent.PLACE.register(::onPlace)
         RitualTasks.init()
         SunErasure.init()
-        Selves.init()
         EntityEvent.ADD.register { entity, level ->
             if (entity is Projectile && level is ServerLevel) onProjectile(entity, level)
             EventResult.pass()

@@ -8,7 +8,6 @@
     "MilkBucketItemMadnessMixin",
     "EnchantmentHelperBlessedRazorMixin",
     "EnchantmentHelperCrownMixin",
-    "LivingEntitySelvesFabricMixin",
     "LootTableFabricAccessor",
     "BiomeFabricAccessor"
   ],

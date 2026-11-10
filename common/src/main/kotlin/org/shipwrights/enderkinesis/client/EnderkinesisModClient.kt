@@ -614,7 +614,6 @@ object EnderkinesisModClient {
         EnvironmentFeed.init()
         RitualRootTrail.init()
         FireWhirlwind.init()
-        SelvesClient.init()
 
         // Scrying-orb vignette shader: radial gradient with fBm-noise-perturbed edge,
         // POSITION-only full-screen quad. Same registration pattern as Ygann's.
