@@ -23,6 +23,15 @@ class SselithTest {
     }
 
     @Test
+    fun `a torn gap inside a sketch tag and a speaker label stay as written`() {
+        val tag = "[sketch:entity=minecraft:sheep{Tags:[\"wo[...]\"]}]"
+        val out = Sselith.translate("A: the book[...] shows\n$tag here.")
+        out shouldStartWith "A: "
+        out shouldContain "book[...]"
+        out shouldContain tag
+    }
+
+    @Test
     fun `proper noun passes through unchanged`() {
         Sselith.translate("Sselith") shouldBe "Sselith"
     }

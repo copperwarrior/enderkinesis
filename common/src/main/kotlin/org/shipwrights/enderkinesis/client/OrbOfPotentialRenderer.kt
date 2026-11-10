@@ -55,7 +55,6 @@ object OrbOfPotentialRenderer {
     // A sketch holds the fractal at one moment, so the same page always shows the same picture.
     private const val SKETCH_TIME_SEC: Float = 12f
     private const val SKETCH_ORTHO_DISTANCE: Float = 6f
-    private val IDENTITY_3 = Matrix3f()
 
     private val SPHERE_VERTICES: FloatArray = buildUvSphere(SPHERE_RADIUS)
     private val HALO_VERTICES: FloatArray = buildUvSphere(HALO_RADIUS)
@@ -207,7 +206,7 @@ object OrbOfPotentialRenderer {
             fillWordLetters(SKETCH_TIME_SEC, WORD_LETTERS)
             shader.safeGetUniform("GlobalTime")?.set(SKETCH_TIME_SEC)
             shader.safeGetUniform("ViewToWorld")?.set(viewToWorld)
-            shader.safeGetUniform("MeshToWorld")?.set(IDENTITY_3)
+            shader.safeGetUniform("MeshToWorld")?.set(Matrix3f())
             shader.safeGetUniform("WordLetters")?.set(WORD_LETTERS)
             shader.safeGetUniform("OrthoDistance")?.set(if (orthographic) SKETCH_ORTHO_DISTANCE else 0f)
         } ?: return

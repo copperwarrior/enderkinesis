@@ -62,18 +62,20 @@ object Sselith {
     // Sketch tags hold block ids and NBT that must reach the page as written. Keep in step with Translator.java.
     private fun stripFormatTokens(text: String): Pair<String, List<FormatSlot>> {
         val sketches = SketchTag.spans(text) + PAGE_BREAK.findAll(text).map { it.range }.toList()
-        val ranges = (sketches + FORMAT.findAll(text).map { it.range }
-            .filter { f -> sketches.none { f.first in it } } + TORN_GAP.findAll(text).map { it.range } +
-            SPEAKER.findAll(text).map { it.range }).sortedBy { it.first }
+        val spans = (FORMAT.findAll(text) + TORN_GAP.findAll(text) + SPEAKER.findAll(text)).map { it.range }
+            .filter { f -> sketches.none { f.first in it } }
+        val ranges = (sketches + spans).sortedBy { it.first }
         if (ranges.isEmpty()) return text to emptyList()
         val slots = mutableListOf<FormatSlot>()
         val sb = StringBuilder()
         var last = 0
-        for ((i, range) in ranges.withIndex()) {
+        for (range in ranges) {
+            // An overlapping range is already inside the slot before it.
+            if (range.first < last) continue
             sb.append(text, last, range.first)
             // A word glued to a gap needs a space to be a word; the space leaves with the marker.
             val glued = text.startsWith("[...]", range.last + 1 - 5) && text.getOrNull(range.last + 1)?.isLetterOrDigit() == true
-            val marker = "qzfmt${encodeMarkerIndex(i)}qz" + if (glued) " " else ""
+            val marker = "qzfmt${encodeMarkerIndex(slots.size)}qz" + if (glued) " " else ""
             sb.append(marker)
             slots.add(FormatSlot(marker, text.substring(range)))
             last = range.last + 1

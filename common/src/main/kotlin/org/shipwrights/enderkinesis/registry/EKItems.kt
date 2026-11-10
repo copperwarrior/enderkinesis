@@ -31,6 +31,7 @@ import org.shipwrights.enderkinesis.item.CrownOfTheDarkStarItem
 import org.shipwrights.enderkinesis.item.CrownUntestedItem
 import org.shipwrights.enderkinesis.item.SilverpointItem
 import org.shipwrights.enderkinesis.item.HrassSackItem
+import org.shipwrights.enderkinesis.item.IchaericInkJarItem
 import org.shipwrights.enderkinesis.item.ShellOfTidesItem
 import org.shipwrights.enderkinesis.item.UlderGemItem
 import org.shipwrights.enderkinesis.item.UlderScrollItem
@@ -496,7 +497,7 @@ object EKItems {
     }
 
     val ICHAERIC_INK_JAR_ITEM: RegistrySupplier<Item> =
-        ITEMS.register("ichaeric_ink_jar") { org.shipwrights.enderkinesis.item.IchaericInkJarItem(EKBlocks.ICHAERIC_INK_JAR.get(), props()) }
+        ITEMS.register("ichaeric_ink_jar") { IchaericInkJarItem(EKBlocks.ICHAERIC_INK_JAR.get(), props()) }
 
     val INEGRIC_RETORT_ITEM = blockItem("inegric_retort", EKBlocks.INEGRIC_RETORT)
 
