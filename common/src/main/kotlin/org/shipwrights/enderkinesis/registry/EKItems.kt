@@ -495,7 +495,8 @@ object EKItems {
         ArchitecturyBucketItem({ EKFluids.ICHAERIC_INK.get() }, props().craftRemainder(Items.BUCKET).stacksTo(1))
     }
 
-    val ICHAERIC_INK_JAR_ITEM = blockItem("ichaeric_ink_jar", EKBlocks.ICHAERIC_INK_JAR)
+    val ICHAERIC_INK_JAR_ITEM: RegistrySupplier<Item> =
+        ITEMS.register("ichaeric_ink_jar") { org.shipwrights.enderkinesis.item.IchaericInkJarItem(EKBlocks.ICHAERIC_INK_JAR.get(), props()) }
 
     val INEGRIC_RETORT_ITEM = blockItem("inegric_retort", EKBlocks.INEGRIC_RETORT)
 

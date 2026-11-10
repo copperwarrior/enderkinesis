@@ -3,8 +3,9 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer
-import net.minecraft.client.renderer.ItemBlockRenderTypes
 import net.minecraft.client.renderer.MultiBufferSource
+import net.minecraft.client.renderer.RenderType
+import net.minecraft.client.renderer.Sheets
 import net.minecraft.world.item.ItemDisplayContext
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.block.IchaericInkJarBlock
@@ -29,9 +30,15 @@ object IchaericInkJarBEWLR : BlockEntityWithoutLevelRenderer(
         val dispatcher = Minecraft.getInstance().blockRenderer
         dispatcher.modelRenderer.renderModel(
             poseStack.last(),
-            buffers.getBuffer(ItemBlockRenderTypes.getRenderType(state, mainTarget)),
+            buffers.getBuffer(renderType(mainTarget)),
             state, dispatcher.getBlockModel(state),
             1f, 1f, 1f, packedLight, packedOverlay,
         )
     }
+
+    // The jar is a translucent block. Forge's `ItemBlockRenderTypes.getRenderType` can hand back the
+    // chunk layer, which an item buffer never draws, so name the item sheets directly.
+    private fun renderType(mainTarget: Boolean): RenderType =
+        if (mainTarget || !Minecraft.useShaderTransparency()) Sheets.translucentCullBlockSheet()
+        else Sheets.translucentItemSheet()
 }

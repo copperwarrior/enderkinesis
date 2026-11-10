@@ -1,10 +1,9 @@
 package org.shipwrights.enderkinesis.forge.mixin;
 
 import java.util.function.Consumer;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.client.extensions.common.IClientItemExtensions;
-import org.shipwrights.enderkinesis.block.IchaericInkJarBlock;
+import org.shipwrights.enderkinesis.item.IchaericInkJarItem;
 import org.shipwrights.enderkinesis.forge.client.IchaericInkJarForgeExtensions;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,8 +20,8 @@ public abstract class ItemForgeIchaericInkJarMixin {
         Consumer<IClientItemExtensions> consumer,
         CallbackInfo ci
     ) {
-        if ((Object) this instanceof BlockItem blockItem
-            && blockItem.getBlock() instanceof IchaericInkJarBlock) {
+        // Runs from the Item constructor, before BlockItem.block is set; test the class.
+        if ((Object) this instanceof IchaericInkJarItem) {
             consumer.accept(IchaericInkJarForgeExtensions.INSTANCE);
             ci.cancel();
         }

@@ -35,6 +35,8 @@ uniform mat3  ViewToWorld;
 // rotates with the orb while the cubemap reflection + sun specular
 // stay anchored to the real world. WorldToMesh is the transpose.
 uniform mat3  MeshToWorld;
+// Above 0: parallel view rays (an orthographic sketch); the camera sits this far behind each fragment.
+uniform float OrthoDistance;
 
 // 6-face Panoramica cubemap bound by the render type. Indices map to
 // world directions: 0 = south (+Z), 1 = west (-X), 2 = north (-Z),
@@ -1392,6 +1394,10 @@ void main() {
     mat3 WorldToMesh = transpose(MeshToWorld);
     vec3 meshCamRel = WorldToMesh * worldCamRel;
     vec3 rdMesh = normalize(meshCamRel);
+    if (OrthoDistance > 0.0) {
+        rdMesh = normalize(WorldToMesh * (ViewToWorld * vec3(0.0, 0.0, -1.0)));
+        meshCamRel = rdMesh * OrthoDistance;
+    }
 
     // STEP 3: front-hemisphere clamp. vObjNormal is already mesh-local
     // (no rotation applied to the Normal attribute), so the dot test

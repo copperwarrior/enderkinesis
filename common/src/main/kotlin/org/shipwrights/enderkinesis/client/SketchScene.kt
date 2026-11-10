@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.brigadier.exceptions.CommandSyntaxException
@@ -36,8 +37,10 @@ import net.minecraft.world.level.block.state.properties.ChestType
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate
 import net.minecraft.world.phys.Vec3
+import org.joml.Matrix3f
 import org.joml.Matrix4f
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.block.FractalProjectorBlock
 import org.shipwrights.enderkinesis.item.SketchSubject
 import org.shipwrights.enderkinesis.mixin.BlockEntityLevelAccessor
 import org.shipwrights.enderkinesis.mixin.StructureTemplateAccessor
@@ -91,7 +94,7 @@ internal sealed class SketchScene {
             val centreZ = (minZ + pieces.maxOf { it.first.z } + 1) / 2f
             for ((offset, part) in pieces) {
                 drawStateAt(
-                    part, null, pose, source,
+                    part, null, pose, source, normals,
                     (offset.x - centreX).toDouble(), (offset.y - centreY).toDouble(), (offset.z - centreZ).toDouble(),
                 )
             }
@@ -138,15 +141,15 @@ internal sealed class SketchScene {
             for (info in blocks) {
                 val state = finalState(info.state(), info.nbt()) ?: continue
                 drawStateAt(
-                    state, info.nbt(), pose, source,
+                    state, info.nbt(), pose, source, normals,
                     info.pos().x - size.x / 2.0, info.pos().y - size.y / 2.0, info.pos().z - size.z / 2.0,
                 )
             }
         }
 
-        // Jigsaw blocks become their final state when the structure places; structure voids place nothing.
+        // Jigsaw blocks become their final state when the structure places; structure voids and data markers place nothing.
         private fun finalState(state: BlockState, nbt: CompoundTag?): BlockState? {
-            if (state.isAir || state.`is`(Blocks.STRUCTURE_VOID)) return null
+            if (state.isAir || state.`is`(Blocks.STRUCTURE_VOID) || state.`is`(Blocks.STRUCTURE_BLOCK)) return null
             if (!state.`is`(Blocks.JIGSAW)) return state
             val text = nbt?.getString("final_state")?.ifEmpty { null } ?: return null
             return try {
@@ -185,7 +188,7 @@ internal sealed class SketchScene {
                 val block = blocks[i]
                 fade = block.fade
                 ground = block.ground
-                drawStateAt(block.state, block.nbt, pose, faded, block.offset.x, block.offset.y, block.offset.z, block.tint, block.faces)
+                drawStateAt(block.state, block.nbt, pose, faded, normals, block.offset.x, block.offset.y, block.offset.z, block.tint, block.faces)
                 if (!block.state.fluidState.isEmpty) drawFluid(block, pose, faded)
             }
             if (to <= blocks.size) return
@@ -365,7 +368,7 @@ internal sealed class SketchScene {
             is SketchSubject.Block -> BlockScene(subject.state)
             is SketchSubject.Entity -> createEntity(subject.type, subject.nbt)?.let { EntityScene(it) }
             is SketchSubject.Structure -> loadStructure(subject.id)?.let { StructureScene(it) }
-            is SketchSubject.Picture -> null
+            is SketchSubject.Picture, is SketchSubject.BlockTag -> null
         }
 
         private fun createEntity(type: EntityType<*>, nbt: CompoundTag?): Entity? {
@@ -412,7 +415,7 @@ internal sealed class SketchScene {
         /** Draws [state] with its minimum corner at ([x], [y], [z]). */
         @Suppress("LongParameterList") // A position and tint on top of drawState's parameters.
         private fun drawStateAt(
-            state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource,
+            state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource, normals: Boolean,
             x: Double, y: Double, z: Double,
             // Without a level and position, grass and foliage colours fall back to a fixed default, not the biome's.
             tint: Int = Minecraft.getInstance().blockColors.getColor(state, null, null, 0),
@@ -421,16 +424,18 @@ internal sealed class SketchScene {
             pose.pushPose()
             pose.translate(x, y, z)
             val flames = WillfaerFlameVolume.mark()
-            drawState(state, nbt, pose, source, tint, faces)
+            drawState(state, nbt, pose, source, normals, tint, faces)
             // Block entity renderers queue flames in world space, and the detached block entity sits at the origin.
             WillfaerFlameVolume.shift(flames, x, y, z)
             pose.popPose()
         }
 
         @Suppress("LongParameterList") // A block's state, data, tint and drawn faces, and where to draw it.
-        private fun drawState(state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource, tint: Int, faces: Int) {
+        private fun drawState(
+            state: BlockState, nbt: CompoundTag?, pose: PoseStack, source: MultiBufferSource, normals: Boolean, tint: Int, faces: Int,
+        ) {
             if (state.`is`(EKBlocks.FRACTAL_PROJECTOR.get())) {
-                drawOrb(pose, source)
+                drawOrb(pose, source, normals, state.getValue(FractalProjectorBlock.FRACTAL_TYPE))
                 return
             }
             val minecraft = Minecraft.getInstance()
@@ -497,8 +502,12 @@ internal sealed class SketchScene {
         }
 
         // The projector is a worldgen marker: it spawns an Orb of Potential and removes itself, so the sketch shows the orb.
-        // OrbOfPotentialRenderer's fractal needs world-camera uniforms, so this is a plain lit sphere of the same radius.
-        private fun drawOrb(pose: PoseStack, source: MultiBufferSource) {
+        // The normals pass and a missing shader use a plain sphere; the lit pass draws the real fractal.
+        private fun drawOrb(pose: PoseStack, source: MultiBufferSource, normals: Boolean, fractalType: Int) {
+            if (!normals && FractalProjectorRenderTypes.isReady()) {
+                drawFractalOrb(pose, source, fractalType)
+                return
+            }
             val consumer = source.getBuffer(RenderType.entityCutoutNoCull(StrikeSketchRenderTypes.white))
             val last = pose.last()
             for (stack in 0 until ORB_STACKS) {
@@ -506,6 +515,19 @@ internal sealed class SketchScene {
                     for ((ds, dt) in ORB_QUAD) orbVertex(consumer, last, stack + ds, slice + dt)
                 }
             }
+        }
+
+        private fun drawFractalOrb(pose: PoseStack, source: MultiBufferSource, fractalType: Int) {
+            pose.pushPose()
+            pose.translate(HALF, HALF, HALF)
+            val viewToWorld = Matrix3f(pose.last().pose()).transpose()
+            // An orthographic projection has 1 in its last element; a perspective has 0.
+            val orthographic = RenderSystem.getProjectionMatrix().m33() == 1f
+            OrbOfPotentialRenderer.drawSketchSphere(
+                source.getBuffer(FractalProjectorRenderTypes.FRACTAL_SPHERE), pose.last().pose(), viewToWorld, orthographic,
+                fractalType,
+            )
+            pose.popPose()
         }
 
         private fun orbVertex(consumer: VertexConsumer, last: PoseStack.Pose, stack: Int, slice: Int) {

@@ -165,7 +165,7 @@ object SilverpointView {
         ClientRawInputEvent.MOUSE_SCROLLED.register { _, amount ->
             if (!framing()) return@register EventResult.pass()
             zoom = (zoom - amount.toFloat() * ZOOM_STEP).coerceIn(ZOOM_MIN, ZOOM_MAX)
-            EventResult.interruptTrue()
+            EventResult.interruptFalse()
         }
         ClientGuiEvent.RENDER_HUD.register { graphics, _ -> if (framing()) drawFrame(graphics) }
         ClientTickEvent.CLIENT_POST.register { sketchSounds() }

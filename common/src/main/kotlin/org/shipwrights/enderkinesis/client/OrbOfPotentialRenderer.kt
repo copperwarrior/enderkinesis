@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.Tesselator
 import com.mojang.blaze3d.vertex.VertexBuffer
+import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.blaze3d.vertex.VertexFormat
 import net.minecraft.Util
 import net.minecraft.client.Camera
@@ -51,6 +52,10 @@ object OrbOfPotentialRenderer {
     private const val SPHERE_SLICES: Int = 32
     private const val SPHERE_STACKS: Int = 16
     private const val VERTEX_STRIDE: Int = 6
+    // A sketch holds the fractal at one moment, so the same page always shows the same picture.
+    private const val SKETCH_TIME_SEC: Float = 12f
+    private const val SKETCH_ORTHO_DISTANCE: Float = 6f
+    private val IDENTITY_3 = Matrix3f()
 
     private val SPHERE_VERTICES: FloatArray = buildUvSphere(SPHERE_RADIUS)
     private val HALO_VERTICES: FloatArray = buildUvSphere(HALO_RADIUS)
@@ -122,6 +127,7 @@ object OrbOfPotentialRenderer {
         val pitchRad = Math.toRadians(-camera.xRot.toDouble()).toFloat()
         val viewToWorld = Matrix3f().rotationY(yawRad).rotateX(pitchRad)
         fractalShader.safeGetUniform("ViewToWorld")?.set(viewToWorld)
+        fractalShader.safeGetUniform("OrthoDistance")?.set(0f)
         haloShader.safeGetUniform("ViewToWorld")?.set(viewToWorld)
         // WordLetters depends only on `timeSec` (no per-orb seed), so
         // fill once and reuse the uniform for every orb this frame.
@@ -189,6 +195,29 @@ object OrbOfPotentialRenderer {
             )
 
             poseStack.popPose()
+        }
+    }
+
+    /**
+     * Draws the fractal sphere into a sketch: [pose] places it, [viewToWorld] undoes the sketch camera's rotation, and an
+     * orthographic projection gives the shader parallel rays. The world path sets its own uniforms each frame.
+     */
+    fun drawSketchSphere(consumer: VertexConsumer, pose: Matrix4f, viewToWorld: Matrix3f, orthographic: Boolean, fractalType: Int) {
+        FractalProjectorRenderTypes.getFractalShader()?.let { shader ->
+            fillWordLetters(SKETCH_TIME_SEC, WORD_LETTERS)
+            shader.safeGetUniform("GlobalTime")?.set(SKETCH_TIME_SEC)
+            shader.safeGetUniform("ViewToWorld")?.set(viewToWorld)
+            shader.safeGetUniform("MeshToWorld")?.set(IDENTITY_3)
+            shader.safeGetUniform("WordLetters")?.set(WORD_LETTERS)
+            shader.safeGetUniform("OrthoDistance")?.set(if (orthographic) SKETCH_ORTHO_DISTANCE else 0f)
+        } ?: return
+        var i = 0
+        while (i < SPHERE_VERTICES.size) {
+            consumer.vertex(pose, SPHERE_VERTICES[i], SPHERE_VERTICES[i + 1], SPHERE_VERTICES[i + 2])
+                .color(0, 0, 0, fractalType)
+                .normal(SPHERE_VERTICES[i + 3], SPHERE_VERTICES[i + 4], SPHERE_VERTICES[i + 5])
+                .endVertex()
+            i += VERTEX_STRIDE
         }
     }
 

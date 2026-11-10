@@ -24,6 +24,7 @@
     { "name": "FogColor",     "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 0.0, 1.0 ] },
     { "name": "ViewToWorld",  "type": "matrix3x3", "count": 9,  "values": [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ] },
     { "name": "MeshToWorld",  "type": "matrix3x3", "count": 9,  "values": [ 1, 0, 0,  0, 1, 0,  0, 0, 1 ] },
+    { "name": "OrthoDistance", "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "WordLetters",  "type": "float",     "count": 48, "values": [ 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0 ] }
   ]
 }
