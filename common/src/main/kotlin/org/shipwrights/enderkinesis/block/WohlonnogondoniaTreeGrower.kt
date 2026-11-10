@@ -253,9 +253,8 @@ object WohlonnogondoniaTreeGrower {
         // The first ritual of a session loaded these on its ignite tick.
         LifecycleEvent.SERVER_STARTED.register { _ ->
             warmUpClasses(
-                TreeBuildParams::class.java, WohlonTreeSite::class.java, TreeJob::class.java, TreeJobsData::class.java,
-                WohlonnogondoniaPortalRitual::class.java, WohlonRitualNetwork::class.java, WohlonRitualTimeline::class.java,
-                org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity::class.java,
+                TreeBuildParams.Companion, WohlonTreeSite.Companion, TreeJob::class.java, TreeJobsData.Companion,
+                WohlonnogondoniaPortalRitual, WohlonRitualNetwork, WohlonRitualTimeline, HeartOfTheWildBlockEntity.Companion,
             )
             WohlonnogondoniaSpreader.warmClasses()
             WohlonnogondoniaPortalManager.warmClasses()

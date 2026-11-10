@@ -72,7 +72,7 @@ object WohlonRitualTendrils {
 
     fun init() {
         // The first ritual of a session loaded these on its frame.
-        warmUpClasses(Tendril::class.java, TendrilCurve::class.java, Ritual::class.java, WohlonMoteParticle::class.java, WohlonRitualTimeline::class.java)
+        warmUpClasses(Tendril::class.java, TendrilCurve::class.java, Ritual::class.java, WohlonMoteParticle.Companion, WohlonRitualTimeline)
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WohlonRitualNetwork.S2C_IGNITE) { buf, _ ->
             val candle = BlockPos.of(buf.readLong())
             val sacrifice = Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble())
