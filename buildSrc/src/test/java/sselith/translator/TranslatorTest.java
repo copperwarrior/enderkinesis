@@ -264,9 +264,9 @@ class TranslatorTest {
     void inflectedFormFallsThroughToMorphologyWhenAbsent() throws IOException {
         assumeModels();
         // 'forged' is NOT in the dict — surface lookup misses, lemma + PAST
-        // morphology kicks in: forge (morkr) + PAST (-acht) → morkracht.
+        // morphology kicks in: forge (kraeglouvkh) + PAST (-acht) → kraeglouvkhacht.
         String out = buildTranslator().translate("forged");
-        assertEquals("morkracht", out.toLowerCase(java.util.Locale.ROOT));
+        assertEquals("kraeglouvkhacht", out.toLowerCase(java.util.Locale.ROOT));
     }
 
     // ── Source spacing, placeholders and numerals ─────────────────────────────
@@ -539,6 +539,80 @@ class TranslatorTest {
         assertDistinct(t, "scene", "witness");
         String out = t.translate("Nothing has broken out in the hall.");
         assertTrue(out.contains("morsisk"), "'broken out' is 'break out' (erupt). Got: " + out);
+    }
+
+    @Test
+    void allCapsLineKeepsCapitals() throws IOException {
+        assumeModels();
+        String out = buildTranslator().translate("LEAVE IT IN A PAPER BAG BENEATH THE 84 PILLAR STAIRS");
+        assertTrue(out.contains(" EN "), "One-letter A takes the line case. Got: " + out);
+        assertTrue(out.contains("TESK-SCHAER-TESK-SCHEST"), "Numbers take the line case. Got: " + out);
+        assertTrue(out.contains("TENKHVEL"), "bag is not the have word. Got: " + out);
+    }
+
+    @Test
+    void couplingWordsUseSselithForms() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("P.S. WE SANDED YOUR PLANKS").contains("NAROGHKRAEKHACHT"), "sanded is smooth + make + PAST.");
+        assertTrue(t.translate("It was a joint operation.").contains("krevtochegh"), "joint as an ADJ is mutual.");
+        assertDistinct(t, "joint", "break", "separate");
+    }
+
+    @Test
+    void clippedRootFormsAreSplit() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertDistinct(t, "assert", "boom", "expert", "wonder", "legend", "scream", "yell");
+        assertDistinct(t, "forge", "steep", "delay", "torture", "weak");
+        assertDistinct(t, "replace", "revolution", "switch", "gradient");
+        assertDistinct(t, "whisper", "echo", "mean", "translate");
+        assertDistinct(t, "mighty", "evolutionary");
+        assertDistinct(t, "outlast", "delay");
+        assertDistinct(t, "expansion", "energy");
+        assertDistinct(t, "impossible", "unable");
+        assertDistinct(t, "intention", "proposal");
+    }
+
+    // A new shared form must go into the allowlist: "intended" after review, otherwise "not reviewed".
+    @Test
+    void sharedCompoundFormsAreAllowlisted() throws IOException {
+        java.util.Map<String, java.util.Map<String, java.util.List<String>>> byForm = new java.util.TreeMap<>();
+        com.google.gson.JsonObject lexicon;
+        try (java.io.Reader r = Files.newBufferedReader(dictPath)) {
+            lexicon = com.google.gson.JsonParser.parseReader(r).getAsJsonObject().getAsJsonObject("lexicon");
+        }
+        for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : lexicon.entrySet()) {
+            com.google.gson.JsonObject entry = e.getValue().getAsJsonObject();
+            String tag = entry.has("tag") ? entry.get("tag").getAsString() : "";
+            if (!tag.toLowerCase(java.util.Locale.ROOT).startsWith("[compound:")) continue;
+            String form = entry.get("sselith").getAsString().toLowerCase(java.util.Locale.ROOT);
+            byForm.computeIfAbsent(form, f -> new java.util.TreeMap<>())
+                    .computeIfAbsent(normalisedTag(tag), k -> new java.util.ArrayList<>())
+                    .add(e.getKey());
+        }
+        java.util.Set<String> allowed = new java.util.HashSet<>();
+        for (String line : Files.readAllLines(projectRoot.resolve(SHARED_FORMS_ALLOWLIST))) {
+            String form = line.strip();
+            if (!form.isEmpty() && !form.startsWith("[")) allowed.add(form);
+        }
+        java.util.List<String> unlisted = new java.util.ArrayList<>();
+        byForm.forEach((form, tags) -> {
+            if (tags.size() > 1 && !allowed.contains(form)) unlisted.add(form + " " + tags.values());
+        });
+        assertTrue(unlisted.isEmpty(), "Shared forms not in " + SHARED_FORMS_ALLOWLIST + ": " + unlisted);
+    }
+
+    private static final String SHARED_FORMS_ALLOWLIST = "buildSrc/src/test/resources/sselith/shared_forms_allowlist.txt";
+
+    private static String normalisedTag(String tag) {
+        String body = tag.toLowerCase(java.util.Locale.ROOT).replace("[", "").replace("]", "").replace("compound:", "");
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        for (String p : body.split("[+\\-\\s]+")) {
+            if (!p.isEmpty() && !p.equals("root")) parts.add(p);
+        }
+        java.util.Collections.sort(parts);
+        return String.join(" ", parts);
     }
 
     @Test

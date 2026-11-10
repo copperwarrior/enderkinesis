@@ -237,8 +237,13 @@ public final class Translator {
         List<EnglishTokenizer.Token> tokens = tokenizer.tokenize(text);
 
         // Build parallel arrays for POS / lemma calls.
+        // The tagger calls every word of an all-caps line PROPN, so tag the lowercase words instead.
+        boolean allCaps = isAllCaps(tokens);
         String[] surface = new String[tokens.size()];
-        for (int i = 0; i < tokens.size(); i++) surface[i] = tokens.get(i).original();
+        for (int i = 0; i < tokens.size(); i++) {
+            String original = tokens.get(i).original();
+            surface[i] = allCaps ? original.toLowerCase(Locale.ROOT) : original;
+        }
 
         String[] rawTags = posTagger.tag(surface);
         // Modern OpenNLP en-pos models emit UD tags (NOUN/VERB/...). The lemmatizer dict
@@ -288,6 +293,7 @@ public final class Translator {
         int end = text.length();
         while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) end--;
         // Each output takes the case of its source token, so deliberate lowercase line starts stay lowercase.
+        if (allCaps) outputs.replaceAll(o -> isMarker(o) ? o : o.toUpperCase(Locale.ROOT));
         return joinTokens(outputs, gaps) + text.substring(end);
     }
 
@@ -557,6 +563,22 @@ public final class Translator {
         boolean clauseStart = prevOriginal == null || EnglishTokenizer.isPunctuation(prevOriginal);
         if ("ADV".equals(taggedClass) && clauseStart) return "CCONJ";
         return taggedClass;
+    }
+
+    /** A line in capitals keeps capitals, also for numbers and one-letter words. Keep in step with Sselith.kt. */
+    private static boolean isAllCaps(List<EnglishTokenizer.Token> tokens) {
+        boolean hasCapitalWord = false;
+        for (EnglishTokenizer.Token tok : tokens) {
+            String o = tok.original();
+            if (isMarker(o)) continue;
+            if (!o.equals(o.toUpperCase(Locale.ROOT))) return false;
+            if (tok.casePattern() == EnglishTokenizer.CasePattern.UPPER) hasCapitalWord = true;
+        }
+        return hasCapitalWord;
+    }
+
+    private static boolean isMarker(String s) {
+        return s.regionMatches(true, 0, MARKER_PREFIX, 0, MARKER_PREFIX.length());
     }
 
     /** "link's forged": an 's before a past participle is "is", not the possessive. Keep in step with Sselith.kt. */
