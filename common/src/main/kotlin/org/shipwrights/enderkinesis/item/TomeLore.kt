@@ -65,9 +65,6 @@ object TomeLore {
     /** Book-tag string: the Sselith source that the pages came from. */
     const val SOURCE_KEY = "EnderkinesisSource"
 
-    /** Book-tag boolean: [fromSselithLoreBook] flowed the source into pages without its line breaks. */
-    private const val FLOWED_KEY = "EnderkinesisFlowed"
-
     fun sselithSource(book: ItemStack): String? = book.tag?.getString(SOURCE_KEY)?.ifEmpty { null }
 
     /**
@@ -118,18 +115,11 @@ object TomeLore {
     private val ENGLISH_BOOK_CACHE =
         java.util.concurrent.ConcurrentHashMap<String, List<Component>>()
 
-    /**
-     * The English source pages of a stored-page book, in the layout its Sselith pages had.
-     * Null when the book has no source tag or the English text is not bundled.
-     */
+    /** The English source pages of a stored-page book; null when it has no source tag or the English text is not bundled. */
     fun englishStoredPages(book: ItemStack): List<String>? {
         val source = sselithSource(book) ?: return null
         if (!hasEnglishSource(source)) return null
-        return if (book.tag?.getBoolean(FLOWED_KEY) == true) {
-            paginateSerifText(englishResource(source))
-        } else {
-            parsePaginatedMarkdown(englishResource(source)).map { it.string }
-        }
+        return parsePaginatedMarkdown(englishResource(source)).map { it.string }
     }
 
     /** Build a written-book stack from a plain-text source in `assets/enderkinesis/texts/loot_books/`.
@@ -144,24 +134,13 @@ object TomeLore {
     /** A [SselithBookItem] stack from a Sselith-translated source that has no `## ` sections. */
     fun fromSselithLoreBook(title: String, author: String, bookName: String): ItemStack {
         val pages = SSELITH_LORE_CACHE.getOrPut(bookName) {
-            paginateSerifText("/assets/enderkinesis/texts/sselith/books/$bookName.md")
+            parsePaginatedMarkdown(sselithResource(bookName)).map { it.string }
         }
-        return SselithBookItem.of(title, author, pages).also {
-            val tag = it.orCreateTag
-            tag.putString(SOURCE_KEY, bookName)
-            tag.putBoolean(FLOWED_KEY, true)
-        }
+        return SselithBookItem.of(title, author, pages).also { it.orCreateTag.putString(SOURCE_KEY, bookName) }
     }
 
     private val SSELITH_LORE_CACHE =
         java.util.concurrent.ConcurrentHashMap<String, List<String>>()
-
-    private fun paginateSerifText(resource: String): List<String> {
-        val text = TomeLore::class.java.getResourceAsStream(resource)?.bufferedReader()?.use { it.readText() }
-            ?: return listOf("(the pages are blank)")
-        val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        return BookPaginator.paginate(words.joinToString(" ")).ifEmpty { listOf("(the pages are blank)") }
-    }
 
     private val LOOT_BOOK_CACHE =
         java.util.concurrent.ConcurrentHashMap<String, List<Component>>()
