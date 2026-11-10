@@ -574,6 +574,24 @@ class TranslatorTest {
         assertDistinct(t, "intention", "proposal");
     }
 
+    @Test
+    void irregularPastsTakeThePastOfTheirBase() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertEquals("Zhol monkhtacht okht zhaelkhacht zhol.", t.translate("He came and knew it."));
+        assertTrue(t.translate("He said so.").contains("zhsarkhacht"), "'said' as a verb is say + PAST.");
+        assertTrue(t.translate("The left hand.").contains("sintregh"), "'left' keeps the direction form.");
+    }
+
+    @Test
+    void echoingSilenceWordsUseSselithForms() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertEquals("Za Morvolkhtruekhvelelk okht veltruekhvrenelk.", t.translate("The Tendrils and spores."));
+        assertDistinct(t, "resonance", "resonate", "resonant", "resonator");
+        assertDistinct(t, "bacterium", "insect");
+    }
+
     // A new shared form must go into the allowlist: "intended" after review, otherwise "not reviewed".
     @Test
     void sharedCompoundFormsAreAllowlisted() throws IOException {

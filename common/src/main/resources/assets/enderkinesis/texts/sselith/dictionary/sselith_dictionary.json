@@ -2241,8 +2241,8 @@
     },
     "bacteria": {
       "pos": "NOUN",
-      "sselith": "velvirkhelk",
-      "tag": "[compound: DIM + animal + PL]"
+      "sselith": "velvelvirkhelk",
+      "tag": "[bacterium + PL]"
     },
     "bad": {
       "pos": "ADJ",
@@ -13390,8 +13390,8 @@
     },
     "held": {
       "pos": "VERB",
-      "sselith": "tenkh",
-      "tag": "[root]"
+      "sselith": "tenkhacht",
+      "tag": "[hold + PAST]"
     },
     "helicopter": {
       "pos": "NOUN",
@@ -16779,7 +16779,13 @@
     "lost": {
       "pos": "ADJ",
       "sselith": "loktegh",
-      "tag": "[lose + ADJ]"
+      "tag": "[lose + ADJ]",
+      "senses": {
+        "VERB": {
+          "sselith": "loktacht",
+          "tag": "[lose + PAST]"
+        }
+      }
     },
     "lot": {
       "pos": "NOUN",
@@ -28482,7 +28488,13 @@
     "thought": {
       "pos": "NOUN",
       "sselith": "zhirakust",
-      "tag": "[zhirakht + ABSTRACT]"
+      "tag": "[zhirakht + ABSTRACT]",
+      "senses": {
+        "VERB": {
+          "sselith": "zhirakhtacht",
+          "tag": "[think + PAST]"
+        }
+      }
     },
     "thought-provoking": {
       "pos": "ADJ",
@@ -33130,8 +33142,8 @@
     },
     "spore": {
       "pos": "NOUN",
-      "sselith": "skore",
-      "tag": "[adapted-strong]"
+      "sselith": "veltruekhvren",
+      "tag": "[DIM + seed]"
     },
     "blossom": {
       "pos": "NOUN",
@@ -35151,7 +35163,13 @@
     "said": {
       "pos": "NOUN",
       "sselith": "skaid",
-      "tag": "[adapted-strong]"
+      "tag": "[adapted-strong]",
+      "senses": {
+        "VERB": {
+          "sselith": "zhsarkhacht",
+          "tag": "[say + PAST]"
+        }
+      }
     },
     "rejected": {
       "pos": "VERB",
@@ -38901,8 +38919,8 @@
     },
     "tendrils": {
       "pos": "NOUN",
-      "sselith": "tendrilekh",
-      "tag": "[Sselith-adapted]"
+      "sselith": "morvolkhtruekhvelelk",
+      "tag": "[tendril + PL]"
     },
     "barks": {
       "pos": "NOUN",
@@ -39292,7 +39310,13 @@
     "met": {
       "pos": "NOUN",
       "sselith": "mesth",
-      "tag": "[adapted-strong]"
+      "tag": "[adapted-strong]",
+      "senses": {
+        "VERB": {
+          "sselith": "monkhacht",
+          "tag": "[meet + PAST]"
+        }
+      }
     },
     "ticking": {
       "pos": "VERB",
@@ -39918,6 +39942,186 @@
       "pos": "NOUN",
       "sselith": "viarvuehtkh",
       "tag": "[compound: way + bread]"
+    },
+    "cultivation": {
+      "pos": "NOUN",
+      "sselith": "terkhkrelkhust",
+      "tag": "[compound: farm + grow + ABSTRACT]"
+    },
+    "archivist": {
+      "pos": "NOUN",
+      "sselith": "leamorgharn",
+      "tag": "[archive + AGENT]"
+    },
+    "admirable": {
+      "pos": "ADJ",
+      "sselith": "lumkhzhegh",
+      "tag": "[admire + ADJ]"
+    },
+    "persistence": {
+      "pos": "NOUN",
+      "sselith": "morkrevirkhust",
+      "tag": "[compound: AUG + persist + ABSTRACT]"
+    },
+    "auditory": {
+      "pos": "ADJ",
+      "sselith": "zhsatkhegh",
+      "tag": "[ear + ADJ]"
+    },
+    "sought": {
+      "pos": "VERB",
+      "sselith": "kwersteghacht",
+      "tag": "[seek + PAST]"
+    },
+    "sought-after": {
+      "pos": "ADJ",
+      "sselith": "morkwersteghachtegh",
+      "tag": "[compound: AUG + sought + ADJ]"
+    },
+    "organism": {
+      "pos": "NOUN",
+      "sselith": "virksakkht",
+      "tag": "[compound: life + thing]"
+    },
+    "macroorganism": {
+      "pos": "NOUN",
+      "sselith": "morvirksakkht",
+      "tag": "[AUG + organism]"
+    },
+    "populace": {
+      "pos": "NOUN",
+      "sselith": "olmpopkharg",
+      "tag": "[compound: all + people]"
+    },
+    "ferociously": {
+      "pos": "ADV",
+      "sselith": "mortochkhorl",
+      "tag": "[fierce + ADV]"
+    },
+    "harmless": {
+      "pos": "ADJ",
+      "sselith": "navelmornkhegh",
+      "tag": "[NEG + harmful]"
+    },
+    "deception": {
+      "pos": "NOUN",
+      "sselith": "nafielkraekhust",
+      "tag": "[compound: lie + make + ABSTRACT]"
+    },
+    "morphology": {
+      "pos": "NOUN",
+      "sselith": "viseghzhleamkust",
+      "tag": "[compound: shape + study + ABSTRACT]"
+    },
+    "bacterium": {
+      "pos": "NOUN",
+      "sselith": "velvelvirkh",
+      "tag": "[compound: DIM + DIM + animal]"
+    },
+    "fungal": {
+      "pos": "ADJ",
+      "sselith": "morplouvkhvelegh",
+      "tag": "[fungus + ADJ]"
+    },
+    "slimy": {
+      "pos": "ADJ",
+      "sselith": "sklimegh",
+      "tag": "[slime + ADJ]"
+    },
+    "digest": {
+      "pos": "VERB",
+      "sselith": "iskmtsiskstkh",
+      "tag": "[compound: eat + break]"
+    },
+    "filament": {
+      "pos": "NOUN",
+      "sselith": "veltrenkhvel",
+      "tag": "[DIM + thread]"
+    },
+    "resonant": {
+      "pos": "ADJ",
+      "sselith": "krezhsathegh",
+      "tag": "[resonate + ADJ]"
+    },
+    "resonator": {
+      "pos": "NOUN",
+      "sselith": "krezhsatharn",
+      "tag": "[resonate + AGENT]"
+    },
+    "communicative": {
+      "pos": "ADJ",
+      "sselith": "zhspraemonkhtegh",
+      "tag": "[compound: speak + come + ADJ]"
+    },
+    "ulterior": {
+      "pos": "ADJ",
+      "sselith": "scheltschrendegh",
+      "tag": "[compound: hidden + far + ADJ]"
+    },
+    "tendril": {
+      "pos": "NOUN",
+      "sselith": "morvolkhtruekhvel",
+      "tag": "[vine + DIM]"
+    },
+    "came": {
+      "pos": "VERB",
+      "sselith": "monkhtacht",
+      "tag": "[come + PAST]"
+    },
+    "knew": {
+      "pos": "VERB",
+      "sselith": "zhaelkhacht",
+      "tag": "[know + PAST]"
+    },
+    "saw": {
+      "pos": "VERB",
+      "sselith": "zhirskacht",
+      "tag": "[see + PAST]"
+    },
+    "brought": {
+      "pos": "VERB",
+      "sselith": "monkhacht",
+      "tag": "[bring + PAST]"
+    },
+    "grew": {
+      "pos": "VERB",
+      "sselith": "krelkhacht",
+      "tag": "[grow + PAST]"
+    },
+    "stood": {
+      "pos": "VERB",
+      "sselith": "staekhacht",
+      "tag": "[stand + PAST]"
+    },
+    "wrote": {
+      "pos": "VERB",
+      "sselith": "zhskrimkhacht",
+      "tag": "[write + PAST]"
+    },
+    "spoke": {
+      "pos": "VERB",
+      "sselith": "zhspraekhacht",
+      "tag": "[speak + PAST]"
+    },
+    "ran": {
+      "pos": "VERB",
+      "sselith": "morvolkhacht",
+      "tag": "[run + PAST]"
+    },
+    "meant": {
+      "pos": "VERB",
+      "sselith": "tochzhsarkhacht",
+      "tag": "[mean + PAST]"
+    },
+    "sat": {
+      "pos": "VERB",
+      "sselith": "sedrkhacht",
+      "tag": "[sit + PAST]"
+    },
+    "understood": {
+      "pos": "VERB",
+      "sselith": "zhaelkacht",
+      "tag": "[understand + PAST]"
     }
   },
   "phonology": {
