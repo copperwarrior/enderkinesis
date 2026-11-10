@@ -39,6 +39,20 @@ class BookshelfPageTest {
 
     private fun firstWord(page: String) = page.split(' ', '\n').first()
 
+    private class Pin(val x: Int, val y: Int, val z: Int, val parallel: BigInteger, val text: String)
+
+    // A dictionary change also changes this text.
+    @Test
+    fun `addresses keep their pinned text`() {
+        val pins = listOf(
+            Pin(1203, 40, -877, BigInteger.valueOf(0L), "naregarnvolkh\nserkhzhorl akvakhoch\nulorl hiperspeakhelk\nschrendvirkhendacht\nnakrenuvakht\nmornktkraekhendend\nmorzhsarserkhacht\nabkhoch viuthkustelk\nmornavirkustacht\nvolkhendend\nfighterelk iskmtend\nmornktarghkvirkhelk\nluftkdhelkhargend\nmorscholkzhegh"),
+            Pin(0, 64, 0, BigInteger.valueOf(7L), "archive configures\nindoor endures\nwidens satisfies\nblockfishes watches\ncaves sanity uninvite\nsense recognized\neats magics hisseses\nministry undesireds"),
+            Pin(-1, 0, 1, BigInteger.valueOf(0L), "regarnmkhegh\nrougharghkphischoch\ngildakht iralkh\nnavelisch drankhakt\nintentiokhoch\nkreplouvmornkht\nnanaserkr\nshipvrekhoch\nveltempkhend trenkh\nplankhtouv\nnaschremd\nlokttockhend\nzhdivkhzh spavnkhend\nlarkmkraekustoch"),
+            Pin(29999983, -128, -29999984, BigInteger.valueOf(7L), "kwerstekhelk\nvrendsarkhendakt\nnaontnemkh\nschrendkh\nkrekraelokuetust\nvrendsarkhust\nsnipelkoch vielkhegh\nsoleeghakt regarnoch\nyghannvirkmoroch\nunteltkhstrenkhoch\nrougsthounkraekelk\nservochtend larkmzh\nouvtochkhend\ndeathelkelk rustschkh"),
+        )
+        for (pin in pins) BookshelfPage.text(pin.x, pin.y, pin.z, pin.parallel) shouldBe pin.text
+    }
+
     @Test
     fun `every page fits on one book page`() {
         for ((x, y, z) in positions) for (parallel in parallels) {
