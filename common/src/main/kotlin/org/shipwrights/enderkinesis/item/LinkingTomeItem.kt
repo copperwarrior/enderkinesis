@@ -69,13 +69,12 @@ abstract class LinkingTomeItem(properties: Properties) : TomeItem(properties) {
         else handlePlain(serverLevel, player, tome, pos, be)
     }
 
-    /** Sneak-right-click on empty space clears the tome's selection. */
+    /** Sneak-right-click on empty space clears a selection; otherwise right-click opens the pages. */
     override fun use(
         level: Level, player: Player, hand: InteractionHand,
     ): InteractionResultHolder<ItemStack> {
         val tome = player.getItemInHand(hand)
-        if (!player.isSecondaryUseActive) return InteractionResultHolder.pass(tome)
-        if (getSelectedSend(tome) == null) return InteractionResultHolder.pass(tome)
+        if (!player.isSecondaryUseActive || getSelectedSend(tome) == null) return super.use(level, player, hand)
         if (!level.isClientSide) {
             clearSelection(tome)
             player.displayClientMessage(msg(Lang.SELECTION_CLEARED), true)

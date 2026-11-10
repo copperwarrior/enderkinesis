@@ -96,15 +96,15 @@ class WyllandTomeItem(properties: Properties) : TomeItem(properties) {
         level: Level, player: Player, hand: InteractionHand,
     ): InteractionResultHolder<ItemStack> {
         val tome = player.getItemInHand(hand)
-        if (tome.damageValue <= 0) return InteractionResultHolder.pass(tome)
+        if (tome.damageValue <= 0) return super.use(level, player, hand)
         val otherHand =
             if (hand == InteractionHand.MAIN_HAND) InteractionHand.OFF_HAND
             else InteractionHand.MAIN_HAND
         val fuel = player.getItemInHand(otherHand)
-        if (!fuel.`is`(Items.WRITTEN_BOOK)) return InteractionResultHolder.pass(tome)
+        if (!fuel.`is`(Items.WRITTEN_BOOK)) return super.use(level, player, hand)
 
         val restore = SselithBookScore.repairPoints(fuel, MAX_REPAIR_PER_BOOK)
-        if (restore <= 0) return InteractionResultHolder.pass(tome)
+        if (restore <= 0) return super.use(level, player, hand)
 
         if (!level.isClientSide) {
             tome.damageValue = (tome.damageValue - restore).coerceAtLeast(0)

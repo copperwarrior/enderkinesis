@@ -1,12 +1,18 @@
 package org.shipwrights.enderkinesis.item
 
+import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
+import net.minecraft.world.InteractionResultHolder
+import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.WrittenBookItem
 import net.minecraft.world.item.context.UseOnContext
+import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.LecternBlock
+import org.shipwrights.enderkinesis.client.BookSkin
+import org.shipwrights.enderkinesis.client.OldPaperClient
 
 /**
  * Shared base for the mod's "tome" items — books that can sit on a lectern and render as a written
@@ -43,6 +49,16 @@ abstract class TomeItem(properties: Properties) : Item(properties) {
             else InteractionResult.PASS
         }
         return InteractionResult.PASS
+    }
+
+    /** Right-click in the air opens the pages. A subclass with its own right-click job overrides this and calls `super` when the job does not apply. */
+    override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
+        val stack = player.getItemInHand(hand)
+        if (level.isClientSide) {
+            val book = writtenBook(stack)
+            OldPaperClient.open(book, if (TomeLore.hasSerifPages(book)) BookSkin.SSELITH_BOOK else null)
+        }
+        return InteractionResultHolder.sidedSuccess(stack, level.isClientSide)
     }
 
     /**

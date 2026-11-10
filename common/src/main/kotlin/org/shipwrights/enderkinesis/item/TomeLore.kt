@@ -138,7 +138,7 @@ object TomeLore {
      */
     fun parseMarkdown(resource: String): List<Component> =
         parseSections(resource)?.map { (sh, sb) ->
-            Component.literal(sh).append("\n\n").append(Component.literal(sb))
+            if (sh == null) Component.literal(sb) else Component.literal(sh).append("\n\n").append(Component.literal(sb))
         } ?: listOf(Component.literal("(the pages are blank)"))
 
     /**
@@ -148,16 +148,30 @@ object TomeLore {
      */
     fun parsePaginatedMarkdown(resource: String): List<Component> =
         parseSections(resource)?.flatMap { (sh, sb) ->
-            BookPaginator.paginate("$sh\n\n$sb").map { Component.literal(it) }
+            paginateWithBreaks(if (sh == null) sb else "$sh\n\n$sb").map { Component.literal(it) }
         } ?: listOf(Component.literal("(the pages are blank)"))
 
-    private fun parseSections(resource: String): List<Pair<String, String>>? {
+    // A `[page]` line forces a page break; two in a row leave one blank page between them. The tag never prints.
+    private val PAGE_BREAK = Regex("""\n*\[page]\n*""")
+
+    private fun paginateWithBreaks(text: String): List<String> {
+        val parts = text.split(PAGE_BREAK)
+        return parts.flatMapIndexed { i, part ->
+            val pages = BookPaginator.paginate(part)
+            if (pages.isEmpty() && i in 1 until parts.lastIndex) listOf("") else pages
+        }
+    }
+
+    /** Heading is null for a file with no `## ` line: its whole text is one body. Text before the first heading is dropped (Almanac subtitle). */
+    private fun parseSections(resource: String): List<Pair<String?, String>>? {
         val raw = TomeLore::class.java.getResourceAsStream(resource)?.bufferedReader()?.use { it.readLines() }
             ?: return null
 
-        val sections = mutableListOf<Pair<String, String>>()
+        val sections = mutableListOf<Pair<String?, String>>()
         var heading: String? = null
         val body = StringBuilder()
+        // Same text as [body], but blank lines stay paragraph breaks and single line breaks stay line breaks; used when the file has no heading.
+        val plain = StringBuilder()
 
         fun flush() {
             heading?.let { sections.add(it to body.toString().trim()) }
@@ -167,18 +181,29 @@ object TomeLore {
         for (line in raw) {
             val t = line.trim()
             when {
-                t.isEmpty() || t == "---" -> if (body.isNotEmpty() && body.last() != ' ') body.append(' ')
+                t.isEmpty() || t == "---" -> {
+                    if (body.isNotEmpty() && body.last() != ' ') body.append(' ')
+                    if (plain.isNotEmpty() && !plain.endsWith("\n\n")) plain.append("\n\n")
+                }
+                t == "[page]" -> if (heading == null) plain.append("\n\n[page]\n\n")
                 t.startsWith("## ") -> { flush(); heading = t.removePrefix("## ").trim() }
                 t.startsWith("# ") -> { /* title lives in the book NBT, not on a page */ }
-                heading == null -> { /* pre-section subtitle/front-matter: dropped */ }
                 else -> {
                     if (body.isNotEmpty() && body.last() != ' ') body.append(' ')
                     // Markdown emphasis marks; a book page shows plain text.
                     body.append(t.replace("*", "").trim())
+                    if (plain.isNotEmpty() && !plain.endsWith("\n")) plain.append('\n')
+                    // Spaced poems (tome_of_pushing) place words with leading and repeated spaces.
+                    plain.append(line.replace("*", ""))
                 }
             }
         }
-        flush()
+        if (heading == null) {
+            val text = plain.toString().trim('\n')
+            if (text.isNotEmpty()) sections.add(null to text)
+        } else {
+            flush()
+        }
         return sections
     }
 }

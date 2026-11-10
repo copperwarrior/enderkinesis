@@ -1,23 +1,19 @@
-## Page I — Of the Sweeping
+Grand Kallak Times
+Sorrok 34, 505 AL
 
-Where the carrying draws from chests and barrels, the sweeping draws from the air itself. Items dropped in the room around the send orb — let go by the player, shed by a broken block, given up by a slain creature — are pulled into the breath without ceremony.
+Reported by Gerhard Sorron
+Nothing happened today, according to all sources familiar with the situation.
 
-## Page II — The Region
+The event, which did not take place at no particular location, involved no one and lasted for no amount of time. Several witnesses were present, and those who were not present have declined to comment.
 
-The sweep reaches five paces wide, five paces tall, and three paces deep, with the deep dimension aligned to the orb's face. Items within are taken; items past the edge are left for the next orb, or for the floor. The reader is advised to mind where they stand.
+"There's really nothing to say," one witness comments, who then declined to say anything further.
 
-## Page III — The Pairing
+Authorities arrived at the scene shortly after nothing occurred, to find that there was nothing there. A preliminary investigation has unfortunately since turned up nothing, and investigators say they expect to find nothing more in the coming days.
 
-Aim the tome at the orb that shall sweep. Aim then at the orb that shall receive. The thread is set, and from then on every item that drifts into the sweep region is taken and sent along, distributed evenly across all receivers in turn.
+No arrests have been made, as no crime was committed by nobody.
 
-## Page IV — Of Patience
+Experts are unsure what to make of the significance of this event, given that nothing actually occurred. Some have argued that nothing occurring is an event in itself, and nothing has broken out in the debate hall regarding this.
 
-A freshly-dropped item is given a moment to settle before the sweep takes it — about half a second by the world's reckoning. This is the same forbearance the breath grants any item the player has just released. To bypass it, drop the item further away and let it roll in.
+Residents of this area, of which there are none, will be living life as it was before, as nothing has happened to change their daily routine.
 
-## Page V — Of Rejection
-
-If the receiver's vessel will not accept the item, the item is sent back to the sweep region, drops there, and waits for the next pass. The cycle repeats until a vessel opens or the player intervenes. The breath does not destroy items; it only carries them. The destination is the player's responsibility.
-
-## Page VI — On Severance
-
-To halt a sweep, aim the tome at the pair once more and the link is undone. Any items in flight will fall at the receiver's place, and any items the sweep was about to take will simply remain on the ground. To halt every sweep through an orb, sneak and click.
+This is a developing story. Nothing at 11.

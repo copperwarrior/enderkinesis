@@ -3,10 +3,13 @@ package org.shipwrights.enderkinesis.item
 import com.mojang.brigadier.exceptions.CommandSyntaxException
 import net.minecraft.commands.arguments.blocks.BlockStateParser
 import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.core.registries.Registries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.TagParser
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.tags.TagKey
 import net.minecraft.world.entity.EntityType
+import net.minecraft.world.level.block.Block as McBlock
 import net.minecraft.world.level.block.state.BlockState
 
 /** What a sketch draws. */
@@ -15,13 +18,20 @@ sealed interface SketchSubject {
     data class Entity(val type: EntityType<*>, val nbt: CompoundTag?) : SketchSubject
     data class Structure(val id: ResourceLocation) : SketchSubject
 
+    /** Every block in [tag], in a grid; the client resolves the tag when it lays out the page, so mod blocks show too. */
+    data class BlockTag(val tag: TagKey<McBlock>) : SketchSubject
+
     /** A drawn picture that the client holds under [key]; see SketchPictures. */
     data class Picture(val key: String) : SketchSubject
 }
 
-/** [colour] adds a line-and-wash layer from the subject's own colours under the graphite. */
+/**
+ * [colour] adds a line-and-wash layer from the subject's own colours under the graphite.
+ * [randomPattern] (`pattern=random`) lets a book pick the subject's pattern anew each time it opens.
+ */
 data class SketchSpec(
     val subject: SketchSubject, val seed: Int, val size: Int, val notes: Boolean, val colour: Boolean = false,
+    val randomPattern: Boolean = false,
 ) {
     /** Book lines the sketch fills. */
     val lines: Int get() = (size + SketchTag.LINE_HEIGHT - 1) / SketchTag.LINE_HEIGHT
@@ -33,13 +43,13 @@ class FoundSketchTag(val start: Int, val end: Int, val spec: SketchSpec?)
 /**
  * Sketch tags on book pages:
  * `[sketch=minecraft:oak_stairs[facing=north]]`, `[sketch:entity=minecraft:sheep{Color:14b}]`,
- * `[sketch:structure=minecraft:igloo/top]`, each with optional `size=`, `seed=`, `notes=false` and `colour=true`.
+ * `[sketch:structure=minecraft:igloo/top]`, `[sketch=#minecraft:doors]`, each with optional `size=`, `seed=`, `notes=false` and `colour=true`.
  */
 object SketchTag {
 
     const val LINE_HEIGHT = 9
     private const val OPEN = "[sketch"
-    private const val MIN_SIZE = 16
+    const val MIN_SIZE = 16
     private const val MAX_SIZE = 126
     private const val DEFAULT_SIZE = 114
     private val OFF = setOf("false", "off", "no", "0")
@@ -50,11 +60,13 @@ object SketchTag {
             is SketchSubject.Block -> "=" + BlockStateParser.serialize(s.state)
             is SketchSubject.Entity -> ":entity=" + BuiltInRegistries.ENTITY_TYPE.getKey(s.type) + (s.nbt?.toString() ?: "")
             is SketchSubject.Structure -> ":structure=" + s.id
+            is SketchSubject.BlockTag -> "=#" + s.tag.location
             is SketchSubject.Picture -> ":picture=" + s.key
         }
         val notes = if (spec.notes) "" else " notes=false"
         val colour = if (spec.colour) " colour=true" else ""
-        return "[sketch$subject size=${spec.size} seed=${spec.seed}$notes$colour]"
+        val pattern = if (spec.randomPattern) " pattern=random" else ""
+        return "[sketch$subject size=${spec.size} seed=${spec.seed}$notes$colour$pattern]"
     }
 
     fun mayContain(text: String): Boolean = text.contains(OPEN)
@@ -156,10 +168,17 @@ object SketchTag {
             size = (settings["size"]?.toIntOrNull() ?: DEFAULT_SIZE).coerceIn(MIN_SIZE, MAX_SIZE),
             notes = settings["notes"]?.lowercase() !in OFF,
             colour = (settings["colour"] ?: settings["color"])?.lowercase()?.let { it !in OFF } ?: false,
+            randomPattern = settings["pattern"]?.lowercase() == "random",
         )
     }
 
-    private fun block(value: String): SketchSubject? = try {
+    private fun block(value: String): SketchSubject? = if (value.startsWith('#')) {
+        ResourceLocation.tryParse(value.substring(1))?.let { SketchSubject.BlockTag(TagKey.create(Registries.BLOCK, it)) }
+    } else {
+        blockState(value)
+    }
+
+    private fun blockState(value: String): SketchSubject? = try {
         SketchSubject.Block(BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), value, false).blockState())
     } catch (_: CommandSyntaxException) {
         null
