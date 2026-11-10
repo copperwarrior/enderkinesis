@@ -3,14 +3,15 @@ package sselith.translator;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Finds `[sketch...]` tags. Keep these rules equal to SketchTag.kt in common, which the book screen reads. */
+/** Finds `[sketch...]` tags and `[page]` directives. Keep these rules equal to SketchTag.kt and TomeLore.kt in common. */
 final class SketchTagSpans {
 
     private static final String OPEN = "[sketch";
+    private static final String PAGE_BREAK = "[page]";
 
     private SketchTagSpans() {}
 
-    /** Each tag as {start, end}, end exclusive. */
+    /** Each tag or directive as {start, end}, end exclusive. */
     static List<int[]> find(String text) {
         List<int[]> found = new ArrayList<>();
         int from = 0;
@@ -24,6 +25,9 @@ final class SketchTagSpans {
                 found.add(new int[] {start, end});
                 from = end;
             }
+        }
+        for (int at = text.indexOf(PAGE_BREAK); at >= 0; at = text.indexOf(PAGE_BREAK, at + PAGE_BREAK.length())) {
+            found.add(new int[] {at, at + PAGE_BREAK.length()});
         }
         return found;
     }

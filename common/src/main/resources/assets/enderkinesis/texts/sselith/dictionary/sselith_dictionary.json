@@ -1231,8 +1231,8 @@
     },
     "angel": {
       "pos": "NOUN",
-      "sselith": "zhdivkh",
-      "tag": "[compound: god + servant + AUG]"
+      "sselith": "ouvzhdivkharn",
+      "tag": "[heaven + AGENT]"
     },
     "anger": {
       "pos": "NOUN",
@@ -1376,8 +1376,8 @@
     },
     "anything": {
       "pos": "PRON",
-      "sselith": "kweitsakkh",
-      "tag": "[any + thing]"
+      "sselith": "kweitsakkht",
+      "tag": "[compound: any + thing]"
     },
     "anyway": {
       "pos": "ADV",
@@ -2667,7 +2667,13 @@
     "being": {
       "pos": "NOUN",
       "sselith": "virkharn",
-      "tag": "[live + AGENT]"
+      "tag": "[live + AGENT]",
+      "senses": {
+        "VERB": {
+          "sselith": "velkhend",
+          "tag": "[be + PROG]"
+        }
+      }
     },
     "belief": {
       "pos": "NOUN",
@@ -2871,7 +2877,7 @@
     },
     "biome": {
       "pos": "NOUN",
-      "sselith": "kraekh",
+      "sselith": "krelkhterkht",
       "tag": "[compound: nature + land]"
     },
     "birch": {
@@ -2901,8 +2907,8 @@
     },
     "bishop": {
       "pos": "NOUN",
-      "sselith": "zhdivkh",
-      "tag": "[angel]"
+      "sselith": "morzhdivservochkharn",
+      "tag": "[AUG + priest]"
     },
     "bit": {
       "pos": "NOUN",
@@ -3282,7 +3288,13 @@
     "bound": {
       "pos": "ADJ",
       "sselith": "unteltkhegh",
-      "tag": "[bound + ADJ]"
+      "tag": "[bound + ADJ]",
+      "senses": {
+        "NOUN": {
+          "sselith": "ouvvolkkh",
+          "tag": "[leap]"
+        }
+      }
     },
     "boundary": {
       "pos": "NOUN",
@@ -3441,8 +3453,8 @@
     },
     "brick": {
       "pos": "NOUN",
-      "sselith": "brikh",
-      "tag": "[root, adapted]"
+      "sselith": "vudeplankh",
+      "tag": "[root of bricks]"
     },
     "bricks": {
       "pos": "NOUN",
@@ -3626,8 +3638,14 @@
     },
     "building": {
       "pos": "NOUN",
-      "sselith": "kraekh",
-      "tag": "[make + root]"
+      "sselith": "kraekhsaerkh",
+      "tag": "[compound: make + house]",
+      "senses": {
+        "VERB": {
+          "sselith": "kraekhend",
+          "tag": "[build + PROG]"
+        }
+      }
     },
     "bulk": {
       "pos": "NOUN",
@@ -3846,8 +3864,8 @@
     },
     "can't": {
       "pos": "AUX",
-      "sselith": "kan'sth",
-      "tag": "[strong-adapt]"
+      "sselith": "nakwev",
+      "tag": "[NEG + can]"
     },
     "canal": {
       "pos": "NOUN",
@@ -3876,12 +3894,12 @@
     },
     "cannot": {
       "pos": "AUX",
-      "sselith": "kannosth",
-      "tag": "[strong-adapt]"
+      "sselith": "nakwev",
+      "tag": "[NEG + can]"
     },
     "cant": {
       "pos": "AUX",
-      "sselith": "nakwevkh",
+      "sselith": "nakwev",
       "tag": "[NEG + can]"
     },
     "canton": {
@@ -4031,8 +4049,8 @@
     },
     "carve": {
       "pos": "VERB",
-      "sselith": "siskstkh",
-      "tag": "[compound: cut + craft]"
+      "sselith": "zhskrimsiskstkh",
+      "tag": "[compound: mark + cut]"
     },
     "case": {
       "pos": "NOUN",
@@ -4291,8 +4309,8 @@
     },
     "chance": {
       "pos": "NOUN",
-      "sselith": "zhfaetkh",
-      "tag": "[fate + DIM]"
+      "sselith": "velzhfaetkh",
+      "tag": "[DIM + fate]"
     },
     "change": {
       "pos": "VERB",
@@ -7856,12 +7874,12 @@
     },
     "did": {
       "pos": "AUX",
-      "sselith": "kraekhakht",
+      "sselith": "maerkhacht",
       "tag": "[do + PAST]"
     },
     "didn't": {
       "pos": "AUX",
-      "sselith": "nakraekakh",
+      "sselith": "namaerkhacht",
       "tag": "[NEG + did]"
     },
     "die": {
@@ -8431,12 +8449,12 @@
     },
     "does": {
       "pos": "AUX",
-      "sselith": "kraekh",
+      "sselith": "maerkh",
       "tag": "[do \u2014 3rd sing]"
     },
     "doesn't": {
       "pos": "AUX",
-      "sselith": "nakraek",
+      "sselith": "namaerkh",
       "tag": "[NEG + does]"
     },
     "dog": {
@@ -8446,7 +8464,7 @@
     },
     "doing": {
       "pos": "VERB",
-      "sselith": "kraekend",
+      "sselith": "maerkhend",
       "tag": "[do + PROG]"
     },
     "dollar": {
@@ -8486,7 +8504,7 @@
     },
     "don't": {
       "pos": "AUX",
-      "sselith": "nakraek",
+      "sselith": "namaerkh",
       "tag": "[NEG + do]"
     },
     "donate": {
@@ -8951,7 +8969,7 @@
     },
     "ecological": {
       "pos": "ADJ",
-      "sselith": "kraekhegh",
+      "sselith": "krelkhegh",
       "tag": "[natural + ADJ]"
     },
     "economic": {
@@ -9472,7 +9490,13 @@
     "end": {
       "pos": "VERB",
       "sselith": "schrendkh",
-      "tag": "[Sselith compound]"
+      "tag": "[Sselith compound]",
+      "senses": {
+        "NOUN": {
+          "sselith": "schrendust",
+          "tag": "[end + ABSTRACT]"
+        }
+      }
     },
     "end city": {
       "pos": "NOUN",
@@ -10711,8 +10735,8 @@
     },
     "fall": {
       "pos": "VERB",
-      "sselith": "siskstkh",
-      "tag": "[root]"
+      "sselith": "oundsisk",
+      "tag": "[compound: down + sisk]"
     },
     "falling": {
       "pos": "VERB",
@@ -12191,8 +12215,8 @@
     },
     "gas": {
       "pos": "NOUN",
-      "sselith": "luftkh",
-      "tag": "[air + root]"
+      "sselith": "luftkraekhust",
+      "tag": "[compound: air + substance]"
     },
     "gate": {
       "pos": "NOUN",
@@ -12696,8 +12720,8 @@
     },
     "granite": {
       "pos": "NOUN",
-      "sselith": "granisthe",
-      "tag": "[strong-adapt]"
+      "sselith": "morsthoun",
+      "tag": "[AUG + stone]"
     },
     "grant": {
       "pos": "VERB",
@@ -16017,7 +16041,13 @@
     "lead": {
       "pos": "NOUN",
       "sselith": "morsthounvelkh",
-      "tag": "[Sselith compound]"
+      "tag": "[Sselith compound]",
+      "senses": {
+        "VERB": {
+          "sselith": "tochvolkh",
+          "tag": "[compound: DIR + go]"
+        }
+      }
     },
     "leader": {
       "pos": "NOUN",
@@ -16325,9 +16355,15 @@
       "tag": "[zhaek + ABSTRACT]"
     },
     "lie": {
-      "pos": "VERB",
+      "pos": "NOUN",
       "sselith": "nafielkh",
-      "tag": "[compound: false + say]"
+      "tag": "[compound: false + say]",
+      "senses": {
+        "VERB": {
+          "sselith": "oundkwielt",
+          "tag": "[compound: down + rest]"
+        }
+      }
     },
     "life": {
       "pos": "NOUN",
@@ -17252,7 +17288,17 @@
     "may": {
       "pos": "NOUN",
       "sselith": "maikh",
-      "tag": "[compound: vraestmorocht + month]"
+      "tag": "[compound: vraestmorocht + month]",
+      "senses": {
+        "VERB": {
+          "sselith": "phoev",
+          "tag": "[root of might]"
+        },
+        "AUX": {
+          "sselith": "phoev",
+          "tag": "[root of might]"
+        }
+      }
     },
     "maybe": {
       "pos": "ADV",
@@ -17396,8 +17442,8 @@
     },
     "melody": {
       "pos": "NOUN",
-      "sselith": "zhspraekh",
-      "tag": "[compound: music + tune]"
+      "sselith": "schrendzhsathkarg",
+      "tag": "[compound: after + tone]"
     },
     "melon": {
       "pos": "NOUN",
@@ -18336,18 +18382,18 @@
     },
     "natural": {
       "pos": "ADJ",
-      "sselith": "kraekhegh",
-      "tag": "[made + ADJ]"
+      "sselith": "krelkhegh",
+      "tag": "[nature + ADJ]"
     },
     "naturally": {
       "pos": "ADV",
-      "sselith": "kraekhorl",
+      "sselith": "krelkhorl",
       "tag": "[natural + ADV]"
     },
     "nature": {
       "pos": "NOUN",
-      "sselith": "kraekh",
-      "tag": "[natural + root]"
+      "sselith": "krelkhust",
+      "tag": "[grow + ABSTRACT]"
     },
     "naval": {
       "pos": "ADJ",
@@ -18766,8 +18812,8 @@
     },
     "nothing": {
       "pos": "PRON",
-      "sselith": "nothinkh",
-      "tag": "[strong-adapt]"
+      "sselith": "naistsakkht",
+      "tag": "[compound: no + thing]"
     },
     "notice": {
       "pos": "VERB",
@@ -18886,7 +18932,7 @@
     },
     "o": {
       "pos": "PART",
-      "sselith": "O",
+      "sselith": "o",
       "tag": "[label]"
     },
     "o'clock": {
@@ -19321,7 +19367,7 @@
     },
     "opportunity": {
       "pos": "NOUN",
-      "sselith": "zhfaetkh",
+      "sselith": "velzhfaetdhoekh",
       "tag": "[compound: chance + gift]"
     },
     "oppose": {
@@ -19716,8 +19762,8 @@
     },
     "own": {
       "pos": "ADJ",
-      "sselith": "zholoch",
-      "tag": "[zhol + POSS]"
+      "sselith": "zholkegh",
+      "tag": "[self + ADJ]"
     },
     "owner": {
       "pos": "NOUN",
@@ -20426,8 +20472,8 @@
     },
     "physics": {
       "pos": "NOUN",
-      "sselith": "kraekh",
-      "tag": "[nature + study]"
+      "sselith": "krelkhustzh",
+      "tag": "[compound: nature + study]"
     },
     "piano": {
       "pos": "NOUN",
@@ -21316,8 +21362,8 @@
     },
     "prescribe": {
       "pos": "VERB",
-      "sselith": "kreviekdhoekhmorzhsarkh",
-      "tag": "[compound: medicine + order]"
+      "sselith": "vrendzhsarkh",
+      "tag": "[compound: before + say]"
     },
     "prescription": {
       "pos": "NOUN",
@@ -21486,8 +21532,8 @@
     },
     "priest": {
       "pos": "NOUN",
-      "sselith": "zhdivkh",
-      "tag": "[compound: god-servant]"
+      "sselith": "zhdivservochkharn",
+      "tag": "[compound: god + servant]"
     },
     "primarily": {
       "pos": "ADV",
@@ -22406,7 +22452,7 @@
     },
     "random": {
       "pos": "ADJ",
-      "sselith": "zhfaetkhegh",
+      "sselith": "velzhfaetkhegh",
       "tag": "[chance + ADJ]"
     },
     "range": {
@@ -22631,8 +22677,8 @@
     },
     "rebound": {
       "pos": "VERB",
-      "sselith": "krelokttockh",
-      "tag": "[RE + throw]"
+      "sselith": "kreouvvolkkh",
+      "tag": "[RE + bound]"
     },
     "rebuild": {
       "pos": "VERB",
@@ -23717,7 +23763,13 @@
     "ring": {
       "pos": "NOUN",
       "sselith": "rougkhvel",
-      "tag": "[compound: circle + AUG]"
+      "tag": "[compound: circle + AUG]",
+      "senses": {
+        "VERB": {
+          "sselith": "kreviegkh",
+          "tag": "[sound a bell; root of rung]"
+        }
+      }
     },
     "riot": {
       "pos": "NOUN",
@@ -24281,8 +24333,8 @@
     },
     "scene": {
       "pos": "NOUN",
-      "sselith": "zhirsk",
-      "tag": "[film + DIM]"
+      "sselith": "zhirsklokuet",
+      "tag": "[compound: see + place]"
     },
     "sceptical": {
       "pos": "ADJ",
@@ -25421,8 +25473,8 @@
     },
     "single": {
       "pos": "ADJ",
-      "sselith": "solkegh",
-      "tag": "[solk + ADJ]"
+      "sselith": "virsolkegh",
+      "tag": "[compound: one + alone + ADJ]"
     },
     "singleplayer": {
       "pos": "NOUN",
@@ -25951,8 +26003,8 @@
     },
     "something": {
       "pos": "PRON",
-      "sselith": "schevthingkh",
-      "tag": "[compound: schev + thing]"
+      "sselith": "schevsakkht",
+      "tag": "[compound: some + thing]"
     },
     "sometime": {
       "pos": "ADV",
@@ -26566,8 +26618,8 @@
     },
     "star": {
       "pos": "NOUN",
-      "sselith": "zhdivkh",
-      "tag": "[Sselith compound]"
+      "sselith": "zhegloumkh",
+      "tag": "[SACRED + light]"
     },
     "stare": {
       "pos": "VERB",
@@ -27387,7 +27439,13 @@
     "support": {
       "pos": "NOUN",
       "sselith": "salvochkhust",
-      "tag": "[salvocht + ABSTRACT]"
+      "tag": "[salvocht + ABSTRACT]",
+      "senses": {
+        "VERB": {
+          "sselith": "salvochkh",
+          "tag": "[salvocht + root]"
+        }
+      }
     },
     "supported": {
       "pos": "VERB",
@@ -27971,8 +28029,8 @@
     },
     "temple": {
       "pos": "NOUN",
-      "sselith": "zhdivkh",
-      "tag": "[compound: god + home + AUG]"
+      "sselith": "morzhdivsaerkh",
+      "tag": "[compound: AUG + god + house]"
     },
     "temporarily": {
       "pos": "ADV",
@@ -28190,7 +28248,7 @@
       "tag": "[root]"
     },
     "the end": {
-      "pos": "NOUN",
+      "pos": "PROPN",
       "sselith": "Yghannlokuet",
       "tag": "[Yghann's place \u2014 the End dimension]"
     },
@@ -28581,8 +28639,8 @@
     },
     "till": {
       "pos": "ADP",
-      "sselith": "schrend",
-      "tag": "[compound: until + come]"
+      "sselith": "mokvrend",
+      "tag": "[until]"
     },
     "timber": {
       "pos": "NOUN",
@@ -28767,7 +28825,13 @@
     "too": {
       "pos": "ADV",
       "sselith": "morl",
-      "tag": "[root]"
+      "tag": "[root]",
+      "senses": {
+        "DEGREE": {
+          "sselith": "ouvmorl",
+          "tag": "[compound: over + very]"
+        }
+      }
     },
     "took": {
       "pos": "VERB",
@@ -29371,8 +29435,8 @@
     },
     "tune": {
       "pos": "NOUN",
-      "sselith": "zhspraekh",
-      "tag": "[song]"
+      "sselith": "serkhzhsathkarg",
+      "tag": "[compound: true + tone]"
     },
     "tunnel": {
       "pos": "NOUN",
@@ -31215,9 +31279,15 @@
       "tag": "[NEG + isk]"
     },
     "witness": {
-      "pos": "VERB",
-      "sselith": "zhirsk",
-      "tag": "[compound: see + truly]"
+      "pos": "NOUN",
+      "sselith": "serkhzhirskarn",
+      "tag": "[compound: true + see + AGENT]",
+      "senses": {
+        "VERB": {
+          "sselith": "zhirsk",
+          "tag": "[compound: see + truly]"
+        }
+      }
     },
     "wolf": {
       "pos": "NOUN",
@@ -31402,7 +31472,13 @@
     "wound": {
       "pos": "NOUN",
       "sselith": "velmornkh",
-      "tag": "[injury]"
+      "tag": "[injury]",
+      "senses": {
+        "VERB": {
+          "sselith": "siskvolkhstkhacht",
+          "tag": "[coil + PAST]"
+        }
+      }
     },
     "wow": {
       "pos": "INTJ",
@@ -31532,7 +31608,13 @@
     "yet": {
       "pos": "ADV",
       "sselith": "navrend",
-      "tag": "[NEG + vrend]"
+      "tag": "[NEG + vrend]",
+      "senses": {
+        "CCONJ": {
+          "sselith": "kontorl",
+          "tag": "[however]"
+        }
+      }
     },
     "ygann": {
       "pos": "PROPN",
@@ -32341,7 +32423,7 @@
     },
     "biomes": {
       "pos": "NOUN",
-      "sselith": "kraekhelk",
+      "sselith": "krelkhterkhtelk",
       "tag": "[biome + PL]"
     },
     "destinations": {
@@ -32756,7 +32838,7 @@
     },
     "carved": {
       "pos": "VERB",
-      "sselith": "siskstkhakht",
+      "sselith": "zhskrimsiskstkhakht",
       "tag": "[carve + PAST]"
     },
     "chipped": {
@@ -32770,9 +32852,9 @@
       "tag": "[eye-flower]"
     },
     "coarse": {
-      "pos": "NOUN",
-      "sselith": "koarske",
-      "tag": "[strong-adapt]"
+      "pos": "ADJ",
+      "sselith": "navisegh",
+      "tag": "[rough]"
     },
     "cobbled": {
       "pos": "ADJ",
@@ -33235,9 +33317,9 @@
       "tag": "[Sselith-adapted]"
     },
     "given": {
-      "pos": "NOUN",
-      "sselith": "ghiven",
-      "tag": "[adapted-strong]"
+      "pos": "VERB",
+      "sselith": "dhoekhakht",
+      "tag": "[give + PERF]"
     },
     "numeric": {
       "pos": "ADJ",
@@ -33730,9 +33812,9 @@
       "tag": "[alternative + ADV]"
     },
     "earlier": {
-      "pos": "NOUN",
-      "sselith": "earliarn",
-      "tag": "[Sselith-adapted]"
+      "pos": "ADJ",
+      "sselith": "morvrendmonkhegh",
+      "tag": "[AUG + early]"
     },
     "preparing": {
       "pos": "VERB",
@@ -34526,7 +34608,7 @@
     },
     "randomly": {
       "pos": "ADV",
-      "sselith": "zhfaetkhorl",
+      "sselith": "velzhfaetkhorl",
       "tag": "[random + ADV]"
     },
     "types": {
@@ -34736,8 +34818,8 @@
     },
     "behavior": {
       "pos": "NOUN",
-      "sselith": "behaviarn",
-      "tag": "[Sselith-adapted]"
+      "sselith": "maerkzholkust",
+      "tag": "[behaviour]"
     },
     "researching": {
       "pos": "VERB",
@@ -34756,8 +34838,8 @@
     },
     "others": {
       "pos": "NOUN",
-      "sselith": "otherelk",
-      "tag": "[Sselith-adapted]"
+      "sselith": "mormelk",
+      "tag": "[other + PL]"
     },
     "partake": {
       "pos": "NOUN",
@@ -36031,7 +36113,7 @@
     },
     "owned": {
       "pos": "VERB",
-      "sselith": "zholochakht",
+      "sselith": "zholkacht",
       "tag": "[own + PAST]"
     },
     "operated": {
@@ -37175,9 +37257,9 @@
       "tag": "[work + PAST]"
     },
     "built": {
-      "pos": "NOUN",
-      "sselith": "builsth",
-      "tag": "[adapted-strong]"
+      "pos": "VERB",
+      "sselith": "kraekhacht",
+      "tag": "[build + PAST]"
     },
     "kristoffer": {
       "pos": "NOUN",
@@ -37761,7 +37843,7 @@
     },
     "fallen": {
       "pos": "VERB",
-      "sselith": "siskstkhakht",
+      "sselith": "oundsiskakht",
       "tag": "[fall + PAST PART]"
     },
     "cauldrons": {
@@ -37907,7 +37989,13 @@
     "rings": {
       "pos": "NOUN",
       "sselith": "rougkhvelelk",
-      "tag": "[ring + PL]"
+      "tag": "[ring + PL]",
+      "senses": {
+        "VERB": {
+          "sselith": "kreviegkh",
+          "tag": "[sound a bell; root of rung]"
+        }
+      }
     },
     "tilts": {
       "pos": "NOUN",
@@ -38041,7 +38129,7 @@
     },
     "falls": {
       "pos": "VERB",
-      "sselith": "siskstkhend",
+      "sselith": "oundsiskend",
       "tag": "[fall + 3SG]"
     },
     "footsteps": {
@@ -39263,6 +39351,556 @@
       "pos": "NOUN",
       "sselith": "limkstrvolkhust",
       "tag": "[compound: border + cross + ABSTRACT]"
+    },
+    "thereupon": {
+      "pos": "ADV",
+      "sselith": "tharstrust",
+      "tag": "[compound: there + upon]"
+    },
+    "whereupon": {
+      "pos": "ADV",
+      "sselith": "zharstrust",
+      "tag": "[compound: where + upon]"
+    },
+    "wilst": {
+      "pos": "AUX",
+      "sselith": "schoel",
+      "tag": "[will, archaic]"
+    },
+    "tis": {
+      "pos": "PRON",
+      "sselith": "zhol-velkt",
+      "tag": "[PRON + is]"
+    },
+    "deathly": {
+      "pos": "ADJ",
+      "sselith": "mornktustegh",
+      "tag": "[death + ADJ]"
+    },
+    "ere": {
+      "pos": "ADP",
+      "sselith": "vrend",
+      "tag": "[before, archaic]"
+    },
+    "transient": {
+      "pos": "ADJ",
+      "sselith": "trougvolkhegh",
+      "tag": "[pass + ADJ]"
+    },
+    "transience": {
+      "pos": "NOUN",
+      "sselith": "trougvolkhust",
+      "tag": "[pass + ABSTRACT]"
+    },
+    "conventionally": {
+      "pos": "ADV",
+      "sselith": "olmsoleeghorl",
+      "tag": "[conventional + ADV]"
+    },
+    "denote": {
+      "pos": "VERB",
+      "sselith": "zhskrimkh",
+      "tag": "[mark]"
+    },
+    "mystic": {
+      "pos": "ADJ",
+      "sselith": "zhescheltegh",
+      "tag": "[SACRED + hidden]"
+    },
+    "heartstring": {
+      "pos": "NOUN",
+      "sselith": "zhargstrinkh",
+      "tag": "[compound: heart + string]"
+    },
+    "winding": {
+      "pos": "NOUN",
+      "sselith": "siskvolkhstkh",
+      "tag": "[coil]"
+    },
+    "escort": {
+      "pos": "VERB",
+      "sselith": "salvochnuvolkh",
+      "tag": "[compound: guard + accompany]"
+    },
+    "mighty": {
+      "pos": "ADJ",
+      "sselith": "mormorkraekhegh",
+      "tag": "[AUG + powerful]"
+    },
+    "millennium": {
+      "pos": "NOUN",
+      "sselith": "thakkhtjaarghk",
+      "tag": "[compound: thousand + year]"
+    },
+    "millennia": {
+      "pos": "NOUN",
+      "sselith": "thakkhtjaarghkelk",
+      "tag": "[millennium + PL]"
+    },
+    "shone": {
+      "pos": "VERB",
+      "sselith": "gloumkhacht",
+      "tag": "[shine + PAST]"
+    },
+    "mote": {
+      "pos": "NOUN",
+      "sselith": "velvelsisk",
+      "tag": "[DIM + particle]"
+    },
+    "hefty": {
+      "pos": "ADJ",
+      "sselith": "mormorwegh",
+      "tag": "[weighty]"
+    },
+    "gauge": {
+      "pos": "NOUN",
+      "sselith": "morweghust",
+      "tag": "[thick + ABSTRACT]"
+    },
+    "drake": {
+      "pos": "NOUN",
+      "sselith": "Yghannvelvirkmor",
+      "tag": "[compound: Yghann + DIM + great beast]"
+    },
+    "adaptable": {
+      "pos": "ADJ",
+      "sselith": "krekraekhkwevegh",
+      "tag": "[compound: adapt + able]"
+    },
+    "adaptability": {
+      "pos": "NOUN",
+      "sselith": "krekraekhkwevkust",
+      "tag": "[compound: adapt + ability]"
+    },
+    "adaptibility": {
+      "pos": "NOUN",
+      "sselith": "krekraekhkwevkust",
+      "tag": "[adaptability]"
+    },
+    "resilient": {
+      "pos": "ADJ",
+      "sselith": "kreouvvolkregh",
+      "tag": "[bounce + ADJ]"
+    },
+    "resilience": {
+      "pos": "NOUN",
+      "sselith": "kreouvvolkrust",
+      "tag": "[bounce + ABSTRACT]"
+    },
+    "resiliency": {
+      "pos": "NOUN",
+      "sselith": "kreouvvolkrust",
+      "tag": "[resilience]"
+    },
+    "pliant": {
+      "pos": "ADJ",
+      "sselith": "suavkrevolkhegh",
+      "tag": "[compound: soft + bend + ADJ]"
+    },
+    "pliantness": {
+      "pos": "NOUN",
+      "sselith": "suavkrevolkhust",
+      "tag": "[compound: soft + bend + ABSTRACT]"
+    },
+    "ductile": {
+      "pos": "ADJ",
+      "sselith": "morviuthkkhegh",
+      "tag": "[stretch + ADJ]"
+    },
+    "ductility": {
+      "pos": "NOUN",
+      "sselith": "morviuthkkhust",
+      "tag": "[stretch + ABSTRACT]"
+    },
+    "malleable": {
+      "pos": "ADJ",
+      "sselith": "kreviseghkwevegh",
+      "tag": "[compound: RE + shape + able]"
+    },
+    "malleability": {
+      "pos": "NOUN",
+      "sselith": "kreviseghkwevkust",
+      "tag": "[compound: RE + shape + ability]"
+    },
+    "plasticity": {
+      "pos": "NOUN",
+      "sselith": "kraekhviseghust",
+      "tag": "[compound: plastic + shape + ABSTRACT]"
+    },
+    "limber": {
+      "pos": "ADJ",
+      "sselith": "volkhsuavkhegh",
+      "tag": "[compound: move + soft + ADJ]"
+    },
+    "limberness": {
+      "pos": "NOUN",
+      "sselith": "volkhsuavkhust",
+      "tag": "[compound: move + soft + ABSTRACT]"
+    },
+    "brink": {
+      "pos": "NOUN",
+      "sselith": "morlimkstrandkh",
+      "tag": "[AUG + edge]"
+    },
+    "demise": {
+      "pos": "NOUN",
+      "sselith": "mornktschrendust",
+      "tag": "[compound: death + ending]"
+    },
+    "poignant": {
+      "pos": "ADJ",
+      "sselith": "spitkhzhargegh",
+      "tag": "[compound: sharp + emotion + ADJ]"
+    },
+    "folly": {
+      "pos": "NOUN",
+      "sselith": "nazhirakust",
+      "tag": "[stupid + ABSTRACT]"
+    },
+    "heresy": {
+      "pos": "NOUN",
+      "sselith": "nazhdivkh",
+      "tag": "[NEG + doctrine]"
+    },
+    "strum": {
+      "pos": "VERB",
+      "sselith": "strinkhthrumkh",
+      "tag": "[compound: strings + tremble]"
+    },
+    "chord": {
+      "pos": "NOUN",
+      "sselith": "nuvzhsathkarg",
+      "tag": "[compound: with + tone]"
+    },
+    "delightful": {
+      "pos": "ADJ",
+      "sselith": "morlumkegh",
+      "tag": "[delight + ADJ]"
+    },
+    "softly": {
+      "pos": "ADV",
+      "sselith": "suavkhorl",
+      "tag": "[soft + ADV]"
+    },
+    "told": {
+      "pos": "VERB",
+      "sselith": "zhnarkhacht",
+      "tag": "[tell + PAST]"
+    },
+    "onomatopoeic": {
+      "pos": "ADJ",
+      "sselith": "zhsathzhnomkhegh",
+      "tag": "[compound: sound + name + ADJ]"
+    },
+    "unearthly": {
+      "pos": "ADJ",
+      "sselith": "naterkhtegh",
+      "tag": "[NEG + earth + ADJ]"
+    },
+    "propel": {
+      "pos": "VERB",
+      "sselith": "vrendrusttockh",
+      "tag": "[compound: forward + push]"
+    },
+    "crystalline": {
+      "pos": "ADJ",
+      "sselith": "morgloumkhegh",
+      "tag": "[crystal + ADJ]"
+    },
+    "marble": {
+      "pos": "NOUN",
+      "sselith": "belkhsthoun",
+      "tag": "[compound: beautiful + stone]"
+    },
+    "upright": {
+      "pos": "ADJ",
+      "sselith": "ouvserkhegh",
+      "tag": "[compound: up + straight + ADJ]"
+    },
+    "froth": {
+      "pos": "VERB",
+      "sselith": "velluftkh",
+      "tag": "[DIM + bubble]"
+    },
+    "lacquer": {
+      "pos": "NOUN",
+      "sselith": "gloumkhviseghkr",
+      "tag": "[compound: shine + paint]"
+    },
+    "scripture": {
+      "pos": "NOUN",
+      "sselith": "zhezhskrimkh",
+      "tag": "[SACRED + script]"
+    },
+    "resonance": {
+      "pos": "NOUN",
+      "sselith": "krezhsathust",
+      "tag": "[compound: RE + sound + ABSTRACT]"
+    },
+    "vent": {
+      "pos": "VERB",
+      "sselith": "luftmorviuthkkh",
+      "tag": "[compound: air + out]"
+    },
+    "slate": {
+      "pos": "NOUN",
+      "sselith": "velsksthoun",
+      "tag": "[compound: thin + stone]"
+    },
+    "clamber": {
+      "pos": "VERB",
+      "sselith": "morouvvolkh",
+      "tag": "[AUG + climb]"
+    },
+    "outlast": {
+      "pos": "VERB",
+      "sselith": "morkrevirkh",
+      "tag": "[AUG + endure]"
+    },
+    "tier": {
+      "pos": "NOUN",
+      "sselith": "ouvplanktskh",
+      "tag": "[compound: up + level]"
+    },
+    "drank": {
+      "pos": "VERB",
+      "sselith": "iskmtacht",
+      "tag": "[drink + PAST]"
+    },
+    "sallow": {
+      "pos": "ADJ",
+      "sselith": "veljelouegh",
+      "tag": "[compound: DIM + yellow + ADJ]"
+    },
+    "forlorn": {
+      "pos": "ADJ",
+      "sselith": "larkmsolkhegh",
+      "tag": "[compound: sad + lonely]"
+    },
+    "morn": {
+      "pos": "NOUN",
+      "sselith": "vrenddhelkh",
+      "tag": "[morning, archaic]"
+    },
+    "swept": {
+      "pos": "VERB",
+      "sselith": "naviuthkkracht",
+      "tag": "[sweep + PAST]"
+    },
+    "gale": {
+      "pos": "NOUN",
+      "sselith": "morkraekhluftkh",
+      "tag": "[compound: strong + wind]"
+    },
+    "meek": {
+      "pos": "ADJ",
+      "sselith": "velkwieltegh",
+      "tag": "[compound: DIM + peace + ADJ]"
+    },
+    "frail": {
+      "pos": "ADJ",
+      "sselith": "velvelvkhegh",
+      "tag": "[fragile]"
+    },
+    "beheld": {
+      "pos": "VERB",
+      "sselith": "morzhirskacht",
+      "tag": "[behold + PAST]"
+    },
+    "stanza": {
+      "pos": "NOUN",
+      "sselith": "zhspraekhsiskst",
+      "tag": "[compound: poem + piece]"
+    },
+    "convene": {
+      "pos": "VERB",
+      "sselith": "nuvmonkh",
+      "tag": "[compound: with + meet]"
+    },
+    "dignified": {
+      "pos": "ADJ",
+      "sselith": "morscholkzhegh",
+      "tag": "[dignity + ADJ]"
+    },
+    "befitting": {
+      "pos": "ADJ",
+      "sselith": "serkhmonkhegh",
+      "tag": "[suitable]"
+    },
+    "rite": {
+      "pos": "NOUN",
+      "sselith": "servochkh",
+      "tag": "[ceremony]"
+    },
+    "codex": {
+      "pos": "NOUN",
+      "sselith": "moraevleamoghk",
+      "tag": "[compound: ancient + book]"
+    },
+    "circular": {
+      "pos": "ADJ",
+      "sselith": "rougkhegh",
+      "tag": "[circle + ADJ]"
+    },
+    "ascend": {
+      "pos": "VERB",
+      "sselith": "ouvvolkh",
+      "tag": "[compound: ouv + volkh]"
+    },
+    "ascent": {
+      "pos": "NOUN",
+      "sselith": "ouvvolkh",
+      "tag": "[compound: up + go]"
+    },
+    "annotation": {
+      "pos": "NOUN",
+      "sselith": "nuvzhskrimkust",
+      "tag": "[compound: with + text]"
+    },
+    "trampoline": {
+      "pos": "NOUN",
+      "sselith": "kreouvvolkrvelkrust",
+      "tag": "[compound: bounce + cloth]"
+    },
+    "consecrate": {
+      "pos": "VERB",
+      "sselith": "zhekraekh",
+      "tag": "[SACRED + make]"
+    },
+    "oscillation": {
+      "pos": "NOUN",
+      "sselith": "krekrevolkrust",
+      "tag": "[oscillate + ABSTRACT]"
+    },
+    "resonate": {
+      "pos": "VERB",
+      "sselith": "krezhsath",
+      "tag": "[compound: RE + sound]"
+    },
+    "apex": {
+      "pos": "NOUN",
+      "sselith": "morouvkhmor",
+      "tag": "[AUG + peak]"
+    },
+    "sixth": {
+      "pos": "ADJ",
+      "sselith": "schestegh",
+      "tag": "[six + ADJ]"
+    },
+    "seventh": {
+      "pos": "ADJ",
+      "sselith": "schest-viregh",
+      "tag": "[seven + ADJ]"
+    },
+    "eighth": {
+      "pos": "ADJ",
+      "sselith": "schest-teskegh",
+      "tag": "[eight + ADJ]"
+    },
+    "ninth": {
+      "pos": "ADJ",
+      "sselith": "schest-morochegh",
+      "tag": "[nine + ADJ]"
+    },
+    "tenth": {
+      "pos": "ADJ",
+      "sselith": "dekhtegh",
+      "tag": "[ten + ADJ]"
+    },
+    "suffice": {
+      "pos": "VERB",
+      "sselith": "morvielkh",
+      "tag": "[enough]"
+    },
+    "suffices": {
+      "pos": "VERB",
+      "sselith": "morvielkh",
+      "tag": "[suffice + 3SG]"
+    },
+    "knuckle": {
+      "pos": "NOUN",
+      "sselith": "graepsiskstkh",
+      "tag": "[compound: finger + joint]"
+    },
+    "drawbridge": {
+      "pos": "NOUN",
+      "sselith": "ouvtenkhtrougkh",
+      "tag": "[compound: lift + bridge]"
+    },
+    "sideways": {
+      "pos": "ADV",
+      "sselith": "tochflankhtorl",
+      "tag": "[DIR + side + ADV]"
+    },
+    "gatehouse": {
+      "pos": "NOUN",
+      "sselith": "iskmonkhsaerkh",
+      "tag": "[compound: gate + house]"
+    },
+    "garbage": {
+      "pos": "NOUN",
+      "sselith": "lokrkhust",
+      "tag": "[synonym]"
+    },
+    "facsimile": {
+      "pos": "NOUN",
+      "sselith": "serkhkreleamorgh",
+      "tag": "[compound: true + copy]"
+    },
+    "dilute": {
+      "pos": "VERB",
+      "sselith": "plouvvelkraekh",
+      "tag": "[compound: water + decrease]"
+    },
+    "toothsome": {
+      "pos": "ADJ",
+      "sselith": "iskmtkvievegh",
+      "tag": "[tooth + ADJ]"
+    },
+    "filth": {
+      "pos": "NOUN",
+      "sselith": "morviuthkust",
+      "tag": "[AUG + mess]"
+    },
+    "gears": {
+      "pos": "NOUN",
+      "sselith": "kraekhelk",
+      "tag": "[gear, already PL]"
+    },
+    "kindness": {
+      "pos": "NOUN",
+      "sselith": "suavkhust",
+      "tag": "[sweet + ABSTRACT]"
+    },
+    "haul": {
+      "pos": "VERB",
+      "sselith": "morlokttenkh",
+      "tag": "[AUG + pull]"
+    },
+    "heave": {
+      "pos": "VERB",
+      "sselith": "morouvtenkh",
+      "tag": "[AUG + lift]"
+    },
+    "grandpa": {
+      "pos": "NOUN",
+      "sselith": "aevpaerkht",
+      "tag": "[compound: old + father]"
+    },
+    "according": {
+      "pos": "ADV",
+      "sselith": "zhaekkhorl",
+      "tag": "[agree + ADV]"
+    },
+    "no one": {
+      "pos": "PRON",
+      "sselith": "nazhol",
+      "tag": "[nobody]"
+    },
+    "break out": {
+      "pos": "VERB",
+      "sselith": "morsisk",
+      "tag": "[erupt]"
     }
   },
   "phonology": {

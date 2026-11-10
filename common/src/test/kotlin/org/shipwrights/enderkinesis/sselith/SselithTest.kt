@@ -33,6 +33,39 @@ class SselithTest {
     }
 
     @Test
+    fun `an -s word after that takes its VERB sense`() {
+        Sselith.translate("Yours is the one that rings!") shouldContainCI "kreviegkh"
+    }
+
+    @Test
+    fun `a noun without a VERB sense after that stays a noun`() {
+        Sselith.translate("He knew that books burn.") shouldContainCI "leamorghelk"
+    }
+
+    @Test
+    fun `lowercase the end is not the End dimension`() {
+        Sselith.translate("At the end lie seven doors.") shouldContainCI "schrendust"
+        Sselith.translate("Welcome to The End.") shouldContainCI "yghannlokuet"
+    }
+
+    @Test
+    fun `a lowercase line start stays lowercase`() {
+        Sselith.translate("name carved in slate") shouldStartWith "zhnomkh "
+    }
+
+    @Test
+    fun `clause-initial Yet takes the conjunction sense`() {
+        Sselith.translate("Yet sand was he.") shouldStartWith "Kontorl "
+        Sselith.translate("It is not done yet.") shouldContainCI "navrend"
+    }
+
+    @Test
+    fun `a phrase-final word after an ordinal takes its NOUN sense`() {
+        Sselith.translate("the seventh bound, there") shouldContainCI "schest-viregh ouvvolkkh,"
+        Sselith.translate("The rope is bound.") shouldContainCI "unteltkhegh"
+    }
+
+    @Test
     fun `plural noun gets PL suffix via stemming`() {
         // "books" → stem "book" → leamorgh → +elk → leamorghelk
         Sselith.translate("books") shouldContainCI "leamorghelk"
@@ -69,13 +102,13 @@ class SselithTest {
     @Test
     fun `arabic numeral converts to base-6 Sselith`() {
         // 34 = 54 in base 6 → unit-name form: vraestmorocht-schest (5×6) + kelkargh (4)
-        Sselith.translate("34") shouldBe "Vraestmorocht-schest-kelkargh"
+        Sselith.translate("34") shouldBe "vraestmorocht-schest-kelkargh"
     }
 
     @Test
     fun `holy invocation renders correctly`() {
         // 34.5 → 34 (vraestmorocht-schest-kelkargh) + skarn + 0.5 (moroch). The holy number.
-        Sselith.translate("34.5") shouldBe "Vraestmorocht-schest-kelkargh-skarn-moroch"
+        Sselith.translate("34.5") shouldBe "vraestmorocht-schest-kelkargh-skarn-moroch"
     }
 
     @Test
@@ -139,7 +172,7 @@ class SselithTest {
 
     @Test
     fun `decimal below one keeps its fraction`() {
-        Sselith.translate("0.5") shouldBe "Ul-skarn-moroch"
+        Sselith.translate("0.5") shouldBe "ul-skarn-moroch"
     }
 
     @Test
@@ -204,8 +237,9 @@ class SselithTest {
     }
 
     @Test
-    fun `sentence case is applied`() {
-        Sselith.translate("the book is here.") shouldStartWith "Za"
+    fun `case follows the source token`() {
+        Sselith.translate("the book is here.") shouldStartWith "za "
+        Sselith.translate("The book is here.") shouldStartWith "Za "
     }
 
     @Test
@@ -262,6 +296,29 @@ class SselithTest {
     @Test
     fun `the Sselith form of speak translates back to speak`() {
         Sselith.translateToEnglish("zhspraekh", 1.0, java.util.Random(0)) shouldBe "speak"
+    }
+
+    @Test
+    fun `an apostrophe s before a participle is the verb is`() {
+        Sselith.translate("first link's forged") shouldContain "unteltkh velkt"
+        Sselith.translate("the link's chain") shouldContain "unteltkhoch"
+    }
+
+    @Test
+    fun `an apostrophe s after there is the verb is`() {
+        Sselith.translate("There's nothing") shouldStartWith "Tharst velkt "
+    }
+
+    @Test
+    fun `too before a gradable word is the excess sense`() {
+        val out = Sselith.translate("his grandpa too, them too far")
+        out shouldContain "aevpaerkht morl,"
+        out shouldContain "ouvmorl schrend"
+    }
+
+    @Test
+    fun `ness gives the base root plus ABSTRACT`() {
+        Sselith.translate("grindness") shouldBe "siskmorkhust"
     }
 
     @Test

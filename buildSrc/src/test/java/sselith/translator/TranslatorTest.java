@@ -288,7 +288,7 @@ class TranslatorTest {
         Translator t = buildTranslator();
         assertTrue(t.translate("%s's Head").startsWith("%soch "), "POSS on a placeholder must stay lower case.");
         assertTrue(t.translate("%s%s done").startsWith("%s%s "), "Adjacent placeholders must both return.");
-        assertTrue(t.translate("50% done").startsWith("Schaer"), "A percent sign before a space is not a placeholder.");
+        assertTrue(t.translate("50% done").startsWith("schaer"), "A percent sign before a space is not a placeholder.");
         assertFalse(t.translate("50% done").contains("done"), "The word after a percent sign must translate.");
     }
 
@@ -303,7 +303,7 @@ class TranslatorTest {
     @Test
     void decimalIsOneToken() throws IOException {
         assumeModels();
-        assertEquals("Vraestmorocht-schest-kelkargh-skarn-moroch", buildTranslator().translate("34.5"));
+        assertEquals("vraestmorocht-schest-kelkargh-skarn-moroch", buildTranslator().translate("34.5"));
     }
 
     @Test
@@ -374,6 +374,171 @@ class TranslatorTest {
         String out = buildTranslator().translate("100");
         assertTrue(out.toLowerCase(java.util.Locale.ROOT).contains("tesk-schaer-kelkargh-schest-kelkargh"),
                 "Digit string '100' must still produce the algorithmic base-6 phrase. Got: " + out);
+    }
+
+    @Test
+    void relativePronounSelectsVerbSense() throws IOException {
+        assumeModels();
+        String out = buildTranslator().translate("Yours is the one that rings!");
+        assertTrue(out.contains("kreviegkh"), "'rings' after 'that' must take the VERB sense. Got: " + out);
+        assertFalse(out.contains("rougkhvelelk"), "'rings' after 'that' must not be the noun. Got: " + out);
+    }
+
+    @Test
+    void relativePronounLeavesPlainNounAlone() throws IOException {
+        assumeModels();
+        // "books" has no VERB sense, so it stays the plural noun.
+        String out = buildTranslator().translate("He knew that books burn.");
+        assertTrue(out.contains("leamorghelk"), "A noun without a VERB sense must stay a noun. Got: " + out);
+    }
+
+    @Test
+    void lowercaseEndIsNotTheDimension() throws IOException {
+        assumeModels();
+        String lower = buildTranslator().translate("At the end lie seven doors.");
+        assertFalse(lower.contains("Yghannlokuet"), "Lowercase 'the end' is a common noun. Got: " + lower);
+        assertTrue(lower.contains("schrendust"), "Lowercase 'end' must take the NOUN sense. Got: " + lower);
+        String name = buildTranslator().translate("Welcome to The End.");
+        assertTrue(name.contains("Yghannlokuet"), "'The End' is the dimension. Got: " + name);
+    }
+
+    @Test
+    void lowercaseLineStartStaysLowercase() throws IOException {
+        assumeModels();
+        String out = buildTranslator().translate("name carved in slate\nand silent gods");
+        assertTrue(out.startsWith("zhnomkh "), "A lowercase source line start stays lowercase. Got: " + out);
+        assertTrue(out.contains("\nokht "), "A lowercase source line start stays lowercase. Got: " + out);
+    }
+
+    @Test
+    void clauseInitialYetIsTheConjunction() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("Yet sand was he.").startsWith("Kontorl "), "Clause-initial 'Yet' means 'but still'.");
+        assertTrue(t.translate("It is not done yet.").contains("navrend"), "Final 'yet' keeps the adverb.");
+    }
+
+    @Test
+    void phraseFinalWordAfterModifierTakesNounSense() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("At the apex of the seventh bound, there was a moment.").contains("schest-viregh ouvvolkkh,"),
+                "'bound' after an ordinal at a phrase end is the leap noun.");
+        assertTrue(t.translate("The rope is bound.").contains("unteltkhegh"), "'is bound' keeps the adjective.");
+    }
+
+    private static void assertDistinct(Translator t, String... words) {
+        java.util.Map<String, String> seen = new java.util.HashMap<>();
+        for (String w : words) {
+            String out = t.translate(w);
+            String prev = seen.put(out, w);
+            assertTrue(prev == null, "'" + w + "' and '" + prev + "' must not share the form " + out);
+        }
+    }
+
+    @Test
+    void sharedFormsAreSplit() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertDistinct(t, "temple", "god", "angel", "priest", "star");
+        assertDistinct(t, "make", "nature", "building");
+        assertDistinct(t, "chance", "fate");
+        assertDistinct(t, "wind", "gas");
+        assertEquals("zhdivkh", t.translate("god"));
+        assertEquals("kraekh", t.translate("make"));
+        assertEquals("zhfaetkh", t.translate("fate"));
+        assertEquals("luftkh", t.translate("wind"));
+    }
+
+    @Test
+    void windCompoundsKeepTheWindRoot() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertEquals("morkraekhluftkh", t.translate("gale"));
+        assertEquals("morluftkh", t.translate("storm"));
+        assertTrue(t.translate("Gases rise.").startsWith("Luftkraekhustelk "), "'gases' is gas + PL.");
+    }
+
+    @Test
+    void buildingNounAndVerbDiffer() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("The building stands.").contains("kraekhsaerkh"), "'the building' is the structure.");
+        assertTrue(t.translate("They are building a wall.").contains("kraekhend"), "'are building' is make + PROG.");
+    }
+
+    @Test
+    void hingingWordsUseSselithForms() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("Something is here.").startsWith("Schevsakkht "), "'something' is some + thing.");
+        assertTrue(t.translate("It cannot be.").contains("nakwev"), "'cannot' is NEG + can.");
+        String own = t.translate("castles of our own");
+        assertTrue(own.endsWith("zholoch zholkegh"), "'own' differs from the possessive. Got: " + own);
+        assertTrue(t.translate("YGANN-FILTH!").equals("YGHANN-MORVIUTHKUST!"), "All capitals stay.");
+    }
+
+    @Test
+    void doAuxiliariesShareTheDoRoot() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("Don't go.").startsWith("Namaerkh "), "don't is NEG + do.");
+        assertTrue(t.translate("He did it.").contains("maerkhacht"), "did is do + PAST.");
+        assertTrue(t.translate("I can't.").contains("nakwev"), "can't agrees with cannot.");
+    }
+
+    @Test
+    void collectivePluralTakesNoSecondSuffix() throws IOException {
+        assumeModels();
+        String out = buildTranslator().translate("The gears turn.");
+        assertFalse(out.contains("elkelk"), "No double PL. Got: " + out);
+    }
+
+    @Test
+    void nessGivesTheBaseRootPlusAbstract() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertEquals("siskmorkhust", t.translate("grindness"));
+        assertEquals("suavkhust", t.translate("kindness"));
+    }
+
+    @Test
+    void apostropheSBeforeParticipleIsTheVerb() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        String is = t.translate("And first link's forged at the bottom of time.");
+        assertTrue(is.contains("unteltkh velkt"), "'s before a participle is 'is'. Got: " + is);
+        String poss = t.translate("The link's chain holds.");
+        assertTrue(poss.contains("unteltkhoch"), "'s before a noun stays the possessive. Got: " + poss);
+    }
+
+    @Test
+    void tooBeforeGradableWordIsExcess() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        String out = t.translate("His grandpa too, the chain for them too far!");
+        assertTrue(out.contains("aevpaerkht morl,"), "'too' before a comma means 'also'. Got: " + out);
+        assertTrue(out.contains("ouvmorl schrend"), "'too far' is the excess sense. Got: " + out);
+    }
+
+    @Test
+    void apostropheSAfterContractionWordIsTheVerb() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("There's really nothing to say.").startsWith("Tharst velkt "), "There's = there is.");
+        assertTrue(t.translate("Here's the book.").startsWith("Thaist velkt "), "Here's = here is.");
+    }
+
+    @Test
+    void vacuumWordsUseSselithForms() throws IOException {
+        assumeModels();
+        Translator t = buildTranslator();
+        assertTrue(t.translate("Nothing happened today.").startsWith("Naistsakkht "), "nothing is no + thing.");
+        String w = t.translate("Several witnesses were present.");
+        assertTrue(w.contains("serkhzhirskarnelk"), "'witnesses' keeps the plural. Got: " + w);
+        assertDistinct(t, "scene", "witness");
+        String out = t.translate("Nothing has broken out in the hall.");
+        assertTrue(out.contains("morsisk"), "'broken out' is 'break out' (erupt). Got: " + out);
     }
 
     @Test

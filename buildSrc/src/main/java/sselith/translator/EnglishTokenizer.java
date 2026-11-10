@@ -58,6 +58,14 @@ public final class EnglishTokenizer {
                 i++;
                 continue;
             }
+            // SimpleTokenizer splits `5,345` at each comma; the runtime tokenizer keeps it as one.
+            int groupedEnd = groupedNumberEnd(raw, gaps, i);
+            if (groupedEnd > i) {
+                String merged = String.join("", java.util.Arrays.copyOfRange(raw, i, groupedEnd + 1));
+                result.add(new Token(merged, merged, false, false, CasePattern.LOWER, gaps[i]));
+                i = groupedEnd;
+                continue;
+            }
             // SimpleTokenizer splits `1.5` into three tokens; the runtime tokenizer keeps it as one.
             if (isDigits(t) && i + 2 < raw.length && ".".equals(raw[i + 1]) && isDigits(raw[i + 2])
                     && gaps[i + 1].isEmpty() && gaps[i + 2].isEmpty()) {
@@ -77,6 +85,22 @@ public final class EnglishTokenizer {
         if (token.isPunctuation() || token.isPossessiveMarker()) return false;
         String original = token.original();
         return Character.isLetter(original.charAt(original.length() - 1));
+    }
+
+    /** Index of the last raw token of a comma-grouped number ({@code 5 , 345 [. 5]}) that starts at
+     *  {@code start}, or {@code start} when there is none. "1, 2" and "1,2" are not grouped numbers. */
+    private static int groupedNumberEnd(String[] raw, String[] gaps, int start) {
+        if (!isDigits(raw[start]) || raw[start].length() > 3) return start;
+        int end = start;
+        while (end + 2 < raw.length && ",".equals(raw[end + 1]) && gaps[end + 1].isEmpty()
+                && gaps[end + 2].isEmpty() && isDigits(raw[end + 2]) && raw[end + 2].length() == 3) {
+            end += 2;
+        }
+        if (end > start && end + 2 < raw.length && ".".equals(raw[end + 1]) && gaps[end + 1].isEmpty()
+                && gaps[end + 2].isEmpty() && isDigits(raw[end + 2])) {
+            end += 2;
+        }
+        return end;
     }
 
     private static boolean isDigits(String s) {

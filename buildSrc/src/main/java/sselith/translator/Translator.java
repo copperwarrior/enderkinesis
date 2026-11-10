@@ -17,10 +17,17 @@ import opennlp.tools.postag.POSTaggerME;
 public final class Translator {
 
     private static final Set<String> DEMONSTRATIVES = Set.of("this", "that", "these", "those");
+    // Keep in step with Sselith.kt.
+    private static final Set<String> RELATIVE_PRONOUNS = Set.of("that", "which", "who");
+    private static final Set<String> NOUN_MODIFIERS = Set.of("ADJ", "DET", "NUM");
+    private static final Set<String> GRADABLE = Set.of("ADJ", "ADV");
+    // "There's": after these words an 's is the contraction of "is". Keep in step with Sselith.kt.
+    private static final Set<String> IS_HOSTS = Set.of("there", "here", "it", "that", "what", "who", "where");
     private static final Pattern HEADING = Pattern.compile("^(\\s*)(#+\\s+)(.*)$");
     private static final Pattern LIST_ITEM = Pattern.compile("^(\\s*)([-*]\\s+)(.*)$");
     private static final Pattern HORIZONTAL_RULE = Pattern.compile("^\\s*-{3,}\\s*$");
     private static final Pattern NUMERIC = Pattern.compile("^-?\\d+(?:\\.\\d+)?$");
+    private static final Pattern GROUPED_NUMERIC = Pattern.compile("^\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?$");
     private static final Pattern ROMAN = Pattern.compile("^[IVXLCDM]+$");
     // Disambiguates single-char Roman numerals from the pronoun "I" or letter labels;
     // multi-char (II, IV, ...) doesn't need context.
@@ -31,7 +38,6 @@ public final class Translator {
     /** Marker for format placeholders stripped before tokenization. Base-26 lowercase indices
      *  (a, b, ..., z, ba, ...) — digits would let {@code SimpleTokenizer} split the marker on
      *  the letter↔digit boundary into three tokens. */
-    static final Pattern MARKER_PATTERN = Pattern.compile("qzfmt[a-z]+qz", Pattern.CASE_INSENSITIVE);
     private static final String MARKER_PREFIX = "qzfmt";
     private static final String MARKER_SUFFIX = "qz";
 
@@ -127,6 +133,11 @@ public final class Translator {
     /** One stripped-out format placeholder and its marker substitute. */
     record FormatSlot(String marker, String original) {}
 
+    // A torn-page gap `[...]` and the word fragment just before it stay as written. Keep in step with Sselith.kt.
+    private static final Pattern TORN_GAP = Pattern.compile("\\w*\\[\\.\\.\\.]");
+    // A speaker label such as `A:` at the start of a line names a speaker and stays as written.
+    private static final Pattern SPEAKER = Pattern.compile("^[A-Z]:(?= )", Pattern.MULTILINE);
+
     // Sketch tags hold block ids and NBT that must reach the page as written. Keep in step with Sselith.kt.
     private static Stripped stripFormatTokens(String text) {
         List<int[]> ranges = new ArrayList<>(SketchTagSpans.find(text));
@@ -139,6 +150,10 @@ public final class Translator {
             }
             if (!inSketch) ranges.add(new int[] {m.start(), m.end()});
         }
+        Matcher torn = TORN_GAP.matcher(text);
+        while (torn.find()) ranges.add(new int[] {torn.start(), torn.end()});
+        Matcher speaker = SPEAKER.matcher(text);
+        while (speaker.find()) ranges.add(new int[] {speaker.start(), speaker.end()});
         if (ranges.isEmpty()) {
             return new Stripped(text, List.of());
         }
@@ -150,8 +165,12 @@ public final class Translator {
             int[] r = ranges.get(idx);
             clean.append(text, last, r[0]);
             String marker = MARKER_PREFIX + encodeMarkerIndex(idx) + MARKER_SUFFIX;
-            clean.append(marker);
-            slots.add(new FormatSlot(marker, text.substring(r[0], r[1])));
+            // A word glued to a gap needs a space to be a word; the space leaves with the marker.
+            boolean glued = text.startsWith("[...]", r[1] - 5) && r[1] < text.length()
+                    && Character.isLetterOrDigit(text.charAt(r[1]));
+            String key = glued ? marker + " " : marker;
+            clean.append(key);
+            slots.add(new FormatSlot(key, text.substring(r[0], r[1])));
             last = r[1];
         }
         clean.append(text, last, text.length());
@@ -167,7 +186,7 @@ public final class Translator {
             maxMarkerLength = Math.max(maxMarkerLength, slot.marker.length());
         }
         // One pass with a bounded look-ahead. Adjacent markers have no separator, so at each marker
-        // prefix the longest known marker wins. applySentenceCase can change the case of a marker.
+        // prefix the longest known marker wins.
         int minMarkerLength = MARKER_PREFIX.length() + 1 + MARKER_SUFFIX.length();
         StringBuilder sb = new StringBuilder(text.length());
         int i = 0;
@@ -249,7 +268,16 @@ public final class Translator {
             }
             EnglishTokenizer.Token tok = tokens.get(i);
             String prevOriginal = i > 0 ? tokens.get(i - 1).original() : null;
-            String rendered = renderToken(tok, pennTags[i], lemmas[i], outputs, prevOriginal);
+            String nextOriginal = i + 1 < tokens.size() ? tokens.get(i + 1).original() : null;
+            String nextTag = i + 1 < tokens.size() ? PosTagMapper.udTag(pennTags[i + 1]) : null;
+            boolean isHost = prevOriginal != null && IS_HOSTS.contains(prevOriginal.toLowerCase(Locale.ROOT));
+            if (tok.isPossessiveMarker() && (isHost || isParticiple(nextOriginal, nextTag))) {
+                outputs.add(dict.lookup("is").sselith());
+                gaps.add(" ");
+                i++;
+                continue;
+            }
+            String rendered = renderToken(tok, pennTags[i], lemmas[i], outputs, prevOriginal, nextOriginal, nextTag);
             if (rendered != null) {
                 outputs.add(rendered);
                 gaps.add(numeralGap(tok, i > 0 ? tokens.get(i - 1) : null));
@@ -259,7 +287,8 @@ public final class Translator {
 
         int end = text.length();
         while (end > 0 && Character.isWhitespace(text.charAt(end - 1))) end--;
-        return applySentenceCase(joinTokens(outputs, gaps)) + text.substring(end);
+        // Each output takes the case of its source token, so deliberate lowercase line starts stay lowercase.
+        return joinTokens(outputs, gaps) + text.substring(end);
     }
 
     /**
@@ -296,6 +325,9 @@ public final class Translator {
                 }
             }
             if (entry == null) continue;
+            // "the end" is the End dimension only as a name. Keep in step with Sselith.kt.
+            if ("PROPN".equals(entry.pos())
+                    && tokens.get(start + n - 1).casePattern() == EnglishTokenizer.CasePattern.LOWER) continue;
             // POS features from the LAST token (the head of an English
             // compound noun phrase is typically rightmost: "iron golems"
             // — the plural feature sits on "golems").
@@ -357,46 +389,6 @@ public final class Translator {
      * already present in the joined tokens are left alone — this only modifies positions
      * that were lowercase to uppercase, never the reverse.
      */
-    private static String applySentenceCase(String text) {
-        if (text.isEmpty()) return text;
-        // Format placeholders (%s, %1$d, %%, ...) and format-stripping
-        // markers (qzfmt0qz, ...) are opaque and must survive untouched —
-        // their internal letters ('s', 'd', 'q', ...) must never be
-        // uppercased. Mask both span families and step over them without
-        // consuming the pending sentence-initial capital, so the first
-        // real word after a leading placeholder still gets capitalized.
-        boolean[] masked = new boolean[text.length()];
-        Matcher fmt = EnglishTokenizer.FORMAT_PATTERN.matcher(text);
-        while (fmt.find()) {
-            for (int k = fmt.start(); k < fmt.end(); k++) masked[k] = true;
-        }
-        Matcher mark = MARKER_PATTERN.matcher(text);
-        while (mark.find()) {
-            for (int k = mark.start(); k < mark.end(); k++) masked[k] = true;
-        }
-        StringBuilder sb = new StringBuilder(text);
-        boolean capitalizeNext = true;
-        // Letters attached to a placeholder (`%s` + POSS suffix, `%sx`) are part of its word.
-        boolean attachedToMask = false;
-        for (int i = 0; i < sb.length(); i++) {
-            if (masked[i]) {
-                attachedToMask = true;
-                continue;
-            }
-            char c = sb.charAt(i);
-            if (Character.isLetter(c)) {
-                if (capitalizeNext && !attachedToMask) {
-                    sb.setCharAt(i, Character.toUpperCase(c));
-                    capitalizeNext = false;
-                }
-            } else {
-                attachedToMask = false;
-                if (c == '.' || c == '!' || c == '?') capitalizeNext = true;
-            }
-        }
-        return sb.toString();
-    }
-
     /**
      * Re-apply the source token's case pattern to a translated (always
      * dictionary-lowercase) Sselith form. {@link
@@ -434,7 +426,8 @@ public final class Translator {
      *         mutated the previous output in place).
      */
     private String renderToken(EnglishTokenizer.Token tok, String pennTag, String lemma,
-                               List<String> outputsSoFar, String prevOriginal) {
+                               List<String> outputsSoFar, String prevOriginal, String nextOriginal,
+                               String nextTag) {
         if (tok.isPossessiveMarker()) {
             // Attach POSS to the last emitted token.
             if (!outputsSoFar.isEmpty()) {
@@ -463,9 +456,11 @@ public final class Translator {
         // "craft" + PROG) that overrides the explicit dict entry. Skip
         // morphology entirely when the surface form is in the dict.
         // Multi-word entries are handled one level up in translateText.
+        String wordClass = wordClassOf(tok.normalized(), PosTagMapper.udTag(pennTag), prevOriginal, nextTag);
+        boolean nounSlot = isNounSlot(prevOriginal, nextOriginal);
         SselithDictionary.LexiconEntry surfaceEntry = dict.lookup(tok.normalized());
         if (surfaceEntry != null) {
-            return applyCase(tok.casePattern(), surfaceEntry.sselith());
+            return applyCase(tok.casePattern(), sense(surfaceEntry, wordClass, nounSlot).sselith());
         }
 
         String effectiveLemma = (lemma == null || lemma.equals("O") || lemma.isEmpty())
@@ -497,9 +492,11 @@ public final class Translator {
 
         if (entry == null) {
             // Pure digit string → algorithmic base-6 (dict has no digit-string keys).
-            if (NUMERIC.matcher(tok.original()).matches()) {
+            String digits = GROUPED_NUMERIC.matcher(tok.original()).matches()
+                    ? tok.original().replace(",", "") : tok.original();
+            if (NUMERIC.matcher(digits).matches()) {
                 try {
-                    double v = Double.parseDouble(tok.original());
+                    double v = Double.parseDouble(digits);
                     if (NumeralConverter.isConvertible(v)) {
                         return NumeralConverter.decimalToSselith(v);
                     }
@@ -536,6 +533,8 @@ public final class Translator {
         }
 
         if (entry == null) {
+            String abstractNoun = nessAbstract(effectiveLemma);
+            if (abstractNoun != null) return applyCase(tok.casePattern(), abstractNoun);
             // Universal pronoun fallback. The tagger can call a lone letter ("(s)") a pronoun.
             String pronoun = tok.original().length() > 1 ? pronounFor(tok.original(), pennTag, effectiveLemma) : null;
             if (pronoun != null) return applyCase(tok.casePattern(), pronoun);
@@ -543,7 +542,54 @@ public final class Translator {
             return tok.original();
         }
 
-        return applyCase(tok.casePattern(), applyMorphology(entry, engPrefix, stemTag != null ? stemTag : pennTag));
+        return applyCase(tok.casePattern(),
+                applyMorphology(sense(entry, wordClass, nounSlot), engPrefix, stemTag != null ? stemTag : pennTag));
+    }
+
+    /** The tagger calls "rings" in "the one that rings" a NOUN and clause-initial "Yet" an ADV. Only entries
+     *  with a sense for the new class see the change. Keep in step with Sselith.kt. */
+    private static String wordClassOf(String word, String taggedClass, String prevOriginal, String nextTag) {
+        // "too far": an ADV before an ADJ/ADV takes its DEGREE sense, if it has one.
+        if ("ADV".equals(taggedClass) && nextTag != null && GRADABLE.contains(nextTag)) return "DEGREE";
+        boolean afterRelative = prevOriginal != null
+                && RELATIVE_PRONOUNS.contains(prevOriginal.toLowerCase(Locale.ROOT));
+        if ("NOUN".equals(taggedClass) && afterRelative && word.endsWith("s")) return "VERB";
+        boolean clauseStart = prevOriginal == null || EnglishTokenizer.isPunctuation(prevOriginal);
+        if ("ADV".equals(taggedClass) && clauseStart) return "CCONJ";
+        return taggedClass;
+    }
+
+    /** "link's forged": an 's before a past participle is "is", not the possessive. Keep in step with Sselith.kt. */
+    private static boolean isParticiple(String word, String udTag) {
+        if (word == null || !"VERB".equals(udTag)) return false;
+        String w = word.toLowerCase(Locale.ROOT);
+        return w.endsWith("ed") || w.endsWith("en");
+    }
+
+    /** A phrase-final word after an ADJ/DET/NUM word ("the seventh bound."). */
+    private boolean isNounSlot(String prevOriginal, String nextOriginal) {
+        boolean phraseEnd = nextOriginal == null || EnglishTokenizer.isPunctuation(nextOriginal);
+        SselithDictionary.LexiconEntry prevEntry = prevOriginal == null ? null : dict.lookup(prevOriginal);
+        return phraseEnd && prevEntry != null && NOUN_MODIFIERS.contains(prevEntry.pos());
+    }
+
+    /** The tagger calls "the seventh bound." an ADJ, so an ADJ entry in a noun slot takes its NOUN sense.
+     *  Keep in step with Sselith.kt. */
+    private static SselithDictionary.LexiconEntry sense(
+            SselithDictionary.LexiconEntry entry, String wordClass, boolean nounSlot) {
+        return entry.forWordClass(nounSlot && "ADJ".equals(entry.pos()) ? "NOUN" : wordClass);
+    }
+
+    /** English -ness gives the base root + ABSTRACT, as in weak → weakness. Keep in step with Sselith.kt. */
+    private String nessAbstract(String word) {
+        if (word.length() < 7 || !word.endsWith("ness")) return null;
+        String base = word.substring(0, word.length() - 4);
+        SselithDictionary.LexiconEntry baseEntry = dict.lookup(base);
+        if (baseEntry == null && base.endsWith("i")) baseEntry = dict.lookup(base.substring(0, base.length() - 1) + "y");
+        if (baseEntry == null) return null;
+        String root = baseEntry.sselith();
+        if (root.endsWith("egh") || root.endsWith("orl")) root = root.substring(0, root.length() - 3);
+        return MorphologyEngine.attachSuffix(root, dict.getSuffixes().get("ABSTRACT"), dict.getVowels());
     }
 
     private record Stem(String stem, String pennTag) {}

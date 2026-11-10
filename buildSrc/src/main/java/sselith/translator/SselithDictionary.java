@@ -16,7 +16,21 @@ import java.util.Set;
 
 public final class SselithDictionary {
 
-    public record LexiconEntry(String pos, String sselith, String tag) {}
+    /** {@code senses} is optional: a word class ("VERB", ...) to the form used when the token has that class. */
+    public record LexiconEntry(String pos, String sselith, String tag, Map<String, Sense> senses) {
+        public LexiconEntry(String pos, String sselith, String tag) {
+            this(pos, sselith, tag, null);
+        }
+
+        /** The entry for a token of {@code wordClass}; this entry when no sense matches. */
+        public LexiconEntry forWordClass(String wordClass) {
+            if (senses == null || wordClass == null) return this;
+            Sense sense = senses.get(wordClass);
+            return sense == null ? this : new LexiconEntry(wordClass, sense.sselith(), sense.tag());
+        }
+    }
+
+    public record Sense(String sselith, String tag) {}
 
     public static final class NumeralConfig {
         public int base;
