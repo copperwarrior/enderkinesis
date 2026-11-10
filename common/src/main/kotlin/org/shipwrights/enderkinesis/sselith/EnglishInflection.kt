@@ -24,7 +24,7 @@ internal object EnglishInflection {
         return listOf(thirdPerson(verb), presentParticiple(verb), past(verb))
     }
 
-    private fun thirdPerson(verb: String): String = when (verb) {
+    fun thirdPerson(verb: String): String = when (verb) {
         "be" -> "is"
         "have" -> "has"
         else -> when {
@@ -38,17 +38,52 @@ internal object EnglishInflection {
     private fun past(verb: String): String = when {
         verb.endsWith("e") -> verb + "d"
         endsConsonantY(verb) -> verb.dropLast(1) + "ied"
-        SHORT_CVC.matches(verb) -> verb + verb.last() + "ed"
+        doublesLast(verb) -> verb + verb.last() + "ed"
         else -> verb + "ed"
     }
 
-    private fun presentParticiple(verb: String): String = when {
+    fun pastTense(verb: String): String =
+        if (verb == "be") "was" else PAST_OVERRIDES[verb] ?: IRREGULAR_VERBS[verb]?.first() ?: past(verb)
+
+    fun pastParticiple(verb: String): String =
+        if (verb == "be") "been" else IRREGULAR_VERBS[verb]?.last() ?: past(verb)
+
+    fun presentParticiple(verb: String): String = when {
         verb.endsWith("ie") -> verb.dropLast(2) + "ying"
         verb.endsWith("e") && verb.length > 2 && !verb.endsWith("ee") && !verb.endsWith("ye") && !verb.endsWith("oe") ->
             verb.dropLast(1) + "ing"
-        SHORT_CVC.matches(verb) -> verb + verb.last() + "ing"
+        doublesLast(verb) -> verb + verb.last() + "ing"
         else -> verb + "ing"
     }
+
+    /** watch → watcher, make → maker, run → runner. */
+    fun agent(word: String): String = when {
+        word.endsWith("e") -> word + "r"
+        endsConsonantY(word) -> word.dropLast(1) + "ier"
+        doublesLast(word) -> word + word.last() + "er"
+        else -> word + "er"
+    }
+
+    /** kind → kindness, happy → happiness. */
+    fun abstractNoun(word: String): String = if (endsConsonantY(word)) word.dropLast(1) + "iness" else word + "ness"
+
+    /** sand → sandy, stone → stony. */
+    fun adjective(word: String): String = when {
+        word.endsWith("y") -> word
+        word.endsWith("e") -> word.dropLast(1) + "y"
+        else -> word + "y"
+    }
+
+    /** quick → quickly, happy → happily, gentle → gently, magic → magically. */
+    fun adverb(word: String): String = when {
+        word.endsWith("ly") -> word
+        endsConsonantY(word) -> word.dropLast(1) + "ily"
+        word.endsWith("le") && word.length > 2 -> word.dropLast(1) + "y"
+        word.endsWith("ic") -> word + "ally"
+        else -> word + "ly"
+    }
+
+    private fun doublesLast(verb: String): Boolean = SHORT_CVC.matches(verb) || verb in STRESSED_FINAL
 
     /** True for an irregular plural or past form in the tables ("men", "began"). */
     fun isIrregularForm(word: String): Boolean = word in IRREGULAR_FORMS
@@ -110,6 +145,16 @@ internal object EnglishInflection {
         "sew" to listOf("sewn"), "sow" to listOf("sown"), "show" to listOf("shown"), "stride" to listOf("strode"),
         "arise" to listOf("arose", "arisen"), "awake" to listOf("awoke", "awoken"),
         "spring" to listOf("sprang", "sprung"),
+    )
+
+    // Verbs whose table lists only the participle.
+    private val PAST_OVERRIDES = mapOf("beat" to "beat", "sew" to "sewed", "sow" to "sowed", "show" to "showed")
+
+    // A stressed last syllable doubles its consonant too: refer, referred; fulfil, fulfilled.
+    private val STRESSED_FINAL = setOf(
+        "refer", "prefer", "transfer", "confer", "defer", "deter", "occur", "recur", "incur", "admit", "permit",
+        "commit", "omit", "submit", "acquit", "control", "patrol", "compel", "expel", "propel", "repel", "dispel",
+        "rebel", "excel", "regret", "fulfil", "distil", "instil", "enrol", "equip", "abhor", "embed",
     )
 
     // A regular plural that is equal to its singular ("sheep") is not an inflected form.

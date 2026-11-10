@@ -221,6 +221,8 @@ object Sselith {
             }
             i++
         }
+        // A line in capitals keeps capitals, also for numbers and one-letter words. Keep in step with Translator.java.
+        if (isAllCaps(tokens)) outputs.replaceAll { if (isMarker(it)) it else it.uppercase(Locale.ROOT) }
         return joinTokens(outputs, gaps) + text.substring(text.trimEnd().length)
     }
 
@@ -540,6 +542,14 @@ object Sselith {
 
         return out
     }
+
+    private fun isAllCaps(tokens: List<Token>): Boolean {
+        val words = tokens.filterNot { isMarker(it.original) }
+        return words.all { it.original == it.original.uppercase(Locale.ROOT) } &&
+            words.any { it.casePattern == CasePattern.UPPER }
+    }
+
+    private fun isMarker(s: String): Boolean = s.startsWith(MARKER_PREFIX, ignoreCase = true)
 
     /** "link's forged": an 's before a past participle is "is", not the possessive. No tagger here, so the
      *  participle must stem to a dictionary verb. Keep in step with Translator.java. */
@@ -889,31 +899,41 @@ object Sselith {
     // simply pass through, so repeat calls converge naturally to English.
     // ──────────────────────────────────────────────────────────────────────────
 
-    private data class ReverseEntry(val english: String, val pos: String)
+    /** [derived] marks an inflected entry ("portals" = [portal + PL]); its stem's main word reads better. */
+    private data class ReverseEntry(val english: String, val pos: String, val derived: Boolean = false)
 
     /** Sselith surface form (lowercased) → English lemma + POS. Many English words share a form.
-     *  The winner is a [REVERSE_PREFERRED] word, then a root entry, then the shortest word, then
-     *  alphabetical order, so the result does not depend on HashMap order. */
+     *  The winner is a [REVERSE_PREFERRED] word, then a root entry, then a word that is not an
+     *  apostrophe-less spelling ("dont"), then one that is not an inflection, then the shortest word, then alphabetical order, so the
+     *  result does not depend on HashMap order. Sense forms come last, so a main form wins over a sense. */
     private val reverseLexicon: Map<String, ReverseEntry> by lazy {
         val map = HashMap<String, ReverseEntry>()
         for (english in REVERSE_PREFERRED) {
             val entry = checkNotNull(dictionary.lexicon[english]) { "No lexicon entry for '$english'" }
             map[entry.sselith.lowercase(Locale.ROOT)] = ReverseEntry(english, entry.pos)
         }
+        val contractions = dictionary.lexicon.keys.filter { '\'' in it }.map { it.replace("'", "") }.toSet()
         val ranked = dictionary.lexicon.entries.sortedWith(
             compareByDescending<Map.Entry<String, LexEntry>> { it.value.isRoot }
+                .thenBy { it.key in contractions }
+                .thenBy { it.value.inflected }
                 .thenBy { it.key.length }
                 .thenBy { it.key },
         )
         for ((english, entry) in ranked) {
-            val key = entry.sselith.lowercase(Locale.ROOT)
-            if (key !in map) map[key] = ReverseEntry(english, entry.pos)
+            map.putIfAbsent(entry.sselith.lowercase(Locale.ROOT), ReverseEntry(english, entry.pos, entry.inflected))
+        }
+        for ((english, entry) in ranked) {
+            for ((wordClass, form) in entry.senses) {
+                map.putIfAbsent(form.lowercase(Locale.ROOT), ReverseEntry(english, if (wordClass == "DEGREE") "ADV" else wordClass))
+            }
         }
         map
     }
 
-    /** English words that win their reverse collision against the ranking above. */
-    private val REVERSE_PREFERRED = listOf("speak")
+    /** English words that win their reverse collision against the ranking above. The pronoun forms
+     *  cover every person; the lore names no default, so the reader is addressed. */
+    private val REVERSE_PREFERRED = listOf("speak", "really", "damn", "ygann", "you", "your", "yourself", "went", "hinge")
 
     /**
      * Reverse-translate a Sselith snippet to English, gated by [fraction]
@@ -941,6 +961,9 @@ object Sselith {
         val translated = clean.split("\n").joinToString("\n") { reverseLine(it, fraction, rng) }
         return reinsertFormatTokens(translated, slots + invocationSlots)
     }
+
+    /** True when a full reverse pass changes no word, so no Sselith word is left in [text]. */
+    fun isAllEnglish(text: String): Boolean = translateToEnglish(text, 1.0, java.util.Random(0)) == text
 
     /** The five canonical holy-number words, in order. Kept here as the
      *  scroll-exclusion source of truth alongside [SselithChatTeleport]'s
@@ -1011,138 +1034,170 @@ object Sselith {
         return line.substring(0, leadEnd) + reverseText(line.substring(leadEnd), fraction, rng)
     }
 
+    // A hyphen-joined word: a lexicon form ("rha-aikh", "schest-tesk") or a numeral chain.
+    private val HYPHEN_CHAIN = Regex("""[A-Za-z]+(?:'[A-Za-z]+)?(?:-[A-Za-z]+(?:'[A-Za-z]+)?)+""")
+
     private fun reverseText(text: String, fraction: Double, rng: java.util.Random): String {
         if (text.isBlank()) return text
-        val matches = TOKEN.findAll(text).toList()
-        if (matches.isEmpty()) return text
         val sb = StringBuilder()
         var last = 0
-        for (m in matches) {
+        for (chain in HYPHEN_CHAIN.findAll(text)) {
+            reverseWords(text.substring(last, chain.range.first), fraction, rng, sb)
+            sb.append(reverseChain(chain.value, fraction, rng) ?: reverseWords(chain.value, fraction, rng, StringBuilder()))
+            last = chain.range.last + 1
+        }
+        reverseWords(text.substring(last), fraction, rng, sb)
+        return sb.toString()
+    }
+
+    /** The whole chain as one word or a number, the chain as written when the draw keeps it, or null to read its parts. */
+    private fun reverseChain(chain: String, fraction: Double, rng: java.util.Random): String? {
+        val lower = chain.lowercase(Locale.ROOT)
+        val english = reverseLookup(lower)?.let(::englishOf)
+            ?: NumeralConverter.cardinalValue(lower)?.toString()
+            ?: return null
+        if (rng.nextDouble() >= fraction) return chain
+        return applyCase(casePatternOf(chain), english)
+    }
+
+    private fun reverseWords(text: String, fraction: Double, rng: java.util.Random, sb: StringBuilder): StringBuilder {
+        var last = 0
+        for (m in TOKEN.findAll(text)) {
             sb.append(text, last, m.range.first)
-            val tok = m.value
-            val replaced = reverseToken(tok, fraction, rng)
-            sb.append(replaced ?: tok)
+            sb.append(reverseToken(m.value, fraction, rng) ?: m.value)
             last = m.range.last + 1
         }
-        sb.append(text, last, text.length)
-        return sb.toString()
+        return sb.append(text, last, text.length)
     }
 
     private fun reverseToken(token: String, fraction: Double, rng: java.util.Random): String? {
         val first = token.firstOrNull() ?: return null
         if (!first.isLetter()) return null
-        val lower = token.lowercase(Locale.ROOT)
-        val hit = reverseLookup(lower) ?: return null
+        val hit = reverseLookup(token.lowercase(Locale.ROOT)) ?: return null
         if (rng.nextDouble() >= fraction) return null
-        val english = applyEnglishMorphology(hit.english, hit.pos, hit.feature, hit.prefix)
-        return applyCase(casePatternOf(token), english)
+        return applyCase(casePatternOf(token), englishOf(hit))
     }
 
+    /** [suffixes] run from the stem outwards; [prefixes] run from the outside in. */
     private data class ReverseHit(
         val english: String,
         val pos: String,
-        val feature: Feature?,
-        val prefix: String?,
+        val suffixes: List<String> = emptyList(),
+        val prefixes: List<String> = emptyList(),
     )
 
-    /** Try direct hit, then strip Sselith suffixes (both whole and
-     *  elided form), then prefixes — mirroring [attachSuffix] / [attachPrefix]
-     *  exactly so any inflection the forward translator could have
-     *  produced is recoverable here. */
     private fun reverseLookup(word: String): ReverseHit? {
-        reverseLexicon[word]?.let { return ReverseHit(it.english, it.pos, null, null) }
+        val direct = reverseLexicon[word]
+        if (direct == null) return affixedLookup(word, MAX_STRIPPED_AFFIXES, withPrefixes = true)
+        // An inflected entry reads through its own suffix only, so "portals" gives the stem's main word "doors".
+        if (direct.derived) affixedLookup(word, 1, withPrefixes = false)?.let { return it }
+        return ReverseHit(direct.english, direct.pos)
+    }
 
-        for ((tag, suffix) in dictionary.suffixes) {
-            val feat = morphologyFeature(tag) ?: continue
-            for (form in elidedForms(suffix.trimStart('-'))) {
-                if (form.isEmpty() || !word.endsWith(form)) continue
-                val stem = word.dropLast(form.length)
-                if (stem.isEmpty()) continue
-                // Stem must be a known Sselith form — guards against
-                // English words that happen to end in the suffix shape.
-                reverseLexicon[stem]?.let {
-                    return ReverseHit(it.english, it.pos, feat, null)
-                }
-                // Elision restores the dropped stem-final char from the
-                // suffix's first; try that too.
-                val unelidedStem = stem + form.first()
-                reverseLexicon[unelidedStem]?.let {
-                    return ReverseHit(it.english, it.pos, feat, null)
+    private class AffixState(val rest: String, val suffixes: List<String>, val prefixes: List<String>)
+
+    /** Strips up to [depth] affixes, fewest first, as [attachSuffix] / [attachPrefix] put them on. */
+    private fun affixedLookup(word: String, depth: Int, withPrefixes: Boolean): ReverseHit? {
+        var level = listOf(AffixState(word, emptyList(), emptyList()))
+        repeat(depth) {
+            val next = ArrayList<AffixState>()
+            for (state in level) {
+                for (stripped in strippedForms(state, withPrefixes)) {
+                    reverseLexicon[stripped.rest]?.let { return ReverseHit(it.english, it.pos, stripped.suffixes, stripped.prefixes) }
+                    if (next.size < MAX_AFFIX_STATES) next.add(stripped)
                 }
             }
-        }
-
-        for ((tag, prefix) in dictionary.prefixes) {
-            val englishPrefix = englishPrefixFor(tag) ?: continue
-            for (form in elidedForms(prefix.trimEnd('-'))) {
-                if (form.isEmpty() || !word.startsWith(form)) continue
-                val stem = word.substring(form.length)
-                if (stem.isEmpty()) continue
-                reverseLexicon[stem]?.let {
-                    return ReverseHit(it.english, it.pos, null, englishPrefix)
-                }
-                val unelidedStem = form.last() + stem
-                reverseLexicon[unelidedStem]?.let {
-                    return ReverseHit(it.english, it.pos, null, englishPrefix)
-                }
-            }
+            level = next
         }
         return null
     }
 
-    /** Candidate surface forms of a Sselith affix: the affix itself and
-     *  its elided variant (first char dropped) so we can spot whichever
-     *  shape `attachSuffix` / `attachPrefix` happened to produce. */
-    private fun elidedForms(affix: String): List<String> =
-        if (affix.length >= 2) listOf(affix, affix.substring(1)) else listOf(affix)
-
-    private fun morphologyFeature(tag: String): Feature? = when (tag) {
-        "PL" -> Feature.PLURAL_OR_VBZ
-        "PAST" -> Feature.PAST_OR_PERF
-        "PROG" -> Feature.PROGRESSIVE
-        else -> null
-    }
-
-    private fun englishPrefixFor(tag: String): String? = when (tag) {
-        "NEG" -> "un"
-        "RE" -> "re"
-        else -> null
-    }
-
-    private fun applyEnglishMorphology(
-        lemma: String, pos: String, feature: Feature?, prefix: String?,
-    ): String {
-        val base = when (feature) {
-            Feature.PLURAL_OR_VBZ -> when (pos) {
-                "NOUN", "VERB" -> englishPluralOrVbz(lemma)
-                else -> lemma
+    private fun strippedForms(state: AffixState, withPrefixes: Boolean): List<AffixState> {
+        val out = ArrayList<AffixState>()
+        val rest = state.rest
+        for ((tag, affix) in dictionary.suffixes) {
+            val suffix = affix.trimStart('-').lowercase(Locale.ROOT)
+            if (suffix.isEmpty()) continue
+            if (rest.endsWith(suffix) && rest.length - suffix.length >= MIN_REVERSE_STEM) {
+                out.add(AffixState(rest.dropLast(suffix.length), listOf(tag) + state.suffixes, state.prefixes))
             }
-            Feature.PAST_OR_PERF -> if (pos == "VERB") englishPast(lemma) else lemma
-            Feature.PROGRESSIVE -> if (pos == "VERB") englishProgressive(lemma) else lemma
-            null -> lemma
+            // Elision dropped the suffix's first letter, because the stem ends with it.
+            val elided = suffix.drop(1)
+            val stem = rest.dropLast(elided.length)
+            if (elided.isNotEmpty() && rest.endsWith(elided) && stem.length >= MIN_REVERSE_STEM && stem.last() == suffix.first()) {
+                out.add(AffixState(stem, listOf(tag) + state.suffixes, state.prefixes))
+            }
         }
-        return if (prefix != null) prefix + base else base
+        if (!withPrefixes) return out
+        for ((tag, affix) in dictionary.prefixes) {
+            val prefix = affix.trimEnd('-').lowercase(Locale.ROOT)
+            if (prefix.isEmpty() || !rest.startsWith(prefix)) continue
+            val stem = rest.substring(prefix.length)
+            if (stem.length < MIN_REVERSE_STEM) continue
+            out.add(AffixState(stem, state.suffixes, state.prefixes + tag))
+            // Elision dropped the stem's first letter, because the prefix ends with it.
+            out.add(AffixState(prefix.last() + stem, state.suffixes, state.prefixes + tag))
+        }
+        return out
     }
 
-    private fun englishPluralOrVbz(lemma: String): String = when {
-        lemma.endsWith("s") || lemma.endsWith("x") || lemma.endsWith("z")
-                || lemma.endsWith("ch") || lemma.endsWith("sh") -> lemma + "es"
-        lemma.endsWith("y") && lemma.length > 1 && lemma[lemma.length - 2] !in "aeiou" ->
-            lemma.dropLast(1) + "ies"
-        else -> lemma + "s"
+    private fun englishOf(hit: ReverseHit): String {
+        var word = hit.english
+        var pos = hit.pos
+        val verbRoot = isVerb(pos)
+        val toward = "DIR" in hit.prefixes
+        // "-ward" goes on the bare stem, so plurals read "homewards", not "homesward".
+        if (toward && !verbRoot) {
+            word += "ward"
+            pos = "ADV"
+        }
+        for (tag in hit.suffixes) {
+            val (inflected, newPos) = englishSuffix(word, pos, tag)
+            word = inflected
+            pos = newPos
+        }
+        for (tag in hit.prefixes.asReversed()) word = englishPrefix(word, pos, tag)
+        return if (toward && verbRoot) "$word forth" else word
     }
 
-    private fun englishPast(lemma: String): String = when {
-        lemma.endsWith("e") -> lemma + "d"
-        lemma.endsWith("y") && lemma.length > 1 && lemma[lemma.length - 2] !in "aeiou" ->
-            lemma.dropLast(1) + "ied"
-        else -> lemma + "ed"
+    private fun isVerb(pos: String) = pos == "VERB" || pos == "AUX"
+
+    private fun englishPrefix(word: String, pos: String, tag: String): String = when (tag) {
+        "NEG", "REV" -> "un$word"
+        "RE" -> "re$word"
+        "AUG" -> if (pos == "NOUN") "great-$word" else "over$word"
+        "DIM" -> if (pos == "NOUN") "little-$word" else "half-$word"
+        "SACRED" -> "holy-$word"
+        else -> word
     }
 
-    private fun englishProgressive(lemma: String): String = when {
-        lemma.endsWith("e") && lemma.length > 1 && lemma != "be" -> lemma.dropLast(1) + "ing"
-        else -> lemma + "ing"
+    private fun englishSuffix(word: String, pos: String, tag: String): Pair<String, String> {
+        val verb = isVerb(pos)
+        return when (tag) {
+            "PL" -> when {
+                pos == "NOUN" -> EnglishInflection.plural(word) to pos
+                verb -> EnglishInflection.thirdPerson(word) to pos
+                else -> word to pos
+            }
+            "PAST" -> (if (verb) EnglishInflection.pastTense(word) else word) to pos
+            "PERF" -> (if (verb) EnglishInflection.pastParticiple(word) else word) to pos
+            "PROG" -> (if (verb || pos == "NOUN") EnglishInflection.presentParticiple(word) else word) to pos
+            "POSS" -> (if (word.endsWith("s")) "$word'" else "$word's") to "NOUN"
+            "AGENT" -> EnglishInflection.agent(word) to "NOUN"
+            "ABSTRACT" -> EnglishInflection.abstractNoun(word) to "NOUN"
+            "ADJ" -> when {
+                pos == "ADJ" -> word
+                verb -> EnglishInflection.pastParticiple(word)
+                else -> EnglishInflection.adjective(word)
+            } to "ADJ"
+            "ADV" -> EnglishInflection.adverb(word) to "ADV"
+            else -> word to pos
+        }
     }
+
+    private const val MAX_STRIPPED_AFFIXES = 3
+    private const val MAX_AFFIX_STATES = 64
+    private const val MIN_REVERSE_STEM = 3
 
     // ──────────────────────────────────────────────────────────────────────────
     // Dictionary loading
@@ -1192,6 +1247,7 @@ object Sselith {
                 pos = obj.get("pos").asString,
                 sselith = form,
                 isRoot = obj.get("tag")?.asString?.startsWith("[root") == true,
+                inflected = obj.get("tag")?.asString?.let(INFLECTION_TAG::containsMatchIn) == true,
                 senses = obj.getAsJsonObject("senses")?.entrySet()
                     ?.associate { (wordClass, sense) -> wordClass to sense.asJsonObject.get("sselith").asString }
                     .orEmpty(),
@@ -1211,12 +1267,16 @@ object Sselith {
     // Data classes
     // ──────────────────────────────────────────────────────────────────────────
 
+    // "[portal + PL]": a regular inflection of another entry. A note may follow the tag.
+    private val INFLECTION_TAG = Regex("""^\[[^\]+]+ \+ (PL|PAST|PROG|PERF)]""")
+
     /** [senses] maps a word class ("VERB", ...) to the form used when the token has that class. */
     internal data class LexEntry(
         val pos: String,
         val sselith: String,
         val isRoot: Boolean = false,
         val senses: Map<String, String> = emptyMap(),
+        val inflected: Boolean = false,
     ) {
         fun forWordClass(wordClass: String?): LexEntry =
             wordClass?.let { c -> senses[c]?.let { LexEntry(c, it, isRoot) } } ?: this
@@ -1272,6 +1332,40 @@ object Sselith {
         private const val CONVERTIBLE_LIMIT = 9.223372036854775807E18
 
         fun isConvertible(d: Double): Boolean = d.isFinite() && kotlin.math.abs(d) < CONVERTIBLE_LIMIT
+
+        // A base-6 Long has at most 25 digits.
+        private const val MAX_CHAIN_PARTS = 25
+
+        /** The integer that [integerToCardinal] writes as [chain], or null. One word is a lexicon word, not a chain. */
+        fun cardinalValue(chain: String): Long? {
+            val parts = chain.split('-')
+            val negative = parts.first() == "ont"
+            val body = if (negative) parts.drop(1) else parts
+            if (body.size < 2 || body.size > MAX_CHAIN_PARTS) return null
+            var value = 0L
+            if (body.all { it in DIGITS }) {
+                for (part in body) value = value * 6 + DIGITS.indexOf(part)
+            } else {
+                var pending: Int? = null
+                for (part in body) {
+                    val digit = DIGITS.indexOf(part)
+                    val unit = UNITS.indexOf(part)
+                    when {
+                        digit >= 0 && pending == null -> pending = digit
+                        unit > 0 -> {
+                            var place = 1L
+                            repeat(unit) { place *= 6 }
+                            value += (pending ?: 1) * place
+                            pending = null
+                        }
+                        else -> return null
+                    }
+                }
+                value += pending ?: 0
+            }
+            val n = if (negative) -value else value
+            return n.takeIf { integerToCardinal(it) == chain }
+        }
 
         fun integerToCardinal(n: Long): String {
             if (n < 0) return "ont-" + integerToCardinal(-n)   // REV prefix for negatives

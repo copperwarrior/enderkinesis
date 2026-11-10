@@ -129,7 +129,7 @@ class SselithTest {
     @Test
     fun `scroll unravels a holy word that is not in the phrase`() {
         Sselith.translateToEnglish("moroch", 1.0, java.util.Random(0)) shouldBe "three"
-        Sselith.translateToEnglish("schest-moroch", 1.0, java.util.Random(0)) shouldBe "six-three"
+        Sselith.translateToEnglish("schest-moroch", 1.0, java.util.Random(0)) shouldBe "nine"
     }
 
     @Test
@@ -310,6 +310,13 @@ class SselithTest {
     }
 
     @Test
+    fun `an all-caps line keeps capitals for one-letter words and numbers`() {
+        val out = Sselith.translate("LEAVE IT IN A BAG BENEATH THE 84 STAIRS")
+        out shouldContain " EN "
+        out shouldContain "TESK-SCHAER-TESK-SCHEST"
+    }
+
+    @Test
     fun `too before a gradable word is the excess sense`() {
         val out = Sselith.translate("his grandpa too, them too far")
         out shouldContain "aevpaerkht morl,"
@@ -319,6 +326,61 @@ class SselithTest {
     @Test
     fun `ness gives the base root plus ABSTRACT`() {
         Sselith.translate("grindness") shouldBe "siskmorkhust"
+    }
+
+    private fun unravel(sselith: String): String = Sselith.translateToEnglish(sselith, 1.0, java.util.Random(0))
+
+    private fun roundTrip(english: String): String = unravel(Sselith.translate(english))
+
+    @Test
+    fun `reverse reads a sense form as its parent word`() {
+        unravel("phoev") shouldBe "may"
+        unravel("kreviegkh") shouldBe "ring"
+        unravel("oundkwielt") shouldBe "lie"
+        unravel("ouvmorl") shouldBe "too"
+    }
+
+    @Test
+    fun `reverse turns a numeral chain back into digits`() {
+        roundTrip("Sorrok 34, 505 AL") shouldBe "Sorrok 34, 505 AL"
+        roundTrip("BENEATH THE 84 PILLAR STAIRS") shouldContain " 84 "
+        roundTrip("Nothing at 11.") shouldBe "Nothing at 11."
+        unravel("ont-schest-moroch") shouldBe "-9"
+    }
+
+    @Test
+    fun `reverse reads a hyphenated lexicon form whole`() {
+        roundTrip("the worst offender") shouldBe "the worst offender"
+        roundTrip("EIGHT DIAMONDS") shouldBe "EIGHT DIAMONDS"
+        unravel("rha-aikh") shouldBe "hear"
+    }
+
+    @Test
+    fun `reverse strips stacked affixes`() {
+        unravel("monkhtarnelkoch") shouldBe "guests'"
+        roundTrip("the reweaving") shouldBe "the reweaving"
+        roundTrip("Grindness") shouldBe "Grindness"
+        roundTrip("kindness") shouldBe "kindness"
+    }
+
+    @Test
+    fun `reverse prefers the main English word`() {
+        roundTrip("I REALLY truly considered them") shouldStartWith "You REALLY really "
+        roundTrip("The doors, the doors the doors!") shouldBe "The doors, the doors the doors!"
+        roundTrip("YGANN-FILTH!") shouldBe "YGANN-FILTH!"
+        roundTrip("those damn hinge-less doors") shouldContain "amn hinge-less doors"
+        roundTrip("his grandpa too") shouldBe "your grandpa too"
+    }
+
+    @Test
+    fun `reverse writes irregular verbs and contractions`() {
+        unravel("zhspraekhacht") shouldBe "spoke"
+        unravel("renkhakht") shouldBe "got"
+        roundTrip("he went home") shouldBe "you went home"
+        roundTrip("referred to with dignity") shouldBe "referred to with dignity"
+        roundTrip("the goal is fulfilled") shouldBe "the goal is fulfilled"
+        roundTrip("And don't get me started") shouldContain "don't"
+        roundTrip("cannot be diluted") shouldBe "can't be diluted"
     }
 
     @Test
