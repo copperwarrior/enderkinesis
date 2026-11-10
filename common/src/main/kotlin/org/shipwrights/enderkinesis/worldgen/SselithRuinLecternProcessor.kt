@@ -74,6 +74,7 @@ object SselithRuinLecternProcessor : StructureProcessor() {
             putString(SselithBookItem.TITLE_KEY, BOOK_TITLE)
             putString(SselithBookItem.AUTHOR, author)
             put(SselithBookItem.PAGES, pagesList)
+            putString(TomeLore.SOURCE_KEY, BOOK_SOURCE)
         }
 
         // ItemStack save form — `id` + `Count` + `tag`. Built explicitly so

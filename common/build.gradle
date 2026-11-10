@@ -157,6 +157,14 @@ tasks.register("translateSselith", JavaExec) {
     dependsOn tasks.named("downloadSselithModels")
 }
 
+// The Scroll of Unravelling shows the exact English text when a book is fully unravelled.
+tasks.register("copyEnglishBooks", Copy) {
+    group = "sselith"
+    from "src/main/resources/assets/enderkinesis/texts/sselith/books"
+    include "*.md"
+    into layout.buildDirectory.dir("generated/sselith/assets/enderkinesis/texts/english/books")
+}
+
 tasks.register("translateLangJson", JavaExec) {
     group = "sselith"
     description = "Translate vanilla + mod en_us.json to en_se.json so Minecraft offers Sselith as a selectable language."
@@ -221,12 +229,14 @@ def excludeEnglishBookSources = { details ->
 // from main resources, so it must wait for translateSselith too.
 tasks.named("sourcesJar") {
     dependsOn tasks.named("translateSselith")
+    dependsOn tasks.named("copyEnglishBooks")
     dependsOn tasks.named("translateLangJson")
     eachFile excludeEnglishBookSources
 }
 
 tasks.named("processResources") {
     dependsOn tasks.named("translateSselith")
+    dependsOn tasks.named("copyEnglishBooks")
     dependsOn tasks.named("translateLangJson")
     eachFile excludeEnglishBookSources
 }

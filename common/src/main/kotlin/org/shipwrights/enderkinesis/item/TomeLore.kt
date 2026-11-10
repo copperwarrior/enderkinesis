@@ -8,6 +8,8 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.sselith.BookPaginator
+import org.shipwrights.enderkinesis.sselith.Sselith
+import java.util.Random
 
 /**
  * Helpers for building the transient `WRITTEN_BOOK` stacks tomes hand back from
@@ -50,15 +52,85 @@ object TomeLore {
      *  the shipped JAR). Pages are parsed once and cached per [bookName]; each call returns
      *  a fresh stack wrapping the same cached page list. */
     fun fromSselithBook(title: String, author: String, bookName: String): ItemStack {
-        val pages = SSELITH_BOOK_CACHE.getOrPut(bookName) {
-            parsePaginatedMarkdown("/assets/enderkinesis/texts/sselith/books/$bookName.md")
+        val pages = SSELITH_BOOK_CACHE.getOrPut(bookName) { parsePaginatedMarkdown(sselithResource(bookName)) }
+        return bake(title, author, pages, serifPages = true).also { it.orCreateTag.putString(SOURCE_KEY, bookName) }
+    }
+
+    private fun sselithResource(bookName: String) = "/assets/enderkinesis/texts/sselith/books/$bookName.md"
+
+    private fun englishResource(bookName: String) = "/assets/enderkinesis/texts/english/books/$bookName.md"
+
+    private fun hasEnglishSource(bookName: String) = TomeLore::class.java.getResource(englishResource(bookName)) != null
+
+    /** Book-tag string: the Sselith source that the pages came from. */
+    const val SOURCE_KEY = "EnderkinesisSource"
+
+    /** Book-tag boolean: [fromSselithLoreBook] flowed the source into pages without its line breaks. */
+    private const val FLOWED_KEY = "EnderkinesisFlowed"
+
+    fun sselithSource(book: ItemStack): String? = book.tag?.getString(SOURCE_KEY)?.ifEmpty { null }
+
+    /**
+     * [book] after the Scroll of Unravelling passes stored on [tome]. The passes run on the source text before
+     * pagination, so sketch tags and `[page]` lines stay, and the same seed gives the same pages on client and server.
+     */
+    fun unravelled(book: ItemStack, tome: ItemStack): ItemStack {
+        val passes = tome.unravelPasses
+        if (passes <= 0) return book
+        val source = sselithSource(book) ?: return book
+        val seed = tome.unravelSeed
+        val key = UnravelKey(source, passes, seed)
+        val pages = if (passes >= MAX_UNRAVEL_PASSES && hasEnglishSource(source)) {
+            ENGLISH_BOOK_CACHE.getOrPut(source) { parsePaginatedMarkdown(englishResource(source)) }
+        } else {
+            synchronized(UNRAVELLED) { UNRAVELLED[key] } ?: parsePaginatedMarkdown(sselithResource(source)) { section, text ->
+                unravelText(text, passes, seed, section)
+            }.also { synchronized(UNRAVELLED) { UNRAVELLED[key] = it } }
         }
-        return bake(title, author, pages, serifPages = true)
+        val tag = checkNotNull(book.tag)
+        return bake(tag.getString("title"), tag.getString("author"), pages, serifPages = true)
+            .also { it.orCreateTag.putString(SOURCE_KEY, source) }
+    }
+
+    private fun unravelText(text: String, passes: Int, seed: Long, section: Int): String {
+        var out = text
+        for (step in 0 until passes) {
+            // The last allowed pass reads every word, so a tome at the cap is all English.
+            val fraction = if (step == MAX_UNRAVEL_PASSES - 1) 1.0 else ScrollOfUnravelling.HOLY_NUMBER_FRACTION
+            out = Sselith.translateToEnglish(out, fraction, Random(31 * (31 * seed + step) + section))
+        }
+        return out
+    }
+
+    private data class UnravelKey(val source: String, val passes: Int, val seed: Long)
+
+    private const val UNRAVELLED_LIMIT = 32
+
+    // Client and server threads both read it. pageCount runs often, and each miss reads the whole book again.
+    private val UNRAVELLED = object : LinkedHashMap<UnravelKey, List<Component>>(UNRAVELLED_LIMIT, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<UnravelKey, List<Component>>) = size > UNRAVELLED_LIMIT
     }
 
     /** Cache of parsed Sselith books — the parsed page list is immutable once loaded. */
     private val SSELITH_BOOK_CACHE =
         java.util.concurrent.ConcurrentHashMap<String, List<Component>>()
+
+    private val ENGLISH_BOOK_CACHE =
+        java.util.concurrent.ConcurrentHashMap<String, List<Component>>()
+
+    /**
+     * The English source pages of a stored-page book, in the layout its Sselith pages had.
+     * Null when the book has no source tag or the English text is not bundled.
+     */
+    fun englishStoredPages(book: ItemStack): List<String>? {
+        val source = sselithSource(book) ?: return null
+        if (!hasEnglishSource(source)) return null
+        return if (book.tag?.getBoolean(FLOWED_KEY) == true) {
+            paginateSerifText(englishResource(source))
+        } else {
+            parsePaginatedMarkdown(englishResource(source)).map { it.string }
+        }
+    }
 
     /** Build a written-book stack from a plain-text source in `assets/enderkinesis/texts/loot_books/`.
      *  These sources have no `## ` sections, so [paginatePlainText] cuts the pages. */
@@ -74,7 +146,11 @@ object TomeLore {
         val pages = SSELITH_LORE_CACHE.getOrPut(bookName) {
             paginateSerifText("/assets/enderkinesis/texts/sselith/books/$bookName.md")
         }
-        return SselithBookItem.of(title, author, pages)
+        return SselithBookItem.of(title, author, pages).also {
+            val tag = it.orCreateTag
+            tag.putString(SOURCE_KEY, bookName)
+            tag.putBoolean(FLOWED_KEY, true)
+        }
     }
 
     private val SSELITH_LORE_CACHE =
@@ -146,9 +222,10 @@ object TomeLore {
      * Translation makes the Sselith text longer than the English source, and the book screen cuts
      * text below line 14.
      */
-    fun parsePaginatedMarkdown(resource: String): List<Component> =
-        parseSections(resource)?.flatMap { (sh, sb) ->
-            paginateWithBreaks(if (sh == null) sb else "$sh\n\n$sb").map { Component.literal(it) }
+    fun parsePaginatedMarkdown(resource: String, transform: (Int, String) -> String = { _, text -> text }): List<Component> =
+        parseSections(resource)?.withIndex()?.flatMap { (i, section) ->
+            val (sh, sb) = section
+            paginateWithBreaks(transform(i, if (sh == null) sb else "$sh\n\n$sb")).map { Component.literal(it) }
         } ?: listOf(Component.literal("(the pages are blank)"))
 
     // A `[page]` line forces a page break; two in a row leave one blank page between them. The tag never prints.

@@ -14,6 +14,7 @@ import net.minecraft.nbt.Tag
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.BlockTags
 import net.minecraft.world.InteractionHand
@@ -45,16 +46,13 @@ import org.shipwrights.enderkinesis.sselith.Sselith
  * Sselith madness, emits the Cataloger's glyph column + page-turn SFX,
  * and shows the player an action-bar line confirming what happened.
  *
- * The decipher is stateless: each call runs the current page text through
- * [Sselith.translateToEnglish] at the holy-number fraction (34.5%) —
- * recognised Sselith tokens flip to English independently per call, and
- * already-English tokens pass through. Repeat uses converge to fully
- * English naturally, no per-book counters or NBT bookkeeping required.
+ * A book with stored pages is rewritten through [Sselith.translateToEnglish] at the holy fraction (34.5%).
+ * A tome stores no pages, so it counts passes instead, and [TomeLore.unravelled] applies them when it builds its pages.
  */
 object ScrollOfUnravelling {
 
     /** Sselith holy fraction; see `sselith_dictionary.json#numerals.holyNumber`. */
-    private const val HOLY_NUMBER_FRACTION = 0.345
+    const val HOLY_NUMBER_FRACTION = 0.345
     private const val MADNESS_COST_LEVELS = 2
 
     fun init() {
@@ -73,12 +71,17 @@ object ScrollOfUnravelling {
         val state = level.getBlockState(pos)
 
         val rng = Random(level.gameTime xor pos.asLong() xor player.uuid.leastSignificantBits)
+        var reveal = Reveal.NONE
         when {
             state.block is net.minecraft.world.level.block.LecternBlock -> {
                 val be = level.getBlockEntity(pos) as? LecternBlockEntity ?: return EventResult.pass()
                 val book = be.book
-                if (book.isEmpty) return EventResult.pass()
-                if (revealPages(book, rng)) {
+                reveal = when {
+                    book.isUnravellableTome() -> unravelTome(book, rng)
+                    book.hasStoredPages() -> revealPages(book, rng)
+                    else -> return EventResult.pass()
+                }
+                if (reveal != Reveal.NONE) {
                     // The page count can change, and only setBook reads it again.
                     be.setBook(book)
                     be.setChanged()
@@ -102,10 +105,8 @@ object ScrollOfUnravelling {
         // Particles + sound fire even with zero flips — the act of
         // breaking the seal is the same either way.
         spawnGlyphColumn(level, pos)
-        level.playSound(
-            null, pos, EKSounds.SCROLL_OF_UNRAVELLING_UNRAVEL.get(), SoundSource.BLOCKS,
-            1.0f, 0.95f + level.random.nextFloat() * 0.1f,
-        )
+        val sound = if (reveal == Reveal.COMPLETED) COMPLETED_SOUND else EKSounds.SCROLL_OF_UNRAVELLING_UNRAVEL.get()
+        level.playSound(null, pos, sound, SoundSource.BLOCKS, 1.0f, 0.95f + level.random.nextFloat() * 0.1f)
         if (player is ServerPlayer) SselithMadness.addLevel(player, MADNESS_COST_LEVELS)
         held.shrink(1)
 
@@ -114,38 +115,48 @@ object ScrollOfUnravelling {
         return EventResult.interruptFalse()
     }
 
+    private enum class Reveal { NONE, CHANGED, COMPLETED }
+
+    private val COMPLETED_SOUND = SoundEvents.ENCHANTMENT_TABLE_USE
+
+    private fun unravelTome(tome: ItemStack, rng: Random): Reveal {
+        val before = tome.unravelPasses
+        tome.addUnravelPass(rng.nextLong())
+        return if (before < MAX_UNRAVEL_PASSES && tome.unravelPasses >= MAX_UNRAVEL_PASSES) Reveal.COMPLETED else Reveal.CHANGED
+    }
+
+    // A SselithBookItem has the written-book page format.
+    private fun ItemStack.hasWrittenPages(): Boolean = `is`(Items.WRITTEN_BOOK) || item is SselithBookItem
+
+    private fun ItemStack.hasStoredPages(): Boolean = hasWrittenPages() || `is`(Items.WRITABLE_BOOK)
+
     /**
      * Reverse-translate the text of [book] at the holy fraction, then make new pages for it.
-     * Writes back in place. Returns true iff the text changed.
+     * When no Sselith word is left and the book has a bundled English source, the pages become that source.
      */
-    private fun revealPages(book: ItemStack, rng: Random): Boolean {
-        // A SselithBookItem has the written-book page format.
-        val written = book.`is`(Items.WRITTEN_BOOK) || book.item is SselithBookItem
-        val writable = book.`is`(Items.WRITABLE_BOOK)
-        if (!written && !writable) return false
-        val tag = book.tag ?: return false
+    private fun revealPages(book: ItemStack, rng: Random): Reveal {
+        val written = book.hasWrittenPages()
+        val tag = book.tag ?: return Reveal.NONE
         val pages = tag.getList("pages", Tag.TAG_STRING.toInt())
-        if (pages.isEmpty()) return false
+        if (pages.isEmpty()) return Reveal.NONE
 
         val plain = (0 until pages.size).map { i -> pages.getString(i).let { if (written) pageText(it) else it } }
         // Only BookPaginator lines are soft wraps. Other books keep the line breaks of their author.
         val sections =
             if (TomeLore.hasSerifPages(book)) BookPaginator.unwrap(plain) else listOf(plain.joinToString("\n"))
 
-        var changed = false
+        val translated = sections.map { Sselith.translateToEnglish(it, HOLY_NUMBER_FRACTION, rng) }
+        if (translated == sections) return Reveal.NONE
+        val english = if (translated.all(Sselith::isAllEnglish)) TomeLore.englishStoredPages(book) else null
+        val newPages = english ?: translated.flatMap { BookPaginator.paginate(it) }
         val updated = ListTag()
-        for (section in sections) {
-            val translated = Sselith.translateToEnglish(section, HOLY_NUMBER_FRACTION, rng)
-            if (translated != section) changed = true
-            for (page in BookPaginator.paginate(translated)) {
-                if (updated.size >= BookPaginator.MAX_PAGES) break
-                val encoded = if (written) Component.Serializer.toJson(Component.literal(page)) else page
-                updated.add(StringTag.valueOf(encoded))
-            }
+        for (page in newPages.take(BookPaginator.MAX_PAGES)) {
+            val encoded = if (written) Component.Serializer.toJson(Component.literal(page)) else page
+            updated.add(StringTag.valueOf(encoded))
         }
-        if (!changed || updated.isEmpty()) return false
+        if (updated.isEmpty()) return Reveal.NONE
         tag.put("pages", updated)
-        return true
+        return if (english != null) Reveal.COMPLETED else Reveal.CHANGED
     }
 
     /**

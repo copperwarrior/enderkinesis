@@ -55,7 +55,7 @@ abstract class TomeItem(properties: Properties) : Item(properties) {
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
         if (level.isClientSide) {
-            val book = writtenBook(stack)
+            val book = shownBook(stack)
             OldPaperClient.open(book, if (TomeLore.hasSerifPages(book)) BookSkin.SSELITH_BOOK else null)
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide)
@@ -68,6 +68,9 @@ abstract class TomeItem(properties: Properties) : Item(properties) {
      */
     abstract fun writtenBook(stack: ItemStack): ItemStack
 
+    /** [writtenBook] after the Scroll of Unravelling passes on [stack]; every screen and page count reads this one. */
+    fun shownBook(stack: ItemStack): ItemStack = TomeLore.unravelled(writtenBook(stack), stack)
+
     /** Page count for the comparator and the lectern's page-turn clamp. */
-    open fun pageCount(stack: ItemStack): Int = WrittenBookItem.getPageCount(writtenBook(stack))
+    open fun pageCount(stack: ItemStack): Int = WrittenBookItem.getPageCount(shownBook(stack))
 }

@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 /**
  * Lets a {@link TomeItem} on a lectern read as a book: the lectern keeps the real tome stack, and
- * the screen gets the written book from {@link TomeItem#writtenBook(ItemStack)}. Forge's Mixin
+ * the screen gets the written book from {@link TomeItem#shownBook(ItemStack)}. Forge's Mixin
  * 0.8.5 cannot inject into the {@code BookAccess} interface, so this wraps the screen's call.
  */
 @Mixin(LecternScreen.class)
@@ -27,6 +27,6 @@ public abstract class TomeLecternBookMixin {
     private BookViewScreen.BookAccess enderkinesis$tomeAsBook(
         ItemStack stack, Operation<BookViewScreen.BookAccess> original
     ) {
-        return original.call(stack.getItem() instanceof TomeItem tome ? tome.writtenBook(stack) : stack);
+        return original.call(stack.getItem() instanceof TomeItem tome ? tome.shownBook(stack) : stack);
     }
 }
