@@ -11,6 +11,12 @@ architectury {
 
 loom {
     accessWidenerPath = project(":common").loom.accessWidenerPath
+    runs {
+        client {
+            // Fixed offline user keeps the player UUID stable across dev runs.
+            programArgs "--username", "Dev", "--uuid", "380df991-f603-344c-a090-369bad2a924a"
+        }
+    }
 }
 
 configurations {
