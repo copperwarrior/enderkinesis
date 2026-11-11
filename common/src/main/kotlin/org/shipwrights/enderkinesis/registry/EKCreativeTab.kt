@@ -206,6 +206,7 @@ object EKCreativeTab {
             output.accept(EKItems.CRYSTAL_PEDESTAL_ITEM.get())
             output.accept(EKItems.GUARDIAN_SPIKE_ITEM.get())
             output.accept(EKItems.BLESSED_RAZOR.get())
+            output.accept(EKItems.WOGGAK_VINE.get())
             output.accept(EKItems.WEHELO_BLADE.get())
             output.accept(EKItems.WAND_OF_GAMYLAN.get())
             output.accept(EKItems.STAFF_OF_COMMAND.get())

@@ -470,6 +470,9 @@ object EKItems {
     val BLESSED_RAZOR: RegistrySupplier<Item> =
         ITEMS.register("blessed_razor") { BlessedRazorItem(props().stacksTo(1)) }
 
+    val WOGGAK_VINE: RegistrySupplier<Item> =
+        ITEMS.register("woggak_vine") { org.shipwrights.enderkinesis.vine.WoggakVineItem(props()) }
+
     val SILVERPOINT: RegistrySupplier<Item> =
         ITEMS.register("silverpoint") { SilverpointItem(props().stacksTo(1)) }
 

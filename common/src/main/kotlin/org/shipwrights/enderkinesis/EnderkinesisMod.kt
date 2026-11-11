@@ -260,6 +260,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.remnant.IrreverentRemnantManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaSpreader.init()
         org.shipwrights.enderkinesis.block.BindingRootsMerger.init()
+        org.shipwrights.enderkinesis.vine.registerWoggakVineEvents()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaTreeGrower.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaWorldRootGrower.init()
         org.shipwrights.enderkinesis.block.WohlonRollingWaters.init()

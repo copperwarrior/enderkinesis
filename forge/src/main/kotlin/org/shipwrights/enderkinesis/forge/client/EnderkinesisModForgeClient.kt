@@ -123,6 +123,11 @@ class EnderkinesisModForgeClient {
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,
                     )
+                    org.shipwrights.enderkinesis.client.WoggakVineRenderer.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
                 }
                 RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS -> {
                     // Orb-network beam line — after translucent blocks so it composites over

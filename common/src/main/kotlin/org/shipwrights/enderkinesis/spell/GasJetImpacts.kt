@@ -11,6 +11,7 @@ import org.joml.Vector3dc
 import org.joml.primitives.AABBd
 import org.shipwrights.enderkinesis.physics.HeldPushes
 import org.shipwrights.enderkinesis.util.containsWorldPoint
+import org.shipwrights.enderkinesis.util.hitboxMass
 import org.shipwrights.enderkinesis.util.standaloneBodies
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.util.GameTickOnly
@@ -111,20 +112,11 @@ object GasJetImpacts : JetPush {
         return motion
     }
 
-    /** The mass of an entity for a push: [ENTITY_DENSITY] times its hitbox volume, never under [MIN_ENTITY_MASS]. */
-    private fun entityMass(entity: Entity): Double {
-        val box = entity.boundingBox
-        return max(MIN_ENTITY_MASS, ENTITY_DENSITY * box.xsize * box.ysize * box.zsize)
-    }
-
     private fun applyEntityPush(entity: Entity, jx: Double, jy: Double, jz: Double) {
-        val dv = 1.0 / (entityMass(entity) * TICKS_PER_SECOND)
+        val dv = 1.0 / (entity.hitboxMass() * TICKS_PER_SECOND)
         entity.push(jx * dv, jy * dv, jz * dv)
         entity.hurtMarked = true
     }
 
-    // kg per cubic metre of hitbox: a player is about 78 kg.
-    private const val ENTITY_DENSITY = 120.0
-    private const val MIN_ENTITY_MASS = 10.0
     private const val SUM_SIZE = 7
 }

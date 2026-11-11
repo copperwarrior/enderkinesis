@@ -173,6 +173,7 @@
     "FogRendererSunErasureMixin"
   ],
   "mixins": [
+    "EntityWoggakVineCollisionMixin",
     "TransientCraftingContainerMenuAccessor",
     "CraftingMenuPlayerAccessor",
     "InventoryMenuOwnerAccessor",

@@ -666,6 +666,8 @@ object EnderkinesisModClient {
         EchoCannonClient.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> EchoCannonClient.clientTick() }
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WogorBudClientTracker.tick(level) }
+        WoggakVineRenderer.init()
+        ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WoggakVineRenderer.tick(level) }
 
         SselithEclipseClient.init()
         SselithEclipseSounds.init()
@@ -674,6 +676,7 @@ object EnderkinesisModClient {
         // Static client state holds game times and entities of the session that ends here.
         ClientPlayerEvent.CLIENT_PLAYER_QUIT.register {
             WogorBudClientTracker.clear()
+            WoggakVineRenderer.clear()
             SselithAmbience.onDisconnect()
             SselithEclipseSounds.onDisconnect()
             SselithVoidSounds.onDisconnect()

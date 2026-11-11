@@ -165,6 +165,9 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             org.shipwrights.enderkinesis.client.WogorBudRenderer.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
+            org.shipwrights.enderkinesis.client.WoggakVineRenderer.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
         })
 
         // Orb-network beam line — drawn after translucent blocks so it composites correctly
