@@ -13,7 +13,6 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.ShearsItem
 import net.minecraft.world.level.ClipContext
 import org.joml.Vector3d
-import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.valkyrienskies.core.api.chains.ChainEndpoint
 import org.valkyrienskies.core.api.chains.ServerChain
@@ -23,44 +22,74 @@ import org.valkyrienskies.mod.common.shipObjectWorld
 private const val PICK_REACH = 5.0
 /** Shorter pieces are dropped; VS rejects a link shorter than one particle diameter (0.2). */
 private const val MIN_PIECE_LENGTH = 0.25
+/**
+ * m/s. A vine at most 32 blocks long that falls its full length reaches about 25 m/s, so a node past twice that
+ * comes from a solver blow-up; a split would rebuild that energy into new chains.
+ */
+private const val MAX_REBUILD_SPEED = 50.0
 /** Half the drawn vine width plus a small margin, so the shears hit what the player sees. */
 private const val SHEAR_RADIUS = 0.2
 private const val MAX_PUFFS = 64
 private const val PUFF_STEP = 2
 
 /**
- * Replaces [vine] with two vines cut between nodes [link] and [link] + 1, made from the current node positions.
+ * Replaces [vine] with one vine for each unbroken run of links, with [cutLink] (or -1) counted as broken too.
  * The chain API has no call to cut a link, so this deletes the chain and makes new ones; node velocities reset.
+ * Each piece is laid along its deformed shape but at its rest length, so a stretched vine never makes a bigger one.
  * Returns true when the caller must drop [vine] from the list.
  */
 @OptIn(GameTickOnly::class)
-internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, link: Int, fromBreak: Boolean): Boolean {
-    val nodes = chain.status.nodeCount
-    if (link < 0 || link >= nodes - 1) return false
+internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, fromBreak: Boolean, cutLink: Int = -1): Boolean {
+    val status = chain.status
+    val nodes = status.nodeCount
+    if (nodes < 2) return false
+    val broken = if (cutLink in 0 until nodes - 1) status.brokenLinks + cutLink else status.brokenLinks
+    val runs = unbrokenRuns(nodes, broken)
+    if (runs.size == 1 && runs[0].first == 0 && runs[0].last == nodes - 1) return false
     val positions = DoubleArray(nodes * 3)
     if (chain.copyNodePositions(positions) != nodes) return false
+    val blownUp = blownUpReason(chain, positions)
     if (!shipObjectWorld.deleteChain(vine.chain)) return false
-    if (positions.any { !it.isFinite() }) return true
-    addPiece(positions, 0, link, vine.start, null, fromBreak)
-    addPiece(positions, link + 1, nodes - 1, null, vine.end, fromBreak)
+    if (blownUp != null) {
+        LOG.warn("Woggak Vine {} was not split, and is removed: {}", vine.chain.value, blownUp)
+        return true
+    }
+    val restPerLink = (status.currentRestLength / (nodes - 1)).takeIf { it.isFinite() && it > 0 } ?: VINE_TARGET_SPACING
+    for (run in runs) {
+        val start = if (run.first == 0) vine.start else null
+        val end = if (run.last == nodes - 1) vine.end else null
+        addPiece(positions, run, restPerLink * (run.last - run.first), start, end, fromBreak)
+    }
     return true
 }
 
-/** One new vine over nodes [from]..[to]; a piece with fewer than two nodes is dropped. */
+/** Why the chain's state is not safe to rebuild from, or null when it is. */
+@OptIn(GameTickOnly::class)
+private fun ServerLevel.blownUpReason(chain: ServerChain, positions: DoubleArray): String? {
+    if (positions.any { !it.isFinite() }) return "a node position is not finite"
+    var fastest = 0.0
+    for (id in chain.nodeIds) {
+        val v = shipObjectWorld.allParticles.getById(id)?.velocity ?: continue
+        fastest = maxOf(fastest, v.length())
+    }
+    return if (fastest > MAX_REBUILD_SPEED) "a node moves at %.1f m/s".format(fastest) else null
+}
+
+/** One new vine over [run], at [restLength]; a piece shorter than [MIN_PIECE_LENGTH] is dropped. */
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.addPiece(
-    positions: DoubleArray, from: Int, to: Int, start: WoggakVineAnchor?, end: WoggakVineAnchor?, fromBreak: Boolean,
+    positions: DoubleArray, run: IntRange, restLength: Double,
+    start: WoggakVineAnchor?, end: WoggakVineAnchor?, fromBreak: Boolean,
 ) {
-    if (to - from < 1) return
-    val path = List<Vector3dc>(to - from + 1) { i ->
-        val k = (from + i) * 3
-        Vector3d(positions[k], positions[k + 1], positions[k + 2])
-    }
+    if (restLength < MIN_PIECE_LENGTH) return
     val startAnchor = keptAnchor(start)
     val endAnchor = keptAnchor(end)
-    var length = 0.0
-    for (i in 1 until path.size) length += path[i].distance(path[i - 1])
-    if (length < MIN_PIECE_LENGTH) return
+    val pivot = when {
+        startAnchor.point != null -> FragmentPivot.FIRST
+        endAnchor.point != null -> FragmentPivot.LAST
+        else -> FragmentPivot.CENTROID
+    }
+    val path = restPath(positions, run, restLength, pivot) ?: return
     val chain = makeVineChain(path, endpointOf(startAnchor), endpointOf(endAnchor)) ?: return
     addVine(WoggakVine(chain.id, startAnchor, endAnchor, fromBreak))
 }
@@ -145,7 +174,7 @@ internal fun shearWoggakVine(player: Player, hand: InteractionHand): CompoundEve
     if (stack.item !is ShearsItem) return CompoundEventResult.pass()
     val level = player.level() as? ServerLevel ?: return CompoundEventResult.pass()
     val pick = level.pickWoggakVine(player) ?: return CompoundEventResult.pass()
-    if (level.splitWoggakVine(pick.vine, pick.chain, pick.link, false)) {
+    if (level.splitWoggakVine(pick.vine, pick.chain, false, pick.link)) {
         val data = level.woggakVines
         data.vines.remove(pick.vine)
         data.anchorsDirty = true

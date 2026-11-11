@@ -40,9 +40,9 @@ const val MAX_WOGGAK_VINES = 1024
 const val WOGGAK_VINE_FADE_TICKS = 60
 
 /** At least four particle radii, so that no node count makes a link shorter than one particle diameter. */
-private const val TARGET_SPACING = 0.4
+internal const val VINE_TARGET_SPACING = 0.4
 private const val PARTICLE_RADIUS = 0.1
-private const val MASS_PER_LENGTH = 1.0
+private const val MASS_PER_LENGTH = 5.0
 /** Newtons on one link or end joint; about 100 t hanging still at 1 g. */
 internal const val VINE_BREAK_FORCE = 1.0e6
 private const val MIN_LENGTH = 1.0
@@ -202,7 +202,7 @@ internal fun ServerLevel.makeVineChain(path: List<Vector3dc>, start: ChainEndpoi
         path = path,
         start = start,
         end = end,
-        targetSpacing = TARGET_SPACING,
+        targetSpacing = VINE_TARGET_SPACING,
         particleRadius = PARTICLE_RADIUS,
         massPerLength = MASS_PER_LENGTH,
         breakForce = VINE_BREAK_FORCE,
@@ -259,7 +259,7 @@ private fun ServerLevel.tickWoggakVines() {
             if (releaseIfLost(chain, ChainEnd.END, vine.end, status.endAttachment)) topology = true
             // One split per break lineage: a piece made inside a block can break again at once, and a split on
             // each break then multiplied the chains until physics froze.
-            if (status.brokenLinks.isNotEmpty() && !vine.fromBreak && splitWoggakVine(vine, chain, status.brokenLinks.min(), true)) {
+            if (status.brokenLinks.isNotEmpty() && !vine.fromBreak && splitWoggakVine(vine, chain, true)) {
                 data.vines.removeAt(i); count--; topology = true
                 continue
             }

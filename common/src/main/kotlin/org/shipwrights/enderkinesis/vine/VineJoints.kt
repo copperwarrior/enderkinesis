@@ -134,7 +134,7 @@ private fun solveJoints(physLevel: PhysLevel, dt: Double) {
         val jy = -reduced * ((va.y() - vb.y()) + k * (pa.y() - pb.y()))
         val jz = -reduced * ((va.z() - vb.z()) + k * (pa.z() - pb.z()))
         val size = sqrt(jx * jx + jy * jy + jz * jz)
-        if (!size.isFinite()) continue
+        if (!size.isFinite() || size <= 0.0) continue
         // The same strength as a vine link; past it the joint lets go, as a link would.
         if (size > maxImpulse) { pair.broken = true; continue }
         if (a.isSleeping) a.wake()

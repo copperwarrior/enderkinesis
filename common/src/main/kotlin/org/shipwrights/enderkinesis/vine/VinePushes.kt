@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.vine
 
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import net.minecraft.server.level.ServerLevel
@@ -7,10 +8,11 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.physics.physicsStepSeconds
 import org.shipwrights.enderkinesis.util.gravity
 import org.shipwrights.enderkinesis.util.hitboxMass
 import org.valkyrienskies.core.api.VsBeta
-import org.valkyrienskies.core.api.particles.ParticleVectorInput
+import org.valkyrienskies.core.api.particles.ParticleId
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -27,11 +29,16 @@ private const val MAX_QUEUED = 4096
 /** Reach past the entity's box for the links it touches, in blocks. */
 private const val CONTACT_MARGIN = 0.05
 
-private class QueuedPush(val dimension: DimensionId, val input: ParticleVectorInput)
+/** An impulse delivered as a [force] over one game tick of physics steps, so no single step takes a spike. */
+private class QueuedPush(val dimension: DimensionId, val id: ParticleId, val force: Vector3d) {
+    var remaining = SECONDS_PER_TICK
+}
 
 // Server thread adds, physics thread drains.
 private val pushes = ConcurrentLinkedQueue<QueuedPush>()
 private val queuedCount = AtomicInteger()
+// Each dimension's list is touched only from that dimension's physics tick.
+private val activePushes = ConcurrentHashMap<DimensionId, ArrayList<QueuedPush>>()
 
 /**
  * After an entity's move, gives the vine the reaction to what the vine did to the entity: the entity's weight
@@ -82,43 +89,60 @@ fun pushVinesAfterCollide(entity: Entity, movement: Vec3) {
         val share = contacts.weight[c] / contacts.totalWeight
         val t = contacts.t[c]
         // Split between the link's two nodes by where the contact is along the link.
-        queue(dimension, ParticleVectorInput(ids[node], Vector3d(ix, iy, iz).mul(share * (1.0 - t))))
-        queue(dimension, ParticleVectorInput(ids[node + 1], Vector3d(ix, iy, iz).mul(share * t)))
+        queue(dimension, ids[node], Vector3d(ix, iy, iz).mul(share * (1.0 - t) * TICKS_PER_SECOND))
+        queue(dimension, ids[node + 1], Vector3d(ix, iy, iz).mul(share * t * TICKS_PER_SECOND))
     }
     contacts.clear()
 }
 
-private fun queue(dimension: DimensionId, input: ParticleVectorInput) {
+/** Queues [force] on node [id] for one game tick. */
+private fun queue(dimension: DimensionId, id: ParticleId, force: Vector3d) {
     if (queuedCount.get() >= MAX_QUEUED) return
-    pushes.add(QueuedPush(dimension, input))
+    pushes.add(QueuedPush(dimension, id, force))
     queuedCount.incrementAndGet()
 }
 
 @OptIn(VsBeta::class, PhysTickOnly::class)
 fun registerVinePushes() {
-    vsApi.physTickEvent.on { event, _ -> drainVinePushes(event.world) }
+    vsApi.physTickEvent.on { event, _ -> applyVinePushes(event.world, physicsStepSeconds(event.delta)) }
 }
 
 fun clearVinePushes() {
     pushes.clear()
+    activePushes.clear()
     queuedCount.set(0)
 }
 
 // The event fires once per dimension; pushes for another dimension stay for its own event.
 @OptIn(PhysTickOnly::class)
-private fun drainVinePushes(physLevel: PhysLevel) {
-    if (pushes.isEmpty()) return
+private fun applyVinePushes(physLevel: PhysLevel, dt: Double) {
     val dimension = physLevel.dimension
-    val inputs = ArrayList<ParticleVectorInput>()
-    val iterator = pushes.iterator()
-    while (iterator.hasNext()) {
-        val push = iterator.next()
-        if (push.dimension != dimension) continue
-        iterator.remove()
-        queuedCount.decrementAndGet()
-        inputs.add(push.input)
+    val active = activePushes.getOrPut(dimension) { ArrayList() }
+    if (pushes.isNotEmpty()) {
+        val iterator = pushes.iterator()
+        while (iterator.hasNext()) {
+            val push = iterator.next()
+            if (push.dimension != dimension) continue
+            iterator.remove()
+            active.add(push)
+        }
     }
-    if (inputs.isEmpty()) return
-    // A node removed since the push was queued comes back STALE_ID; that push is simply lost.
-    physLevel.applyParticleImpulses(inputs)
+    var i = 0
+    while (i < active.size) {
+        val push = active[i]
+        val particle = physLevel.getParticleById(push.id)
+        val step = minOf(dt, push.remaining)
+        push.remaining -= step
+        if (particle != null) {
+            if (particle.isSleeping) particle.wake()
+            particle.applyWorldImpulse(Vector3d(push.force).mul(step))
+        }
+        if (particle == null || push.remaining <= 0.0) {
+            active[i] = active[active.size - 1]
+            active.removeAt(active.size - 1)
+            queuedCount.decrementAndGet()
+        } else {
+            i++
+        }
+    }
 }
