@@ -45,12 +45,22 @@ interface RitualEffect {
             EnderkinesisMod.id("weathering") to { json -> Weathering.parse(json) },
             EnderkinesisMod.id("erase_sun") to { _ -> EraseSun },
             EnderkinesisMod.id("conflagration") to { json -> Conflagration.parse(json) },
+            EnderkinesisMod.id("capturing") to { json -> Capturing.parse(json) },
         )
 
         fun parse(json: JsonObject): RitualEffect? {
             val type = json.get("type")?.takeIf { it.isJsonPrimitive }?.asString?.let(ResourceLocation::tryParse) ?: return null
             return TYPES[type]?.invoke(json)
         }
+    }
+}
+
+/** The block ids in the array [key] of [json]; null when the array is missing or names an unknown block. */
+internal fun parseBlocks(json: JsonObject, key: String): List<Block>? {
+    val list = json.get(key)?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+    return list.map { e ->
+        val id = e.takeIf { it.isJsonPrimitive }?.asString?.let(ResourceLocation::tryParse) ?: return null
+        BuiltInRegistries.BLOCK.get(id).takeIf { it != Blocks.AIR } ?: return null
     }
 }
 
@@ -104,14 +114,7 @@ class Staff(private val feedCandles: Set<Block>) : RitualEffect {
         fun recipe(offered: List<ItemStack>): WohlonStaffRites.Recipe? =
             offered.firstOrNull()?.let { WohlonStaffRites.forGem(it.item) }
 
-        fun parse(json: JsonObject): Staff? {
-            val list = json.get("feed_candles")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
-            val blocks = list.map { e ->
-                val id = e.takeIf { it.isJsonPrimitive }?.asString?.let(ResourceLocation::tryParse) ?: return null
-                BuiltInRegistries.BLOCK.get(id).takeIf { it != Blocks.AIR } ?: return null
-            }
-            return Staff(blocks.toSet())
-        }
+        fun parse(json: JsonObject): Staff? = parseBlocks(json, "feed_candles")?.let { Staff(it.toSet()) }
     }
 }
 

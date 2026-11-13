@@ -47,6 +47,19 @@ import kotlin.math.sqrt
 import org.shipwrights.enderkinesis.dimension.wohlonHash01
 import org.shipwrights.enderkinesis.dimension.wohlonHash32
 import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
+import org.shipwrights.enderkinesis.vine.FloorAt
+import org.shipwrights.enderkinesis.vine.PlanResult
+import org.shipwrights.enderkinesis.vine.PlannedKind
+import org.shipwrights.enderkinesis.vine.PlannedVine
+import org.shipwrights.enderkinesis.vine.VoxelVineProbe
+import org.shipwrights.enderkinesis.vine.fixedAt
+import org.shipwrights.enderkinesis.vine.loadPlannedVine
+import org.shipwrights.enderkinesis.vine.makePlannedVine
+import org.shipwrights.enderkinesis.vine.planTreeVines
+import org.shipwrights.enderkinesis.vine.save
+import org.shipwrights.enderkinesis.vine.skeletonVineSite
+import org.shipwrights.enderkinesis.vine.snapUnderside
+import org.shipwrights.enderkinesis.vine.treeVineBudget
 
 /**
  * Grows a chunkgen-style Child Tree at the heart-candle ritual. Every voxel is planned off-thread, then
@@ -68,6 +81,10 @@ object WohlonnogondoniaTreeGrower {
      *  tips in pancake clumps, not spheres. */
     private const val LEAF_BLOB_RXZ = 7
     private const val LEAF_BLOB_RY = 4
+    /** Planned vines looked at each tick, and made each tick: one a tick, so they come in with the growth. */
+    private const val RITUAL_VINE_SCAN = 32
+    private const val RITUAL_VINES_PER_TICK = 1
+    private const val RITUAL_VINE_SALT = 0x52495456L
 
     /** Continuous radius of each child-tree root arm at its trunk
      *  end — chunkgen `CHILD_TREE_ROOT_BASE_RADIUS`. Scales with
@@ -739,6 +756,10 @@ object WohlonnogondoniaTreeGrower {
         }
 
         val order = growthOrder(woodVoxels, rootPositions, leafVoxels, canopySegments, rootSegments, rootTips.toLongArray(), seed)
+        val vinePlans = ritualVinePlans(
+            canopySegments, canopyTips, listOf(woodVoxels, leafVoxels), site,
+            baseX + lean[0], baseZ + lean[1], canopyRx, baseYD, canopyCy, seed,
+        )
         val sortedVoxels = order.voxels
         val sortedIsLeaf = order.isLeaf
         val sortedIsRoot = order.isRoot
@@ -756,6 +777,7 @@ object WohlonnogondoniaTreeGrower {
             ghostSegments = ghostSegments(canopySegments, rootSegments, baseX, baseYD, baseZ),
             ghostTips = ghostTips(canopyTips, candlePos),
             quality = siteQuality(site, light, baseX, baseZ),
+            vinePlans = vinePlans,
         )
         // Builds the position→index map and the initial
         // frontier from the painted set. Pure data work, no
@@ -763,6 +785,25 @@ object WohlonnogondoniaTreeGrower {
         job.rebuildRuntimeState()
 
         return job
+    }
+
+    /**
+     * The Medium vine plan of this crown, as for a child tree, with each anchor fixed on a planned voxel.
+     * The vines come in one by one as their anchors grow and mature; see [tickRitualVines].
+     */
+    @Suppress("LongParameterList") // the crown, its planned voxels and its site
+    private fun ritualVinePlans(
+        segments: List<TreeSegment>, tips: List<TreeTip>, voxels: List<Set<Long>>, site: WohlonTreeSite,
+        crownX: Double, crownZ: Double, canopyRx: Double, baseY: Double, canopyCy: Double, seed: Int,
+    ): List<PlannedVine> {
+        val budget = treeVineBudget(canopyRx, baseY, canopyCy)
+        val vineSite = skeletonVineSite(segments, tips, LEAF_BLOB_RXZ, LEAF_BLOB_RY, crownX, crownZ, budget.rimDistance)
+        val planned = planTreeVines(vineSite, budget, FloorAt { x, z -> site.groundY(x, z) + 1 }, (seed.toLong() shl 32) xor RITUAL_VINE_SALT)
+        val probe = VoxelVineProbe(voxels)
+        return planned.mapNotNull { plan ->
+            val y = snapUnderside(probe, plan.ax, plan.ay, plan.az, plan.snap) ?: return@mapNotNull null
+            if (plan.kind == PlannedKind.LOOP && !probe.solid(plan.bx, plan.by, plan.bz)) null else plan.fixedAt(y)
+        }
     }
 
     /** Main-thread install — register the finished job so the
@@ -773,6 +814,7 @@ object WohlonnogondoniaTreeGrower {
     private fun installTreeJob(level: ServerLevel, params: TreeBuildParams, job: TreeJob) {
         val data = getData(level)
         data.jobs.add(job)
+        job.trunk?.let { trunk -> job.vinePlans.mapTo(data.vines) { RitualVine(it, trunk) } }
         data.setDirty()
         // Apply the exit-tunnel air carve once, on the main thread —
         // the off-thread builder couldn't touch the level, so any
@@ -945,6 +987,7 @@ object WohlonnogondoniaTreeGrower {
             { tag -> TreeJobsData.load(tag) }, DATA_NAME,
         ) ?: return
         if (data.pending.isNotEmpty()) resumePendingBuilds(level, data)
+        if (data.vines.isNotEmpty() && tickRitualVines(level, data)) data.setDirty()
         if (data.jobs.isEmpty()) return
         val iter = data.jobs.iterator()
         var changed = false
@@ -962,15 +1005,72 @@ object WohlonnogondoniaTreeGrower {
             job.idleTicks = if (placedNow > placedBefore) 0 else job.idleTicks + 1
             if (placedNow == job.voxels.size) {
                 job.trunk?.let { playAt(level, it, EKSounds.WOHLON_RITUAL_COMPLETE.get(), COMPLETE_VOLUME, 1f) }
+                settleRitualVines(data, job)
                 iter.remove()
                 changed = true
             } else if (job.idleTicks >= JOB_IDLE_LIMIT_TICKS) {
+                settleRitualVines(data, job)
                 iter.remove()
                 changed = true
             }
         }
         if (changed) data.setDirty()
     }
+
+    /** Makes the planned vines whose anchors grew, [RITUAL_VINES_PER_TICK] at most each tick. */
+    private fun tickRitualVines(level: ServerLevel, data: TreeJobsData): Boolean {
+        val vines = data.vines
+        val bud = EKBlocks.WOGOR_BUD.get()
+        var changed = false
+        var made = 0
+        var scanned = 0
+        while (vines.isNotEmpty() && scanned < RITUAL_VINE_SCAN && made < RITUAL_VINES_PER_TICK) {
+            scanned++
+            if (data.vineCursor >= vines.size) data.vineCursor = 0
+            val vine = vines[data.vineCursor]
+            if (!vine.armed) {
+                // Both ends of a job settle its vines, so an unarmed vine without a job is an orphan.
+                val job = data.jobs.firstOrNull { it.trunk == vine.trunk }
+                if (job == null) {
+                    vines.removeAt(data.vineCursor)
+                    changed = true
+                    continue
+                }
+                if (!job.hasPlaced(vine.plan)) {
+                    data.vineCursor++
+                    continue
+                }
+                vine.armed = true
+                changed = true
+            }
+            // A bud has no collision, so a vine on it would let go at once; it waits for the wood.
+            when (level.makePlannedVine(vine.plan) { it.`is`(bud) }) {
+                PlanResult.WAIT -> data.vineCursor++
+                PlanResult.MADE -> { vines.removeAt(data.vineCursor); made++; changed = true }
+                PlanResult.DROP -> { vines.removeAt(data.vineCursor); changed = true }
+            }
+        }
+        return changed
+    }
+
+    /** The job of [job]'s vines ends: a vine whose anchor grew waits for it to mature, the others never come. */
+    private fun settleRitualVines(data: TreeJobsData, job: TreeJob) {
+        data.vines.removeAll { vine ->
+            if (vine.trunk != job.trunk || vine.armed) return@removeAll false
+            vine.armed = job.hasPlaced(vine.plan)
+            !vine.armed
+        }
+    }
+
+    private fun TreeJob.hasPlaced(plan: PlannedVine): Boolean {
+        val a = voxelIdx[BlockPos.asLong(plan.ax, plan.ay, plan.az)] ?: return false
+        if (!placed.get(a)) return false
+        if (plan.kind != PlannedKind.LOOP) return true
+        val b = voxelIdx[BlockPos.asLong(plan.bx, plan.by, plan.bz)] ?: return false
+        return placed.get(b)
+    }
+
+    private class RitualVine(val plan: PlannedVine, val trunk: Long, var armed: Boolean = false)
 
     private fun tickGrowDetail(level: ServerLevel, job: TreeJob) {
         if (--job.detailCountdown > 0) return
@@ -1865,6 +1965,8 @@ object WohlonnogondoniaTreeGrower {
         val ghostSegments: FloatArray = FloatArray(0),
         /** Leaf blob centres for the growth ghost, 3 ints each, from the candle. Not saved. */
         val ghostTips: IntArray = IntArray(0),
+        /** Vines to grow with the tree; they move to [TreeJobsData.vines] at install. Not saved. */
+        val vinePlans: List<PlannedVine> = emptyList(),
     ) {
         // Runtime-only — rebuilt on construction / save load.
         val voxelIdx: HashMap<Long, Int> = HashMap(voxels.size + voxels.size / 2)
@@ -1923,8 +2025,14 @@ object WohlonnogondoniaTreeGrower {
     private class TreeJobsData : SavedData() {
         @JvmField val jobs: MutableList<TreeJob> = mutableListOf()
         @JvmField val pending: MutableList<TreeBuildParams> = mutableListOf()
+        @JvmField val vines: MutableList<RitualVine> = mutableListOf()
+        /** Round-robin position in [vines]; not saved. */
+        var vineCursor = 0
 
         override fun save(tag: CompoundTag): CompoundTag {
+            val vineList = ListTag()
+            for (vine in vines) vineList.add(vine.plan.save().apply { putLong("trunk", vine.trunk); putBoolean("armed", vine.armed) })
+            tag.put("vines", vineList)
             val pendingList = ListTag()
             for (params in pending) pendingList.add(params.save())
             tag.put("pending", pendingList)
@@ -1953,6 +2061,12 @@ object WohlonnogondoniaTreeGrower {
                 val pendingList = tag.getList("pending", Tag.TAG_COMPOUND.toInt())
                 for (i in 0 until pendingList.size) {
                     TreeBuildParams.load(pendingList.getCompound(i))?.let(data.pending::add)
+                }
+                val vineList = tag.getList("vines", Tag.TAG_COMPOUND.toInt())
+                for (i in 0 until vineList.size) {
+                    val t = vineList.getCompound(i)
+                    val plan = loadPlannedVine(t) ?: continue
+                    data.vines.add(RitualVine(plan, t.getLong("trunk"), t.getBoolean("armed")))
                 }
                 if (!tag.contains("jobs", Tag.TAG_LIST.toInt())) return data
                 val jobsList = tag.getList("jobs", Tag.TAG_COMPOUND.toInt())

@@ -4,11 +4,14 @@ import com.mojang.logging.LogUtils
 import it.unimi.dsi.fastutil.longs.LongArrayList
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.Level
+import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.joml.primitives.AABBdc
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.bodies.PhysVsBody
 import org.valkyrienskies.core.api.bodies.ServerBaseVsBody
 import org.valkyrienskies.core.api.bodies.VsBody
+import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -72,3 +75,25 @@ fun Level.gravity(): Double =
 @OptIn(PhysTickOnly::class, VsBeta::class)
 fun PhysLevel.dynamicBody(bodyId: Long): PhysVsBody? =
     getBodyById(bodyId)?.takeIf { !it.isStatic && it.inertiaData.mass > 0.0 }
+
+/** World velocity (m/s) of this ship's material point at [worldPoint]. Any thread; writes [dest] only. */
+fun Ship.pointVelocity(worldPoint: Vector3dc, dest: Vector3d): Vector3d =
+    pointVelocity(velocity, angularVelocity, transform.positionInWorld, worldPoint, dest)
+
+/** v + ω × (point − centre): the world velocity of a rigid body's point. [centre] is the centre of mass. */
+fun pointVelocity(velocity: Vector3dc, omega: Vector3dc, centre: Vector3dc, worldPoint: Vector3dc, dest: Vector3d): Vector3d {
+    dest.set(worldPoint).sub(centre)
+    return omega.cross(dest, dest).add(velocity)
+}
+
+/** Mass (kg) a hit can move. A static body reports a finite mass (VS2 terrain reports 10 kg) but cannot move, so it gives 0. */
+@OptIn(PhysTickOnly::class, VsBeta::class)
+fun PhysLevel.movableMass(id: Long): Double {
+    getShipById(id)?.let { return if (it.isStatic) 0.0 else it.mass }
+    val body = getBodyById(id) ?: return 0.0
+    return if (body.isStatic) 0.0 else body.inertiaData.mass
+}
+
+/** Reduced mass of a two-body hit. A movable mass of 0 is immovable (infinite mass), so the other side counts in full. */
+fun reducedMass(movableA: Double, movableB: Double): Double =
+    if (movableA > 0.0 && movableB > 0.0) movableA * movableB / (movableA + movableB) else maxOf(movableA, movableB)

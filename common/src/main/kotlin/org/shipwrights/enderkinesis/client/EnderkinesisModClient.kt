@@ -668,6 +668,8 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WogorBudClientTracker.tick(level) }
         WoggakVineRenderer.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WoggakVineRenderer.tick(level) }
+        VineHoldClient.init()
+        ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> VineHoldClient.tick() }
 
         SselithEclipseClient.init()
         SselithEclipseSounds.init()
@@ -677,6 +679,7 @@ object EnderkinesisModClient {
         ClientPlayerEvent.CLIENT_PLAYER_QUIT.register {
             WogorBudClientTracker.clear()
             WoggakVineRenderer.clear()
+            VineHoldClient.clear()
             SselithAmbience.onDisconnect()
             SselithEclipseSounds.onDisconnect()
             SselithVoidSounds.onDisconnect()
@@ -736,6 +739,7 @@ object EnderkinesisModClient {
             ConcealmentTransitionWatcher.reset()
             // A respawn makes a new client level, and the server sends its chunks again.
             MothClothClientPositions.clear()
+            WoggakVineRenderer.clear()
             clearClientSession()
         }
         ClientTickEvent.CLIENT_POST.register { mc -> WohlonBiomePresenceScanner.tick(mc) }

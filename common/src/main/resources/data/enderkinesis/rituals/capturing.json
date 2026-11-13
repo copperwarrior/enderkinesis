@@ -1,0 +1,18 @@
+{
+  "layout": "enderkinesis:rituals/capturing",
+  "center": {
+    "block": "enderkinesis:heart_candle"
+  },
+  "trigger": {
+    "type": "enderkinesis:projectile_at_ship",
+    "radius": 5.0,
+    "range": 512.0,
+    "height": 512.0
+  },
+  "effect": {
+    "type": "enderkinesis:capturing",
+    "anchor_candles": [
+      "minecraft:lime_candle"
+    ]
+  }
+}

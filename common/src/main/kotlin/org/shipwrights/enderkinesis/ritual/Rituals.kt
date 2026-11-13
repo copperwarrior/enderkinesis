@@ -36,12 +36,17 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.Property
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.BlockHitResult
+import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.duck.RitualShotHolder
 import org.shipwrights.enderkinesis.entity.WohlonRitePedestal
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.joml.Vector3d
+import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import org.valkyrienskies.mod.common.getShipsIntersecting
+import org.valkyrienskies.mod.common.toWorldCoordinates
 
 /**
  * Data-driven rituals, `data/<ns>/rituals/<path>.json`. "layout" names a structure-block template
@@ -122,6 +127,11 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         "enderkinesis:projectile_at_sun" -> RitualTrigger.ProjectileAtSun(
             json.get("radius")?.asDouble ?: error("projectile_at_sun needs \"radius\""),
             json.get("angle")?.asDouble ?: error("projectile_at_sun needs \"angle\""),
+        )
+        "enderkinesis:projectile_at_ship" -> RitualTrigger.ProjectileAtShip(
+            json.get("radius")?.asDouble ?: error("projectile_at_ship needs \"radius\""),
+            json.get("range")?.asDouble ?: error("projectile_at_ship needs \"range\""),
+            json.get("height")?.asDouble ?: error("projectile_at_ship needs \"height\""),
         )
         "enderkinesis:place" -> RitualTrigger.Place(
             json.getAsJsonArray("advancements")?.map { ResourceLocation(it.asString) }.orEmpty(),
@@ -228,8 +238,12 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         }
     }
 
-    private fun start(level: ServerLevel, ritual: Ritual, center: BlockPos, rotation: Int, source: Vec3?, player: ServerPlayer? = null) {
-        val context = RitualContext(level, ritual, center, rotation, source, player)
+    @Suppress("LongParameterList") // The parts of one RitualContext.
+    private fun start(
+        level: ServerLevel, ritual: Ritual, center: BlockPos, rotation: Int, source: Vec3?,
+        player: ServerPlayer? = null, targetShip: Long? = null,
+    ) {
+        val context = RitualContext(level, ritual, center, rotation, source, player, targetShip)
         if (ritual.offerings.isEmpty) {
             val made = ritual.effect.resolve(context, emptyList())
             if (made != null && !made.isEmpty) Containers.dropItemStack(level, center.x + 0.5, center.y + 1.0, center.z + 0.5, made)
@@ -248,13 +262,17 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         val shooter = projectile.owner as? ServerPlayer ?: return
         if (projectile.tickCount > 0 || projectile.distanceToSqr(shooter) > SHOT_REACH * SHOT_REACH) return
         if (projectile.deltaMovement.lengthSqr() < 1.0e-6) return
+        if (!shootAtSun(projectile, level, shooter)) armShipShot(projectile, level, shooter)
+    }
+
+    private fun shootAtSun(projectile: Projectile, level: ServerLevel, shooter: ServerPlayer): Boolean {
         // The look vector, not the arrow velocity: that holds the shooter's own motion, which a moving ship skews.
         val aim = shooter.lookAngle
         // LevelRenderer.renderSky turns the sun by the time of day about the x axis, after a -90 degree turn about y.
         val angle = level.getTimeOfDay(1f) * Mth.TWO_PI
         val sunX = -Mth.sin(angle).toDouble()
         val sunY = Mth.cos(angle).toDouble()
-        if (sunY <= 0.0) return
+        if (sunY <= 0.0) return false
         val cos = aim.x * sunX + aim.y * sunY
         for (ritual in byId.values) {
             val trigger = ritual.trigger as? RitualTrigger.ProjectileAtSun ?: continue
@@ -262,8 +280,44 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
             val center = findLitCenter(level, shooter, ritual, trigger.radius) ?: continue
             start(level, ritual, center.first, center.second, projectile.position(), shooter)
             RootTrail.send(level, projectile)
+            return true
+        }
+        return false
+    }
+
+    private fun armShipShot(projectile: Projectile, level: ServerLevel, shooter: ServerPlayer) {
+        for (ritual in byId.values) {
+            val trigger = ritual.trigger as? RitualTrigger.ProjectileAtShip ?: continue
+            val center = findLitCenter(level, shooter, ritual, trigger.radius) ?: continue
+            (projectile as RitualShotHolder).`enderkinesis$setRitualShot`(RitualShot(ritual.id, center.first))
+            // The roots show the shooter that this shot is armed; a shot from an unlit or broken circle has none.
+            RootTrail.send(level, projectile)
             return
         }
+    }
+
+    /** An armed shot fires its circle's ritual when it hits a ship with mass in range. Only the server side acts. */
+    @JvmStatic
+    fun onProjectileHit(projectile: Projectile, result: HitResult) {
+        val level = projectile.level() as? ServerLevel ?: return
+        val holder = projectile as RitualShotHolder
+        val shot = holder.`enderkinesis$getRitualShot`() as? RitualShot ?: return
+        // AbstractArrow.tick calls onHit each tick with the clip result, also when it is a MISS.
+        if (result.type == HitResult.Type.MISS) return
+        holder.`enderkinesis$setRitualShot`(null)
+        val hit = result as? BlockHitResult ?: return
+        val ritual = byId[shot.ritual] ?: return
+        val trigger = ritual.trigger as? RitualTrigger.ProjectileAtShip ?: return
+        val ship = level.getLoadedShipManagingPos(hit.blockPos) ?: return
+        if (ship.isStatic || ship.inertiaData.mass <= 0.0 || level.getLoadedShipManagingPos(shot.center)?.id == ship.id) return
+        // The circle can go out or break while the shot flies.
+        if (!ritual.center.isLit(level.getBlockState(shot.center))) return
+        val rotation = ritual.match(level, shot.center)
+        if (rotation < 0) return
+        // VS2's clip gives a world location with a shipyard block; the transform leaves a world point as it is.
+        val at = level.toWorldCoordinates(hit.location)
+        if (!trigger.inRange(level.toWorldCoordinates(Vec3.atCenterOf(shot.center)), at)) return
+        start(level, ritual, shot.center, rotation, at, projectile.owner as? ServerPlayer, ship.id)
     }
 
     /** A lit centre near [entity], in the world or in the shipyard of a nearby ship. */
@@ -296,6 +350,9 @@ object Rituals : SimpleJsonResourceReloadListener(Gson(), "rituals") {
         }
         return null
     }
+
+    /** A shot from a player at the circle around [center]; the hit checks the circle again. */
+    private class RitualShot(val ritual: ResourceLocation, val center: BlockPos)
 
     private data class KillMatch(val ritual: Ritual, val center: BlockPos, val rotation: Int)
 

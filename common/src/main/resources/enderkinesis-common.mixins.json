@@ -5,6 +5,8 @@
   "minVersion": "0.8",
   "plugin": "org.shipwrights.enderkinesis.mixin.EnderkinesisMixinPlugin",
   "client": [
+    "MinecraftVineHoldUseMixin",
+    "HumanoidModelVineHangPoseMixin",
     "DebugScreenOverlayVolumePerfMixin",
     "InventoryScreenIncubationGlowMixin",
     "ModelPartCubesAccessor",
@@ -173,6 +175,7 @@
     "FogRendererSunErasureMixin"
   ],
   "mixins": [
+    "PlayerVineHangPoseMixin",
     "EntityWoggakVineCollisionMixin",
     "TransientCraftingContainerMenuAccessor",
     "CraftingMenuPlayerAccessor",
@@ -258,6 +261,11 @@
     "PoiTypesInvoker",
     "RegionFileStorageAccessor",
     "ServerGamePacketListenerAccessor",
+    "ServerGamePacketListenerVineFloatMixin",
+    "ServerLevelVineChunkUnloadMixin",
+    "ProtoChunkWorldgenVinesMixin",
+    "LevelChunkWorldgenVinesMixin",
+    "ServerPlayerVineChunkTrackMixin",
     "LevelChunkLatticeHullVolumeMixin",
     "ServerLevelSureibjinWakeMixin",
     "ServerLevelVentriloquismSoundMixin",
@@ -286,6 +294,7 @@
     "TrackedEntitySeenByAccessor",
     "GrindstoneMenuImbueMixin",
     "ProjectileImbueMixin",
+    "ProjectileRitualShotMixin",
     "ThrownTridentItemAccessor",
     "LivingEntitySpellDeathMixin",
     "LivingEntitySpellEffectsMixin",

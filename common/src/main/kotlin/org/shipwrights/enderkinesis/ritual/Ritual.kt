@@ -46,10 +46,13 @@ class Ritual(
     }
 }
 
-/** Where a ritual fired: [rotation] indexes [RitualLayout.rotations]; [source] is the trigger point, such as a sacrifice. */
+/**
+ * Where a ritual fired: [rotation] indexes [RitualLayout.rotations]; [source] is the trigger point, such as a sacrifice.
+ * [targetShip] is the ship that a ship trigger hit.
+ */
 class RitualContext(
     val level: ServerLevel, val ritual: Ritual, val center: BlockPos, val rotation: Int, val source: Vec3?,
-    val player: ServerPlayer? = null,
+    val player: ServerPlayer? = null, val targetShip: Long? = null,
 ) {
     val blocks: List<LayoutBlock> get() = checkNotNull(ritual.layout).rotations[rotation]
 }
@@ -79,6 +82,22 @@ sealed interface RitualTrigger {
 
     /** A player standing within [radius] of a lit center shoots a projectile within [maxAngle] degrees of the sun. */
     class ProjectileAtSun(val radius: Double, val maxAngle: Double) : RitualTrigger
+
+    /**
+     * A player standing within [radius] of a lit center shoots a projectile that hits a ship with mass. The hit must be
+     * within [range] of the center on the level and at most [height] above it.
+     */
+    class ProjectileAtShip(val radius: Double, val range: Double, val height: Double) : RitualTrigger {
+        init {
+            require(radius > 0 && range > 0 && height > 0) { "projectile_at_ship needs a positive radius, range and height" }
+        }
+
+        fun inRange(center: Vec3, hit: Vec3): Boolean {
+            val dx = hit.x - center.x
+            val dz = hit.z - center.z
+            return dx * dx + dz * dz <= range * range && hit.y - center.y <= height
+        }
+    }
 
     /** A player who has every one of [advancements] places the center block. */
     class Place(private val advancements: List<ResourceLocation>) : RitualTrigger {

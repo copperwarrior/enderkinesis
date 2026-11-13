@@ -173,6 +173,11 @@ class EnderkinesisModForgeClient {
                         cameraPos.x, cameraPos.y, cameraPos.z,
                         event.partialTick,
                     )
+                    org.shipwrights.enderkinesis.client.VineCutHighlight.renderAll(
+                        event.poseStack, bufferSource,
+                        cameraPos.x, cameraPos.y, cameraPos.z,
+                        event.partialTick,
+                    )
                 }
                 else -> {}
             }

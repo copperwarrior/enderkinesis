@@ -209,6 +209,9 @@ class EnderkinesisModFabricClient : ClientModInitializer {
             org.shipwrights.enderkinesis.client.EchoCannonClient.renderAll(
                 ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
             )
+            org.shipwrights.enderkinesis.client.VineCutHighlight.renderAll(
+                ctx.matrixStack(), consumers, camera.x, camera.y, camera.z, ctx.tickDelta(),
+            )
         })
 
         EnderkinesisModClient.initClient()

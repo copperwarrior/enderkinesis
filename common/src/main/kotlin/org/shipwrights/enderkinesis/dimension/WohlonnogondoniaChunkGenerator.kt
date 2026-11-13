@@ -31,6 +31,16 @@ import org.shipwrights.enderkinesis.block.GuardianSpikeBlock
 import org.shipwrights.enderkinesis.block.GuardianSpikeOuterBlock
 import org.shipwrights.enderkinesis.block.SpikeAttachment
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.vine.FloorAt
+import org.shipwrights.enderkinesis.vine.PlannedVine
+import org.shipwrights.enderkinesis.vine.VinePlanIndex
+import org.shipwrights.enderkinesis.vine.VineRecord
+import org.shipwrights.enderkinesis.vine.planArchVines
+import org.shipwrights.enderkinesis.vine.planTreeVines
+import org.shipwrights.enderkinesis.vine.putWorldgenVines
+import org.shipwrights.enderkinesis.vine.skeletonVineSite
+import org.shipwrights.enderkinesis.vine.treeVineBudget
+import org.shipwrights.enderkinesis.vine.worldgenVineRecords
 
 private typealias TunnelPath = WohlonnogondoniaSurfaceRoots.TunnelPath
 
@@ -650,6 +660,87 @@ class WohlonnogondoniaChunkGenerator(
         // `level.getBlockState`, and the placement filter rejects
         // every column where our paints occupy `pos − 1`.
         super.applyBiomeDecoration(level, chunk, structureManager)
+
+        // Last, so a strand stops on whatever the paints and features put under it.
+        writeWorldgenVines(chunk)
+    }
+
+    /**
+     * Woggak Vine records for the anchors in this chunk, from the Mother Tree, the child trees and the
+     * surface-root arches. Each plan is made once for its whole tree, so every chunk agrees on it.
+     */
+    private fun writeWorldgenVines(chunk: ChunkAccess) {
+        val chunkX0 = chunk.pos.minBlockX
+        val chunkZ0 = chunk.pos.minBlockZ
+        val key = chunk.pos.toLong()
+        val records = ArrayList<VineRecord>()
+        if (nearMotherTree(chunkX0, chunkZ0)) worldgenVineRecords(chunk, motherVinePlan.inChunk(key), records)
+        val regionX = Math.floorDiv(chunkX0 shr 4, CHILD_TREE_REGION_SIZE_CHUNKS)
+        val regionZ = Math.floorDiv(chunkZ0 shr 4, CHILD_TREE_REGION_SIZE_CHUNKS)
+        for (dRegX in -1..1) for (dRegZ in -1..1) {
+            val site = childTreeSite(regionX + dRegX, regionZ + dRegZ) ?: continue
+            if (site.age == AGE_DEAD) continue
+            val ddx = site.x.coerceIn(chunkX0, chunkX0 + 15) - site.x
+            val ddz = site.z.coerceIn(chunkZ0, chunkZ0 + 15) - site.z
+            if (ddx * ddx + ddz * ddz > CHILD_TREE_MAX_REACH * CHILD_TREE_MAX_REACH) continue
+            worldgenVineRecords(chunk, childVinePlan(site).inChunk(key), records)
+        }
+        val tunnelX = Math.floorDiv(chunkX0 shr 4, TUNNEL_REGION_SIZE_CHUNKS)
+        val tunnelZ = Math.floorDiv(chunkZ0 shr 4, TUNNEL_REGION_SIZE_CHUNKS)
+        for (dRegX in -TUNNEL_REGION_SEARCH..TUNNEL_REGION_SEARCH) for (dRegZ in -TUNNEL_REGION_SEARCH..TUNNEL_REGION_SEARCH) {
+            worldgenVineRecords(chunk, archVinePlan(tunnelX + dRegX, tunnelZ + dRegZ).inChunk(key), records)
+        }
+        chunk.putWorldgenVines(records)
+    }
+
+    private val vineFloor = FloorAt { x, z -> Math.max(effectiveSurfaceYAt(x, z) + 1, SEA_LEVEL_Y) }
+
+    /** A plan seed from a tree or path seed and the world seed, which [wohlonHash32] mixes in. */
+    private fun vineSeed(seed: Int): Long =
+        (wohlonHash32(seed, 1, VINE_PLAN_SALT).toLong() shl 32) or (wohlonHash32(seed, 2, VINE_PLAN_SALT).toLong() and 0xFFFFFFFFL)
+
+    private val motherVinePlan: VinePlanIndex by lazy {
+        val canopy = motherTreeSkeleton
+        val budget = treeVineBudget(MOTHER_CROWN_RX, HILL_PEAK_Y.toDouble(), MOTHER_CROWN_CY)
+        val site = skeletonVineSite(
+            canopy.segments, canopy.tips, MOTHER_LEAF_RXZ, MOTHER_LEAF_RY,
+            MOTHER_TREE_CX.toDouble(), MOTHER_TREE_CZ.toDouble(), budget.rimDistance,
+        )
+        VinePlanIndex(planTreeVines(site, budget, vineFloor, vineSeed(MOTHER_TREE_SEED)))
+    }
+
+    /** Pure of caller state, like [childTreeSkeletonCache], so a race only repeats work. */
+    private val childVinePlanCache = java.util.concurrent.ConcurrentHashMap<Long, VinePlanIndex>()
+
+    private fun childVinePlan(site: ChildTreeSite): VinePlanIndex {
+        val key = (site.x.toLong() and 0xFFFFFFFFL) shl 32 or (site.z.toLong() and 0xFFFFFFFFL)
+        childVinePlanCache[key]?.let { return it }
+        val skeleton = getChildTreeSkeleton(site)
+        val canopy = childCanopy(site)
+        val budget = treeVineBudget(canopy.rx, site.baseY.toDouble(), canopy.cy)
+        val vineSite = skeletonVineSite(
+            skeleton.segments, skeleton.tips, CHILD_LEAF_RXZ, CHILD_LEAF_RY, canopy.crownX, canopy.crownZ, budget.rimDistance,
+        )
+        val built = VinePlanIndex(planTreeVines(vineSite, budget, vineFloor, vineSeed(site.seed)))
+        if (childVinePlanCache.size >= CHILD_TREE_SKELETON_CACHE_CAP) childVinePlanCache.clear()
+        return childVinePlanCache.putIfAbsent(key, built) ?: built
+    }
+
+    /** Pure of caller state, like [tunnelPathCache], so a race only repeats work. */
+    private val archVinePlanCache = java.util.concurrent.ConcurrentHashMap<Long, VinePlanIndex>()
+
+    private fun archVinePlan(regionX: Int, regionZ: Int): VinePlanIndex {
+        val key = (regionX.toLong() and 0xFFFFFFFFL) shl 32 or (regionZ.toLong() and 0xFFFFFFFFL)
+        archVinePlanCache[key]?.let { return it }
+        val paths = getTunnelPaths(regionX, regionZ)
+        val plans = ArrayList<PlannedVine>()
+        for ((i, path) in paths.withIndex()) {
+            val radii = DoubleArray(path.count) { WohlonnogondoniaSurfaceRoots.radiusAt(path, it) }
+            plans += planArchVines(path.points, radii, vineFloor, vineSeed(wohlonHash32(regionX, regionZ, ARCH_VINE_SALT + i)))
+        }
+        val built = if (plans.isEmpty()) VinePlanIndex.EMPTY else VinePlanIndex(plans)
+        if (archVinePlanCache.size >= TUNNEL_PATH_CACHE_CAP) archVinePlanCache.clear()
+        return archVinePlanCache.putIfAbsent(key, built) ?: built
     }
 
     /** The paints follow the unbearded surface, so each column moves with the ground a structure beard raised or cut. */
@@ -1071,7 +1162,7 @@ class WohlonnogondoniaChunkGenerator(
             paintSkeleton(target, chunkX0, chunkZ0, minY, span, skel, WOGOR_WOOD_Y)
             if (site.age != AGE_DEAD) {
                 paintLeafTips(target, chunkX0, chunkZ0, minY, span, skel,
-                    blobRxz = 7, blobRy = 4)
+                    blobRxz = CHILD_LEAF_RXZ, blobRy = CHILD_LEAF_RY)
                 paintHangingVines(target, chunkX0, chunkZ0, minY, span,
                     treeX, treeZ, skel.maxXZReach + 2,
                     maxLen = 7, seed = regionSeed xor 0x73A1F4C7.toInt())
@@ -3592,8 +3683,8 @@ class WohlonnogondoniaChunkGenerator(
         // The trunk grows bias-only until an attractor is within attractionDist; the side clouds pull
         // limbs off it below the crown at y≈222, so it does not rise as one bare pole.
         val mainCanopy = WogorTreeSkeleton.ellipsoidAttractors(
-            cx = baseX, cy = 252.0, cz = baseZ,
-            rx = 140.0, ry = 30.0, rz = 140.0,
+            cx = baseX, cy = MOTHER_CROWN_CY, cz = baseZ,
+            rx = MOTHER_CROWN_RX, ry = 30.0, rz = MOTHER_CROWN_RX,
             count = 5200, seed = MOTHER_TREE_SEED,
         )
         val branch1 = WogorTreeSkeleton.ellipsoidAttractors(
@@ -3657,22 +3748,20 @@ class WohlonnogondoniaChunkGenerator(
      * up front bails on chunks far enough from the tree to contribute
      * nothing.
      */
+    /** Quick reject: the chunk's nearest XZ corner against the reach of the canopy or the roots, whichever sprawls further. */
+    private fun nearMotherTree(chunkX0: Int, chunkZ0: Int): Boolean {
+        val ddx = (MOTHER_TREE_CX - chunkX0).coerceIn(0, 15) + chunkX0 - MOTHER_TREE_CX
+        val ddz = (MOTHER_TREE_CZ - chunkZ0).coerceIn(0, 15) + chunkZ0 - MOTHER_TREE_CZ
+        val maxReach = Math.max(motherTreeSkeleton.maxXZReach, MOTHER_TREE_ROOT_REACH_MAX) + MOTHER_TREE_MAX_THICKNESS + 2
+        return ddx * ddx + ddz * ddz <= maxReach * maxReach
+    }
+
     private fun paintMotherTreeInto(
         target: Array<Array<Array<BlockState?>>>,
         chunkX0: Int, chunkZ0: Int, minY: Int, span: Int,
     ) {
         val canopy = motherTreeSkeleton
-
-        // Quick reject: distance from chunk's nearest XZ corner to origin
-        // compared to the actual computed reach (canopy or hand-coded roots,
-        // whichever sprawls further).
-        val nearestX = (MOTHER_TREE_CX - chunkX0).coerceIn(0, 15) + chunkX0
-        val nearestZ = (MOTHER_TREE_CZ - chunkZ0).coerceIn(0, 15) + chunkZ0
-        val ddx = nearestX - MOTHER_TREE_CX
-        val ddz = nearestZ - MOTHER_TREE_CZ
-        val maxReach = Math.max(canopy.maxXZReach, MOTHER_TREE_ROOT_REACH_MAX) +
-            MOTHER_TREE_MAX_THICKNESS + 2
-        if (ddx * ddx + ddz * ddz > maxReach * maxReach) return
+        if (!nearMotherTree(chunkX0, chunkZ0)) return
 
         // Canopy + trunk via the space-colonization skeleton (with smooth
         // trunk lean baked into the bias-only growth).
@@ -3689,7 +3778,7 @@ class WohlonnogondoniaChunkGenerator(
         // domain warp + two-octave threshold noise. Scaled for the 2×
         // tree.
         paintLeafTips(target, chunkX0, chunkZ0, minY, span, canopy,
-            blobRxz = 12, blobRy = 7)
+            blobRxz = MOTHER_LEAF_RXZ, blobRy = MOTHER_LEAF_RY)
 
         // Vines off the canopy rim.
         paintHangingVines(target, chunkX0, chunkZ0, minY, span,
@@ -4222,6 +4311,14 @@ class WohlonnogondoniaChunkGenerator(
          *  buttress flare bonus, the trunk base radius can reach
          *  maxThickness + buttressFlare. */
         const val MOTHER_TREE_MAX_THICKNESS = 10
+        private const val MOTHER_CROWN_RX = 140.0
+        private const val MOTHER_CROWN_CY = 252.0
+        private const val MOTHER_LEAF_RXZ = 12
+        private const val MOTHER_LEAF_RY = 7
+        private const val CHILD_LEAF_RXZ = 7
+        private const val CHILD_LEAF_RY = 4
+        private const val VINE_PLAN_SALT = 0x56494E45
+        private const val ARCH_VINE_SALT = 0x41524348
         /** Small trees rejected inside this radius of origin so they don't
          *  spawn inside the Mother Tree's footprint. Computed as the
          *  square of [TREE_MOUND_OUTER_R] — the mound terrain is reserved
