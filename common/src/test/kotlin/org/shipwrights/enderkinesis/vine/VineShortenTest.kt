@@ -19,17 +19,17 @@ class VineShortenTest {
     }
 
     @Test
-    fun `ten reeled spacings of 0 4 pay one item and leave no credit`() {
+    fun `ten reeled spacings of 0 4 pay four items and leave no credit`() {
         val (items, credit) = reel(10, 0.4)
-        items shouldBe 1
+        items shouldBe 4
         credit shouldBe (0.0 plusOrMinus 1e-6)
     }
 
     @Test
-    fun `a credit pays at the click that takes it to four blocks`() {
-        reel(9, 0.4).first shouldBe 0
-        reelItems(3.6, 0.4) shouldBe 1
-        reelCreditLeft(3.0, 1.5) shouldBe (0.5 plusOrMinus 1e-9)
+    fun `a credit pays at the click that takes it to one block`() {
+        reel(2, 0.4).first shouldBe 0
+        reelItems(0.6, 0.4) shouldBe 1
+        reelCreditLeft(0.3, 1.5) shouldBe (0.8 plusOrMinus 1e-9)
     }
 
     @Test
@@ -69,58 +69,25 @@ class VineShortenTest {
         (validReelCredit(9.0) < BLOCKS_PER_ITEM) shouldBe true
         woggakVineRefund(validReelCredit(9.0)) shouldBe 0
         validReelCredit(BLOCKS_PER_ITEM - 1e-10) shouldBe 0.0
-        validReelCredit(3.5) shouldBe 3.5
+        validReelCredit(0.5) shouldBe 0.5
+        validReelCredit(3.5) shouldBe 0.0
     }
 
     @Test
-    fun `a vine is not shortened under one link`() {
-        shortenedLinks(1) shouldBe -1L
-        shortenedLinks(2) shouldBe 1L
-        shortenedLinks(25) shouldBe 24L
-    }
-
-    /** Game ticks at which a free-end reel held for [ticks] ticks rebuilds, from the press at tick 0. */
-    private fun rebuildTicks(spacing: Double, ticks: Long): List<Long> {
-        var pull = Double.MAX_VALUE
-        var last = Long.MIN_VALUE / 2
-        val out = ArrayList<Long>()
-        for (t in 0 until ticks) {
-            pull = nextReelPull(pull, spacing)
-            if (!rebuildDue(pull, spacing, t - last)) continue
-            out.add(t)
-            pull = 0.0
-            last = t
-        }
-        return out
+    fun `the reel floor keeps every link over one particle diameter`() {
+        (MIN_REEL_SPACING > 2 * PARTICLE_RADIUS) shouldBe true
+        reelFloor(40) shouldBe (40 * MIN_REEL_SPACING plusOrMinus 1e-9)
+        atReelFloor(reelFloor(40), 40) shouldBe true
+        atReelFloor(reelFloor(40) + 0.01, 40) shouldBe false
     }
 
     @Test
-    fun `a tap at a free end takes in one link at once`() {
-        rebuildTicks(0.4, 1) shouldBe listOf(0L)
-        rebuildTicks(0.4, REBUILD_TICKS) shouldBe listOf(0L)
-    }
-
-    @Test
-    fun `a held free-end reel never rebuilds faster than every few ticks`() {
-        val ticks = rebuildTicks(0.4, 40)
-        ticks shouldBe (0L until 40L step REBUILD_TICKS).toList()
-        for (i in 1 until ticks.size) (ticks[i] - ticks[i - 1] >= REBUILD_TICKS) shouldBe true
-    }
-
-    @Test
-    fun `a held free-end reel with long links keeps the reel speed`() {
-        val spacing = 1.0
-        val ticks = rebuildTicks(spacing, 200)
-        // Ten seconds of reel; the press link comes on top of the steady rate.
-        ((ticks.size - 1) * spacing) shouldBe (REEL_SPEED * 10 plusOrMinus spacing)
-    }
-
-    @Test
-    fun `the reel target is one whole link under the rest length, and none at one link`() {
-        reelTarget(4.0, 0.4) shouldBe (3.6 plusOrMinus 1e-9)
-        reelTarget(3.99999999, 0.4) shouldBe (3.6 plusOrMinus 1e-9)
-        reelTarget(0.8, 0.4) shouldBe (0.4 plusOrMinus 1e-9)
-        reelTarget(0.4, 0.4) shouldBe -1.0
+    fun `a vine at its reel floor gets fewer links when VS lays it out again`() {
+        for (links in 3..200) (respacedLinks(reelFloor(links)) < links) shouldBe true
+        // Two links at the floor lay out as two again, so the reel stops there.
+        respacedLinks(reelFloor(2)) shouldBe 2
+        respacedLinks(reelFloor(1)) shouldBe 1
+        respacedLinks(1e-9) shouldBe 1
     }
 
     @Test
@@ -141,7 +108,7 @@ class VineShortenTest {
         }
         // The length got back at 7.2 -> 7.6 is not paid again when it comes in.
         paidLength shouldBe (8.0 - 4.0 plusOrMinus 1e-9)
-        items shouldBe 1
+        items shouldBe 4
         reelArrival(5.0, 5.0) shouldBe 0.0
         reelArrival(5.0, 6.0) shouldBe 0.0
         reelArrival(Double.NaN, 1.0) shouldBe 0.0

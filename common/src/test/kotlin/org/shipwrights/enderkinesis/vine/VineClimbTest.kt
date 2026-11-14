@@ -148,15 +148,42 @@ class VineClimbTest {
     }
 
     @Test
-    fun `a level look pumps a vertical vine, and a look down or up climbs it`() {
-        splitWish(straight, 4, 1.5, 0, 1.0, 0.0, 0.0, WishSplit()).dir shouldBe 0
+    fun `the walk wish turns with the yaw only and stays level`() {
+        walkWishX(1.0, 0.0, 0.0) shouldBe (0.0 plusOrMinus eps)
+        walkWishZ(1.0, 0.0, 0.0) shouldBe (1.0 plusOrMinus eps)
+        walkWishX(0.0, 1.0, 0.0) shouldBe (-1.0 plusOrMinus eps)
+        walkWishZ(0.0, 1.0, 0.0) shouldBe (0.0 plusOrMinus eps)
+        val west = Math.toRadians(90.0)
+        walkWishX(1.0, 0.0, west) shouldBe (-1.0 plusOrMinus eps)
+        walkWishZ(1.0, 0.0, west) shouldBe (0.0 plusOrMinus eps)
+        walkWishX(-1.0, 0.0, west) shouldBe (1.0 plusOrMinus eps)
+    }
+
+    @Test
+    fun `a level walk wish pumps a vertical vine at any yaw, and only an up or down wish moves on it`() {
+        for (degrees in 0 until 360 step 15) {
+            val yaw = Math.toRadians(degrees.toDouble())
+            val wx = walkWishX(1.0, 0.0, yaw)
+            val wz = walkWishZ(1.0, 0.0, yaw)
+            val split = splitWish(straight, 4, 1.5, 0, wx, 0.0, wz, WishSplit())
+            split.dir shouldBe 0
+            split.restX shouldBe (wx plusOrMinus eps)
+            split.restZ shouldBe (wz plusOrMinus eps)
+        }
         // Node direction +1 goes down the straight vine.
-        val h = Math.sqrt(0.5)
-        val down = splitWish(straight, 4, 1.5, 0, h, -h, 0.0, WishSplit())
-        down.dir shouldBe 1
-        down.restX shouldBe (h plusOrMinus eps)
-        down.restY shouldBe (0.0 plusOrMinus eps)
+        splitWish(straight, 4, 1.5, 0, 0.0, -1.0, 0.0, WishSplit()).dir shouldBe 1
         splitWish(straight, 4, 1.5, 0, 0.0, 1.0, 0.0, WishSplit()).dir shouldBe -1
+    }
+
+    @Test
+    fun `a level walk wish moves along a leaning vine where it goes that way`() {
+        // Down 1 and along +x 1 for each link.
+        val leaning = doubleArrayOf(0.0, 0.0, 0.0, 1.0, -1.0, 0.0, 2.0, -2.0, 0.0, 3.0, -3.0, 0.0)
+        val along = splitWish(leaning, 4, 1.5, 0, 1.0, 0.0, 0.0, WishSplit())
+        along.dir shouldBe 1
+        along.share shouldBe (Math.sqrt(0.5) plusOrMinus eps)
+        splitWish(leaning, 4, 1.5, 0, -1.0, 0.0, 0.0, WishSplit()).dir shouldBe -1
+        splitWish(leaning, 4, 1.5, 0, 0.0, 0.0, 1.0, WishSplit()).dir shouldBe 0
     }
 
     @Test

@@ -12,7 +12,6 @@ import net.minecraft.world.item.ItemStack
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKItems
-import org.valkyrienskies.core.api.chains.ChainAttachmentState
 import org.valkyrienskies.core.api.chains.ChainEnd
 import org.valkyrienskies.core.api.chains.ChainId
 import org.valkyrienskies.core.api.chains.ChainLifecycle
@@ -23,9 +22,8 @@ import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.shipObjectWorld
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.roundToLong
 import kotlin.math.sin
 
 /** C2S: true on a sneak-use press at a vine with an empty hand, false on its release; the server picks the vine. */
@@ -33,34 +31,32 @@ val WOGGAK_VINE_SHORTEN: ResourceLocation = EnderkinesisMod.id("woggak_vine/shor
 /** S2C: the server ended the player's reel, so the client stops the swing and waits for a new press. */
 val WOGGAK_VINE_REEL_END: ResourceLocation = EnderkinesisMod.id("woggak_vine/reel_end")
 
-/** A vine is never shortened under this many links. */
-internal const val MIN_VINE_LINKS = 1
 /** Vanilla's right-click delay: one reel start per click, even when packets come fast. */
 private const val SHORTEN_COOLDOWN_TICKS = 4L
-/** VS reel pull in m/s at an attached end; with the one-tick wait for each link, about 2.5 blocks/s come in. */
+/** VS pay-out rate in m/s at an attached end. */
 internal const val REEL_RATE = 4.0
-/** Newtons: the reel pulls the vine in, but not a heavy load that hangs on it. */
-private const val REEL_FORCE = 2000.0
-/** Blocks/s that a held reel takes in at a free or joined end, near the fishing-rod reel feel. */
+/** Newtons: the most that a VS pay-out pushes. */
+internal const val REEL_FORCE = 2000.0
+/** Blocks/s that a held reel takes in, near the fishing-rod reel feel. */
 internal const val REEL_SPEED = 2.5
-/** A free or joined end is rebuilt for each link; never more often than this, so that a reel is not rebuild spam. */
-internal const val REBUILD_TICKS = 4L
-/** After a release, the last link in transit still pays for this long at most. */
-private const val DRAIN_TICKS = 100L
-private const val TICKS_PER_SECOND = 20.0
+/** VS refuses a link under one particle diameter; the margin keeps the squeezed nodes off each other. */
+internal const val MIN_REEL_SPACING = 2 * PARTICLE_RADIUS * 1.25
+/** Reeled length paid at one time, so the reel sound plays about once for each link, not each tick. */
+private const val PAY_STEP = VINE_TARGET_SPACING
+private const val DEBUG_LOG_TICKS = 20L
 private const val LENGTH_EPS = 1e-6
-
-/** Links of a vine of [links] links after one shorten; -1 when it is at [MIN_VINE_LINKS]. */
-internal fun shortenedLinks(links: Long): Long = if (links > MIN_VINE_LINKS) links - 1 else -1
 
 /** The end of a vine of [links] links that is nearest to node [node]; the start on a tie. */
 internal fun nearestEnd(node: Int, links: Int): ChainEnd = if (node * 2 <= links) ChainEnd.START else ChainEnd.END
 
-/** The reel target one link under [rest], a whole number of [spacing]s as VS asks; -1 at the minimum length. */
-internal fun reelTarget(rest: Double, spacing: Double): Double {
-    val links = shortenedLinks((rest / spacing).roundToLong())
-    return if (links < MIN_VINE_LINKS) -1.0 else links * spacing
-}
+/** The shortest rest length that [links] links can reel to. */
+internal fun reelFloor(links: Int): Double = links * MIN_REEL_SPACING
+
+/** True when a rest length of [rest] is at the [reelFloor] of [links] links. */
+internal fun atReelFloor(rest: Double, links: Int): Boolean = rest <= reelFloor(links) + LENGTH_EPS
+
+/** Links that VS gives a new chain of [rest] length: it lays any path out again at [VINE_TARGET_SPACING]. */
+internal fun respacedLinks(rest: Double): Int = ceil(rest / VINE_TARGET_SPACING - LENGTH_EPS).toInt().coerceAtLeast(1)
 
 /** The length that came in since the paid rest length [paidRest]; never negative, so a longer vine pays nothing. */
 internal fun reelArrival(paidRest: Double, rest: Double): Double =
@@ -70,49 +66,53 @@ internal fun reelArrival(paidRest: Double, rest: Double): Double =
 internal fun paidRestAfter(paidRest: Double, rest: Double): Double =
     if (!rest.isFinite()) paidRest else if (!paidRest.isFinite() || rest < paidRest) rest else paidRest
 
-/** The pull of a free-end reel after one more held tick; capped at one link, so a stall cannot store a burst. */
-internal fun nextReelPull(pull: Double, spacing: Double): Double = min(pull + REEL_SPEED / TICKS_PER_SECOND, spacing)
-
-/** True when a free-end reel with [pull] takes in its next link of [spacing] now. */
-internal fun rebuildDue(pull: Double, spacing: Double, ticksSinceRebuild: Long): Boolean =
-    pull >= spacing * (1.0 - LENGTH_EPS) && ticksSinceRebuild >= REBUILD_TICKS
-
 /**
- * A reel on one vine. While [held], the player reels; after a release it only pays the link still in transit.
- * [paidRest] is the rest length already paid, so one length is never paid twice. Server thread only.
+ * A reel on one vine. While [held], VS shortens every link of [chain] toward [target]. [paidRest] is the rest length
+ * already paid, so one length is never paid twice. Server thread only.
  */
-internal class VineReel(val player: UUID, var chain: ChainId, val end: ChainEnd, var paidRest: Double) {
+internal class VineReel(val player: UUID, var chain: ChainId, var paidRest: Double) {
     var held = true
-    var stopTime = 0L
-    var pull = 0.0
-    var lastRebuild = Long.MIN_VALUE / 2
+    /** The target length last sent to VS; NaN when none was sent to this chain. */
+    var target = Double.NaN
+    var failure: String? = null
     val origin = Vector3d()
     val direction = Vector3d()
 }
 
-/** Starts or stops this player's reel on the vine under its crosshair; a tap still takes in one link. */
+/** Starts or stops this player's reel on the vine under its crosshair. */
 @OptIn(GameTickOnly::class)
 internal fun ServerPlayer.reelVine(start: Boolean) {
     val level = serverLevel()
-    val data = level.loadedWoggakVines ?: return
-    data.heldReelOf(uuid)?.let { level.stopReel(it, this, false) }
+    val data = level.loadedWoggakVines ?: return LOG.info("[VineReelDebug] server reel: refused, no loaded vine data")
+    data.heldReelOf(uuid)?.let { level.stopReel(data, it, this, false) }
     if (!start) return
-    if (!canReelVine(data)) return sendReelEnd()
+    if (!canReelVine(data)) {
+        LOG.info(
+            "[VineReelDebug] server reel: refused canReelVine shift={} mainHand={} alive={} passenger={} holding={}",
+            isShiftKeyDown, mainHandItem, isAlive, isPassenger, data.holds.containsKey(uuid),
+        )
+        return sendReelEnd()
+    }
     val last = data.lastPlayerShorten[uuid]
-    if (last != null && level.gameTime - last < SHORTEN_COOLDOWN_TICKS) return sendReelEnd()
-    val pick = level.pickWoggakVine(this) ?: return sendReelEnd()
+    if (last != null && level.gameTime - last < SHORTEN_COOLDOWN_TICKS) return sendReelEnd().also { LOG.info("[VineReelDebug] server reel: refused cooldown") }
+    val pick = level.pickWoggakVine(this) ?: return sendReelEnd().also {
+        LOG.info("[VineReelDebug] server reel: refused, no server pick eye={} look={}", eyePosition, getViewVector(1f))
+    }
     val id = pick.vine.id
     val status = pick.chain.status
     val other = data.reels.get(id)
-    if (data.throws.containsKey(id) || (other != null && other.held) || !status.isReelable()) return sendReelEnd()
+    if ((other != null && other.held) || !status.isReelable() || status.reelBusy()) {
+        LOG.info("[VineReelDebug] server reel: refused otherHeld={} status={}", other?.held, status)
+        return sendReelEnd()
+    }
+    LOG.info("[VineReelDebug] server reel: accepted vine={} link={} status={}", id, pick.link, status)
     data.lastPlayerShorten[uuid] = level.gameTime
-    val end = nearestEnd(level.nearestNode(pick), status.nodeCount - 1)
-    // A link still in transit from a released reel is paid once, to this reel.
-    val paidRest = if (other != null && other.chain == pick.vine.chain && other.end == end) other.paidRest else status.currentRestLength
-    val reel = VineReel(uuid, pick.vine.chain, end, paidRest)
-    reel.pull = Double.MAX_VALUE
+    val reel = VineReel(uuid, pick.vine.chain, status.currentRestLength)
     data.reels.put(id, reel)
-    if (!level.stepReel(data, id, reel, pick.chain, this)) level.stopReel(reel, this, true)
+    if (!level.stepReel(data, id, reel, pick.chain, this)) {
+        LOG.info("[VineReelDebug] server reel: first step failed, stop")
+        level.stopReel(data, reel, this, true)
+    }
 }
 
 /** Pays the reels' links as they come in, steps the held ones and ends those that can no longer reel. */
@@ -122,92 +122,116 @@ internal fun ServerLevel.tickVineReels(data: WoggakVineData) {
     val iterator = data.reels.long2ObjectEntrySet().fastIterator()
     while (iterator.hasNext()) {
         val entry = iterator.next()
-        if (!tickReel(data, entry.longKey, entry.value)) iterator.remove()
+        if (tickReel(data, entry.longKey, entry.value)) continue
+        endReel(entry.value)
+        iterator.remove()
     }
+}
+
+/**
+ * Keeps the length that [reel] reached. The published rest is a few physics frames behind, so the vine gets that
+ * little back at the reel speed, and that length is not paid.
+ */
+@OptIn(GameTickOnly::class)
+internal fun ServerLevel.endReel(reel: VineReel) {
+    if (reel.target.isNaN()) return
+    reel.target = Double.NaN
+    val chain = shipObjectWorld.allChains.getById(reel.chain) ?: return
+    val status = chain.status
+    if (status.lifecycle != ChainLifecycle.ACTIVE || status.reel != null) return
+    val rest = status.currentRestLength
+    if (rest.isFinite() && rest > 0.0 && status.targetLength < rest - LENGTH_EPS) chain.setTargetLength(rest, REEL_SPEED)
 }
 
 /** False when [reel] is done and can go. */
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.tickReel(data: WoggakVineData, id: Long, reel: VineReel): Boolean {
+    if (!reel.held) return false
     val player = server.playerList.getPlayer(reel.player)?.takeIf { it.level() === this }
     val vine = data.vine(id)?.takeIf { it.chain == reel.chain && it.fadeStart < 0 }
     val chain = vine?.let { shipObjectWorld.allChains.getById(it.chain) }
     if (player == null || chain == null) {
-        if (reel.held) player?.sendReelEnd()
+        player?.sendReelEnd()
         return false
     }
     val status = chain.status
     // A rebuilt chain is pending for a tick or two; it has no node positions yet.
     if (status.lifecycle == ChainLifecycle.PENDING) return true
+    // VS keeps a failure until the next command applies, so it can be stale; it is only logged.
+    val failure = status.failure
+    if (failure != reel.failure && failure != null) LOG.warn("Woggak Vine {} reel: {}", reel.chain.value, failure)
+    reel.failure = failure
+    // A link that VS broke ends the reel; the break path splits the vine.
     if (!status.isReelable()) {
-        if (reel.held) player.sendReelEnd()
+        player.sendReelEnd()
         return false
     }
-    val ours = status.isOurReel(reel.end)
-    if (ours) {
-        val came = reelArrival(reel.paidRest, status.currentRestLength)
-        if (came > 0.0) player.payReel(data, vine, came)
+    player.payReelArrival(data, vine, reel, status, PAY_STEP)
+    if (gameTime % DEBUG_LOG_TICKS == 0L) {
+        LOG.info(
+            "[VineReelDebug] server tickReel: rest={} path={} target={} nodes={} physicsTick={}",
+            status.currentRestLength, status.pathLength, status.targetLength, status.nodeCount, status.physicsTick,
+        )
     }
-    reel.paidRest = paidRestAfter(reel.paidRest, status.currentRestLength)
-    if (!reel.held) return ours && status.inTransit() && gameTime - reel.stopTime < DRAIN_TICKS
     if (!player.canReelVine(data) || !looksAtVine(data, player, chain, reel) || !stepReel(data, id, reel, chain, player)) {
-        stopReel(reel, player, true)
-        return ours && status.inTransit()
+        LOG.info("[VineReelDebug] server tickReel: stop canReel={} looks={}", player.canReelVine(data), looksAtVine(data, player, chain, reel))
+        stopReel(data, reel, player, true)
+        return false
     }
     return true
 }
 
-/** Takes in the next link of [reel] when one is due; false when the vine cannot reel further. */
+/**
+ * Shortens every link of [chain] at [REEL_SPEED]; the VS joints pull as hard as the load needs and break at
+ * [VINE_BREAK_FORCE]. At the [reelFloor] the vine is made again with fewer links. False when it cannot get shorter.
+ */
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.stepReel(data: WoggakVineData, id: Long, reel: VineReel, chain: ServerChain, player: ServerPlayer): Boolean {
-    val vine = data.vine(id) ?: return false
     val status = chain.status
-    val attached = if (reel.end == ChainEnd.START) status.startAttachment else status.endAttachment
-    val anchor = if (reel.end == ChainEnd.START) vine.start else vine.end
-    // VS reels only an end on a world point or a body; a free or joined end is rebuilt.
-    if (attached == ChainAttachmentState.ATTACHED && !anchor.isJoined) return reelIn(chain, status, reel.end)
-    val spacing = status.currentRestLength / (status.nodeCount - 1)
-    if (!spacing.isFinite() || spacing <= 0.0) return false
-    reel.pull = nextReelPull(reel.pull, spacing)
-    if (!rebuildDue(reel.pull, spacing, gameTime - reel.lastRebuild)) return true
-    val reeled = rebuildShorter(data, vine, chain, reel.end)
-    if (reeled <= 0.0) return false
-    val piece = data.vine(id) ?: return false
-    reel.pull = 0.0
-    reel.lastRebuild = gameTime
-    reel.chain = piece.chain
-    reel.paidRest = status.currentRestLength - reeled
-    player.payReel(data, piece, reeled)
-    return true
-}
-
-/** Keeps a VS reel at [end] one link under the rest length; the reel sets its own pace. */
-@OptIn(GameTickOnly::class)
-private fun reelIn(chain: ServerChain, status: ChainStatus, end: ChainEnd): Boolean {
-    val reel = status.reel
-    if (reel != null && !status.isOurReel(end)) return false
-    val spacing = reel?.nodeSpacing ?: (status.currentRestLength / (status.nodeCount - 1))
-    if (!spacing.isFinite() || spacing <= 0.0) return false
-    val target = reelTarget(status.currentRestLength, spacing)
-    if (target < 0.0) return false
-    if (reel == null || abs(reel.control.targetLength - target) > spacing * LENGTH_EPS) {
-        chain.setReelTarget(ChainReelControl(end, target, REEL_RATE, REEL_FORCE))
+    val links = status.nodeCount - 1
+    val rest = status.currentRestLength
+    if (links < 1 || !rest.isFinite() || rest <= 0.0) return false
+    if (atReelFloor(rest, links)) {
+        if (respacedLinks(rest) >= links) return false.also { LOG.info("[VineReelDebug] server stepReel: at the shortest, rest={} links={}", rest, links) }
+        val vine = data.vine(id) ?: return false
+        val piece = rebuildRespaced(data, vine, chain) ?: return false
+        LOG.info("[VineReelDebug] server stepReel: respaced rest={} links={} -> {}", rest, links, respacedLinks(rest))
+        reel.chain = piece.chain
+        reel.target = Double.NaN
+        return true
+    }
+    val floor = reelFloor(links)
+    if (reel.target != floor) {
+        LOG.info("[VineReelDebug] server stepReel: setTargetLength target={} rest={} links={}", floor, rest, links)
+        chain.setTargetLength(floor, REEL_SPEED)
+        reel.target = floor
     }
     return true
 }
 
-/** Throws and captures reel with other rates and forces, so their shortening is never paid as a reel-in. */
-private fun ChainStatus.isOurReel(end: ChainEnd): Boolean {
-    val control = reel?.control ?: return false
-    return control.end == end && control.maxRate == REEL_RATE && control.maxForce == REEL_FORCE
+/** Pays the length of [vine] that came in since [reel]'s paid rest, once it is at least [step]. */
+private fun ServerPlayer.payReelArrival(data: WoggakVineData, vine: WoggakVine, reel: VineReel, status: ChainStatus, step: Double) {
+    val came = reelArrival(reel.paidRest, status.currentRestLength)
+    if (came <= 0.0 || came < step) return
+    payReel(data, vine, came)
+    reel.paidRest = paidRestAfter(reel.paidRest, status.currentRestLength)
 }
 
-private fun ChainStatus.inTransit(): Boolean {
+/** VS rejects a new reel end while an old reel is set, so a done reel at the other end is ended first. */
+@OptIn(GameTickOnly::class)
+internal fun ServerChain.setReel(status: ChainStatus, control: ChainReelControl) {
+    val old = status.reel?.control
+    if (old != null && old.end != control.end) setTargetLength(status.currentRestLength)
+    setReelTarget(control)
+}
+
+/** True while a VS reel still pays out or takes in; a reel at its target is done and changes nothing. */
+internal fun ChainStatus.reelBusy(): Boolean {
     val target = reel?.control?.targetLength ?: return false
-    return currentRestLength > target + LENGTH_EPS
+    return abs(currentRestLength - target) > LENGTH_EPS
 }
 
-private fun ChainStatus.isReelable(): Boolean =
+internal fun ChainStatus.isReelable(): Boolean =
     lifecycle == ChainLifecycle.ACTIVE && brokenLinks.isEmpty() && nodeCount >= 2
 
 private fun ServerPlayer.canReelVine(data: WoggakVineData): Boolean = isShiftKeyDown && canHoldVine() && !data.holds.containsKey(uuid)
@@ -231,17 +255,24 @@ private fun looksAtVine(data: WoggakVineData, player: ServerPlayer, chain: Serve
 
 private fun WoggakVineData.heldReelOf(player: UUID): VineReel? = reels.values.firstOrNull { it.held && it.player == player }
 
-/** Ends the held part of [reel]; a link in transit still pays. [tellClient] when the client did not ask for it. */
-private fun ServerLevel.stopReel(reel: VineReel, player: ServerPlayer, tellClient: Boolean) {
+/**
+ * Ends the held part of [reel]: pays the length that came in and keeps the length reached. [tellClient] when the
+ * client did not ask for it.
+ */
+@OptIn(GameTickOnly::class)
+private fun ServerLevel.stopReel(data: WoggakVineData, reel: VineReel, player: ServerPlayer, tellClient: Boolean) {
     reel.held = false
-    reel.stopTime = gameTime
+    val vine = data.vines.firstOrNull { it.chain == reel.chain }
+    val status = shipObjectWorld.allChains.getById(reel.chain)?.status
+    if (vine != null && status != null) player.payReelArrival(data, vine, reel, status, 0.0)
+    endReel(reel)
     if (tellClient) player.sendReelEnd()
 }
 
-private fun ServerPlayer.sendReelEnd() = NetworkManager.sendToPlayer(this, WOGGAK_VINE_REEL_END, FriendlyByteBuf(Unpooled.buffer()))
+internal fun ServerPlayer.sendReelEnd() = NetworkManager.sendToPlayer(this, WOGGAK_VINE_REEL_END, FriendlyByteBuf(Unpooled.buffer()))
 
-/** Pays [reeled] blocks of [vine] through its credit: one Woggak Vine for each full 4 blocks. */
-private fun ServerPlayer.payReel(data: WoggakVineData, vine: WoggakVine, reeled: Double) {
+/** Pays [reeled] blocks of [vine] through its credit: one Woggak Vine for each full [BLOCKS_PER_ITEM] blocks. */
+internal fun ServerPlayer.payReel(data: WoggakVineData, vine: WoggakVine, reeled: Double) {
     serverLevel().playSound(null, x, y, z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
     // Creative reels give nothing and keep no credit, so a creative reel cannot pay a survival player later.
     if (isCreative) return
@@ -255,30 +286,32 @@ private fun ServerPlayer.payReel(data: WoggakVineData, vine: WoggakVine, reeled:
 }
 
 /**
- * Makes [vine] again without its node at [end], one link shorter, with the same id, anchors, joints and grips. Joints
- * to a node of it move down one node when the start goes; a joint on the start node stays on the new start node.
- * Returns the length taken off, or 0.
+ * Makes [vine] again at its rest length, with the same id, anchors, joints and grips. VS lays it out at
+ * [VINE_TARGET_SPACING], so a vine squeezed to the [reelFloor] gets fewer links. Null when it cannot.
  */
 @OptIn(GameTickOnly::class)
-private fun ServerLevel.rebuildShorter(data: WoggakVineData, vine: WoggakVine, chain: ServerChain, end: ChainEnd): Double {
+private fun ServerLevel.rebuildRespaced(data: WoggakVineData, vine: WoggakVine, chain: ServerChain): WoggakVine? {
     val status = chain.status
-    // A reel in progress holds a target that the rebuild would lose.
-    if (status.reel != null) return 0.0
     val nodes = status.nodeCount
     val links = nodes - 1
-    if (shortenedLinks(links.toLong()) < MIN_VINE_LINKS) return 0.0
     val rest = status.currentRestLength
-    val spacing = rest / links
-    if (!spacing.isFinite() || spacing <= 0.0) return 0.0
     val positions = DoubleArray(nodes * 3)
-    if (chain.copyNodePositions(positions) != nodes) return 0.0
-    val run = if (end == ChainEnd.START) 1 until nodes else 0 until nodes - 1
-    val newRest = spacing * (links - 1)
+    if (chain.copyNodePositions(positions) != nodes) return null
     val piece = addPiece(
-        positions, nodeVelocities(chain, nodes), run, newRest, vine.start, vine.end, vine.fromBreak, vine.dropsOnFade, vine.id,
-    ) ?: return 0.0
+        positions, nodeVelocities(chain, nodes), 0 until nodes, rest, vine.start, vine.end, vine.fromBreak, vine.dropsOnFade, vine.id,
+    ) ?: return null
+    piece.grips = vine.grips.map { VineGrip(extendedNode(it.node, links, rest, 0.0, false), it.shipId, it.local) }
+    replaceRebuilt(data, vine, piece) { node -> extendedNode(node, links, rest, 0.0, false) }
+    return piece
+}
+
+/**
+ * Puts [piece] (same id) in place of [vine]: the credit goes with it, the old chain goes, and each joint to a node of
+ * [vine] moves to node [renumber] of [piece].
+ */
+@OptIn(GameTickOnly::class)
+internal fun ServerLevel.replaceRebuilt(data: WoggakVineData, vine: WoggakVine, piece: WoggakVine, renumber: (Int) -> Int) {
     piece.reelCredit = vine.reelCredit
-    piece.grips = vine.grips.inRun(run)
     if (!shipObjectWorld.deleteChain(vine.chain)) LOG.warn("Woggak Vine {} was already removed", vine.chain.value)
     data.remove(vine)
     for (other in data.vines) {
@@ -287,11 +320,10 @@ private fun ServerLevel.rebuildShorter(data: WoggakVineData, vine: WoggakVine, c
             if (joint.vine != vine.id) continue
             // The old pair holds node ids of the deleted chain; followJoint makes a new one.
             anchor.pair = null
-            if (end == ChainEnd.START && joint.node > 0) joint.node--
+            joint.node = renumber(joint.node)
         }
     }
     data.anchorsDirty = true
     data.jointsDirty = true
     data.setDirty()
-    return rest - newRest
 }

@@ -73,6 +73,7 @@ internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, f
         addPiece(positions, velocities, run, restPerLink * (run.last - run.first), start, end, fromBreak, vine.dropsOnFade)
             ?.let { pieces += SplitPiece(run, it) }
     }
+    woggakVines.noteSplit(vine, pieces)
     for (pair in woggakVines.repointSplit(vine.id, vine, pieces, vine.grips)) pair.restoreContacts(this)
     return true
 }

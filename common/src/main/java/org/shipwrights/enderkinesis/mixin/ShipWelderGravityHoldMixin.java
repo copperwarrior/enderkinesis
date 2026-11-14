@@ -11,8 +11,7 @@ import org.valkyrienskies.mod.common.assembly.ShipWelder;
 @Mixin(value = ShipWelder.class, remap = false)
 public class ShipWelderGravityHoldMixin {
 
-    // The weld drive copies gravityOverride here; a write after this copy leaves the drive
-    // and the attachment one game tick apart.
+    // VS2 calls ShipWelder.tick once per level each server tick; this is the only caller of ShipGravityHold.applyAll.
     @Inject(method = "tick", at = @At("HEAD"))
     private static void enderkinesis$applyGravityHolds(ServerLevel level, CallbackInfo ci) {
         ShipGravityHold.applyAll(level);

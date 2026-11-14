@@ -5,6 +5,7 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import net.minecraft.core.BlockPos
 import net.minecraft.nbt.CompoundTag
+import net.minecraft.nbt.ListTag
 import net.minecraft.world.level.ChunkPos
 import org.joml.Vector3d
 import org.junit.jupiter.api.Test
@@ -66,6 +67,29 @@ class VineChunksTest {
         VineRecord.load(good.copy().also { it.putLongArray("nodes", LongArray(6) { Double.NaN.toRawBits() }) }).shouldBeNull()
         VineRecord.load(good.copy().also { it.putDouble("rest", 0.0) }).shouldBeNull()
         VineRecord.load(CompoundTag()).shouldBeNull()
+    }
+
+    @Test
+    fun `the records of a chunk tag come back in order, and only a bad record is dropped`() {
+        val records = (1L..3L).map { id ->
+            VineRecord(id, blockAnchor(id.toInt(), 64, 0), free(), -1L, false, true, 1.0, DoubleArray(6) { it + id.toDouble() }, IntArray(0), 100L + id)
+        }
+        val list = ListTag()
+        list.add(records[0].save())
+        list.add(CompoundTag())
+        records.drop(1).forEach { list.add(it.save()) }
+        val chunkTag = CompoundTag().apply { put(CHUNK_TAG, list) }
+
+        val loaded = readVineRecords(ChunkPos(0, 0), chunkTag)
+
+        loaded.map { it.id } shouldBe listOf(1L, 2L, 3L)
+        loaded.map { it.chain } shouldBe listOf(101L, 102L, 103L)
+        loaded[2].positions.toList() shouldBe records[2].positions.toList()
+    }
+
+    @Test
+    fun `a chunk tag with no vine list gives no records`() {
+        readVineRecords(ChunkPos(0, 0), CompoundTag()).shouldBe(emptyList())
     }
 
     @Test

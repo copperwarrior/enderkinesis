@@ -50,7 +50,7 @@ class VineJoint(vine: Long, node: Int, home: Long) {
 }
 
 internal const val NO_CONTACTS = 0
-private const val ALL_CONTACTS = -1
+internal const val ALL_CONTACTS = -1
 
 /** Gives the joined node of this pair its contacts back when the joint lets go. */
 @OptIn(GameTickOnly::class)

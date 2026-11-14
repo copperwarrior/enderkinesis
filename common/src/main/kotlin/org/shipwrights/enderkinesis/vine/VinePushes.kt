@@ -270,7 +270,6 @@ private fun registerVinePushReceiver() {
             val contacts = data.contacts
             contacts.clear()
             for (i in packet.chainIds.indices) {
-                if (data.isThrowing(player.uuid, packet.chainIds[i])) continue
                 val chain = data.collider.touchingLink(packet.chainIds[i], packet.links[i], reach) ?: continue
                 if (!contacts.add(chain, packet.links[i], packet.ts[i].toDouble(), packet.weights[i].toDouble())) break
             }

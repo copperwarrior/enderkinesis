@@ -22,7 +22,7 @@ public abstract class ShipSectionCompilerPhasedMixin {
 
     // No descriptor: the AP does not remap a mod method's descriptor, so a Minecraft type in it breaks in production.
     @WrapOperation(
-        method = "compileShip",
+        method = "compileSection",
         at = @At(value = "INVOKE", target = "Lorg/valkyrienskies/mod/common/render/batched/BatchedModelRenderer;renderModel"),
         remap = false
     )

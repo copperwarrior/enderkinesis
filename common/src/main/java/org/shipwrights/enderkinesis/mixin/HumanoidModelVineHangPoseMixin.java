@@ -20,7 +20,10 @@ public abstract class HumanoidModelVineHangPoseMixin {
         CallbackInfo ci
     ) {
         if (!(entity instanceof Player player)) return;
-        // ageInTicks = tickCount + partialTick.
-        VineHangPoseKt.applyVineHangPose((HumanoidModel<?>) (Object) this, player, ageInTicks - player.tickCount);
+        // ageInTicks = tickCount + partialTick in the world pass. The first-person hand (PlayerRenderer.renderHand)
+        // passes 0, so the partial tick goes out of [0, 1]: keep the vanilla still hand there.
+        float partialTick = ageInTicks - player.tickCount;
+        if (partialTick < 0f || partialTick > 1f) return;
+        VineHangPoseKt.applyVineHangPose((HumanoidModel<?>) (Object) this, player, partialTick);
     }
 }

@@ -11,6 +11,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 import net.minecraft.core.BlockPos
+import net.minecraft.core.SectionPos
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
@@ -50,7 +51,7 @@ internal const val VINE_BREAK_FORCE = 1.0e7
 /** Rigid for now: a finite stiffness snaps vines under their own movement; a VS bug report is pending. */
 internal const val VINE_LINK_STIFFNESS = Double.POSITIVE_INFINITY
 private const val MIN_LENGTH = 1.0
-internal const val BLOCKS_PER_ITEM = 4.0
+internal const val BLOCKS_PER_ITEM = 1.0
 private const val SAG_FRACTION = 0.08
 private const val PATH_POINTS = 9
 private const val DATA_NAME = "enderkinesis_woggak_vines"
@@ -93,14 +94,13 @@ class WoggakVineAnchor(val point: VinePoint?) {
 class WoggakVine(
     val id: Long, val chain: ChainId, val start: WoggakVineAnchor, end: WoggakVineAnchor, val fromBreak: Boolean = false,
 ) {
-    /** A thrown vine gets its end anchor when the tip sticks. */
     var end = end
         internal set
     /** Game time when the last anchor went, or -1. */
     var fadeStart = -1L
     /** False on a piece that a creative cut set free; else the vine drops vine items at the end of its fade. */
     var dropsOnFade = true
-    /** Reeled-in blocks not yet paid as an item; always under [BLOCKS_PER_ITEM]. */
+    /** Paid blocks that the vine does not hold (reeled in, or a pay-out remainder); always under [BLOCKS_PER_ITEM]. */
     var reelCredit = 0.0
     /** The chunk (ChunkPos long) that saves this vine and whose trackers get it; see [fixedBlockHome]. */
     var home = 0L
@@ -121,15 +121,25 @@ class WoggakVine(
     /** Bit 2: a ship block holds the start; bit 3: one holds the end. */
     val shipEnds: Int
         get() = (if (start.isShipHeld) SHIP_START else 0) or (if (end.isShipHeld) SHIP_END else 0)
+
+    /** Bit 4: a world block holds the start; bit 5: one holds the end. */
+    val blockEnds: Int
+        get() = (if (start.isBlockHeld) BLOCK_START else 0) or (if (end.isBlockHeld) BLOCK_END else 0)
 }
+
+/** Vine [old] was split into the vines [pieces] this tick. */
+class VineSplit(val old: Long, val pieces: LongArray)
 
 const val JOINED_START = 1
 const val JOINED_END = 2
 const val SHIP_START = 4
 const val SHIP_END = 8
+const val BLOCK_START = 16
+const val BLOCK_END = 32
 
 internal val WoggakVineAnchor.isJoined get() = !released && point?.joint != null
 internal val WoggakVineAnchor.isShipHeld get() = !released && point?.joint == null && point?.shipId != null
+internal val WoggakVineAnchor.isBlockHeld get() = !released && point != null && point.joint == null && point.shipId == null
 
 /** A new vine id; random, so that no counter has to be saved before the chunks that hold the ids. */
 internal fun newVineId(): Long {
@@ -148,6 +158,8 @@ class WoggakVineData : SavedData() {
     private val homes = Long2ObjectOpenHashMap<ArrayList<WoggakVine>>()
     /** Chunks whose vine list changed, so the next sync sends them to their trackers. */
     internal val dirtyChunks = LongOpenHashSet()
+    /** Splits of this tick by the home chunk of the split vine, sent with that chunk's sync; not saved. */
+    internal val splits = Long2ObjectOpenHashMap<ArrayList<VineSplit>>()
     /** Vines that went with their chunk in this session; joints to them wait. Not saved. */
     internal val unloadedIds = LongOpenHashSet()
     /** VS chains of chunk-saved vines at the last save; VS restores them too, so the first tick deletes them. */
@@ -216,6 +228,14 @@ class WoggakVineData : SavedData() {
             other.start.point?.joint?.let { if (it.vine == vine.id) it.home = chunk }
             other.end.point?.joint?.let { if (it.vine == vine.id) it.home = chunk }
         }
+    }
+
+    /** Tells the trackers of [old]'s chunk that [pieces] replace it, so they draw it until the pieces show. */
+    internal fun noteSplit(old: WoggakVine, pieces: List<SplitPiece>) {
+        if (pieces.isEmpty()) return
+        val list = splits.get(old.home) ?: ArrayList<VineSplit>().also { splits.put(old.home, it) }
+        list.add(VineSplit(old.id, LongArray(pieces.size) { pieces[it].vine.id }))
+        dirtyChunks.add(old.home)
     }
 
     /** Sends [vine]'s chunk again, after a change that the client draws. */
@@ -360,14 +380,14 @@ internal fun sagPath(a: Vector3dc, b: Vector3dc): List<Vector3dc> {
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.makeVineChain(
     path: List<Vector3dc>, start: ChainEndpoint, end: ChainEndpoint, initialVelocity: Vector3dc = Vector3d(),
-    massPerLength: Double = MASS_PER_LENGTH,
+    massPerLength: Double = MASS_PER_LENGTH, targetSpacing: Double = VINE_TARGET_SPACING,
 ): ServerChain? = try {
     shipObjectWorld.createChain(ChainCreateData(
         dimensionId = dimensionId,
         path = path,
         start = start,
         end = end,
-        targetSpacing = VINE_TARGET_SPACING,
+        targetSpacing = targetSpacing,
         particleRadius = PARTICLE_RADIUS,
         massPerLength = massPerLength,
         breakForce = VINE_BREAK_FORCE,
@@ -437,6 +457,8 @@ private fun ServerLevel.tickWoggakVines() {
         val status = chain?.status
         if (chain == null || status == null || status.lifecycle == ChainLifecycle.REMOVED || status.lifecycle == ChainLifecycle.FAILED) {
             if (status?.lifecycle == ChainLifecycle.FAILED) LOG.warn("Woggak Vine {} failed: {}", vine.chain.value, status.failure)
+            // [VineReloadDebug] temporary
+            vineReloadDebug("removed, chain gone", this, 1)
             data.removeAt(i); count--; topology = true
             continue
         }
@@ -489,7 +511,7 @@ private fun ServerLevel.releaseIfLost(chain: ServerChain, end: ChainEnd, anchor:
     val joint = point.joint
     val lost = !detached && (
         if (joint != null) !followJoint(chain, end, anchor, joint)
-        else isLoaded(point.block) && getBlockState(point.block).getCollisionShape(this, point.block).isEmpty
+        else isAnchorBlockGone(point.block)
     )
     if (!detached && !lost) return false
     if (state == ChainAttachmentState.ATTACHED) chain.setEndpoint(end, ChainEndpoint.Free)
@@ -497,4 +519,12 @@ private fun ServerLevel.releaseIfLost(chain: ServerChain, end: ChainEnd, anchor:
     anchor.pair?.restoreContacts(this)
     anchor.pair = null
     return true
+}
+
+/** False while the chunk is not ready: Level.getBlockState blocks the server thread until a pending chunk loads. */
+private fun ServerLevel.isAnchorBlockGone(pos: BlockPos): Boolean {
+    if (isOutsideBuildHeight(pos)) return false
+    val chunk = chunkSource.getChunkNow(SectionPos.blockToSectionCoord(pos.x), SectionPos.blockToSectionCoord(pos.z))
+        ?: return false
+    return chunk.getBlockState(pos).getCollisionShape(this, pos).isEmpty
 }

@@ -6,6 +6,8 @@ import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.LevelRenderer
@@ -15,22 +17,30 @@ import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.client.renderer.texture.TextureAtlasSprite
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.core.particles.SimpleParticleType
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.Mth
 import net.minecraft.world.inventory.InventoryMenu
+import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.FrustumIntersection
 import org.joml.Matrix3f
 import org.joml.Matrix4f
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.Vector3f
+import org.shipwrights.enderkinesis.registry.EKParticles
+import org.shipwrights.enderkinesis.vine.BLOCK_END
+import org.shipwrights.enderkinesis.vine.BLOCK_START
 import org.shipwrights.enderkinesis.vine.JOINED_END
 import org.shipwrights.enderkinesis.vine.JOINED_START
 import org.shipwrights.enderkinesis.vine.SHIP_END
 import org.shipwrights.enderkinesis.vine.SHIP_START
 import org.shipwrights.enderkinesis.vine.VINE_HALF_WIDTH
 import org.shipwrights.enderkinesis.vine.VINE_KNOT_HALF
+import org.shipwrights.enderkinesis.vine.VINE_TARGET_SPACING
+import org.shipwrights.enderkinesis.vine.VineSplit
 import org.shipwrights.enderkinesis.vine.clientVineCollider
 import org.shipwrights.enderkinesis.vine.clientVinePushOutbox
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_FADE_TICKS
@@ -42,6 +52,8 @@ import org.valkyrienskies.core.api.chains.ClientChain
 import org.valkyrienskies.core.api.chains.QueryableChainData
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.shipObjectWorld
+import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
@@ -50,44 +62,97 @@ import kotlin.math.sqrt
 // Render thread only; the sync receiver queues onto it.
 object WoggakVineRenderer {
 
-    private val MOSS = ResourceLocation("enderkinesis", "block/wohlon_moss")
-    private val MOSS_FILE = ResourceLocation("enderkinesis", "textures/block/wohlon_moss.png")
+    private val ROPE = ResourceLocation("enderkinesis", "block/woggak_vine_rope")
+    private val KNOT = ResourceLocation("enderkinesis", "block/woggak_knot")
+    private val KNOT_FILE = ResourceLocation("enderkinesis", "textures/block/woggak_knot.png")
+    private val ROPE_FILE = ResourceLocation("enderkinesis", "textures/block/woggak_vine_rope.png")
     private val SOLID: RenderType = RenderType.entityCutout(InventoryMenu.BLOCK_ATLAS)
     private val LEAVES = Array(LEAF_VARIANTS) { ResourceLocation("enderkinesis", "block/woggak_vine_leaf_$it") }
     private val LEAF_FILES = Array(LEAF_VARIANTS) { ResourceLocation("enderkinesis", "textures/block/woggak_vine_leaf_$it.png") }
+    private val MOSS_PAD = ResourceLocation("enderkinesis", "block/woggak_vine_moss_pad")
+    // atlases/blocks.json keeps these out of the block atlas: a sprite under 16 px lowers the mip level of the whole atlas.
+    private val BEARD_TYPES = Array(BEARD_VARIANTS) {
+        RenderType.entityCutoutNoCull(ResourceLocation("enderkinesis", "textures/block/woggak_vine_beard_$it.png"))
+    }
+    private val beardStashes = Array(BEARD_VARIANTS) { VertexStash(BEARD_TYPES[it]) }
+    /** When set, vertices go here, not to [out]. */
+    private var stash: VertexStash? = null
 
-    /** [point] is in the shipyard of [ship]. */
-    private class ShipHold(val ship: Long, val point: Vector3dc)
+    /** [point] and [block] are in the shipyard of [ship] when it is set, else in the world. */
+    private class Hold(val ship: Long?, val block: BlockPos, val point: Vector3dc)
+
+    /** The face of a held end's block shape in the hold's frame; refreshed with the light, once per client tick. */
+    private class EndFace {
+        var valid = false
+        var axis = 0
+        var sign = 1.0
+        /** How far the rope goes into the block; 0 when the block is too thin or narrow. */
+        var depth = 0.0
+        var padHalf = 0.0
+        /** The shape's thickness along [axis]. */
+        var thick = 0.0
+        val centre = Vector3d()
+        /** Hold-frame offset from the anchor point to the buried end, toward the block centre. */
+        val inset = Vector3d()
+        /** The face's edges in the hold frame: low u, high u, low v, high v. */
+        val edge = DoubleArray(4)
+        /** How far the pad runs past each edge and wraps onto the neighbouring face; 0 when none or hidden. */
+        val over = DoubleArray(4)
+    }
 
     /**
      * [key] is the server's vine id, which a chunk reload keeps; [id] is the VS chain, which a reload replaces.
      * [startTarget] and [endTarget] are the vine keys the ends are joined to, at nodes [startNode] and [endNode];
-     * [startHold] and [endHold] are the ship blocks that hold the ends. [chunk] is the chunk that sent the vine.
+     * [startAnchor] and [endAnchor] are the world or ship blocks that hold the ends. [chunk] is the chunk that sent
+     * the vine.
      */
     @Suppress("LongParameterList") // One synced vine: ids, fade, flags and what holds each end.
     private class ClientVine(
         val key: Long, val id: ChainId, val chunk: Long, val fadeStart: Long, val joinedEnds: Int,
-        val startTarget: Long?, val startNode: Int, val startHold: ShipHold?,
-        val endTarget: Long?, val endNode: Int, val endHold: ShipHold?,
+        val startTarget: Long?, val startNode: Int, val startAnchor: Hold?,
+        val endTarget: Long?, val endNode: Int, val endAnchor: Hold?,
     ) {
+        val startHold: Hold? get() = startAnchor?.takeIf { it.ship != null }
+        val endHold: Hold? get() = endAnchor?.takeIf { it.ship != null }
+        val startFace = EndFace()
+        val endFace = EndFace()
+        val startFree: Boolean get() = (joinedEnds and FIXED_START) == 0
+        val endFree: Boolean get() = (joinedEnds and FIXED_END) == 0
+        val bothFixed: Boolean get() = !startFree && !endFree
         var frames = VineFrames()
         // Per link, then the start and end knots; sampled once per client tick, so light lags by up to one tick.
         var lights = IntArray(0)
         var lightTick = -1L
         var lightCount = 0
+        /** True once the extras of this vine have fallen off as particles. */
+        var shed = false
         /** The side axis of the first frame of the last draw; zero before the first draw. */
         val seedSide = Vector3d()
 
         fun keepFrameTiming(old: ClientVine) {
             frames = old.frames
             seedSide.set(old.seedSide)
+            shed = old.shed
         }
     }
 
+    /**
+     * A replaced vine, drawn in place until every vine key in [pieces] shows: VS makes the new chains on the physics
+     * thread, so they reach the client some ticks after our sync. [rest] and [broken] are of its last chain state.
+     */
+    private class Retiring(val vine: ClientVine, var pieces: LongArray, val rest: Double, val broken: Set<Int>) {
+        var ticks = 0
+    }
+
     private val vines = ArrayList<ClientVine>()
+    private val retiring = ArrayList<Retiring>()
+    /** The keys of [retiring]'s pieces, which stay hidden until their old vine goes. */
+    private val heldBack = LongOpenHashSet()
     private val byId = HashMap<ChainId, ClientVine>()
     private val byKey = HashMap<Long, ClientVine>()
     private val byChunk = HashMap<Long, ArrayList<ClientVine>>()
+    /** Stand-in vines of the thrown tips in flight, by flight id. */
+    private val flightVines = Long2ObjectOpenHashMap<ClientVine>()
     private var positions = DoubleArray(0)
     private var targetPositions = DoubleArray(0)
     private var copiedTarget: ChainId? = null
@@ -111,6 +176,23 @@ object WoggakVineRenderer {
     // Per render node, the source link it starts; per source node, its render node.
     private var segLink = IntArray(0)
     private var linkFirst = IntArray(0)
+    // Per render node, the rope width factor of a tight span.
+    private var widthScale = DoubleArray(0)
+    // Render nodes added inside the anchor block at the start and the end (0 or 1), and the start inset depth.
+    private var insetStart = 0
+    private var insetEnd = 0
+    private var startInset = 0.0
+    private val insetOffset = Vector3d()
+    private val padPos = BlockPos.MutableBlockPos()
+    // Scratch for a beard strand: the rope direction at the point, the hang direction and the steep-rope side axis.
+    private val ropeDir = Vector3d()
+    private val hangDir = Vector3d()
+    private val sideDir = Vector3d()
+    private var padSprite: TextureAtlasSprite? = null
+    private var knotSprite: TextureAtlasSprite? = null
+    private var greyPass = false
+    // Game time in seconds for the sway.
+    private var seconds = 0.0
     private val leafSprites = arrayOfNulls<TextureAtlasSprite>(LEAF_VARIANTS)
     private val frameSide = Vector3d()
     private val prevTangent = Vector3d()
@@ -137,6 +219,7 @@ object WoggakVineRenderer {
     private val point = Vector3d()
     private val leafOut = Vector3d(); private val leafCross = Vector3d()
     private val leafDir = Vector3d(); private val leafWidth = Vector3d()
+    private val padNormal = Vector3d()
 
     // Current draw: buffer, texture rectangle, colour alpha and box half width.
     private lateinit var out: VertexConsumer
@@ -161,7 +244,10 @@ object WoggakVineRenderer {
             // Each entry holds at least a vine id, a chain id, a fade start and an end-flag byte.
             require(count >= 0 && count <= buf.readableBytes() / (Long.SIZE_BYTES * 3 + 1)) { "Bad Woggak Vine count $count" }
             val received = List(count) { buf.readVine(chunk) }
-            ctx.queue { receivePage(chunk, first, received) }
+            val splitCount = buf.readVarInt()
+            require(splitCount >= 0 && splitCount <= buf.readableBytes() / (Long.SIZE_BYTES + 1)) { "Bad Woggak Vine split count $splitCount" }
+            val splits = List(splitCount) { VineSplit(buf.readLong(), buf.readLongArray()) }
+            ctx.queue { receivePage(chunk, first, received, splits) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_FORGET) { buf, ctx ->
             val chunk = buf.readLong()
@@ -173,13 +259,24 @@ object WoggakVineRenderer {
     }
 
     /** One page of [chunk]'s vines; the [first] page replaces the vines that the chunk sent before. */
-    private fun receivePage(chunk: Long, first: Boolean, received: List<ClientVine>) {
+    private fun receivePage(chunk: Long, first: Boolean, received: List<ClientVine>, splits: List<VineSplit>) {
+        val chains = Minecraft.getInstance().level?.shipObjectWorld?.allChains
+        for (split in splits) {
+            val prior = byKey.remove(split.old) ?: continue
+            byChunk[prior.chunk]?.remove(prior)
+            retire(prior, split.pieces, chains)
+        }
         val old = if (first) byChunk.remove(chunk) else null
         val list = byChunk.getOrPut(chunk) { ArrayList() }
         for (vine in received) {
             val prior = byKey[vine.key]
             if (prior != null) {
-                if (prior.id == vine.id) vine.keepFrameTiming(prior)
+                if (prior.id == vine.id) {
+                    vine.keepFrameTiming(prior)
+                } else {
+                    // A rebuild on reel or pay-out keeps the vine id but makes a new chain.
+                    retire(prior, longArrayOf(vine.key), chains)
+                }
                 // The vine moved here from another chunk.
                 if (prior.chunk != chunk) byChunk[prior.chunk]?.remove(prior)
             }
@@ -191,8 +288,67 @@ object WoggakVineRenderer {
         rebuildVineList()
     }
 
+    private fun retire(prior: ClientVine, pieces: LongArray, chains: QueryableChainData<ClientChain>?) {
+        // A piece still held back never showed, so its own pieces take its place behind the older vine.
+        for (i in retiring.indices) {
+            val r = retiring[i]
+            val at = r.pieces.indexOf(prior.key)
+            if (at < 0) continue
+            r.pieces = (r.pieces.filterIndexed { k, _ -> k != at } + pieces.asList()).distinct().toLongArray()
+            rebuildHeldBack()
+            return
+        }
+        if (prior.frames.nodeCount < 2) return
+        if (retiring.size >= MAX_RETIRING) retiring.removeAt(0)
+        val status = chains?.getById(prior.id)?.status
+        retiring.add(Retiring(prior, pieces, status?.currentRestLength ?: 0.0, status?.brokenLinks?.toSet() ?: emptySet()))
+        rebuildHeldBack()
+    }
+
+    private fun rebuildHeldBack() {
+        heldBack.clear()
+        for (r in retiring) for (key in r.pieces) heldBack.add(key)
+    }
+
+    /** True when vine [key] is synced, its VS chain is here, and it has a frame to draw. */
+    private fun isShown(key: Long, chains: QueryableChainData<ClientChain>): Boolean {
+        val vine = byKey[key] ?: return false
+        return vine.frames.nodeCount >= 2 && chains.getById(vine.id) != null
+    }
+
+    /** Ends each replaced vine whose pieces all show, so the pieces take over in this frame. */
+    private fun settleRetiring(chains: QueryableChainData<ClientChain>) {
+        var changed = false
+        var i = 0
+        while (i < retiring.size) {
+            if (retiring[i].pieces.all { isShown(it, chains) }) {
+                retiring.removeAt(i)
+                changed = true
+            } else {
+                i++
+            }
+        }
+        if (changed) rebuildHeldBack()
+    }
+
+    /** Rule 2 cap: a piece that never reaches this client (an untracked chunk) does not hold the old vine forever. */
+    private fun expireRetiring() {
+        var changed = false
+        var i = 0
+        while (i < retiring.size) {
+            if (++retiring[i].ticks > MAX_RETIRE_TICKS) {
+                retiring.removeAt(i)
+                changed = true
+            } else {
+                i++
+            }
+        }
+        if (changed) rebuildHeldBack()
+    }
+
     private fun dropChunk(chunk: Long) {
         byChunk.remove(chunk)?.forEach { if (byKey[it.key] === it) byKey.remove(it.key) }
+        if (retiring.removeIf { it.vine.chunk == chunk }) rebuildHeldBack()
     }
 
     private fun rebuildVineList() {
@@ -209,22 +365,35 @@ object WoggakVineRenderer {
         val joined = readByte().toInt()
         val startTarget = if ((joined and JOINED_START) != 0) readLong() else null
         val startNode = if (startTarget != null) readVarInt() else -1
-        val startHold = if ((joined and SHIP_START) != 0) readShipHold() else null
+        val startAnchor = readHold(joined, SHIP_START, BLOCK_START)
         val endTarget = if ((joined and JOINED_END) != 0) readLong() else null
         val endNode = if (endTarget != null) readVarInt() else -1
-        val endHold = if ((joined and SHIP_END) != 0) readShipHold() else null
-        return ClientVine(key, id, chunk, fadeStart, joined, startTarget, startNode, startHold, endTarget, endNode, endHold)
+        val endAnchor = readHold(joined, SHIP_END, BLOCK_END)
+        return ClientVine(key, id, chunk, fadeStart, joined, startTarget, startNode, startAnchor, endTarget, endNode, endAnchor)
     }
 
-    private fun FriendlyByteBuf.readShipHold(): ShipHold = ShipHold(readLong(), Vector3d(readDouble(), readDouble(), readDouble()))
+    private fun FriendlyByteBuf.readHold(flags: Int, shipBit: Int, blockBit: Int): Hold? {
+        if ((flags and (shipBit or blockBit)) == 0) return null
+        val ship = if ((flags and shipBit) != 0) readLong() else null
+        val block = BlockPos.of(readLong())
+        return Hold(ship, block, Vector3d(readDouble(), readDouble(), readDouble()))
+    }
 
     fun clear() {
         vines.clear()
         byId.clear()
         byKey.clear()
         byChunk.clear()
+        retiring.clear()
+        heldBack.clear()
         clock.clear()
         clientVineCollider.clear()
+        flightVines.clear()
+    }
+
+    /** Forgets the stand-in vine of a flight that [VineThrowClient] dropped. */
+    fun forgetFlight(id: Long) {
+        flightVines.remove(id)
     }
 
     /**
@@ -239,6 +408,9 @@ object WoggakVineRenderer {
             NetworkManager.sendToServer(WOGGAK_VINE_PUSH, buf)
         }
         clientVineCollider.clear()
+        expireRetiring()
+        // [VineReloadDebug] temporary
+        if (vines.isEmpty() && clientTicks % 100L == 0L) org.shipwrights.enderkinesis.vine.LOG.info("[VineReloadDebug] client: 0 vines synced")
         if (vines.isEmpty()) return
         val world = level.shipObjectWorld
         val chains = world.allChains
@@ -250,11 +422,36 @@ object WoggakVineRenderer {
         // The stamp is the wall time at which the sample is drawn, so the hang's lead adds nothing before then.
         val shownAt = now + COLLIDER_LEAD_NANOS
         val at = clock.at(shownAt)
+        // [VineReloadDebug] temporary
+        var withChain = 0
+        var drawable = 0
         for (vine in vines) {
             val chain = chains.getById(vine.id) ?: continue
+            withChain++
             val count = level.shapeNodes(vine, chains, at, COLLIDER_EXTRAPOLATE, drawn = false)
+            if (count >= 2) drawable++
             if (count >= 2) clientVineCollider.add(chain, positions, count, vine.joinedEnds, shownAt)
+            if (count >= 3) level.maybeDrip(vine, chain, count)
         }
+        // [VineReloadDebug] temporary
+        if (clientTicks % 100L == 0L) {
+            org.shipwrights.enderkinesis.vine.LOG.info(
+                "[VineReloadDebug] client: {} vines synced, {} with a VS chain, {} drawable", vines.size, withChain, drawable,
+            )
+        }
+    }
+
+    /** Now and then a drop falls from the lowest node of a span that hangs between two held ends. */
+    private fun ClientLevel.maybeDrip(vine: ClientVine, chain: ClientChain, count: Int) {
+        if (!vine.bothFixed || random.nextInt(DRIP_TICKS) != 0 || chain.status.brokenLinks.isNotEmpty()) return
+        var low = 1
+        for (i in 2 until count - 1) if (positions[i * 3 + 1] < positions[low * 3 + 1]) low = i
+        val k = low * 3
+        if (positions[k + 1] >= minOf(positions[1], positions[(count - 1) * 3 + 1])) return
+        val camera = Minecraft.getInstance().gameRenderer.mainCamera.position
+        val dx = positions[k] - camera.x; val dy = positions[k + 1] - camera.y; val dz = positions[k + 2] - camera.z
+        if (dx * dx + dy * dy + dz * dz > DRIP_DISTANCE * DRIP_DISTANCE) return
+        addParticle(EKParticles.woggakVineDrip(), positions[k], positions[k + 1] - VINE_HALF_WIDTH - DRIP_GAP, positions[k + 2], 0.0, 0.0, 0.0)
     }
 
     /** Keeps each vine's new chain frame at its first sight, so the clock sees true arrival times. */
@@ -263,6 +460,11 @@ object WoggakVineRenderer {
         for (i in vines.indices) {
             val chain = chains.getById(vines[i].id) ?: continue
             newest = maxOf(newest, vines[i].frames.push(chain))
+        }
+        for (i in retiring.indices) {
+            val vine = retiring[i].vine
+            val chain = chains.getById(vine.id) ?: continue
+            newest = maxOf(newest, vine.frames.push(chain))
         }
         if (newest >= 0) clock.observe(newest, now)
     }
@@ -287,16 +489,21 @@ object WoggakVineRenderer {
         poseStack: PoseStack, buffers: MultiBufferSource,
         cameraX: Double, cameraY: Double, cameraZ: Double, partialTicks: Float,
     ) {
-        if (vines.isEmpty()) return
+        if (vines.isEmpty() && retiring.isEmpty() && VineThrowClient.flights.isEmpty()) return
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return
         val chains = level.shipObjectWorld.allChains
         val atlas = mc.getTextureAtlas(InventoryMenu.BLOCK_ATLAS)
-        val sprite = atlas.apply(MOSS)
+        val rope = atlas.apply(ROPE)
+        padSprite = atlas.apply(MOSS_PAD)
+        knotSprite = atlas.apply(KNOT)
         for (i in LEAVES.indices) leafSprites[i] = atlas.apply(LEAVES[i])
         val time = level.gameTime + partialTicks.toDouble()
+        seconds = time / TICKS_PER_SECOND
+        for (s in beardStashes) s.clear()
         val now = System.nanoTime()
         captureFrames(chains, now)
+        settleRetiring(chains)
         val at = clock.advance(now)
         drawAt = at
         val matrix = poseStack.last().pose()
@@ -305,41 +512,279 @@ object WoggakVineRenderer {
         frustum.set(viewProj.set(RenderSystem.getProjectionMatrix()).mul(matrix), false)
 
         for (vine in vines) {
-            val chain = chains.getById(vine.id) ?: continue
+            if (heldBack.contains(vine.key)) continue
+            val status = chains.getById(vine.id)?.status ?: continue
             val count = level.shapeNodes(vine, chains, at, DRAW_EXTRAPOLATE, drawn = true)
             if (count < 2) continue
             if (!inFrustum(count)) continue
-            val hasBroken = chain.status.brokenLinks.copyBroken(count)
-            val drawn = smooth(count, hasBroken)
-            level.computeFrames(vine, drawn)
-            computeMiters(drawn)
-            prepareView(drawn)
-            out = buffers.getBuffer(SOLID)
-            u0 = sprite.u0; u1 = sprite.u1; v0 = sprite.v0; v1 = sprite.v1
-            alpha = 1f; half = VINE_HALF_WIDTH
-            val sampleLight = vine.lightTick != clientTicks || vine.lightCount != count
-            if (sampleLight) {
-                if (vine.lights.size < count + 1) vine.lights = IntArray(count + 1)
-                vine.lightTick = clientTicks
-                vine.lightCount = count
-            }
-            lights = vine.lights
-            drawVine(level, drawn, count, hasBroken, vine.joinedEnds, sampleLight)
-            drawLeaves(count, hasBroken, vine.key, grey = false)
-            if (vine.fadeStart < 0) continue
-            val fade = ((time - vine.fadeStart) / WOGGAK_VINE_FADE_TICKS).coerceIn(0.0, 1.0).toFloat()
-            val type = mc.greyType() ?: continue
-            // SOLID is vanilla's fixed cutout block sheet, drawn late in the frame. Draw it now, or the grey shell
-            // writes depth first and hides the moss under it.
-            (buffers as? MultiBufferSource.BufferSource)?.endBatch(SOLID)
-            out = buffers.getBuffer(type)
-            u0 = 0f; u1 = 1f; v0 = 0f; v1 = 1f / GREY_ROWS
-            alpha = fade; half = VINE_HALF_WIDTH + GREY_INFLATE
-            drawVine(level, drawn, count, hasBroken, vine.joinedEnds, sampleLight = false)
-            half = VINE_HALF_WIDTH
-            drawLeaves(count, hasBroken, vine.key, grey = true)
+            level.drawOne(mc, buffers, vine, status.brokenLinks, status.currentRestLength, count, rope, time)
+        }
+        for (i in retiring.indices) {
+            val r = retiring[i]
+            // VS can drop the old chain first; its kept frames still draw it.
+            val status = chains.getById(r.vine.id)?.status
+            val count = level.shapeNodes(r.vine, chains, at, DRAW_EXTRAPOLATE, drawn = true)
+            if (count < 2 || !inFrustum(count)) continue
+            level.drawOne(mc, buffers, r.vine, status?.brokenLinks ?: r.broken, status?.currentRestLength ?: r.rest, count, rope, time)
+        }
+        level.drawFlights(buffers, rope, partialTicks)
+        for (s in beardStashes) s.flush(buffers)
+    }
+
+    /** Draws [vine], whose [count] chain nodes are in [positions]: rope, leaves, decor and the grey fade. */
+    @Suppress("LongParameterList") // Minecraft, buffers, the vine, its broken links and rest length, the node count, rope sprite and time.
+    private fun ClientLevel.drawOne(
+        mc: Minecraft, buffers: MultiBufferSource, vine: ClientVine, broken: Set<Int>, rest: Double, count: Int,
+        rope: TextureAtlasSprite, time: Double,
+    ) {
+        val hasBroken = broken.copyBroken(count)
+        val sampleLight = takeLights(vine, count)
+        val tight = if (hasBroken) 0.0 else tightness(vine, rest, count)
+        val drawn = drawRope(buffers, vine, count, rope, hasBroken, tight, sampleLight)
+        if (vine.fadeStart < 0) {
+            drawPads(vine, count)
+            drawBeard(vine, count, hasBroken, shed = false)
+            return
+        }
+        if (!vine.shed) {
+            vine.shed = true
+            shedPads(vine)
+            drawBeard(vine, count, hasBroken, shed = true)
+        }
+        val fade = ((time - vine.fadeStart) / WOGGAK_VINE_FADE_TICKS).coerceIn(0.0, 1.0).toFloat()
+        val type = mc.greyType() ?: return
+        // SOLID is vanilla's fixed cutout block sheet, drawn late in the frame. Draw it now, or the grey shell
+        // writes depth first and hides the rope under it.
+        (buffers as? MultiBufferSource.BufferSource)?.endBatch(SOLID)
+        out = buffers.getBuffer(type)
+        u0 = 0f; u1 = 1f; v0 = 0f; v1 = 1f / GREY_ROWS
+        alpha = fade; half = VINE_HALF_WIDTH + GREY_INFLATE
+        greyPass = true
+        drawVine(this, drawn, count, hasBroken, vine.joinedEnds, sampleLight = false)
+        greyPass = false
+        half = VINE_HALF_WIDTH
+        drawLeaves(vine, drawn, count, hasBroken, grey = true)
+    }
+
+    /** Points [lights] at [vine]'s light cache; true when this draw samples it again. */
+    private fun ClientLevel.takeLights(vine: ClientVine, count: Int): Boolean {
+        val sampleLight = vine.lightTick != clientTicks || vine.lightCount != count
+        if (sampleLight) {
+            if (vine.lights.size < count + 1) vine.lights = IntArray(count + 1)
+            vine.lightTick = clientTicks
+            vine.lightCount = count
+            refreshFace(vine.startAnchor, vine.startFace)
+            refreshFace(vine.endAnchor, vine.endFace)
+        }
+        lights = vine.lights
+        return sampleLight
+    }
+
+    /** Draws the rope and leaves of [vine] from its [count] nodes in [positions]; returns the drawn render node count. */
+    @Suppress("LongParameterList") // Buffers, the vine, its node count, rope sprite, and the broken, tight and light flags.
+    private fun ClientLevel.drawRope(
+        buffers: MultiBufferSource, vine: ClientVine, count: Int, rope: TextureAtlasSprite, hasBroken: Boolean, tight: Double,
+        sampleLight: Boolean,
+    ): Int {
+        val drawn = insetEnds(vine, smooth(count, hasBroken), count)
+        computeFrames(vine, drawn)
+        computeMiters(drawn)
+        computeWidths(drawn, tight)
+        prepareView(drawn)
+        out = buffers.getBuffer(SOLID)
+        u0 = rope.u0; u1 = rope.u1; v0 = rope.v0; v1 = rope.v1
+        alpha = 1f; half = VINE_HALF_WIDTH
+        drawVine(this, drawn, count, hasBroken, vine.joinedEnds, sampleLight)
+        drawLeaves(vine, drawn, count, hasBroken, grey = false)
+        return drawn
+    }
+
+    /** The rope of each thrown tip in flight, from the thrower's hand along the flight path to the tip. */
+    private fun ClientLevel.drawFlights(buffers: MultiBufferSource, rope: TextureAtlasSprite, partialTicks: Float) {
+        val flights = VineThrowClient.flights
+        for (i in flights.indices) {
+            val flight = flights[i]
+            val count = VineThrowClient.sampleRope(this, flight, partialTicks)
+            if (count < 2) continue
+            if (positions.size < count * 3) positions = DoubleArray(count * 3)
+            System.arraycopy(VineThrowClient.rope, 0, positions, 0, count * 3)
+            if (!inFrustum(count)) continue
+            val vine = flightVines.get(flight.id) ?: flightVine(flight.id).also { flightVines.put(flight.id, it) }
+            drawRope(buffers, vine, count, rope, hasBroken = false, tight = 0.0, sampleLight = takeLights(vine, count))
         }
     }
+
+    /** A stand-in vine with two free ends, which keeps a flight's frame seed and light cache between draws. */
+    private fun flightVine(key: Long) = ClientVine(key, ChainId(0L), 0L, -1L, 0, null, 0, null, null, 0, null)
+
+    /** True once the vine of [chain] is synced and its VS chain is here, so a landed flight can stop drawing. */
+    fun isDrawable(level: ClientLevel, chain: Long): Boolean {
+        val id = ChainId(chain)
+        return byId.containsKey(id) && level.shipObjectWorld.allChains.getById(id) != null
+    }
+
+    /** 0 on a slack span, up to 1 as the straight end-to-end distance reaches the chain's rest length. */
+    private fun tightness(vine: ClientVine, rest: Double, count: Int): Double {
+        if (!vine.bothFixed) return 0.0
+        if (rest < MIN_LINK) return 0.0
+        val x = ((sqrt(distSq(0, (count - 1) * 3)) / rest - TAUT_SLACK) / (1.0 - TAUT_SLACK)).coerceIn(0.0, 1.0)
+        return x * x * (3.0 - 2.0 * x)
+    }
+
+    /** Fills [widthScale]: a tight span gets thinner towards its middle, on a sine from anchor to anchor. */
+    private fun computeWidths(count: Int, tight: Double) {
+        if (widthScale.size < count) widthScale = DoubleArray(count)
+        widthScale.fill(1.0, 0, count)
+        if (tight <= 0.0) return
+        val last = count - 1 - insetEnd
+        var total = 0.0
+        for (i in insetStart until last) total += sqrt(distSq(i * 3, i * 3 + 3))
+        if (total < MIN_LINK) return
+        var along = 0.0
+        for (i in insetStart + 1..last) {
+            along += sqrt(distSq(i * 3 - 3, i * 3))
+            widthScale[i] = 1.0 - TAUT_THIN * tight * sin(PI * (along / total).coerceIn(0.0, 1.0))
+        }
+    }
+
+    /**
+     * Adds a render node [EndFace.depth] into the block at each held end, so the rope joins the block; returns the
+     * new render node count. [sourceCount] is the chain node count.
+     */
+    private fun ClientLevel.insetEnds(vine: ClientVine, count: Int, sourceCount: Int): Int {
+        var n = count
+        insetStart = 0; insetEnd = 0; startInset = 0.0
+        val start = vine.startAnchor
+        if (start != null && vine.startFace.depth > 0.0 && worldInset(start, vine.startFace, insetOffset)) {
+            growRender(n + 1)
+            System.arraycopy(positions, 0, positions, 3, n * 3)
+            System.arraycopy(segLink, 0, segLink, 1, n)
+            for (j in 0 until sourceCount) linkFirst[j]++
+            setInset(0, 3)
+            startInset = vine.startFace.depth
+            insetStart = 1
+            n++
+        }
+        val end = vine.endAnchor
+        if (end != null && vine.endFace.depth > 0.0 && worldInset(end, vine.endFace, insetOffset)) {
+            growRender(n + 1)
+            setInset(n * 3, (n - 1) * 3)
+            segLink[n] = segLink[n - 1]
+            insetEnd = 1
+            n++
+        }
+        return n
+    }
+
+    private fun growRender(count: Int) {
+        if (positions.size < count * 3) positions = positions.copyOf(count * 3)
+        if (segLink.size < count) segLink = segLink.copyOf(count)
+    }
+
+    /** Puts node offset [k] at node offset [from] plus the buried offset in [insetOffset]. */
+    private fun setInset(k: Int, from: Int) {
+        positions[k] = positions[from] + insetOffset.x
+        positions[k + 1] = positions[from + 1] + insetOffset.y
+        positions[k + 2] = positions[from + 2] + insetOffset.z
+    }
+
+    /** The world offset from the anchor point to the buried end of [face] into [out]; false when the face or the holding ship is gone. */
+    private fun ClientLevel.worldInset(hold: Hold, face: EndFace, out: Vector3d): Boolean {
+        if (!face.valid) return false
+        out.set(face.inset)
+        val shipId = hold.ship ?: return true
+        val ship = shipObjectWorld.allShips.getById(shipId) as? ClientShip ?: return false
+        ship.renderTransform.shipToWorldRotation.transform(out)
+        return true
+    }
+
+    /**
+     * Finds the face of [hold]'s block shape that the hold point is on. The inset stops [INSET_MARGIN] short of the
+     * far side, and a face narrower than the rope gets none; the pad stays on the face.
+     */
+    private fun ClientLevel.refreshFace(hold: Hold?, face: EndFace) {
+        face.valid = false
+        if (hold == null) return
+        val shape = getBlockState(hold.block).getShape(this, hold.block)
+        if (shape.isEmpty) return
+        var best = FACE_SNAP
+        for (a in 0..2) {
+            val p = hold.point.get(a) - hold.block.get(AXES[a])
+            val lo = abs(p - shape.min(AXES[a]))
+            val hi = abs(p - shape.max(AXES[a]))
+            if (lo < best) { best = lo; face.axis = a; face.sign = -1.0; face.valid = true }
+            if (hi < best) { best = hi; face.axis = a; face.sign = 1.0; face.valid = true }
+        }
+        if (!face.valid) return
+        val a = face.axis; val u = (a + 1) % 3; val v = (a + 2) % 3
+        val uLo = shape.min(AXES[u]); val uHi = shape.max(AXES[u])
+        val vLo = shape.min(AXES[v]); val vHi = shape.max(AXES[v])
+        val fits = uHi - uLo >= 2 * VINE_HALF_WIDTH && vHi - vLo >= 2 * VINE_HALF_WIDTH
+        val thickness = shape.max(AXES[a]) - shape.min(AXES[a])
+        val origin = hold.block
+        val plane = origin.get(AXES[a]) + if (face.sign > 0) shape.max(AXES[a]) else shape.min(AXES[a])
+        face.thick = thickness
+        face.padHalf = PAD_SIZE * 0.5
+        face.centre.setComponent(a, plane)
+        face.centre.setComponent(u, origin.get(AXES[u]) + clamp(hold.point.get(u) - origin.get(AXES[u]), uLo, uHi))
+        face.centre.setComponent(v, origin.get(AXES[v]) + clamp(hold.point.get(v) - origin.get(AXES[v]), vLo, vHi))
+        face.depth = if (fits) buryTowardCentre(hold, face, shape, plane) else 0.0
+        if (face.depth <= 0.0) face.inset.set(0.0, 0.0, 0.0)
+        refreshOverhang(hold, face, shape, uLo, uHi, vLo, vHi)
+    }
+
+    /** Sets [EndFace.inset] from the anchor toward the block centre, short of every side by [INSET_MARGIN]; returns its length. */
+    private fun ClientLevel.buryTowardCentre(hold: Hold, face: EndFace, shape: VoxelShape, plane: Double): Double {
+        val origin = hold.block
+        var len = 0.0
+        for (i in 0..2) {
+            val pos = if (i == face.axis) plane - origin.get(AXES[i]) else hold.point.get(i) - origin.get(AXES[i])
+            val d = (shape.min(AXES[i]) + shape.max(AXES[i])) * 0.5 - pos
+            face.inset.setComponent(i, d)
+            len += d * d
+        }
+        if (len < EPSILON) face.inset.set(0.0, 0.0, 0.0).setComponent(face.axis, -face.sign) else face.inset.div(sqrt(len))
+        var t = INSET_DEPTH
+        for (i in 0..2) {
+            val d = face.inset.get(i)
+            if (abs(d) < EPSILON) continue
+            val pos = if (i == face.axis) plane - origin.get(AXES[i]) else hold.point.get(i) - origin.get(AXES[i])
+            val room = if (d > 0) shape.max(AXES[i]) - INSET_MARGIN - pos else pos - shape.min(AXES[i]) - INSET_MARGIN
+            t = minOf(t, room / abs(d))
+        }
+        t = maxOf(t, 0.0)
+        face.inset.mul(t)
+        return t
+    }
+
+    /** Fills [EndFace.edge] and [EndFace.over]; a wrap onto a neighbour that a full block covers is dropped. */
+    private fun ClientLevel.refreshOverhang(hold: Hold, face: EndFace, shape: VoxelShape, uLo: Double, uHi: Double, vLo: Double, vHi: Double) {
+        val u = (face.axis + 1) % 3
+        val v = (face.axis + 2) % 3
+        val ou = hold.block.get(AXES[u]).toDouble(); val ov = hold.block.get(AXES[v]).toDouble()
+        val cu = face.centre.get(u); val cv = face.centre.get(v)
+        val h = face.padHalf
+        face.edge[0] = ou + uLo; face.edge[1] = ou + uHi; face.edge[2] = ov + vLo; face.edge[3] = ov + vHi
+        face.over[0] = face.edge[0] - (cu - h)
+        face.over[1] = cu + h - face.edge[1]
+        face.over[2] = face.edge[2] - (cv - h)
+        face.over[3] = cv + h - face.edge[3]
+        for (i in 0..3) {
+            face.over[i] = minOf(face.over[i], face.thick)
+            if (face.over[i] <= 0.0) { face.over[i] = 0.0; continue }
+            val axis = if (i < 2) u else v
+            val hi = i % 2 == 1
+            val atBlockEdge = if (hi) shape.max(AXES[axis]) >= 1.0 - EPSILON else shape.min(AXES[axis]) <= EPSILON
+            if (!atBlockEdge) continue
+            val step = if (hi) 1 else -1
+            val b = hold.block
+            padPos.set(b.x + if (axis == 0) step else 0, b.y + if (axis == 1) step else 0, b.z + if (axis == 2) step else 0)
+            if (getBlockState(padPos).isSolidRender(this, padPos)) face.over[i] = 0.0
+        }
+    }
+
+    /** Never throws, unlike coerceIn, when rounding puts [lo] a hair over [hi]. */
+    private fun clamp(x: Double, lo: Double, hi: Double): Double = maxOf(lo, minOf(hi, x))
 
     /** True when vine [chainId] fades out; the server's shear pick skips it. */
     fun isFading(chainId: Long): Boolean {
@@ -364,6 +809,8 @@ object WoggakVineRenderer {
         val drawn = smooth(count, chain.status.brokenLinks.copyBroken(count))
         level.computeFrames(vine, drawn)
         computeMiters(drawn)
+        if (widthScale.size < drawn) widthScale = DoubleArray(drawn)
+        widthScale.fill(1.0, 0, drawn)
         val drawnHalf = half
         half = halfWidth
         for (end in 0..1) {
@@ -438,8 +885,9 @@ object WoggakVineRenderer {
     }
 
     /** Moves the end at [k] onto the ship block that holds it, so it does not lag; at the render place when [drawn]. */
-    private fun ClientLevel.snapToShip(hold: ShipHold, k: Int, drawn: Boolean) {
-        val ship = shipObjectWorld.allShips.getById(hold.ship) as? ClientShip ?: return
+    private fun ClientLevel.snapToShip(hold: Hold, k: Int, drawn: Boolean) {
+        val shipId = hold.ship ?: return
+        val ship = shipObjectWorld.allShips.getById(shipId) as? ClientShip ?: return
         (if (drawn) ship.renderTransform else ship.transform).shipToWorld.transformPosition(hold.point, shipPoint)
         positions[k] = shipPoint.x; positions[k + 1] = shipPoint.y; positions[k + 2] = shipPoint.z
     }
@@ -452,7 +900,8 @@ object WoggakVineRenderer {
     /** Draws the [count] curve nodes; light, broken links and knots go by the [sourceCount] chain nodes. */
     @Suppress("LongParameterList") // Level, both node counts, broken links, joined ends and the light flag.
     private fun drawVine(level: ClientLevel, count: Int, sourceCount: Int, hasBroken: Boolean, joinedEnds: Int, sampleLight: Boolean) {
-        var along = 0.0
+        // V starts at the block face, not at the inset node, so the texture does not move with the inset depth.
+        var along = -startInset
         loadFrame(0, sideA0, sideB0)
         if ((joinedEnds and JOINED_START) != 0) knot(level, 0, sourceCount - 1, sampleLight, sideA0, sideB0)
         var capStart = true
@@ -486,28 +935,56 @@ object WoggakVineRenderer {
         return lights[slot]
     }
 
-    /** A moss cube at node [k] where this vine joins another; same texel scale as the vine. */
+    /** A cube at node [k] where this vine joins another; every face shows the painted 6 x 6 px of the knot texture. */
     private fun knot(level: ClientLevel, k: Int, lightSlot: Int, sampleLight: Boolean, sideA: Vector3d, sideB: Vector3d) {
         sideA.cross(sideB, knotT)
         light = lightAt(level, lightSlot, sampleLight, positions[k], positions[k + 1], positions[k + 2])
         val h = VINE_KNOT_HALF + (half - VINE_HALF_WIDTH)
-        knotFace(k, sideA, sideB, knotT, h)
-        knotFace(k, sideB, knotT, sideA, h)
+        val ropeU0 = u0; val ropeU1 = u1; val ropeV0 = v0; val ropeV1 = v1
+        val sprite = knotSprite
+        if (greyPass || sprite == null) {
+            u0 = 0f; u1 = 1f; v0 = 1f / GREY_ROWS; v1 = 2f / GREY_ROWS
+        } else {
+            u0 = sprite.u0; u1 = sprite.u1; v0 = sprite.v0; v1 = sprite.v1
+        }
+        knotSide(k, sideA, 1.0, sideB, -1.0, h)
+        knotSide(k, sideB, -1.0, sideA, -1.0, h)
+        knotSide(k, sideA, -1.0, sideB, 1.0, h)
+        knotSide(k, sideB, 1.0, sideA, 1.0, h)
         knotFace(k, knotT, sideA, sideB, h)
+        u0 = ropeU0; u1 = ropeU1; v0 = ropeV0; v1 = ropeV1
+    }
+
+    /** The knot side facing [n] x [sn], with the knot texture's painted square on it and U along [u] x [su]. */
+    @Suppress("LongParameterList") // Node, normal, U axis and the half size.
+    private fun knotSide(k: Int, n: Vector3d, sn: Double, u: Vector3d, su: Double, h: Double) {
+        setNormal(n.x * sn, n.y * sn, n.z * sn)
+        val uLeft = KNOT_MIN_PX
+        val uRight = KNOT_MIN_PX + KNOT_SIZE_PX
+        val vTop = KNOT_MIN_PX
+        val vBottom = KNOT_MIN_PX + KNOT_SIZE_PX
+        // The +T then +U order faces out, as T x U = n.
+        knotCorner(k, n, u, knotT, sn, -su, -1.0, h, uLeft, vTop)
+        knotCorner(k, n, u, knotT, sn, -su, 1.0, h, uLeft, vBottom)
+        knotCorner(k, n, u, knotT, sn, su, 1.0, h, uRight, vBottom)
+        knotCorner(k, n, u, knotT, sn, su, -1.0, h, uRight, vTop)
     }
 
     /** The two faces of the cube with normals along +/-[n]; [p] and [q] span them. */
     private fun knotFace(k: Int, n: Vector3d, p: Vector3d, q: Vector3d, h: Double) {
-        val ua = CENTRE_PX - h * PX
-        val ub = CENTRE_PX + h * PX
         for (sign in KNOT_SIGNS) {
             setNormal(n.x * sign, n.y * sign, n.z * sign)
             // This order faces +n, as n = p x q; the -n face goes the other way round, so culling keeps both outer faces.
-            knotCorner(k, n, p, q, sign, -1.0, -1.0, h, ua, ua)
-            if (sign > 0) knotCorner(k, n, p, q, sign, 1.0, -1.0, h, ub, ua) else knotCorner(k, n, p, q, sign, -1.0, 1.0, h, ua, ub)
-            knotCorner(k, n, p, q, sign, 1.0, 1.0, h, ub, ub)
-            if (sign > 0) knotCorner(k, n, p, q, sign, -1.0, 1.0, h, ua, ub) else knotCorner(k, n, p, q, sign, 1.0, -1.0, h, ub, ua)
+            knotEnd(k, n, p, q, sign, -1.0, -1.0, h)
+            if (sign > 0) knotEnd(k, n, p, q, sign, 1.0, -1.0, h) else knotEnd(k, n, p, q, sign, -1.0, 1.0, h)
+            knotEnd(k, n, p, q, sign, 1.0, 1.0, h)
+            if (sign > 0) knotEnd(k, n, p, q, sign, -1.0, 1.0, h) else knotEnd(k, n, p, q, sign, 1.0, -1.0, h)
         }
+    }
+
+    @Suppress("LongParameterList") // One end-face corner: three axes, three signs and the half size.
+    private fun knotEnd(k: Int, n: Vector3d, p: Vector3d, q: Vector3d, sn: Double, sp: Double, sq: Double, h: Double) {
+        knotCorner(k, n, p, q, sn, sp, sq, h, KNOT_MIN_PX + capU(sp, sn) * KNOT_CAP_SCALE, KNOT_MIN_PX + capV(sq) * KNOT_CAP_SCALE)
     }
 
     @Suppress("LongParameterList") // One cube corner: three axes, three signs, the half size and the UV.
@@ -526,31 +1003,32 @@ object WoggakVineRenderer {
 
     /** A box from render node [i] to the next node, [along] blocks down the vine; 16 texels to the block along and across. */
     private fun drawLink(i: Int, along: Double, length: Double, capStart: Boolean, capEnd: Boolean) {
-        val ua = CENTRE_PX - half * PX
-        val ub = CENTRE_PX + half * PX
         val k = i * 3
         val n = k + 3
         val dotA = frameAs[k] * frameAs[n] + frameAs[k + 1] * frameAs[n + 1] + frameAs[k + 2] * frameAs[n + 2]
         val dotB = frameBs[k] * frameBs[n] + frameBs[k + 1] * frameBs[n + 1] + frameBs[k + 2] * frameBs[n + 2]
-        // Box corners 0..3 are (-A,-B), (+A,-B), (+A,+B), (-A,+B); the faces go +A, +B, -A, -B.
-        side(i, 1, 2, normalAs, dotA, 1.0, ua, ub, along, length)
-        side(i, 2, 3, normalBs, dotB, 1.0, ua, ub, along, length)
-        side(i, 3, 0, normalAs, dotA, -1.0, ua, ub, along, length)
-        side(i, 0, 1, normalBs, dotB, -1.0, ua, ub, along, length)
-        if (capStart) cap(k, sideA0, sideB0, -1.0, ua, ub)
-        if (capEnd) cap(n, sideA1, sideB1, 1.0, ua, ub)
+        // Box corners 0..3 are (-A,-B), (+A,-B), (+A,+B), (-A,+B). Columns 0..3 go +A, -B, -A, +B, so they wrap
+        // counter-clockwise when seen from the start, and U x V points into each face, so no face shows mirrored.
+        side(i, 1, 2, normalAs, dotA, 1.0, 0, along, length)
+        side(i, 2, 3, normalBs, dotB, 1.0, 3, along, length)
+        side(i, 3, 0, normalAs, dotA, -1.0, 2, along, length)
+        side(i, 0, 1, normalBs, dotB, -1.0, 1, along, length)
+        if (capStart) cap(k, sideA0, sideB0, -1.0)
+        if (capEnd) cap(n, sideA1, sideB1, 1.0)
     }
 
     /**
-     * One long face of link [i] from box corner [first] to [second]. Its outward axis at each node is [axes], already
-     * through the normal matrix; [dot] is the dot product of the two world axes. An atlas sprite cannot wrap, so the
-     * face is cut where V crosses a texture edge.
+     * One long face of link [i] from box corner [first] to [second], with texture [column] from [second] to [first].
+     * Its outward axis at each node is [axes], already through the normal matrix; [dot] is the dot product of the two
+     * world axes. An atlas sprite cannot wrap, so the face is cut where V crosses a texture edge.
      */
-    @Suppress("LongParameterList") // Link, corners, face axes, the U range and the V run of one face.
+    @Suppress("LongParameterList") // Link, corners, face axes, the texture column and the V run of one face.
     private fun side(
         i: Int, first: Int, second: Int, axes: DoubleArray, dot: Double, sign: Double,
-        ua: Double, ub: Double, along: Double, length: Double,
+        column: Int, along: Double, length: Double,
     ) {
+        val uSecond = column * COLUMN_PX
+        val uFirst = uSecond + COLUMN_PX
         viewCorner(i, first, startA)
         viewCorner(i, second, startB)
         viewCorner(i + 1, first, endA)
@@ -566,11 +1044,11 @@ object WoggakVineRenderer {
             val t1 = (vNext - vStart) / (vEnd - vStart)
             val base = tile * PX
             sideNormal(i, axes, dot, sign, t0)
-            sideCorner(t0, startA, endA, ua, v - base)
-            sideCorner(t0, startB, endB, ub, v - base)
+            sideCorner(t0, startA, endA, uFirst, v - base)
+            sideCorner(t0, startB, endB, uSecond, v - base)
             sideNormal(i, axes, dot, sign, t1)
-            sideCorner(t1, startB, endB, ub, vNext - base)
-            sideCorner(t1, startA, endA, ua, vNext - base)
+            sideCorner(t1, startB, endB, uSecond, vNext - base)
+            sideCorner(t1, startA, endA, uFirst, vNext - base)
             v = vNext
             tile++
             pieces++
@@ -602,10 +1080,11 @@ object WoggakVineRenderer {
     private fun viewCorner(i: Int, c: Int, out: Vector3d) {
         val k = i * 3
         val o = i * 12 + c * 3
+        val h = half * widthScale[i]
         out.set(
-            viewNodes[k] + viewCorners[o] * half,
-            viewNodes[k + 1] + viewCorners[o + 1] * half,
-            viewNodes[k + 2] + viewCorners[o + 2] * half,
+            viewNodes[k] + viewCorners[o] * h,
+            viewNodes[k + 1] + viewCorners[o + 1] * h,
+            viewNodes[k + 2] + viewCorners[o + 2] * h,
         )
     }
 
@@ -655,15 +1134,24 @@ object WoggakVineRenderer {
         }
     }
 
-    private fun cap(k: Int, sideA: Vector3d, sideB: Vector3d, sign: Double, ua: Double, ub: Double) {
+    private fun cap(k: Int, sideA: Vector3d, sideB: Vector3d, sign: Double) {
         sideA.cross(sideB, tangent)
         setNormal(tangent.x * sign, tangent.y * sign, tangent.z * sign)
         // This order faces along A x B; the start cap faces back, so it goes the other way round for culling.
-        corner(k, sideA, sideB, -1.0, -1.0, ua, ua)
-        if (sign > 0) corner(k, sideA, sideB, 1.0, -1.0, ub, ua) else corner(k, sideA, sideB, -1.0, 1.0, ua, ub)
-        corner(k, sideA, sideB, 1.0, 1.0, ub, ub)
-        if (sign > 0) corner(k, sideA, sideB, -1.0, 1.0, ua, ub) else corner(k, sideA, sideB, 1.0, -1.0, ub, ua)
+        capCorner(k, sideA, sideB, -1.0, -1.0, sign)
+        if (sign > 0) capCorner(k, sideA, sideB, 1.0, -1.0, sign) else capCorner(k, sideA, sideB, -1.0, 1.0, sign)
+        capCorner(k, sideA, sideB, 1.0, 1.0, sign)
+        if (sign > 0) capCorner(k, sideA, sideB, -1.0, 1.0, sign) else capCorner(k, sideA, sideB, 1.0, -1.0, sign)
     }
+
+    private fun capCorner(k: Int, sideA: Vector3d, sideB: Vector3d, sa: Double, sb: Double, sign: Double) {
+        corner(k, sideA, sideB, sa, sb, capU(sa, sign), capV(sb))
+    }
+
+    /** Cap texels: the top-left 4 x 4 of column 0, with A running right on the end cap and left on the start cap. */
+    private fun capU(sa: Double, sign: Double): Double = (1.0 + sa * sign) * CAP_HALF_PX
+
+    private fun capV(sb: Double): Double = (1.0 - sb) * CAP_HALF_PX
 
     private fun corner(k: Int, sideA: Vector3d, sideB: Vector3d, sa: Double, sb: Double, uPx: Double, vPx: Double) {
         cornerAt(k, sideA, sideB, sa, sb, point)
@@ -672,8 +1160,9 @@ object WoggakVineRenderer {
 
     /** The world position of corner (sa, sb) at node [k] into [out], stretched along the node's bend direction. */
     private fun cornerAt(k: Int, sideA: Vector3d, sideB: Vector3d, sa: Double, sb: Double, out: Vector3d) {
-        val a = miterA(k, sa, sb) * half
-        val b = miterB(k, sa, sb) * half
+        val h = half * widthScale[k / 3]
+        val a = miterA(k, sa, sb) * h
+        val b = miterB(k, sa, sb) * h
         out.set(
             positions[k] + sideA.x * a + sideB.x * b,
             positions[k + 1] + sideA.y * a + sideB.y * b,
@@ -702,6 +1191,11 @@ object WoggakVineRenderer {
     private fun emitView(x: Double, y: Double, z: Double, uPx: Double, vPx: Double) {
         val u = u0 + (u1 - u0) * (uPx / PX).toFloat()
         val v = v0 + (v1 - v0) * (vPx / PX).toFloat()
+        val target = stash
+        if (target != null) {
+            target.add(x.toFloat(), y.toFloat(), z.toFloat(), u, v, alpha, light, normal)
+            return
+        }
         out.vertex(
             x.toFloat(), y.toFloat(), z.toFloat(), WHITE, WHITE, WHITE, alpha,
             u, v, OverlayTexture.NO_OVERLAY, light, normal.x, normal.y, normal.z,
@@ -735,8 +1229,8 @@ object WoggakVineRenderer {
     }
 
     /** The first frame's side axis into [frameSide]: from the holding ship, else the last draw's seed, else world up. */
-    private fun ClientLevel.seedSide(vine: ClientVine, hold: ShipHold?) {
-        val ship = hold?.let { shipObjectWorld.allShips.getById(it.ship) as? ClientShip }
+    private fun ClientLevel.seedSide(vine: ClientVine, hold: Hold?) {
+        val ship = hold?.ship?.let { shipObjectWorld.allShips.getById(it) as? ClientShip }
         if (ship == null) {
             frameSide.set(vine.seedSide)
         } else {
@@ -920,8 +1414,15 @@ object WoggakVineRenderer {
         }
     }
 
-    /** Leaves seeded from [seed] and the link index, so each stays at one place on the rope from frame to frame. */
-    private fun drawLeaves(count: Int, hasBroken: Boolean, seed: Long, grey: Boolean) {
+    /**
+     * Leaves in clusters, seeded from the vine key and the link index, so each stays at one place on the rope from
+     * frame to frame; a closed bud on each free end. [drawn] is the render node count, [count] the chain node count.
+     */
+    private fun drawLeaves(vine: ClientVine, drawn: Int, count: Int, hasBroken: Boolean, grey: Boolean) {
+        val seed = vine.key
+        val phases = mix(seed xor CLUSTER_SALT)
+        val p1 = unit(phases, 0) * 2 * PI
+        val p2 = unit(phases, 16) * 2 * PI
         for (i in 0 until count - 1) {
             if (hasBroken && brokenFlags[i]) continue
             light = lights[i]
@@ -929,12 +1430,254 @@ object WoggakVineRenderer {
             val pieces = linkFirst[i + 1] - first
             for (slot in 0 until LEAF_SLOTS) {
                 val h = mix(seed + (i.toLong() * LEAF_SLOTS + slot + 1) * GOLDEN)
-                if (unit(h, 0) >= LEAF_CHANCE) continue
-                val along = (0.15 + 0.7 * unit(h, 16)) * pieces
+                val f = 0.15 + 0.7 * unit(h, 16)
+                // By link index, not drawn length, so a stretch does not move a leaf over a cluster edge.
+                if (unit(h, 0) >= clusterChance((i + f) * VINE_TARGET_SPACING, p1, p2)) continue
+                val along = f * pieces
                 val piece = minOf(along.toInt(), pieces - 1)
                 if (linkVisible((first + piece) * 3, LEAF_CULL_MARGIN)) leaf(first + piece, along - piece, h, grey)
             }
         }
+        if (vine.startFree && !(hasBroken && brokenFlags[0])) {
+            light = lights[0]
+            budTip(0, 1, seed, grey)
+        }
+        if (vine.endFree && !(hasBroken && brokenFlags[count - 2])) {
+            light = lights[count - 2]
+            budTip(drawn - 1, drawn - 2, seed + 1, grey)
+        }
+    }
+
+    /** The leaf chance [s] blocks down the vine: high in a cluster, low on the bare rope between clusters. */
+    private fun clusterChance(s: Double, p1: Double, p2: Double): Double {
+        val wave = sin(s * CLUSTER_WAVE_1 + p1) + CLUSTER_WAVE_2_WEIGHT * sin(s * CLUSTER_WAVE_2 + p2)
+        return if (wave > CLUSTER_EDGE) CLUSTER_CHANCE else BARE_CHANCE
+    }
+
+    /** A closed bud of folded leaves on the free end at render node [node]; [neighbour] is the next node in. */
+    private fun budTip(node: Int, neighbour: Int, h: Long, grey: Boolean) {
+        val k = node * 3
+        val j = neighbour * 3
+        tangent.set(positions[k] - positions[j], positions[k + 1] - positions[j + 1], positions[k + 2] - positions[j + 2])
+        if (tangent.lengthSquared() < MIN_LINK * MIN_LINK) return
+        tangent.normalize()
+        loadFrame(node, sideA0, sideB0)
+        for (n in 0 until BUD_TIP_LEAVES) {
+            val a = n * 2 * PI / BUD_TIP_LEAVES
+            leafOut.set(sideA0).mul(cos(a)).fma(sin(a), sideB0)
+            leafDir.set(tangent).mul(BUD_TIP_ALONG).fma(BUD_TIP_OUT, leafOut).normalize()
+            leafDir.cross(leafOut, leafWidth).normalize()
+            point.set(positions[k], positions[k + 1], positions[k + 2]).fma(BUD_TIP_SPREAD, leafOut).fma(-BUD_TIP_BACK, tangent)
+            emitLeaf(n % LEAF_VARIANTS, grey, BUD_TIP_SIZE, 0.0, sway(mix(h + n), BUD_TIP_SWAY))
+        }
+    }
+
+    /** A sway angle: two slow waves at a phase from [h], times [amplitude]. Vertex motion only; the rope is physics. */
+    private fun sway(h: Long, amplitude: Double): Double {
+        val phase = unit(h, 40) * 2 * PI
+        return amplitude * (SWAY_MAIN * sin(seconds * SWAY_RATE_1 + phase) + SWAY_FLUTTER * sin(seconds * SWAY_RATE_2 + phase * SWAY_PHASE_2))
+    }
+
+    /** A moss decal on the anchor face round each held end. */
+    private fun ClientLevel.drawPads(vine: ClientVine, count: Int) {
+        val sprite = padSprite ?: return
+        u0 = sprite.u0; u1 = sprite.u1; v0 = sprite.v0; v1 = sprite.v1
+        val start = vine.startAnchor
+        if (start != null && vine.startFace.valid) {
+            light = lights[0]
+            drawPad(start, vine.startFace)
+        }
+        val end = vine.endAnchor
+        if (end != null && vine.endFace.valid) {
+            light = lights[count - 2]
+            drawPad(end, vine.endFace)
+        }
+    }
+
+    private fun ClientLevel.drawPad(hold: Hold, face: EndFace) {
+        val ship = hold.ship?.let { shipObjectWorld.allShips.getById(it) as? ClientShip }
+        if (hold.ship != null && ship == null) return
+        val a = face.axis
+        val u = (a + 1) % 3
+        val v = (a + 2) % 3
+        val h = face.padHalf
+        val cu = face.centre.get(u); val cv = face.centre.get(v)
+        val uA = maxOf(cu - h, face.edge[0]); val uB = minOf(cu + h, face.edge[1])
+        val vA = maxOf(cv - h, face.edge[2]); val vB = minOf(cv + h, face.edge[3])
+        val plane = face.centre.get(a) + face.sign * PAD_LIFT
+        padNormal.set(0.0, 0.0, 0.0).setComponent(a, face.sign)
+        ship?.renderTransform?.shipToWorldRotation?.transform(padNormal)
+        setNormal(padNormal.x, padNormal.y, padNormal.z)
+        // The cyclic axes give e_u x e_v = e_axis, so this order faces +axis; a -axis face goes the other way round.
+        padVertex(ship, face, plane, uA, vA, cu, cv)
+        if (face.sign > 0) padVertex(ship, face, plane, uB, vA, cu, cv) else padVertex(ship, face, plane, uA, vB, cu, cv)
+        padVertex(ship, face, plane, uB, vB, cu, cv)
+        if (face.sign > 0) padVertex(ship, face, plane, uA, vB, cu, cv) else padVertex(ship, face, plane, uB, vA, cu, cv)
+        for (i in 0..3) if (face.over[i] > 0.0) padWrap(ship, face, i, if (i < 2) vA else uA, if (i < 2) vB else uB)
+    }
+
+    /** One vertex on the face frame at (pa, pu, pv); the texture follows the 2 x [EndFace.padHalf] square round (cu, cv). */
+    @Suppress("LongParameterList") // Ship, face, three coordinates and the square's centre.
+    private fun padVertex(ship: ClientShip?, face: EndFace, pa: Double, pu: Double, pv: Double, cu: Double, cv: Double) {
+        val a = face.axis
+        val half = face.padHalf
+        point.setComponent(a, pa)
+        point.setComponent((a + 1) % 3, pu)
+        point.setComponent((a + 2) % 3, pv)
+        ship?.renderTransform?.shipToWorld?.transformPosition(point)
+        emitWorld(point.x, point.y, point.z, (pu - cu + half) / (2 * half) * PX, (1.0 - (pv - cv + half) / (2 * half)) * PX)
+    }
+
+    /**
+     * The part of the pad that runs past edge [i] (low u, high u, low v, high v), folded onto the neighbouring face of
+     * the block and cut at its outline. [tLo] and [tHi] bound it along the other face axis. Both windings are drawn.
+     */
+    @Suppress("LongParameterList") // Ship, face, the edge and its transverse range.
+    private fun ClientLevel.padWrap(ship: ClientShip?, face: EndFace, i: Int, tLo: Double, tHi: Double) {
+        val a = face.axis
+        val axis = if (i < 2) (a + 1) % 3 else (a + 2) % 3
+        val other = if (i < 2) (a + 2) % 3 else (a + 1) % 3
+        val hi = i % 2 == 1
+        val len = face.over[i]
+        val half = face.padHalf
+        val outward = if (hi) 1.0 else -1.0
+        val edgeAt = face.edge[i] + outward * PAD_LIFT
+        val cAxis = face.centre.get(axis)
+        padNormal.set(0.0, 0.0, 0.0).setComponent(axis, outward)
+        ship?.renderTransform?.shipToWorldRotation?.transform(padNormal)
+        setNormal(padNormal.x, padNormal.y, padNormal.z)
+        for (pass in 0..1) {
+            for (c in 0..3) {
+                val k = if (pass == 0) c else 3 - c
+                val t = if (k == 0 || k == 3) tLo else tHi
+                val d = if (k < 2) 0.0 else len
+                point.setComponent(axis, edgeAt)
+                point.setComponent(other, t)
+                point.setComponent(a, face.centre.get(a) - face.sign * d)
+                ship?.renderTransform?.shipToWorld?.transformPosition(point)
+                val along = (face.edge[i] - cAxis + outward * d + half) / (2 * half)
+                val across = (t - face.centre.get(other) + half) / (2 * half)
+                val fu = if (i < 2) along else across
+                val fv = if (i < 2) across else along
+                emitWorld(point.x, point.y, point.z, fu * PX, (1.0 - fv) * PX)
+            }
+        }
+    }
+
+    /** Moss strands under the rope, within [BEARD_DRAW_DISTANCE] of the camera; placed by link, so they stay put. */
+    private fun drawBeard(vine: ClientVine, count: Int, hasBroken: Boolean, shed: Boolean) {
+        val length = (count - 1) * VINE_TARGET_SPACING
+        val drop = if (vine.bothFixed) 1.0 else BEARD_FREE_SCALE
+        var s = BEARD_EDGE
+        var n = 0L
+        var shedCount = 0
+        while (s < length - BEARD_EDGE && shedCount < SHED_MAX) {
+            n++
+            val h = mix(vine.key + n * GOLDEN + BEARD_SALT)
+            if (unit(h, 0) >= BEARD_SKIP && ropePoint(s, count, hasBroken) && nearCamera(BEARD_DRAW_DISTANCE)) {
+                if (shed) {
+                    shedAt(EKParticles.woggakVineShedBeard(), point.x, point.y - BEARD_DROP, point.z)
+                    shedCount++
+                } else {
+                    strand(h, drop)
+                }
+            }
+            s += BEARD_STEP
+        }
+        stash = null
+    }
+
+    /** One strand hung from [point]; world down, so it hangs right on a ship too. */
+    private fun strand(h: Long, drop: Double) {
+        val h2 = mix(h)
+        val height = (BEARD_MIN + BEARD_RANGE * unit(h, 16)) * drop
+        val turn = unit(h, 32) * 2 * PI
+        // Down, made perpendicular to the rope; on a steep rope that is near zero, so a yawed side axis takes over.
+        hangDir.set(0.0, -1.0, 0.0).fma(ropeDir.y, ropeDir)
+        val flat = hangDir.length()
+        sideDir.set(cos(turn), 0.0, sin(turn))
+        sideDir.fma(-sideDir.dot(ropeDir), ropeDir)
+        if (sideDir.lengthSquared() < EPSILON) sideDir.set(ropeDir.z, 0.0, -ropeDir.x)
+        sideDir.normalize()
+        hangDir.fma(maxOf(0.0, 1.0 - flat / BEARD_STEEP), sideDir)
+        if (hangDir.lengthSquared() < EPSILON) hangDir.set(sideDir)
+        hangDir.normalize()
+        val tx = point.x + hangDir.x * BEARD_DROP + ropeDir.x * (unit(h, 48) - 0.5) * BEARD_JITTER
+        val ty = point.y + hangDir.y * BEARD_DROP + ropeDir.y * (unit(h, 48) - 0.5) * BEARD_JITTER
+        val tz = point.z + hangDir.z * BEARD_DROP + ropeDir.z * (unit(h, 48) - 0.5) * BEARD_JITTER
+        // Swing about the top edge: rotate the hang direction about the rope direction.
+        val w = sway(h2, BEARD_SWAY)
+        sideDir.set(ropeDir).cross(hangDir)
+        hangDir.mul(cos(w)).fma(sin(w), sideDir)
+        sideDir.set(ropeDir).cross(hangDir)
+        setNormal(sideDir.x, sideDir.y, sideDir.z)
+        val wx = ropeDir.x * BEARD_HALF_WIDTH
+        val wy = ropeDir.y * BEARD_HALF_WIDTH
+        val wz = ropeDir.z * BEARD_HALF_WIDTH
+        val hx = hangDir.x * height
+        val hy = hangDir.y * height
+        val hz = hangDir.z * height
+        stash = beardStashes[((h2 ushr 32) % BEARD_VARIANTS).toInt()]
+        u0 = 0f; u1 = 1f; v0 = 0f; v1 = 1f
+        emitWorld(tx - wx, ty - wy, tz - wz, 0.0, 0.0)
+        emitWorld(tx + wx, ty + wy, tz + wz, PX, 0.0)
+        emitWorld(tx + wx + hx, ty + wy + hy, tz + wz + hz, PX, PX)
+        emitWorld(tx - wx + hx, ty - wy + hy, tz - wz + hz, 0.0, PX)
+    }
+
+    /** One particle at world (x, y, z), thrown a little sideways, for an extra that falls off a fading vine. */
+    private fun shedAt(type: SimpleParticleType, x: Double, y: Double, z: Double) {
+        val level = Minecraft.getInstance().level ?: return
+        level.addParticle(
+            type, x, y, z,
+            (level.random.nextDouble() - 0.5) * SHED_DRIFT, level.random.nextDouble() * SHED_DRIFT, (level.random.nextDouble() - 0.5) * SHED_DRIFT,
+        )
+    }
+
+    /** Flakes of moss fall from the anchor face of each held end. */
+    private fun shedPads(vine: ClientVine) {
+        shedPad(vine.startAnchor, vine.startFace)
+        shedPad(vine.endAnchor, vine.endFace)
+    }
+
+    private fun shedPad(hold: Hold?, face: EndFace) {
+        if (hold == null || !face.valid) return
+        val level = Minecraft.getInstance().level ?: return
+        val ship = hold.ship?.let { level.shipObjectWorld.allShips.getById(it) as? ClientShip }
+        if (hold.ship != null && ship == null) return
+        point.set(face.centre)
+        ship?.renderTransform?.shipToWorld?.transformPosition(point)
+        repeat(SHED_PAD_FLAKES) { shedAt(EKParticles.woggakVineShedMoss(), point.x, point.y, point.z) }
+    }
+
+    /**
+     * Puts the rope axis [s] blocks down the vine, by link spacing, into [point]
+     * and the link light into [light]; false on a broken link. [count] is the chain node count.
+     */
+    private fun ropePoint(s: Double, count: Int, hasBroken: Boolean): Boolean {
+        val q = s / VINE_TARGET_SPACING
+        val link = minOf(q.toInt(), count - 2)
+        if (hasBroken && brokenFlags[link]) return false
+        val first = linkFirst[link]
+        val pieces = linkFirst[link + 1] - first
+        val along = (q - link).coerceIn(0.0, 1.0) * pieces
+        val piece = minOf(along.toInt(), pieces - 1)
+        val k = (first + piece) * 3
+        val t = along - piece
+        point.set(
+            positions[k] + (positions[k + 3] - positions[k]) * t,
+            positions[k + 1] + (positions[k + 4] - positions[k + 1]) * t,
+            positions[k + 2] + (positions[k + 5] - positions[k + 2]) * t,
+        )
+        light = lights[link]
+        ropeDir.set(positions[k + 3] - positions[k], positions[k + 4] - positions[k + 1], positions[k + 5] - positions[k + 2])
+        if (ropeDir.lengthSquared() < EPSILON) ropeDir.set(1.0, 0.0, 0.0) else ropeDir.normalize()
+        return true
+    }
+
+    private fun nearCamera(distance: Double): Boolean {
+        val dx = point.x - camX; val dy = point.y - camY; val dz = point.z - camZ
+        return dx * dx + dy * dy + dz * dz < distance * distance
     }
 
     /**
@@ -975,13 +1718,22 @@ object WoggakVineRenderer {
         val twist = (unit(h3, 16) * 2 - 1) * LEAF_TWIST
         leafDir.cross(leafWidth, leafCross)
         leafWidth.mul(cos(twist)).fma(sin(twist), leafCross)
-        // Turn about the attach corner: the +U and -V edges sit 45 deg either side of the leaf direction.
         val turn = (unit(h2, 16) * 2 - 1) * LEAF_TURN
         val size = LEAF_MIN + (LEAF_MAX - LEAF_MIN) * unit(h2, 32)
+        emitLeaf(((h2 ushr 48) % LEAF_VARIANTS).toInt(), grey, size, turn, sway(h3, LEAF_SWAY))
+    }
+
+    /**
+     * Both faces of a leaf from the attach corner [point]: [leafDir] points out, [leafWidth] is a unit axis normal to
+     * it. The +U and -V edges sit 45 deg either side of [leafDir], turned by [turn]; [sway] flaps it about [leafWidth].
+     */
+    private fun emitLeaf(variant: Int, grey: Boolean, size: Double, turn: Double, sway: Double) {
+        if (!leafRect(variant, grey)) return
+        leafDir.cross(leafWidth, leafCross)
+        leafDir.mul(cos(sway)).fma(-sin(sway), leafCross)
         startB.set(leafDir).mul(cos(QUARTER_TURN + turn) * size).fma(sin(QUARTER_TURN + turn) * size, leafWidth)
         endB.set(leafDir).mul(cos(turn - QUARTER_TURN) * size).fma(sin(turn - QUARTER_TURN) * size, leafWidth)
         startB.cross(endB, leafCross).normalize()
-        if (!leafRect(((h2 ushr 48) % LEAF_VARIANTS).toInt(), grey)) return
         val lift = if (grey) GREY_LEAF_LIFT else 0.0
         // Front order faces along U x V; the back face goes the other way round with the normal turned.
         setNormal(leafCross.x, leafCross.y, leafCross.z)
@@ -993,7 +1745,7 @@ object WoggakVineRenderer {
     /** Sets the UV rectangle of leaf [variant]: its atlas sprite, or its row of the grey texture; false when missing. */
     private fun leafRect(variant: Int, grey: Boolean): Boolean {
         if (grey) {
-            u0 = 0f; u1 = 1f; v0 = (variant + 1f) / GREY_ROWS; v1 = (variant + 2f) / GREY_ROWS
+            u0 = 0f; u1 = 1f; v0 = (variant + 2f) / GREY_ROWS; v1 = (variant + 3f) / GREY_ROWS
             return true
         }
         val sprite = leafSprites[variant] ?: return false
@@ -1036,14 +1788,14 @@ object WoggakVineRenderer {
     }
 
     /**
-     * Grey copies of the moss and leaf textures, made in code and stacked in one column (moss, then each leaf), for
+     * Grey copies of the rope, knot and leaf textures, made in code and stacked in one column (rope, knot, then each leaf), for
      * the fade before a free vine goes. One texture keeps the fade in one buffer.
      */
     private fun Minecraft.greyType(): RenderType? {
         greyType?.let { return it }
         val image = NativeImage(GREY_SIZE, GREY_SIZE * GREY_ROWS, true)
         for (row in 0 until GREY_ROWS) {
-            val file = if (row == 0) MOSS_FILE else LEAF_FILES[row - 1]
+            val file = when (row) { 0 -> ROPE_FILE; 1 -> KNOT_FILE; else -> LEAF_FILES[row - 2] }
             val resource = resourceManager.getResource(file).orElse(null)
             if (resource == null) {
                 image.close()
@@ -1069,11 +1821,21 @@ object WoggakVineRenderer {
     /** In physics ticks; past the newest frame the drawn rope holds after one game tick, the collider after two. */
     private const val DRAW_EXTRAPOLATE = 3.0
     private const val COLLIDER_EXTRAPOLATE = 6.0
-    /** Keeps the grey shell in front of the moss box, so the two do not z-fight. */
+    /** Keeps the grey shell in front of the rope box, so the two do not z-fight. */
     private const val GREY_INFLATE = 0.25 / 16
     private val KNOT_SIGNS = doubleArrayOf(1.0, -1.0)
     private const val PX = 16.0
     private const val CENTRE_PX = 8.0
+    private const val CAP_HALF_PX = 2.0
+    // The knot texture is 16 px with a 6 px square painted at 5..10; capU/capV span 4 px.
+    private const val KNOT_MIN_PX = 5.0
+    private const val KNOT_SIZE_PX = 6.0
+    private const val KNOT_CAP_SCALE = KNOT_SIZE_PX / 4.0
+    private const val SHED_MAX = 48
+    private const val SHED_PAD_FLAKES = 6
+    private const val SHED_DRIFT = 0.04
+    private const val ROPE_COLUMNS = 4
+    private const val COLUMN_PX = PX / ROPE_COLUMNS
     private const val CULL_MARGIN = 0.5
     private const val EPSILON = 1e-8
     /** Under this squared length a side axis is too near the tangent to keep. */
@@ -1095,7 +1857,6 @@ object WoggakVineRenderer {
     private const val MAX_LINK_PIECES = 32
     private const val LEAF_VARIANTS = 3
     private const val LEAF_SLOTS = 2
-    private const val LEAF_CHANCE = 0.6
     private const val LEAF_MIN = 4.0 / 16
     private const val LEAF_MAX = 6.0 / 16
     /** Puts the attach corner a little inside the rope face, so no gap shows. */
@@ -1111,6 +1872,63 @@ object WoggakVineRenderer {
     /** Keeps the grey leaf off the green leaf, so the two do not z-fight. */
     private const val GREY_LEAF_LIFT = 0.1 / 16
     private const val GREY_SIZE = 16
-    private const val GREY_ROWS = 1 + LEAF_VARIANTS
+    private const val GREY_ROWS = 2 + LEAF_VARIANTS
     private const val GOLDEN = -0x61c8864680b583ebL
+    private const val TICKS_PER_SECOND = 20.0
+    private val AXES = Direction.Axis.values()
+    private const val FIXED_START = JOINED_START or SHIP_START or BLOCK_START
+    private const val FIXED_END = JOINED_END or SHIP_END or BLOCK_END
+    private const val CLUSTER_SALT = 0x2545F4914F6CDD1DL
+    private const val CLUSTER_WAVE_1 = 2.3
+    private const val CLUSTER_WAVE_2 = 5.1
+    private const val CLUSTER_WAVE_2_WEIGHT = 0.5
+    private const val CLUSTER_EDGE = 0.35
+    private const val CLUSTER_CHANCE = 0.95
+    private const val BARE_CHANCE = 0.06
+    private const val SWAY_RATE_1 = 1.7
+    private const val SWAY_RATE_2 = 3.3
+    private const val SWAY_PHASE_2 = 1.7
+    private const val SWAY_MAIN = 0.6
+    private const val SWAY_FLUTTER = 0.4
+    private const val LEAF_SWAY = 0.22
+    private const val BEARD_SWAY = 0.16
+    private const val BUD_TIP_SWAY = 0.06
+    /** Moss strands draw only this near the camera, in blocks. */
+    private const val BEARD_DRAW_DISTANCE = 16.0
+    private const val BEARD_VARIANTS = 3
+    private const val BEARD_SALT = 0x3C6EF372FE94F82BL
+    private const val BEARD_EDGE = 0.3
+    private const val BEARD_STEP = 0.22
+    private const val BEARD_SKIP = 0.35
+    private const val BEARD_MIN = 0.55
+    private const val BEARD_RANGE = 0.45
+    private const val BEARD_FREE_SCALE = 0.7
+    private const val BEARD_HALF_WIDTH = 0.25
+    private const val BEARD_DROP = 0.08
+    // Under this horizontal share of the down direction the rope counts as steep.
+    private const val BEARD_STEEP = 0.5
+    private const val BEARD_JITTER = 0.06
+    private const val PAD_SIZE = 0.9
+    /** Keeps the moss pad off the block face, so the two do not z-fight. */
+    private const val PAD_LIFT = 0.005
+    private const val INSET_DEPTH = 0.22
+    private const val INSET_MARGIN = 1.0 / 32
+    /** A hold point farther than this from every face of its block shape gets no pad and no inset. */
+    private const val FACE_SNAP = 0.25
+    private const val BUD_TIP_LEAVES = 3
+    private const val BUD_TIP_SIZE = 5.0 / 16
+    private const val BUD_TIP_ALONG = 0.9
+    private const val BUD_TIP_OUT = 0.18
+    private const val BUD_TIP_SPREAD = 0.05
+    private const val BUD_TIP_BACK = 0.08
+    /** Client ticks per drop per span, on average: about 7 s. */
+    private const val DRIP_TICKS = 140
+    private const val DRIP_DISTANCE = 32.0
+    /** Client ticks a replaced vine waits for its pieces, as a landed throw waits for its vine. */
+    private const val MAX_RETIRE_TICKS = 40
+    private const val MAX_RETIRING = 64
+    private const val DRIP_GAP = 0.02
+    /** End-to-end distance over rest length where a span starts to thin; at 1 it has the full thinning. */
+    private const val TAUT_SLACK = 0.95
+    private const val TAUT_THIN = 0.15
 }

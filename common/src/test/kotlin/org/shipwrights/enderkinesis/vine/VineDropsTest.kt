@@ -6,17 +6,17 @@ import org.junit.jupiter.api.Test
 class VineDropsTest {
 
     @Test
-    fun `a vine shorter than four blocks gives nothing`() {
+    fun `a vine shorter than one block gives nothing`() {
         woggakVineRefund(0.4) shouldBe 0
-        woggakVineRefund(3.99) shouldBe 0
+        woggakVineRefund(0.99) shouldBe 0
     }
 
     @Test
-    fun `each full four blocks gives one item, rounded down`() {
-        woggakVineRefund(4.0) shouldBe 1
-        woggakVineRefund(7.9) shouldBe 1
-        woggakVineRefund(8.0) shouldBe 2
-        woggakVineRefund(17.5) shouldBe 4
+    fun `each full block gives one item, rounded down`() {
+        woggakVineRefund(1.0) shouldBe 1
+        woggakVineRefund(1.9) shouldBe 1
+        woggakVineRefund(2.0) shouldBe 2
+        woggakVineRefund(17.5) shouldBe 17
     }
 
     @Test

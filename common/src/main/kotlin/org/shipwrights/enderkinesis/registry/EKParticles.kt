@@ -329,6 +329,21 @@ object EKParticles {
 
     fun weatheringRain(): EKOceanParticleType = WEATHERING_RAIN.get() as EKOceanParticleType
 
+    val WOGGAK_VINE_DRIP: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("woggak_vine_drip") { EKOceanParticleType() }
+
+    fun woggakVineDrip(): EKOceanParticleType = WOGGAK_VINE_DRIP.get() as EKOceanParticleType
+
+    val WOGGAK_VINE_SHED_BEARD: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("woggak_vine_shed_beard") { EKOceanParticleType() }
+
+    val WOGGAK_VINE_SHED_MOSS: RegistrySupplier<ParticleType<*>> =
+        PARTICLES.register("woggak_vine_shed_moss") { EKOceanParticleType() }
+
+    fun woggakVineShedBeard(): EKOceanParticleType = WOGGAK_VINE_SHED_BEARD.get() as EKOceanParticleType
+
+    fun woggakVineShedMoss(): EKOceanParticleType = WOGGAK_VINE_SHED_MOSS.get() as EKOceanParticleType
+
     val SPELL_MOTES: Map<SpellMote, RegistrySupplier<ParticleType<*>>> =
         SpellMote.entries.associateWith { mote -> PARTICLES.register(mote.id) { EKOceanParticleType() } }
 

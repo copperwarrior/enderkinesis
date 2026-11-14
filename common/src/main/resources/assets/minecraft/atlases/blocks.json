@@ -1,0 +1,11 @@
+{
+  "sources": [
+    {
+      "type": "filter",
+      "pattern": {
+        "namespace": "enderkinesis",
+        "path": "block/woggak_vine_(beard_[0-9]+)"
+      }
+    }
+  ]
+}

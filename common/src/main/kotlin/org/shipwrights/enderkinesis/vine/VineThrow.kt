@@ -1,119 +1,197 @@
 package org.shipwrights.enderkinesis.vine
 
-import dev.architectury.event.events.common.TickEvent
+import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.networking.NetworkManager
 import io.netty.buffer.Unpooled
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.core.BlockPos
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
-import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionHand
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.HumanoidArm
+import net.minecraft.world.entity.item.ItemEntity
+import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.ClipContext
+import net.minecraft.world.level.GameRules
+import net.minecraft.world.level.Level
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.physics.physicsStepSeconds
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.util.blockLoaded
+import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.chains.ChainEnd
 import org.valkyrienskies.core.api.chains.ChainEndpoint
 import org.valkyrienskies.core.api.chains.ChainId
 import org.valkyrienskies.core.api.chains.ChainLifecycle
 import org.valkyrienskies.core.api.chains.ChainReelControl
-import org.valkyrienskies.core.api.chains.ChainStatus
+import org.valkyrienskies.core.api.chains.PhysChain
 import org.valkyrienskies.core.api.chains.ServerChain
-import org.valkyrienskies.core.api.particles.ParticleContactOther
-import org.valkyrienskies.core.api.particles.ParticleEvent
-import org.valkyrienskies.core.api.particles.ParticleEventKind
-import org.valkyrienskies.core.api.particles.ParticleEventSettings
 import org.valkyrienskies.core.api.particles.ParticleId
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.core.api.util.PhysTickOnly
+import org.valkyrienskies.core.api.world.PhysLevel
+import org.valkyrienskies.core.api.world.properties.DimensionId
+import org.valkyrienskies.mod.api.vsApi
+import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
-import kotlin.math.sqrt
 
-/** S2C to the thrower: chain id and node; a node of 0 or more is a thrown hold that the server started there. */
-val WOGGAK_VINE_THROWN: ResourceLocation = EnderkinesisMod.id("woggak_vine/thrown")
-internal const val THROW_IN_FLIGHT = -1
-internal const val THROW_ENDED = -2
+/** S2C: a throw starts; each client flies the same arc. */
+val WOGGAK_VINE_THROW_START: ResourceLocation = EnderkinesisMod.id("woggak_vine/throw_start")
+/** S2C: a throw ended; the chain id is 0 when no vine was made. */
+val WOGGAK_VINE_THROW_END: ResourceLocation = EnderkinesisMod.id("woggak_vine/throw_end")
 
-/** Tip speed in m/s of a full bow draw: one block per tick. */
-private const val MAX_THROW_SPEED = 20.0
+/** Tip speed in m/s of a full bow draw. */
+private const val MAX_THROW_SPEED = 40.0
 /** A shorter draw than this bow power throws nothing, as for a bow. */
 internal const val MIN_THROW_POWER = 0.1f
-/** The first two links of a throw; under [VINE_TARGET_SPACING], so the new chain has exactly two links. */
+/** Vanilla arrow drag and gravity per tick, so the tip flies the arc of an arrow. */
+internal const val THROW_DRAG = 0.99
+internal const val THROW_GRAVITY = 0.05
+/** Rule 2 cap; the length ends every real flight sooner, as the fall speed goes to gravity over drag. */
+internal const val MAX_FLIGHT_STEPS = 400
+/** The link of a default reel seed and the shortest throw spacing; under [VINE_TARGET_SPACING], so a default seed has two links. */
 private const val FIRST_LINK = 0.39
 private const val FIRST_LINKS = 2
 /** VS default: 3 physics ticks per game tick. The reel pays at most one node per physics tick. */
 private const val PHYSICS_TICKS_PER_SECOND = 60.0
 /** The reel credit must reach one spacing in one physics tick; a rate of exactly spacing/dt can fall a hair short. */
 private const val REEL_RATE_MARGIN = 1.05
-/** Newtons on the node next to the anchor while a reel pays out. */
-internal const val PAYOUT_REEL_FORCE = 1000.0
+/** A throw's node spacing pays out this much faster than the tip flies, so the reel keeps up with the tip. */
+private const val PAYOUT_SPEED_MARGIN = 1.1
+/** Newtons on the node next to the hand while the reel pays out. */
+private const val PAYOUT_REEL_FORCE = 1000.0
+/** Puts a seed's create spacing over its link, so VS makes exactly the seed's links. */
+private const val SEED_SPACING_MARGIN = 1.0 + 1e-6
+/** Rule 2 backstop: a landed throw whose physics release never comes ends from the server after this. */
+private const val MAX_SETTLE_TICKS = 100
+private const val DEBUG_PERIOD_TICKS = 20
 private const val HAND_FORWARD = 0.5
 private const val HAND_SIDE = 0.3
 private const val HAND_DROP = 0.25
-/** The tip probe reaches this far past the tip, as the tip particle stops one radius short of a block face. */
-private const val TIP_PROBE = 0.3
-/** A contact event probes this far each way along its normal for the block. */
-private const val CONTACT_PROBE = 0.3
-/** Pay-out time cap: a tip that stops without a hit ends the throw. */
-private const val MAX_PAYOUT_TICKS = 200
-/** After the near end lets go, the tip can still stick for this long; after that the throw is a miss. */
-private const val FREE_FLIGHT_TICKS = 20
-/** createChain is queued to the physics thread; a chain that is not active by then ends the throw. */
-private const val MAX_PENDING_TICKS = 40
 private const val LENGTH_EPS = 1e-9
-private const val MIN_TIP_MOVE = 1e-4
-/** The tip does not stick this near the hand, so it cannot catch on the thrower, its feet or its ship deck. */
-private const val MIN_STICK_REACH = 1.5
+/** A shorter path step than this merges into the next one, so no chain link has no length. */
+private const val MIN_PATH_STEP = 1e-3
 
-/** A thrown vine in flight. The reel at the start pays out at the hand until the tip sticks or the whole length is out. */
-@Suppress("LongParameterList") // The fixed settings of one throw, set once at the throw.
-internal class VineThrow(
-    val player: UUID,
-    val vineId: Long,
-    val chain: ChainId,
-    val hand: InteractionHand,
-    val items: Int,
-    val creative: Boolean,
-    val spacing: Double,
-    val fullTarget: Double,
-    val reelRate: Double,
-    var target: Double,
-) {
-    /** The tip node, with contact events on; null until the chain is active. */
-    var tip: ParticleId? = null
-    val previousTip = Vector3d()
-    val lastDir = Vector3d()
-    /** The first contact of the tip from the physics events, for the next tick. */
-    var contact: VinePoint? = null
-    /** True when the near end let go of the hand. */
-    var released = false
-    var ticks = 0
-    var freeTicks = 0
+/**
+ * The tip of a thrown vine and its path from the hand, in world coordinates; the server and each client fly it alike.
+ * [velocity] is in blocks per tick.
+ */
+class ThrowFlight(start: Vector3dc, velocity: Vector3dc, val length: Double) {
+    val tip = Vector3d(start)
+    val velocity = Vector3d(velocity)
+    /** Path length from the hand to the tip. */
+    var flown = 0.0
+        private set
+    var steps = 0
+        private set
+    var ended = false
+        private set
+    /** The path points from the hand to the tip, xyz; [count] of them. */
+    var points = DoubleArray(ceil(length).toInt().coerceIn(2, MAX_FLIGHT_STEPS) * 3)
+        private set
+    var count = 0
+        private set
+
+    init {
+        require(length > 0) { "throw length must be positive" }
+        add(start.x(), start.y(), start.z())
+    }
+
+    /** The next tip point into [out], cut so the path never passes [length]; then drag and gravity act. Returns the move. */
+    fun advance(out: Vector3d): Double {
+        out.set(tip).add(velocity)
+        var move = out.distance(tip)
+        val left = length - flown
+        if (move > left) {
+            out.sub(tip).mul(left / move).add(tip)
+            move = left
+        }
+        velocity.mul(THROW_DRAG).sub(0.0, THROW_GRAVITY, 0.0)
+        return move
+    }
+
+    /** Moves the tip [move] along the path to [point]; the flight ends on a [stop], at the full length or at the cap. */
+    fun moveTo(point: Vector3dc, move: Double, stop: Boolean) {
+        tip.set(point)
+        flown += move
+        add(point.x(), point.y(), point.z())
+        ended = stop || flown >= length - LENGTH_EPS || ++steps >= MAX_FLIGHT_STEPS
+    }
+
+    /** Ends the flight where the tip is now. */
+    fun end() {
+        ended = true
+    }
+
+    private fun add(x: Double, y: Double, z: Double) {
+        if (count > 0) {
+            val k = (count - 1) * 3
+            val dx = x - points[k]; val dy = y - points[k + 1]; val dz = z - points[k + 2]
+            // A tiny step moves the last point, so the path keeps its exact tip; the hand point stays.
+            if (dx * dx + dy * dy + dz * dz < MIN_PATH_STEP * MIN_PATH_STEP) {
+                if (count > 1) { points[k] = x; points[k + 1] = y; points[k + 2] = z }
+                return
+            }
+        }
+        if (points.size < (count + 1) * 3) points = points.copyOf(points.size * 2)
+        val k = count * 3
+        points[k] = x; points[k + 1] = y; points[k + 2] = z
+        count++
+    }
 }
 
 /**
- * The first links of a vine that a reel at its start pays out, from [start] along the unit [dir], with the spacing that
- * VS gives them. A node of a placed vine weighs one spacing of vine; VS splits the mass over nodes, one more than links.
+ * One tick of [flight]: the tip moves and stops at the first block on its way, leaves too. Entities do not stop it.
+ * Returns the block hit, or null. A tip that comes to an unloaded chunk ends there, as a clip would load it.
  */
-internal class ReelSeed(start: Vector3dc, dir: Vector3dc) {
-    val path: List<Vector3dc> = List(FIRST_LINKS + 1) { i -> Vector3d(dir).mul(FIRST_LINK * i).add(start) }
+internal fun Level.stepFlight(flight: ThrowFlight, entity: Entity, next: Vector3d): BlockHitResult? {
+    if (flight.ended) return null
+    val move = flight.advance(next)
+    if (!blockLoaded(BlockPos.containing(next.x, next.y, next.z))) {
+        flight.end()
+        return null
+    }
+    val from = Vec3(flight.tip.x, flight.tip.y, flight.tip.z)
+    // COLLIDER, not OUTLINE: leaves have a full collision box, but grass and flowers do not hold an anchor.
+    val hit = clip(ClipContext(from, Vec3(next.x, next.y, next.z), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity))
+    if (hit.type != HitResult.Type.BLOCK) {
+        flight.moveTo(next, move, false)
+        return null
+    }
+    // VS2's clip gives a world location and a shipyard block for a ship hit.
+    next.set(hit.location.x, hit.location.y, hit.location.z)
+    flight.moveTo(next, from.distanceTo(hit.location), true)
+    return hit
+}
+
+/**
+ * The first [links] links of [link] each of a vine that a reel at its start pays out, from [start] along the unit [dir].
+ * A node of a placed vine weighs one spacing of vine; VS splits the mass over nodes, one more than links.
+ */
+internal class ReelSeed(start: Vector3dc, dir: Vector3dc, link: Double = FIRST_LINK, links: Int = FIRST_LINKS) {
+    val path: List<Vector3dc> = List(links + 1) { i -> Vector3d(dir).mul(link * i).add(start) }
     // The same sum as VS, so the reel spacing here is the one on the physics thread.
     val length = path.zipWithNext { a, b -> a.distance(b) }.sum()
-    val spacing = chainSpacing(length, VINE_TARGET_SPACING)
+    val targetSpacing = max(VINE_TARGET_SPACING, link * SEED_SPACING_MARGIN)
+    val spacing = chainSpacing(length, targetSpacing)
     val massPerLength = MASS_PER_LENGTH * path.size / (path.size - 1)
 }
 
@@ -133,19 +211,20 @@ internal fun chainSpacing(length: Double, targetSpacing: Double): Double {
 internal fun fullReelTarget(length: Double, spacing: Double): Double =
     ceil(length / spacing - LENGTH_EPS).coerceAtLeast(1.0) * spacing
 
-/**
- * The reel target that keeps up with a tip [distance] from the hand: one spacing past it in whole spacings, never
- * under [current] (a lower target reels in) and never over [full].
- */
-internal fun payoutTarget(distance: Double, spacing: Double, current: Double, full: Double): Double =
-    max(current, min(full, (ceil(distance / spacing - LENGTH_EPS) + 1.0) * spacing))
+/** Node spacing of a throw at tip [speed] in m/s: one node per physics tick pays out faster than the tip flies. */
+internal fun throwSpacing(speed: Double): Double =
+    (speed / PHYSICS_TICKS_PER_SECOND * PAYOUT_SPEED_MARGIN).coerceIn(FIRST_LINK, BLOCKS_PER_ITEM)
 
-/** Reel rate in m/s: the throw speed, and at least one node per physics tick. */
+/** The most whole spacings of a throw of [length] blocks, so the vine never uses more than the thrown items. */
+internal fun maxThrowLinks(length: Double, spacing: Double): Double = floor(length / spacing + LENGTH_EPS).coerceAtLeast(1.0)
+
+/** The reel target for a hand-to-tip [distance]: whole spacings, never over the distance, one link at least. */
+internal fun throwPayoutTarget(distance: Double, spacing: Double, maxLinks: Double): Double =
+    floor(distance / spacing + LENGTH_EPS).coerceIn(1.0, maxLinks) * spacing
+
+/** Reel rate in m/s: the given speed, and at least one node per physics tick. */
 internal fun throwReelRate(speed: Double, spacing: Double): Double =
     max(speed, spacing * PHYSICS_TICKS_PER_SECOND * REEL_RATE_MARGIN)
-
-/** Items to give back when only [paid] blocks of a throw of [items] paid out; the vine itself refunds the rest. */
-internal fun unpaidItems(items: Int, paid: Double): Int = (items - woggakVineRefund(paid)).coerceAtLeast(0)
 
 /** The hand point: in front of the eye, to the [side] (+1 right arm, -1 left arm) and down a little. */
 internal fun handPoint(eye: Vec3, look: Vec3, yawDegrees: Float, side: Double): Vector3d {
@@ -157,217 +236,261 @@ internal fun handPoint(eye: Vec3, look: Vec3, yawDegrees: Float, side: Double): 
     )
 }
 
-private fun ServerPlayer.handPoint(hand: InteractionHand): Vector3d {
+/** +1 when [hand] is in the right arm, -1 when in the left arm. */
+internal fun Player.handSide(hand: InteractionHand): Double {
     val arm = if (hand == InteractionHand.MAIN_HAND) mainArm else mainArm.opposite
-    return handPoint(eyePosition, lookAngle, yRot, if (arm == HumanoidArm.RIGHT) 1.0 else -1.0)
+    return if (arm == HumanoidArm.RIGHT) 1.0 else -1.0
 }
 
-internal fun ServerPlayer.sendThrownVine(chain: ChainId, node: Int) =
-    NetworkManager.sendToPlayer(this, WOGGAK_VINE_THROWN, FriendlyByteBuf(Unpooled.buffer()).apply {
-        writeLong(chain.value)
-        writeVarInt(node)
-    })
+/**
+ * One game tick of a throw for the physics thread: where the tip and hand go by the end of the tick. The server makes a
+ * new one each tick and never changes one. On the [ending] step the tip fixes to [anchor], or flies free when it is null.
+ */
+internal class ThrowStep(
+    val tip: Vector3dc, val hand: Vector3dc, val velocity: Vector3dc, val ending: Boolean, val anchor: ChainEndpoint?,
+)
 
-/** Throws the whole [stack] from [hand] at bow [power]; false when no vine was made. */
+/** The physics side of a throw. The volatile fields cross threads; the others belong to the physics thread. */
+internal class ThrowDrive(val dimension: DimensionId, val chain: ChainId, val spacing: Double, val maxLinks: Double,
+    val rate: Double, seedTip: Vector3dc, hand: Vector3dc) {
+    @Volatile var step: ThrowStep? = null
+    /** The paid rest length, set when the physics thread let go of both ends. */
+    @Volatile var releasedRest = Double.NaN
+    @Volatile var failure: String? = null
+    @Volatile var done = false
+    var seen: ThrowStep? = null
+    var elapsed = 0.0
+    val tipFrom = Vector3d(seedTip)
+    val tipNow = Vector3d(seedTip)
+    val handFrom = Vector3d(hand)
+    val handNow = Vector3d(hand)
+    // VS copies an endpoint's position, so one endpoint can be moved and passed again.
+    val tipEnd = ChainEndpoint.World(tipNow)
+    val handEnd = ChainEndpoint.World(handNow)
+    var target = 0.0
+    var nodeCount = 0
+}
+
+private val throwDrives = ConcurrentHashMap<ChainId, ThrowDrive>()
+
+/** A thrown vine: a virtual tip flies the arc, and the VS chain [chain] trails it from the hand. */
+internal class VineThrow(
+    val id: Long, val player: UUID, val chain: ChainId, val flight: ThrowFlight, val side: Double, val items: Int,
+    val creative: Boolean, val drive: ThrowDrive, val trackedFrom: ChunkPos,
+) {
+    val next = Vector3d()
+    val hand = Vector3d(flight.tip)
+    /** The block the tip hit; the vine end fixes there once the physics thread let go. */
+    var contact: VinePoint? = null
+    var settleTicks = 0
+    /** Set once the chain was active; a split or cut after that keeps the paid vine in its pieces. */
+    var wasActive = false
+
+    fun publish(tip: Vector3dc, velocity: Vector3dc, ending: Boolean, anchor: ChainEndpoint?) {
+        drive.step = ThrowStep(Vector3d(tip), Vector3d(hand), velocity, ending, anchor)
+    }
+}
+
+@OptIn(VsBeta::class, PhysTickOnly::class)
+internal fun registerVineThrows() {
+    vsApi.physTickEvent.on { event, _ -> event.world.driveThrows(physicsStepSeconds(event.delta)) }
+    LifecycleEvent.SERVER_LEVEL_UNLOAD.register { level ->
+        val dimension = level.dimensionId
+        throwDrives.values.removeIf { it.dimension == dimension }
+    }
+    LifecycleEvent.SERVER_STOPPED.register { throwDrives.clear() }
+}
+
+/** Throws the whole [stack] from [hand] at bow [power]; the vine pays out from the hand behind the flying tip. */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.throwWoggakVine(player: ServerPlayer, hand: InteractionHand, stack: ItemStack, power: Float): Boolean {
     val items = stack.count
     if (items <= 0) return false
-    val creative = player.abilities.instabuild
-    val start = player.handPoint(hand)
+    val side = player.handSide(hand)
+    val start = handPoint(player.eyePosition, player.lookAngle, player.yRot, side)
     val look = player.lookAngle
-    val dir = Vector3d(look.x, look.y, look.z).normalize()
-    val seed = ReelSeed(start, dir)
-    val path = seed.path
-    val pathLength = seed.length
-    val spacing = seed.spacing
-    val full = fullReelTarget(throwLength(items), spacing)
-    val speed = throwSpeed(power)
     val motion = player.deltaMovement
-    val velocity = Vector3d(dir).mul(speed).add(motion.x / SECONDS_PER_TICK, motion.y / SECONDS_PER_TICK, motion.z / SECONDS_PER_TICK)
-    val chain = makeVineChain(path, ChainEndpoint.World(Vector3d(start)), ChainEndpoint.Free, velocity, seed.massPerLength) ?: return false
-    val rate = throwReelRate(speed, spacing)
-    val first = payoutTarget(pathLength, spacing, pathLength, full)
-    if (first > pathLength) chain.setReelTarget(ChainReelControl(ChainEnd.START, first, rate, PAYOUT_REEL_FORCE))
-    val vine = WoggakVine(newVineId(), chain.id, WoggakVineAnchor(null), WoggakVineAnchor(null))
-    addVine(vine, path)
-    val flight = VineThrow(player.uuid, vine.id, chain.id, hand, items, creative, spacing, full, rate, first)
-    flight.previousTip.set(start)
-    flight.lastDir.set(dir)
-    woggakVines.throws.put(vine.id, flight)
-    player.sendThrownVine(chain.id, THROW_IN_FLIGHT)
+    val velocity = Vector3d(look.x, look.y, look.z).normalize().mul(throwSpeed(power) * SECONDS_PER_TICK).add(motion.x, motion.y, motion.z)
+    val speed = velocity.length() / SECONDS_PER_TICK
+    val dir = if (velocity.lengthSquared() > LENGTH_EPS) Vector3d(velocity).normalize() else Vector3d(look.x, look.y, look.z).normalize()
+    val spacing = throwSpacing(speed)
+    val seed = ReelSeed(start, dir, spacing, 1)
+    val chain = makeVineChain(seed.path, ChainEndpoint.World(Vector3d(start)), ChainEndpoint.Free,
+        Vector3d(velocity).div(SECONDS_PER_TICK), seed.massPerLength, seed.targetSpacing) ?: return false
+    val creative = player.abilities.instabuild
+    val flight = ThrowFlight(start, velocity, throwLength(items))
+    val drive = ThrowDrive(dimensionId, chain.id, seed.spacing, maxThrowLinks(flight.length, seed.spacing),
+        throwReelRate(speed, seed.spacing), seed.path.last(), start)
+    val thrown = VineThrow(newVineId(), player.uuid, chain.id, flight, side, items, creative, drive,
+        ChunkPos(BlockPos.containing(start.x, start.y, start.z)))
+    addVine(WoggakVine(thrown.id, chain.id, WoggakVineAnchor(null), WoggakVineAnchor(null)), seed.path)
+    throwDrives[chain.id] = drive
+    woggakVines.throws.put(thrown.id, thrown)
+    sendThrowStart(thrown, player.id, side)
+    LOG.info("[VineThrowDebug] start id={} chain={} power={} start={} velocity={} b/t items={} spacing={} maxRest={} rate={}",
+        thrown.id, chain.id.value, power, start, velocity, items, seed.spacing, drive.maxLinks * seed.spacing, drive.rate)
     if (!creative) stack.shrink(items)
     return true
 }
 
-/** True while [player]'s throw of [chain] flies; the thrower passes through it, so the server takes no push on it. */
-internal fun WoggakVineData.isThrowing(player: UUID, chain: Long): Boolean =
-    throws.values.any { it.player == player && it.chain.value == chain }
-
-internal fun registerVineThrows() {
-    TickEvent.SERVER_PRE.register { server -> server.takeTipContacts() }
+private fun ServerLevel.sendThrowStart(thrown: VineThrow, throwerId: Int, side: Double) {
+    val flight = thrown.flight
+    val buf = FriendlyByteBuf(Unpooled.buffer()).apply {
+        writeLong(thrown.id)
+        writeLong(thrown.chain.value)
+        writeVarInt(throwerId)
+        writeByte(if (side > 0) 1 else -1)
+        writeDouble(flight.tip.x); writeDouble(flight.tip.y); writeDouble(flight.tip.z)
+        writeDouble(flight.velocity.x); writeDouble(flight.velocity.y); writeDouble(flight.velocity.z)
+        writeDouble(flight.length)
+    }
+    for (player in chunkSource.chunkMap.getPlayers(thrown.trackedFrom, false)) {
+        NetworkManager.sendToPlayer(player, WOGGAK_VINE_THROW_START, FriendlyByteBuf(buf.copy()))
+    }
 }
 
-/** One tick of each throw in flight; a throw that ends lets the anchor pass decide on a fade. */
+private fun ServerLevel.sendThrowEnd(thrown: VineThrow, chain: Long) {
+    for (player in chunkSource.chunkMap.getPlayers(thrown.trackedFrom, false)) {
+        NetworkManager.sendToPlayer(player, WOGGAK_VINE_THROW_END, FriendlyByteBuf(Unpooled.buffer()).apply {
+            writeLong(thrown.id)
+            writeLong(chain)
+        })
+    }
+}
+
+/** One tick of each throw; a throw ends when the physics thread let go of its ends, or its chain is gone. */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.tickVineThrows(data: WoggakVineData) {
     if (data.throws.isEmpty()) return
     val iterator = data.throws.values.iterator()
     while (iterator.hasNext()) {
-        val flight = iterator.next()
-        if (stepThrow(data, flight)) continue
+        val thrown = iterator.next()
+        if (stepThrow(data, thrown)) continue
         iterator.remove()
+        throwDrives.remove(thrown.chain)
         data.anchorsDirty = true
-        (getPlayerByUUID(flight.player) as? ServerPlayer)?.sendThrownVine(flight.chain, THROW_ENDED)
     }
 }
 
-/** False when the throw ends: the tip stuck, missed, or the vine or thrower is gone. */
+/** False when the throw is over. */
 @OptIn(GameTickOnly::class)
-private fun ServerLevel.stepThrow(data: WoggakVineData, flight: VineThrow): Boolean {
-    val vine = data.vine(flight.vineId)
-    val chain = shipObjectWorld.allChains.getById(flight.chain)
-    if (vine == null || chain == null) return false
-    val status = chain.status
-    if (status.lifecycle == ChainLifecycle.PENDING) return ++flight.ticks < MAX_PENDING_TICKS || miss(chain, flight)
-    if (status.lifecycle != ChainLifecycle.ACTIVE) return false
-    status.failure?.let { LOG.warn("Woggak Vine throw {}: {}", flight.chain.value, it) }
-    val player = getPlayerByUUID(flight.player) as? ServerPlayer
-    val nodes = status.nodeCount
-    if (player == null || !player.isAlive || status.failure != null || nodes < 2 || !data.copyThrowNodes(chain, nodes)) {
-        return miss(chain, flight)
+private fun ServerLevel.stepThrow(data: WoggakVineData, thrown: VineThrow): Boolean {
+    val chain = shipObjectWorld.allChains.getById(thrown.chain)
+    val lifecycle = chain?.status?.lifecycle
+    if (chain == null || lifecycle == ChainLifecycle.REMOVED || lifecycle == ChainLifecycle.FAILED) {
+        LOG.info("[VineThrowDebug] chain lost id={} lifecycle={} wasActive={} failure={}", thrown.id, lifecycle, thrown.wasActive,
+            chain?.status?.failure)
+        if (!thrown.creative && !thrown.wasActive) giveBack(thrown, thrown.items)
+        sendThrowEnd(thrown, 0L)
+        return false
     }
-    val k = (nodes - 1) * 3
-    val tip = Vector3d(data.scratch[k], data.scratch[k + 1], data.scratch[k + 2])
-    if (flight.tip == null) {
-        flight.tip = chain.nodeIds.lastOrNull()?.also { tipEvents(it, true) }
-    }
-    val hand = player.handPoint(flight.hand)
-    val contact = if (tip.distanceSquared(hand) < MIN_STICK_REACH * MIN_STICK_REACH) null else flight.contact ?: rayContact(data, flight, player, tip)
-    if (contact != null && stick(data, vine, chain, status, flight, contact, player)) return false
-    flight.contact = null
-    if (tip.distanceSquared(flight.previousTip) > MIN_TIP_MOVE * MIN_TIP_MOVE) flight.lastDir.set(tip).sub(flight.previousTip).normalize()
-    flight.previousTip.set(tip)
-    flight.ticks++
-    if (flight.released) return ++flight.freeTicks <= FREE_FLIGHT_TICKS || miss(chain, flight)
-    // The tip still flies when the whole length is out: the near end lets go, and the vine flies on.
-    if (flight.ticks > MAX_PAYOUT_TICKS || status.currentRestLength >= flight.fullTarget - flight.spacing * 1e-6) {
-        release(chain, status, flight, player)
+    if (lifecycle == ChainLifecycle.ACTIVE) thrown.wasActive = true
+    if (!thrown.flight.ended) {
+        fly(thrown)
+        debugFlight(data, thrown, chain)
         return true
     }
-    payOut(chain, flight, hand, tip)
-    return true
-}
-
-/** Moves the near end to the hand and raises the reel target to keep up with the tip. */
-@OptIn(GameTickOnly::class)
-private fun payOut(chain: ServerChain, flight: VineThrow, hand: Vector3d, tip: Vector3dc) {
-    chain.setEndpoint(ChainEnd.START, ChainEndpoint.World(hand))
-    val next = payoutTarget(hand.distance(tip), flight.spacing, flight.target, flight.fullTarget)
-    if (next <= flight.target) return
-    chain.setReelTarget(ChainReelControl(ChainEnd.START, next, flight.reelRate, PAYOUT_REEL_FORCE))
-    flight.target = next
-}
-
-/** Lets go of the near end, ends the reel at the paid length, and gives back the items that did not pay out. */
-@OptIn(GameTickOnly::class)
-private fun release(chain: ServerChain, status: ChainStatus, flight: VineThrow, player: ServerPlayer?) {
-    if (flight.released) return
-    flight.released = true
-    chain.setEndpoint(ChainEnd.START, ChainEndpoint.Free)
-    val paid = status.currentRestLength
-    // setTargetLength ends the reel; the published rest can be a few nodes behind, so the vine gets that much shorter.
-    if (paid.isFinite() && paid > 0) chain.setTargetLength(paid)
-    if (flight.creative || player == null) return
-    val back = unpaidItems(flight.items, paid)
-    if (back <= 0) return
-    val stack = ItemStack(EKItems.WOGGAK_VINE.get(), back)
-    if (!player.inventory.add(stack)) player.drop(stack, false)
-}
-
-/** Ends the throw with no anchor; the anchor pass then starts the fade, which drops the paid items. */
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.miss(chain: ServerChain, flight: VineThrow): Boolean {
-    if (chain.status.lifecycle == ChainLifecycle.ACTIVE) {
-        release(chain, chain.status, flight, getPlayerByUUID(flight.player) as? ServerPlayer)
+    val rest = thrown.drive.releasedRest
+    if (!rest.isNaN()) {
+        settle(data, thrown, chain, rest)
+        return false
     }
-    flight.tip?.let { tipEvents(it, false) }
+    if (thrown.drive.failure == null && ++thrown.settleTicks <= MAX_SETTLE_TICKS) return true
+    LOG.warn("[VineThrowDebug] no physics release id={} failure={}; the server lets go", thrown.id, thrown.drive.failure)
+    thrown.drive.done = true
+    throwDrives.remove(thrown.chain)
+    val paid = chain.status.currentRestLength
+    chain.setEndpoint(ChainEnd.START, ChainEndpoint.Free)
+    chain.setEndpoint(ChainEnd.END, thrown.contact?.let { attachment(it)?.second } ?: ChainEndpoint.Free)
+    if (paid.isFinite() && paid > 0) chain.setTargetLength(paid)
+    settle(data, thrown, chain, paid)
     return false
 }
 
-/** Fixes the tip at [contact]; the thrower that still holds the near end hangs from it. False when [contact] is gone. */
+/** One tick of the virtual tip; its arc and hit test never read the vine. */
+private fun ServerLevel.fly(thrown: VineThrow) {
+    val flight = thrown.flight
+    // The thrower is only the clip's collision context; a thrower that left ends the flight where it is.
+    val player = getPlayerByUUID(thrown.player)
+    if (player == null) flight.end()
+    else thrown.hand.set(handPoint(player.eyePosition, player.lookAngle, player.yRot, thrown.side))
+    val hit = player?.let { stepFlight(flight, it, thrown.next) }
+    val velocity = Vector3d(flight.velocity).div(SECONDS_PER_TICK)
+    if (!flight.ended) {
+        thrown.publish(flight.tip, velocity, false, null)
+        return
+    }
+    val contact = hit?.let { blockContact(it) }
+    val anchor = contact?.let { attachment(it) }
+    if (contact != null && anchor != null) {
+        thrown.contact = contact
+        LOG.info("[VineThrowDebug] hit id={} step={} at={} block={} frame={} flown={} handDistance={}", thrown.id, flight.steps,
+            contact.local, contact.block, contact.shipId?.let { "ship $it" } ?: "world", flight.flown, thrown.hand.distance(anchor.first))
+        thrown.publish(anchor.first, velocity, true, anchor.second)
+    } else {
+        LOG.info("[VineThrowDebug] miss id={} step={} at={} flown={} length={} clipHit={} velocity={}", thrown.id, flight.steps,
+            flight.tip, flight.flown, flight.length, hit?.blockPos, velocity)
+        thrown.publish(flight.tip, velocity, true, null)
+    }
+}
+
+/** The physics thread let go at [rest]: fix the end on a hit, pay for the vine, and give back the unused items. */
 @OptIn(GameTickOnly::class)
-@Suppress("LongParameterList") // One call site; the parts are the throw's own state.
-private fun ServerLevel.stick(
-    data: WoggakVineData, vine: WoggakVine, chain: ServerChain, status: ChainStatus, flight: VineThrow,
-    contact: VinePoint, player: ServerPlayer,
-): Boolean {
-    val (_, endpoint) = attachment(contact) ?: return false
-    val holds = !flight.released
-    release(chain, status, flight, player)
-    if (endpoint != ChainEndpoint.Free) chain.setEndpoint(ChainEnd.END, endpoint)
-    vine.end = WoggakVineAnchor(contact)
-    data.touch(vine)
-    data.anchorsDirty = true
-    data.jointsDirty = true
+private fun ServerLevel.settle(data: WoggakVineData, thrown: VineThrow, chain: ServerChain, rest: Double) {
+    val vine = data.vine(thrown.id)
+    val contact = thrown.contact
+    if (vine != null && contact != null) {
+        vine.end = WoggakVineAnchor(contact)
+        data.jointsDirty = true
+    }
+    val paid = if (rest.isFinite() && rest > 0) rest else 0.0
+    val spent = if (paid > 0) min(woggakVineCost(paid), thrown.items) else 0
+    if (vine != null && !thrown.creative) vine.reelCredit = validReelCredit(spent * BLOCKS_PER_ITEM - paid)
+    vine?.let(data::touch)
     data.setDirty()
-    flight.tip?.let { tipEvents(it, false) }
-    if (holds) player.holdThrownVine(chain.id, 0)
-    return true
+    val back = if (thrown.creative) 0 else thrown.items - spent
+    giveBack(thrown, back)
+    LOG.info("[VineThrowDebug] released id={} {} rest={} nodes={} spent={} givenBack={} failure={}", thrown.id,
+        if (contact != null) "fixed" else "free", paid, chain.status.nodeCount, spent, back, chain.status.failure)
+    sendThrowEnd(thrown, chain.id.value)
 }
 
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.tipEvents(tip: ParticleId, on: Boolean) {
-    val settings = if (on) ParticleEventSettings(rigidContacts = true, particleContacts = true) else ParticleEventSettings()
-    shipObjectWorld.allParticles.getById(tip)?.setEventSettings(settings)
+/** Gives [count] vine items back to the thrower, or drops them at the tip when the thrower is gone. */
+private fun ServerLevel.giveBack(thrown: VineThrow, count: Int) {
+    if (count <= 0) return
+    val item = EKItems.WOGGAK_VINE.get()
+    val player = getPlayerByUUID(thrown.player)
+    var left = count
+    while (left > 0) {
+        val n = min(left, item.maxStackSize)
+        val stack = ItemStack(item, n)
+        if (player != null) {
+            if (!player.inventory.add(stack)) player.drop(stack, false)
+        } else if (gameRules.getBoolean(GameRules.RULE_DOBLOCKDROPS)) {
+            val tip = thrown.flight.tip
+            addFreshEntity(ItemEntity(this, tip.x, tip.y, tip.z, stack).apply { setDefaultPickUpDelay() })
+        }
+        left -= n
+    }
 }
 
+/** [VineThrowDebug] once a second: tip error against the virtual tip, rest against the hand distance. */
 @OptIn(GameTickOnly::class)
-private fun WoggakVineData.copyThrowNodes(chain: ServerChain, nodes: Int): Boolean {
-    if (scratch.size < nodes * 3) scratch = DoubleArray(nodes * 3)
-    return chain.copyNodePositions(scratch) == nodes
-}
-
-/**
- * The block or vine on the tip's path in the last tick, probed [TIP_PROBE] past the tip. Backs up the contact events,
- * which can miss a fast tip.
- */
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.rayContact(data: WoggakVineData, flight: VineThrow, player: ServerPlayer, tip: Vector3dc): VinePoint? {
-    val dir = Vector3d(tip).sub(flight.previousTip)
-    val moved = dir.length()
-    if (moved > MIN_TIP_MOVE) dir.div(moved) else dir.set(flight.lastDir)
-    val reach = moved + TIP_PROBE
-    val from = Vec3(flight.previousTip.x, flight.previousTip.y, flight.previousTip.z)
-    val to = from.add(dir.x * reach, dir.y * reach, dir.z * reach)
-    val hit = clip(ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
-    val blockT = if (hit.type == HitResult.Type.BLOCK) hit.location.distanceTo(from) else reach
-    return vineContact(data, flight.vineId, Vector3d(from.x, from.y, from.z), dir, blockT)
-        ?: if (hit.type == HitResult.Type.BLOCK) blockContact(hit) else null
-}
-
-/** The nearest link of another unfaded vine on the ray, closer than [maxT], as a joint to its nearer node. */
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.vineContact(data: WoggakVineData, own: Long, origin: Vector3d, dir: Vector3d, maxT: Double): VinePoint? {
-    var bestT = maxT
-    var best: VinePoint? = null
-    for (vine in data.vines) {
-        if (vine.id == own || vine.fadeStart >= 0) continue
-        val chain = shipObjectWorld.allChains.getById(vine.chain) ?: continue
-        val nodes = chain.status.nodeCount
-        if (nodes < 2 || !data.copyThrowNodes(chain, nodes)) continue
-        for (link in 0 until nodes - 1) {
-            val t = data.scratch.rayHitsSegment(origin, dir, link * 3, bestT)
-            if (t < 0) continue
-            bestT = t
-            val hit = Vector3d(dir).mul(t).add(origin)
-            val k = link * 3
-            val p = data.scratch
-            val near = if (hit.distanceSquared(p[k + 3], p[k + 4], p[k + 5]) < hit.distanceSquared(p[k], p[k + 1], p[k + 2])) link + 1 else link
-            best = VinePoint(BlockPos.containing(hit.x, hit.y, hit.z), hit, null, VineJoint(vine.id, near, vine.home))
+private fun debugFlight(data: WoggakVineData, thrown: VineThrow, chain: ServerChain) {
+    if (thrown.flight.steps % DEBUG_PERIOD_TICKS != 0) return
+    val status = chain.status
+    val nodes = status.nodeCount
+    var tipError = Double.NaN
+    if (nodes > 0) {
+        if (data.scratch.size < nodes * 3) data.scratch = DoubleArray(nodes * 3)
+        if (chain.copyNodePositions(data.scratch) == nodes) {
+            val k = (nodes - 1) * 3
+            tipError = thrown.flight.tip.distance(data.scratch[k], data.scratch[k + 1], data.scratch[k + 2])
         }
     }
-    return best
+    LOG.info("[VineThrowDebug] flight id={} step={} tipError={} rest={} handDistance={} nodes={} lifecycle={} ends={}/{} failure={}",
+        thrown.id, thrown.flight.steps, tipError, status.currentRestLength, thrown.hand.distance(thrown.flight.tip), nodes,
+        status.lifecycle, status.startAttachment, status.endAttachment, status.failure ?: thrown.drive.failure)
 }
 
 /** An anchor on the hit block face, snapped as a placed vine end is; VS2's clip gives a shipyard block and a world point. */
@@ -381,58 +504,70 @@ private fun ServerLevel.blockContact(hit: BlockHitResult): VinePoint? {
     return VinePoint(pos, Vector3d(snapped.x, snapped.y, snapped.z), ship?.id)
 }
 
-/** Takes the tip contact events of all throws; one drain serves every level, as VS keeps one event queue. */
-@OptIn(GameTickOnly::class)
-private fun MinecraftServer.takeTipContacts() {
-    var any = false
-    for (level in allLevels) if (level.loadedWoggakVines?.throws?.isEmpty() == false) { any = true; break }
-    if (!any) return
-    val events = try {
-        shipObjectWorld.drainParticleEvents().events
-    } catch (e: UnsupportedOperationException) {
-        LOG.debug("Woggak Vine: particle events are not available", e)
-        return
-    }
-    for (event in events) {
-        if (event.kind != ParticleEventKind.CONTACT_START) continue
-        for (level in allLevels) {
-            val data = level.loadedWoggakVines ?: continue
-            for (flight in data.throws.values) {
-                if (flight.tip == event.particle && flight.contact == null) flight.contact = level.eventContact(data, flight, event)
-            }
+@OptIn(PhysTickOnly::class)
+private fun PhysLevel.driveThrows(dt: Double) {
+    if (throwDrives.isEmpty() || !dt.isFinite() || dt <= 0.0) return
+    for (drive in throwDrives.values) {
+        if (drive.done || drive.dimension != dimension) continue
+        val chain = getChainById(drive.chain) ?: continue
+        try {
+            driveThrow(chain, drive, dt)
+        } catch (e: IllegalArgumentException) {
+            drive.failure = e.message ?: e.toString()
+            drive.done = true
+        } catch (e: IllegalStateException) {
+            drive.failure = e.message ?: e.toString()
+            drive.done = true
         }
     }
 }
 
-/** The anchor of a tip contact: a joint on a touched vine node, or the block that the contact normal points into. */
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.eventContact(data: WoggakVineData, flight: VineThrow, event: ParticleEvent): VinePoint? =
-    when (val other = event.other) {
-        is ParticleContactOther.Particle -> vineNodeContact(data, flight.vineId, other.id, event.position)
-        // Terrain and ships both: the block comes from a short clip into the surface.
-        is ParticleContactOther.Body -> surfaceContact(flight, event.position, event.normalTowardParticle)
-        null -> null
+/**
+ * Pins the tip end to the virtual tip and the start end to the hand, moved along the tick's step, and pays out up to
+ * the hand-to-tip distance. The tip lags the virtual tip by one game tick, so it never goes past a hit.
+ */
+@OptIn(PhysTickOnly::class)
+private fun PhysLevel.driveThrow(chain: PhysChain, drive: ThrowDrive, dt: Double) {
+    val step = drive.step ?: return
+    if (step !== drive.seen) {
+        // From where the ends are now, so a late or early physics tick gives no jump.
+        drive.seen = step
+        drive.elapsed = 0.0
+        drive.tipFrom.set(drive.tipNow)
+        drive.handFrom.set(drive.handNow)
     }
-
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.vineNodeContact(data: WoggakVineData, own: Long, particle: ParticleId, position: Vector3dc): VinePoint? {
-    for (vine in data.vines) {
-        if (vine.id == own || vine.fadeStart >= 0) continue
-        val node = shipObjectWorld.allChains.getById(vine.chain)?.nodeIds?.indexOf(particle) ?: continue
-        if (node < 0) continue
-        val at = Vector3d(position)
-        return VinePoint(BlockPos.containing(at.x, at.y, at.z), at, null, VineJoint(vine.id, node, vine.home))
+    drive.elapsed += dt
+    val t = min(drive.elapsed / SECONDS_PER_TICK, 1.0)
+    drive.tipFrom.lerp(step.tip, t, drive.tipNow)
+    drive.handFrom.lerp(step.hand, t, drive.handNow)
+    val nodes = chain.nodeIds
+    if (step.ending && t >= 1.0) {
+        releaseThrow(chain, drive, step, nodes)
+        return
     }
-    return null
+    chain.setEndpoint(ChainEnd.START, drive.handEnd)
+    chain.setEndpoint(ChainEnd.END, drive.tipEnd)
+    val target = throwPayoutTarget(drive.handNow.distance(drive.tipNow), drive.spacing, drive.maxLinks)
+    if (target != drive.target) {
+        chain.setReelTarget(ChainReelControl(ChainEnd.START, target, drive.rate, PAYOUT_REEL_FORCE))
+        drive.target = target
+    }
+    // The reel makes a node at rest on the hand; it takes the speed of the node it went in before.
+    if (drive.nodeCount in 2 until nodes.size && nodes.size >= 3) {
+        getParticleById(nodes[2])?.let { next -> getParticleById(nodes[1])?.setVelocity(next.velocity) }
+    }
+    drive.nodeCount = nodes.size
 }
 
-private fun ServerLevel.surfaceContact(flight: VineThrow, position: Vector3dc, normal: Vector3dc): VinePoint? {
-    val player = getPlayerByUUID(flight.player) ?: return null
-    val length = sqrt(normal.lengthSquared())
-    if (length < MIN_TIP_MOVE) return null
-    val s = CONTACT_PROBE / length
-    val from = Vec3(position.x() + normal.x() * s, position.y() + normal.y() * s, position.z() + normal.z() * s)
-    val to = Vec3(position.x() - normal.x() * s, position.y() - normal.y() * s, position.z() - normal.z() * s)
-    val hit = clip(ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
-    return if (hit.type == HitResult.Type.BLOCK) blockContact(hit) else null
+/** Lets go of the hand and fixes or frees the tip; the reel ends at the paid length, so no vine is lost. */
+@OptIn(PhysTickOnly::class)
+private fun PhysLevel.releaseThrow(chain: PhysChain, drive: ThrowDrive, step: ThrowStep, nodes: List<ParticleId>) {
+    val anchor = step.anchor
+    chain.setEndpoint(ChainEnd.END, anchor ?: ChainEndpoint.Free)
+    if (anchor == null) nodes.lastOrNull()?.let { getParticleById(it)?.setVelocity(step.velocity) }
+    chain.setEndpoint(ChainEnd.START, ChainEndpoint.Free)
+    val rest = (nodes.size - 1) * drive.spacing
+    chain.setTargetLength(rest)
+    drive.done = true
+    drive.releasedRest = rest
 }

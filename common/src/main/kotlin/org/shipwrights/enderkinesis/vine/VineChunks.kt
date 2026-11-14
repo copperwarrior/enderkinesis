@@ -25,7 +25,7 @@ import org.valkyrienskies.core.api.chains.ServerChain
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.shipObjectWorld
 
-private const val CHUNK_TAG = "enderkinesis:woggak_vines"
+internal const val CHUNK_TAG = "enderkinesis:woggak_vines"
 /** An entry is at most 89 bytes (no end is both joined and ship-held), so a page stays under 512 KB. */
 private const val VINES_PER_PAGE = 4096
 
@@ -144,15 +144,17 @@ internal fun registerVineChunks() {
     ChunkEvent.LOAD_DATA.register(ChunkEvent.LoadData { chunk, level, tag ->
         // A chunk still in worldgen keeps its vines on itself until it becomes full; see adoptWorldgenVines.
         if (chunk.isWorldgenChunk) {
-            (chunk as WorldgenVineHolder).`enderkinesis$setWorldgenVines`(readRecords(chunk, tag))
+            (chunk as WorldgenVineHolder).`enderkinesis$setWorldgenVines`(readVineRecords(chunk.pos, tag))
             return@LoadData
         }
         if (level == null) return@LoadData
         val key = chunk.pos.toLong()
         level.snapshotsOf().orphans.remove(key)
         val pending = pendingVines.computeIfAbsent(level.dimension()) { ConcurrentHashMap() }
-        val records = readRecords(chunk, tag)
+        val records = readVineRecords(chunk.pos, tag)
         if (records.isEmpty()) pending.remove(key) else pending[key] = records
+        // [VineReloadDebug] temporary
+        if (records.isNotEmpty()) vineReloadDebug("load from disk", level, records.size)
     })
     ChunkEvent.SAVE_DATA.register(ChunkEvent.SaveData { chunk, level, tag ->
         if (chunk.isWorldgenChunk) {
@@ -164,8 +166,9 @@ internal fun registerVineChunks() {
         val list = level.chunkVineTags(chunk.pos.toLong())
         if (list.isEmpty()) return@SaveData
         tag.put(CHUNK_TAG, list)
-        // ChunkMap saves only unsaved chunks, and the unload save must carry the vines again.
-        chunk.isUnsaved = true
+        // [VineReloadDebug] temporary
+        vineReloadDebug("save", level, list.size)
+        // Never mark the chunk unsaved here: the flush save (stop, save-all flush) repeats while a save writes, so it never ends.
     })
     LifecycleEvent.SERVER_LEVEL_UNLOAD.register { level ->
         pendingVines.remove(level.dimension())
@@ -179,13 +182,13 @@ internal fun registerVineChunks() {
 
 private val ChunkAccess.isWorldgenChunk: Boolean get() = this is ProtoChunk && this !is ImposterProtoChunk
 
-private fun readRecords(chunk: ChunkAccess, tag: CompoundTag): List<VineRecord> {
+internal fun readVineRecords(pos: ChunkPos, tag: CompoundTag): List<VineRecord> {
     if (!tag.contains(CHUNK_TAG, Tag.TAG_LIST.toInt())) return emptyList()
     val list = tag.getList(CHUNK_TAG, Tag.TAG_COMPOUND.toInt())
     val records = ArrayList<VineRecord>(list.size)
     for (i in 0 until list.size) {
         val record = VineRecord.load(list.getCompound(i))
-        if (record == null) LOG.warn("Woggak Vine: a bad record in chunk {} is dropped", chunk.pos) else records.add(record)
+        if (record == null) LOG.warn("Woggak Vine: a bad record in chunk {} is dropped", pos) else records.add(record)
     }
     return records
 }
@@ -194,6 +197,9 @@ private fun readRecords(chunk: ChunkAccess, tag: CompoundTag): List<VineRecord> 
 fun ServerLevel.adoptWorldgenVines(proto: ProtoChunk) {
     val records = (proto as WorldgenVineHolder).`enderkinesis$getWorldgenVines`()
     if (records.isEmpty()) return
+    // [VineReloadDebug] temporary
+    vineReloadDebug("worldgen adopted", this, records.size)
+    records.forEach { vineReloadWorldgenIds.add(it.id) }
     pendingVines.computeIfAbsent(dimension()) { ConcurrentHashMap() }.merge(proto.pos.toLong(), records) { old, new -> old + new }
 }
 
@@ -240,6 +246,8 @@ internal fun ServerLevel.refreshSnapshotsInTurn(data: WoggakVineData) {
         seen++
         if (vine.shipEnds != 0 || !data.snapshotDone.add(vine.home)) continue
         refreshSnapshot(data, vine.home)
+        // A save clears the flag; set it again so the next autosave or unload save takes the moved vines.
+        chunkSource.getChunkNow(ChunkPos.getX(vine.home), ChunkPos.getZ(vine.home))?.isUnsaved = true
         spent += data.inChunk(vine.home).size
     }
 }
@@ -332,6 +340,12 @@ internal fun ServerLevel.rebuildLoadedVines(data: WoggakVineData) {
         if (!hasChunk(chunk)) continue
         // The joints move after the whole chunk is back, so a vine of this chunk joined to a split one moves too.
         val splits = records.mapNotNull { record -> rebuildVine(data, record, chunk)?.let { record to it } }
+        // [VineReloadDebug] temporary
+        for (record in records) {
+            val source = if (vineReloadWorldgenIds.remove(record.id)) "worldgen" else "disk"
+            vineReloadDebug("rebuild $source records", this, 1)
+            if (data.vine(record.id) != null) vineReloadDebug("rebuild $source vines made", this, 1)
+        }
         for ((record, pieces) in splits) {
             for (pair in data.repointSplit(record.id, null, pieces, record.grips)) pair.restoreContacts(this)
         }
@@ -421,8 +435,13 @@ internal fun ServerLevel.chooseHome(vine: WoggakVine, path: List<Vector3dc>, fal
 /** Sends each changed chunk's vines to the players that track it, and marks the chunk for the next save. */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.flushVineSync(data: WoggakVineData) {
+    // [VineReloadDebug] temporary
+    logVineReloadDebug()
     refreshSnapshotsInTurn(data)
-    if (data.dirtyChunks.isEmpty()) return
+    if (data.dirtyChunks.isEmpty()) {
+        data.splits.clear()
+        return
+    }
     val iterator = data.dirtyChunks.iterator()
     while (iterator.hasNext()) {
         val chunk = iterator.nextLong()
@@ -430,15 +449,38 @@ internal fun ServerLevel.flushVineSync(data: WoggakVineData) {
         if (hasChunk(chunk)) refreshSnapshot(data, chunk)
         chunkSource.getChunkNow(pos.x, pos.z)?.isUnsaved = true
         val players = chunkSource.chunkMap.getPlayers(pos, false)
-        if (players.isNotEmpty()) sendVinePages(players, chunk, data.inChunk(chunk))
+        if (players.isNotEmpty()) sendVinePages(players, chunk, data.inChunk(chunk), data.splits.get(chunk))
+        // [VineReloadDebug] temporary
+        if (players.isNotEmpty()) vineReloadDebug("sync sent", this, data.inChunk(chunk).size)
     }
     data.dirtyChunks.clear()
+    data.splits.clear()
 }
 
 /** Called when [chunk] is sent to this player. */
 fun ServerPlayer.sendVineChunk(chunk: Long) {
     val vines = serverLevel().loadedWoggakVines?.inChunk(chunk) ?: return
     if (vines.isNotEmpty()) sendVinePages(listOf(this), chunk, vines)
+    // [VineReloadDebug] temporary
+    if (vines.isNotEmpty()) vineReloadDebug("track sent", serverLevel(), vines.size)
+}
+
+// [VineReloadDebug] temporary: counts per level and step, logged once each 100 game ticks. Remove after the reload test.
+private val vineReloadCounts = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+private val vineReloadWorldgenIds: MutableSet<Long> = ConcurrentHashMap.newKeySet()
+
+internal fun vineReloadDebug(step: String, level: ServerLevel, count: Int) {
+    vineReloadCounts.computeIfAbsent("${level.dimension().location()} $step") { java.util.concurrent.atomic.AtomicInteger() }.addAndGet(count)
+}
+
+private fun ServerLevel.logVineReloadDebug() {
+    if (gameTime % 100L != 0L || vineReloadCounts.isEmpty()) return
+    val prefix = "${dimension().location()} "
+    for ((key, value) in vineReloadCounts) {
+        if (!key.startsWith(prefix)) continue
+        val count = value.getAndSet(0)
+        if (count != 0) LOG.info("[VineReloadDebug] {}: {}", key, count)
+    }
 }
 
 /** Called when this player stops tracking [chunk]. */
@@ -449,7 +491,8 @@ fun ServerPlayer.forgetVineChunk(chunk: Long) {
     NetworkManager.sendToPlayer(this, WOGGAK_VINE_FORGET, FriendlyByteBuf(Unpooled.buffer()).apply { writeLong(chunk) })
 }
 
-private fun sendVinePages(players: List<ServerPlayer>, chunk: Long, vines: List<WoggakVine>) {
+/** The first page also holds the [splits] of vines of [chunk], so the client draws each old vine until its pieces show. */
+private fun sendVinePages(players: List<ServerPlayer>, chunk: Long, vines: List<WoggakVine>, splits: List<VineSplit>? = null) {
     var first = 0
     do {
         val last = minOf(first + VINES_PER_PAGE, vines.size)
@@ -458,6 +501,12 @@ private fun sendVinePages(players: List<ServerPlayer>, chunk: Long, vines: List<
         buf.writeBoolean(first == 0)
         buf.writeVarInt(last - first)
         for (i in first until last) buf.writeVine(vines[i])
+        val pageSplits = if (first == 0) splits.orEmpty() else emptyList()
+        buf.writeVarInt(pageSplits.size)
+        for (split in pageSplits) {
+            buf.writeLong(split.old)
+            buf.writeLongArray(split.pieces)
+        }
         for (player in players) NetworkManager.sendToPlayer(player, WOGGAK_VINE_SYNC, FriendlyByteBuf(buf.copy()))
         first = last
     } while (first < vines.size)
@@ -467,11 +516,11 @@ private fun FriendlyByteBuf.writeVine(vine: WoggakVine) {
     writeLong(vine.id)
     writeLong(vine.chain.value)
     writeLong(vine.fadeStart)
-    writeByte(vine.joinedEnds or vine.shipEnds)
+    writeByte(vine.joinedEnds or vine.shipEnds or vine.blockEnds)
     writeJointTarget(vine.start)
-    writeShipHold(vine.start)
+    writeHold(vine.start)
     writeJointTarget(vine.end)
-    writeShipHold(vine.end)
+    writeHold(vine.end)
 }
 
 /** The target vine id and node of a joined end, so the client draws the end on the target node. */
@@ -482,11 +531,14 @@ private fun FriendlyByteBuf.writeJointTarget(anchor: WoggakVineAnchor) {
     writeVarInt(joint.node)
 }
 
-/** The ship and shipyard point of a ship-held end, so the client draws the end on the ship's render position. */
-private fun FriendlyByteBuf.writeShipHold(anchor: WoggakVineAnchor) {
+/**
+ * The ship (only when ship-held), block and point of a held end. The client draws a ship-held end on the ship's
+ * render position, and puts the moss pad and the rope inset on the block face.
+ */
+private fun FriendlyByteBuf.writeHold(anchor: WoggakVineAnchor) {
     val point = anchor.point
-    val shipId = point?.shipId
-    if (!anchor.isShipHeld || shipId == null) return
-    writeLong(shipId)
+    if (point == null || !(anchor.isShipHeld || anchor.isBlockHeld)) return
+    point.shipId?.let { writeLong(it) }
+    writeLong(point.block.asLong())
     writeDouble(point.local.x()); writeDouble(point.local.y()); writeDouble(point.local.z())
 }

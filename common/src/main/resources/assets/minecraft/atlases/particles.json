@@ -99,6 +99,22 @@
           "height": 3
         }
       ]
+    },
+    {
+      "type": "single",
+      "resource": "enderkinesis:block/woggak_vine_beard_0"
+    },
+    {
+      "type": "single",
+      "resource": "enderkinesis:block/woggak_vine_beard_1"
+    },
+    {
+      "type": "single",
+      "resource": "enderkinesis:block/woggak_vine_beard_2"
+    },
+    {
+      "type": "single",
+      "resource": "enderkinesis:block/woggak_vine_moss_pad"
     }
   ]
 }

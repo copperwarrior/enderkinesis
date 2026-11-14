@@ -8,6 +8,10 @@ class VineJunctionTest {
     private val held = 1L
     private val other = 2L
 
+    /** A jump or sneak climb takes any way; its level part is the walk wish at the climb steer share. */
+    private val climbSteer = 0.25
+    private val climbAnyCos = -1.0
+
     /** Level along +x: node i at x = i. */
     private val level = doubleArrayOf(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 4.0, 0.0, 0.0)
 
@@ -38,9 +42,9 @@ class VineJunctionTest {
     }
 
     @Test
-    fun `a wish down at an interior knot takes the joined vine that hangs down`() {
+    fun `a sneak climb down at an interior knot takes the joined vine that hangs down`() {
         val ways = branchAtInterior()
-        val way = ways.best(0.3, -1.0, 0.0, MOVE_MIN_COS, held, 1)
+        val way = ways.best(climbSteer, -1.0, 0.0, climbAnyCos, held, 1)
         ways.chain[way] shouldBe other
         ways.node[way] shouldBe 0
         ways.dir[way] shouldBe 1
@@ -58,30 +62,30 @@ class VineJunctionTest {
     }
 
     @Test
-    fun `from the joined vine a wish back up takes the held vine both ways`() {
+    fun `from the joined vine a level walk wish takes the held vine both ways`() {
         val ways = JunctionWays().apply {
             addVineWays(other, hangingFromStart, 3, 0)
             addVineWays(held, level, 5, 2)
         }
-        val right = ways.best(1.0, 0.5, 0.0, MOVE_MIN_COS, other, -1)
+        val right = ways.best(1.0, 0.0, 0.0, MOVE_MIN_COS, other, -1)
         ways.chain[right] shouldBe held
         ways.dir[right] shouldBe 1
-        val left = ways.best(-1.0, 0.5, 0.0, MOVE_MIN_COS, other, -1)
+        val left = ways.best(-1.0, 0.0, 0.0, MOVE_MIN_COS, other, -1)
         ways.chain[left] shouldBe held
         ways.dir[left] shouldBe -1
     }
 
     @Test
-    fun `a held end on an interior node goes on along the other vine either way, or back down`() {
+    fun `a held end on an interior node goes on along the other vine either way, or climbs back down`() {
         val ways = heldEndOnInterior()
         ways.size shouldBe 3
-        val east = ways.best(1.0, 0.2, 0.0, MOVE_MIN_COS, held, 1)
+        val east = ways.best(1.0, 0.0, 0.0, MOVE_MIN_COS, held, 1)
         ways.chain[east] shouldBe other
         ways.dir[east] shouldBe 1
-        val west = ways.best(-1.0, 0.2, 0.0, MOVE_MIN_COS, held, 1)
+        val west = ways.best(-1.0, 0.0, 0.0, MOVE_MIN_COS, held, 1)
         ways.chain[west] shouldBe other
         ways.dir[west] shouldBe -1
-        val down = ways.best(0.0, -1.0, 0.0, MOVE_MIN_COS, held, 1)
+        val down = ways.best(0.0, -1.0, 0.0, climbAnyCos, held, 1)
         ways.chain[down] shouldBe held
         ways.dir[down] shouldBe -1
     }
@@ -89,7 +93,7 @@ class VineJunctionTest {
     @Test
     fun `a climb up into a held end takes a way of the joined vine`() {
         val ways = heldEndOnInterior()
-        val way = ways.best(0.25, 1.0, 0.0, -1.0, held, 1)
+        val way = ways.best(climbSteer, 1.0, 0.0, climbAnyCos, held, 1)
         ways.chain[way] shouldBe other
         ways.dir[way] shouldBe 1
     }

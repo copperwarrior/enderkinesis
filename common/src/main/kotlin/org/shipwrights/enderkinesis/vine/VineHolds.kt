@@ -28,9 +28,8 @@ import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils
 import java.util.EnumSet
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** C2S on a grab or a change of input: grab flag, chain id, node, input bits, player velocity in m/s. */
@@ -66,8 +65,8 @@ private const val GRIP_SNAP_GAP = 2.0
 private const val MAX_EXTRAPOLATE_TICKS = 2
 /** A longer gap between grip packets is a new climb, not a slow one. */
 private const val MAX_RATE_TICKS = 3
-/** How much the look turns the jump or sneak climb direction on a steep vine that leans. */
-private const val CLIMB_LOOK_SHARE = 0.25
+/** How much the walk keys turn the jump or sneak climb direction on a steep vine that leans. */
+private const val CLIMB_STEER_SHARE = 0.25
 
 /** Added to [PICK_REACH] on the server, because its chain snapshot can differ from the client's. */
 private const val GRAB_SLACK = 1.0
@@ -92,6 +91,15 @@ private const val HOLDER_RESEND_TICKS = 40
 private const val NANOS_TO_SECONDS = 1e-9
 /** Two ticks: a late chain frame does not carry the hang far on its old velocity. */
 private const val MAX_GRIP_LEAD_SECONDS = 0.1
+/**
+ * Time constant of the shown hang. The body moves on at the node velocity and eases to the physics hang place, so a
+ * steady swing has no lag and the frame jitter does not show.
+ */
+private const val HANG_SMOOTH_SECONDS = 0.15
+/** The share of the gap that one tick closes; ticks are fixed, and vanilla draws the body between them. */
+private val HANG_SMOOTH_SHARE = 1.0 - exp(-SECONDS_PER_TICK / HANG_SMOOTH_SECONDS)
+/** Past this gap in blocks the body jumps to the hang place. */
+private const val HANG_SMOOTH_SNAP = 2.0
 /** A walk-key move keeps its node direction while the wish stays within about 30 degrees of the wish that chose it. */
 private const val WISH_KEEP_COS = 0.866
 private const val MIN_WISH = 1e-6
@@ -106,10 +114,9 @@ private const val CLIMB_MIN_COS = -1.0
 /**
  * A server-side hold: the player's mass is [particle], joined to the point at [grip] of [chain] by [pair].
  * [climbDir] is the node direction of the current climb or walk-key move; 0 until the next tick chooses it.
- * A [thrown] hold came from a vine throw; the vine items can stay in the main hand.
  */
 internal class VineHold(
-    var chain: ChainId, var grip: Double, var input: Int, val particle: ParticleId, var pair: JointPair, val thrown: Boolean = false,
+    var chain: ChainId, var grip: Double, var input: Int, val particle: ParticleId, var pair: JointPair,
 ) {
     var climbDir = 0
     /** The unit wish that chose [climbDir] for a walk-key move. */
@@ -135,7 +142,6 @@ internal class VineHold(
 internal const val VINE_PASS_GRACE_TICKS = 10
 /** Vines in grace at one time; a full list drops the oldest. */
 private const val MAX_GRACE_VINES = 8
-private const val UNTIL_LANDED = -1
 
 /** The local player's hold, and the vines it passes through. Client thread only. */
 class ClientVineHold : VinePass {
@@ -160,9 +166,12 @@ class ClientVineHold : VinePass {
     private val nextPosition = Vector3d()
     private val nextVelocity = Vector3d()
     internal val hang = VineHangPlacer()
+    /** False until the first hang of a grab: that one puts the body on its hang place at once. */
+    internal var hangEased = false
 
     fun startGrip(node: Int) {
         hang.reset()
+        hangEased = false
         grip = node.toDouble()
         serverGrip = grip
         gripRate = 0.0
@@ -243,9 +252,6 @@ class ClientVineHold : VinePass {
     /** Makes vine [chain] passable for [VINE_PASS_GRACE_TICKS]. */
     fun startGrace(chain: Long) = addGrace(chain, VINE_PASS_GRACE_TICKS)
 
-    /** Makes vine [chain] passable until [startGrace] or [endGrace] for it, as for a throw in flight. */
-    fun passUntilLanded(chain: Long) = addGrace(chain, UNTIL_LANDED)
-
     private fun addGrace(chain: Long, ticks: Int) {
         endGrace(chain)
         if (graceCount == MAX_GRACE_VINES) removeGraceAt(0)
@@ -263,7 +269,6 @@ class ClientVineHold : VinePass {
     fun tickGrace(collider: VineCollider, box: AABB) {
         var i = 0
         while (i < graceCount) {
-            if (graceTicks[i] == UNTIL_LANDED) { i++; continue }
             if (graceTicks[i] > 0) graceTicks[i]--
             if (graceTicks[i] <= 0 && !collider.touchesVine(graceChains[i], box)) removeGraceAt(i) else i++
         }
@@ -315,8 +320,16 @@ fun Entity.hangFromVine(): Boolean {
     val level = level()
     val box = boundingBox
     val feet = hold.hang.feet
+    val velocity = hold.velocity
+    // The filter state is the collided body place, so a blocked body does not wind up a push into the wall.
+    val px = x + velocity.x * SECONDS_PER_TICK
+    val py = y + velocity.y * SECONDS_PER_TICK
+    val pz = z + velocity.z * SECONDS_PER_TICK
+    val gapSq = (feet.x - px) * (feet.x - px) + (feet.y - py) * (feet.y - py) + (feet.z - pz) * (feet.z - pz)
+    val ease = if (hold.hangEased && gapSq <= HANG_SMOOTH_SNAP * HANG_SMOOTH_SNAP) HANG_SMOOTH_SHARE else 1.0
+    hold.hangEased = true
     // No vine shapes in this sweep, so the held vine cannot push the body off its hang place.
-    val delta = Vec3(feet.x - x, feet.y - y, feet.z - z)
+    val delta = Vec3(px + (feet.x - px) * ease - x, py + (feet.y - py) * ease - y, pz + (feet.z - pz) * ease - z)
     // VS2 adds ship collision only in its Entity.move wrap, and the hang skips that move.
     val shipDelta = EntityShipCollisionUtils.adjustEntityMovementForShipCollisions(this, delta, box, level)
     val moved = Entity.collideBoundingBox(this, shipDelta, box, level, level.getEntityCollisions(this, box.expandTowards(shipDelta)))
@@ -355,6 +368,7 @@ internal fun registerVineHolds() {
     }
     NetworkManager.registerReceiver(NetworkManager.Side.C2S, WOGGAK_VINE_SHORTEN) { buf, ctx ->
         val start = buf.readBoolean()
+        LOG.info("[VineReelDebug] server got WOGGAK_VINE_SHORTEN start={} player={}", start, ctx.player)
         ctx.queue { (ctx.player as? ServerPlayer)?.reelVine(start) }
     }
 }
@@ -374,6 +388,7 @@ internal fun ServerPlayer.letGoOfVine(tellClient: Boolean) {
     val level = serverLevel()
     val data = level.loadedWoggakVines ?: return
     val hold = data.holds.remove(uuid) ?: return
+    level.debugReleaseVelocity(hold, "client let go")
     level.deleteHold(data, hold)
     broadcastHolder(null)
     if (tellClient) sendLetGo(hold.chain)
@@ -408,6 +423,17 @@ private fun ServerPlayer.sendLetGo(chain: ChainId, mantle: Boolean = false) =
         writeBoolean(mantle)
     })
 
+// TODO [VineHoldDebug] temporary
+@OptIn(GameTickOnly::class)
+private fun ServerLevel.debugReleaseVelocity(hold: VineHold, why: String) {
+    val particles = shipObjectWorld.allParticles
+    val node = shipObjectWorld.allChains.getById(hold.chain)?.nodeIds?.getOrNull(floor(hold.grip).toInt())
+    LOG.info(
+        "[VineHoldDebug] server release ({}): grip={} node velocity={} m/s, hold particle velocity={} m/s",
+        why, hold.grip, node?.let { particles.getById(it)?.velocity }, particles.getById(hold.particle)?.velocity,
+    )
+}
+
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.deleteHold(data: WoggakVineData, hold: VineHold) {
     data.jointsDirty = true
@@ -439,26 +465,11 @@ private fun ServerPlayer.holdVine(grab: Boolean, chainId: ChainId, node: Int, in
     }
 }
 
-/** Starts the thrower's hold on [node] of the thrown vine [chainId] when its tip sticks, and tells its client. */
-@OptIn(GameTickOnly::class)
-internal fun ServerPlayer.holdThrownVine(chainId: ChainId, node: Int) {
-    val level = serverLevel()
-    val data = level.loadedWoggakVines ?: return
-    if (data.holds.containsKey(uuid)) letGoOfVine(true)
-    val motion = deltaMovement
-    val velocity = grabVelocity(motion.x / SECONDS_PER_TICK, motion.y / SECONDS_PER_TICK, motion.z / SECONDS_PER_TICK)
-    val hold = level.grab(this, data, chainId, node, 0, velocity, thrown = true) ?: return
-    data.holds[uuid] = hold
-    syncHolder(hold)
-    sendThrownVine(chainId, node)
-}
-
 /**
  * A new hold on [node] of [chainId], or null when the player cannot hold it. The player's mass starts at its own
  * [velocity], so the joint gives the catch to the vine.
  */
 @OptIn(GameTickOnly::class)
-@Suppress("LongParameterList") // The thrown flag only relaxes the empty-hand rule.
 private fun ServerLevel.grab(
     player: ServerPlayer,
     data: WoggakVineData,
@@ -466,9 +477,8 @@ private fun ServerLevel.grab(
     node: Int,
     input: Int,
     velocity: Vector3dc,
-    thrown: Boolean = false,
 ): VineHold? {
-    if (!player.canHoldVine(thrown) || !data.holdsUnfaded(chainId)) return null
+    if (!player.canHoldVine() || !data.holdsUnfaded(chainId)) return null
     val chain = liveChain(chainId, node) ?: return null
     val position = nodePosition(data, chain, node) ?: return null
     if (position.distance(player.eyePosition.x, player.eyePosition.y, player.eyePosition.z) > PICK_REACH + GRAB_SLACK) return null
@@ -491,7 +501,7 @@ private fun ServerLevel.grab(
     }
     data.jointsDirty = true
     val grip = node.toDouble()
-    return VineHold(chainId, grip, input, particle.id, gripPair(ids, particle.id, grip), thrown)
+    return VineHold(chainId, grip, input, particle.id, gripPair(ids, particle.id, grip))
 }
 
 /** A joint pair from [particle] to the point at [grip] on the vine with node [ids]. */
@@ -523,12 +533,15 @@ private fun nodePosition(data: WoggakVineData, chain: ServerChain, node: Int): V
     return Vector3d(data.scratch[k], data.scratch[k + 1], data.scratch[k + 2])
 }
 
-/** A [thrown] hold keeps the vine items of a creative or off-hand throw in the main hand. */
-internal fun Player.canHoldVine(thrown: Boolean = false): Boolean =
-    isAlive && !isSpectator && !isPassenger && (thrown || mainHandItem.isEmpty)
+internal fun Player.canHoldVine(): Boolean = isAlive && !isSpectator && !isPassenger && mainHandItem.isEmpty
 
 /** True when [chainId] is a vine that does not fade; a fading vine has no anchor, so its holder falls with it. */
 private fun WoggakVineData.holdsUnfaded(chainId: ChainId): Boolean = vines.any { it.chain == chainId && it.fadeStart < 0 }
+
+private fun WoggakVineData.isSpan(chainId: ChainId): Boolean = vines.any { it.chain == chainId && it.isSpan }
+
+/** True when both ends of the vine are fixed, to a block, a body or another vine. */
+internal val WoggakVine.isSpan: Boolean get() = !start.released && !end.released
 
 /** Ends the holds that can no longer hold, keeps the holders from fall damage, tires them, climbs and pumps the swings. */
 @OptIn(GameTickOnly::class)
@@ -558,6 +571,7 @@ internal fun ServerLevel.tickVineHolds(data: WoggakVineData) {
         val step = steerHold(data, player, hold, nodes)
         if (step != HoldStep.KEEP) {
             iterator.remove()
+            debugReleaseVelocity(hold, "server $step")
             deleteHold(data, hold)
             player.broadcastHolder(null)
             player.sendLetGo(hold.chain, step == HoldStep.MANTLE)
@@ -570,7 +584,7 @@ internal fun ServerLevel.tickVineHolds(data: WoggakVineData) {
 
 /** The node count of the held vine, with its nodes in [WoggakVineData.scratch]; 0 when the hold ends. */
 private fun ServerLevel.heldNodeCount(data: WoggakVineData, player: ServerPlayer, hold: VineHold): Int {
-    if (!player.canHoldVine(hold.thrown) || hold.pair.broken || !data.holdsUnfaded(hold.chain)) return 0
+    if (!player.canHoldVine() || hold.pair.broken || !data.holdsUnfaded(hold.chain)) return 0
     val chain = liveChain(hold.chain, floor(hold.grip).toInt()) ?: return 0
     if (!data.copyNodes(chain)) return 0
     val nodes = chain.status.nodeCount
@@ -588,7 +602,8 @@ private enum class GripStep { MOVED, STILL, LOST }
 
 /**
  * One tick of the held keys. On a steep vine jump and sneak climb; on a flat one jump mantles and a sneak press lets
- * go. The walk keys move the grip where the vine goes along the look, and pump the swing with the rest of the wish.
+ * go. On a span (both ends fixed) the walk keys move the grip where the vine goes along the level wish, and pump
+ * the swing with the rest; on a vine with a free end they only pump.
  * Needs the [nodes] of the vine in [WoggakVineData.scratch].
  */
 @OptIn(GameTickOnly::class)
@@ -599,26 +614,27 @@ private fun ServerLevel.steerHold(data: WoggakVineData, player: ServerPlayer, ho
     val steep = isSteepAt(data.scratch, nodes, hold.grip)
     if (!steep && (pressed and CLIMB_DOWN) != 0) return HoldStep.LET_GO
     if (!steep && (input and CLIMB_UP) != 0 && player.findMantle(data.scratch, nodes, hold.grip, hold.mantle)) return HoldStep.MANTLE
-    // The walk input as a world wish: forward along the full look (pitch too), strafe along the level look-right.
     val forward = keyAxis(input, MOVE_FORWARD, MOVE_BACK)
     val right = keyAxis(input, MOVE_RIGHT, MOVE_LEFT)
-    val look = player.lookAngle
     val yaw = Math.toRadians(player.yRot.toDouble())
-    var wx = look.x * forward - cos(yaw) * right
-    var wy = look.y * forward
-    var wz = look.z * forward - sin(yaw) * right
-    val length = sqrt(wx * wx + wy * wy + wz * wz)
-    if (length > MIN_WISH) { wx /= length; wy /= length; wz /= length } else { wx = 0.0; wy = 0.0; wz = 0.0 }
+    var wx = walkWishX(forward, right, yaw)
+    var wz = walkWishZ(forward, right, yaw)
+    val length = sqrt(wx * wx + wz * wz)
+    if (length > MIN_WISH) { wx /= length; wz /= length } else { wx = 0.0; wz = 0.0 }
     val climbing = steep && (input and CLIMB_MASK) != 0
+    val span = data.isSpan(hold.chain)
     val step = when {
-        climbing -> climb(data, player, hold, nodes, look)
-        length > MIN_WISH -> walk(data, player, hold, nodes, wx, wy, wz)
+        climbing -> climb(data, player, hold, nodes, wx, wz)
+        length > MIN_WISH && span -> walk(data, player, hold, nodes, wx, 0.0, wz)
         else -> GripStep.STILL
     }
     if (step == GripStep.LOST) return HoldStep.LET_GO
     if (step == GripStep.STILL && hold.moving) { player.syncHolder(hold); player.sendGrip(hold) }
     hold.moving = step == GripStep.MOVED
-    if (climbing) pumpSwing(player, hold, wx, wz) else if (length > MIN_WISH) pumpSwing(player, hold, hold.split.restX, hold.split.restZ)
+    when {
+        climbing || (length > MIN_WISH && !span) -> pumpSwing(player, hold, wx, wz)
+        length > MIN_WISH -> pumpSwing(player, hold, hold.split.restX, hold.split.restZ)
+    }
     return HoldStep.KEEP
 }
 
@@ -643,13 +659,14 @@ private fun ServerLevel.walk(
 private fun keyAxis(input: Int, plus: Int, minus: Int): Double =
     (if ((input and plus) != 0) 1.0 else 0.0) - (if ((input and minus) != 0) 1.0 else 0.0)
 
-/** A jump or sneak climb on a steep vine, at the vanilla ladder speeds. */
+/** A jump or sneak climb on a steep vine, at the vanilla ladder speeds; the level walk wish ([wx], [wz]) steers it. */
 @OptIn(GameTickOnly::class)
-private fun ServerLevel.climb(data: WoggakVineData, player: ServerPlayer, hold: VineHold, nodes: Int, look: Vec3): GripStep {
+@Suppress("LongParameterList") // Plain doubles keep the hold tick free of allocation.
+private fun ServerLevel.climb(data: WoggakVineData, player: ServerPlayer, hold: VineHold, nodes: Int, wx: Double, wz: Double): GripStep {
     val up = (hold.input and CLIMB_UP) != 0
-    val wishX = look.x * CLIMB_LOOK_SHARE
-    val wishY = (if (up) 1.0 else -1.0) + look.y * CLIMB_LOOK_SHARE
-    val wishZ = look.z * CLIMB_LOOK_SHARE
+    val wishX = wx * CLIMB_STEER_SHARE
+    val wishY = if (up) 1.0 else -1.0
+    val wishZ = wz * CLIMB_STEER_SHARE
     if (hold.climbDir == 0) hold.climbDir = climbDirection(data.scratch, nodes, hold.grip, wishX, wishY, wishZ)
     return moveGrip(data, player, hold, nodes, if (up) CLIMB_UP_SPEED else CLIMB_DOWN_SPEED, wishX, wishY, wishZ, CLIMB_MIN_COS)
 }

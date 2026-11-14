@@ -9,7 +9,9 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.physics.physicsStepSeconds
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.chains.ChainId
-import org.valkyrienskies.core.api.particles.PhysVsParticle
+import org.valkyrienskies.core.api.particles.ParticleStateBuffer
+import org.valkyrienskies.core.api.particles.ParticleId
+import org.valkyrienskies.core.api.particles.ParticleVectorInput
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.world.properties.DimensionId
@@ -40,6 +42,7 @@ private const val MAX_WIND_CHAINS = 4096
 /** Under this push, in m/s², a node gets no wind, so a vine in a calm can sleep. */
 private const val MIN_ACCEL = 0.01
 private const val SECONDS_PER_TICK_WIND = 0.05
+private const val WIND_REFRESH_SECONDS = 0.1
 
 /**
  * Wind speed along +X (east) in m/s at world point [x], [z]; always in [-WIND_MAX, WIND_MAX].
@@ -87,6 +90,11 @@ private fun lattice(seed: Long, i: Long, j: Long): Double {
     return (h ushr 11) * (2.0 / (1L shl 53)) - 1.0
 }
 
+private class CachedWindForce(id: ParticleId) {
+    val force = Vector3d()
+    val input = ParticleVectorInput(id, force)
+}
+
 /** Written by the server thread; [chains] is replaced, never changed. The phys fields belong to the physics thread. */
 private class WindState(val seed: Long) {
     @Volatile var chains: Array<ChainId> = emptyArray()
@@ -94,8 +102,14 @@ private class WindState(val seed: Long) {
     val nearby = ArrayList<ChainId>()
     var physTick = -1L
     var physOffset = 0.0
-    val particles = ArrayList<PhysVsParticle?>()
-    var positions = DoubleArray(0)
+    val nodeIds = ArrayList<ParticleId>()
+    val chainEnds = ArrayList<Int>()
+    var states = ParticleStateBuffer(0)
+    var refreshIn = 0.0
+    var sampledChains: Array<ChainId>? = null
+    val forces = HashMap<ParticleId, CachedWindForce>()
+    val liveNodes = HashSet<ParticleId>()
+    val batch = ArrayList<ParticleVectorInput>()
 }
 
 private val windStates = ConcurrentHashMap<DimensionId, WindState>()
@@ -132,39 +146,83 @@ internal fun ServerLevel.publishWohlonWind(data: WoggakVineData) {
 
 @OptIn(PhysTickOnly::class)
 private fun PhysLevel.blowWohlonWind(dt: Double) {
+    if (!dt.isFinite() || dt <= 0.0) return
     val state = windStates[dimension] ?: return
     val chains = state.chains
-    if (chains.isEmpty()) return
+    if (chains.isEmpty()) {
+        state.batch.clear()
+        state.forces.clear()
+        state.liveNodes.clear()
+        state.nodeIds.clear()
+        state.chainEnds.clear()
+        state.sampledChains = chains
+        state.refreshIn = 0.0
+        return
+    }
+
     val tick = state.gameTick
     if (tick != state.physTick) { state.physTick = tick; state.physOffset = 0.0 }
     val seconds = tick * SECONDS_PER_TICK_WIND + state.physOffset
     state.physOffset = (state.physOffset + dt).coerceAtMost(SECONDS_PER_TICK_WIND)
-    for (id in chains) blowChain(state, id, seconds, dt)
+
+    state.refreshIn -= dt
+    if (state.refreshIn <= 1e-9 || state.sampledChains !== chains) {
+        state.batch.clear()
+        state.liveNodes.clear()
+        sampleWind(state, chains, seconds)
+        state.forces.keys.retainAll(state.liveNodes)
+        state.sampledChains = chains
+        state.refreshIn = WIND_REFRESH_SECONDS
+    }
+
+    // Forces clear after each physics tick, so submit the held batch again.
+    if (state.batch.isNotEmpty()) applyParticleForces(state.batch)
 }
 
 @OptIn(PhysTickOnly::class)
-private fun PhysLevel.blowChain(state: WindState, id: ChainId, seconds: Double, dt: Double) {
-    val ids = getChainById(id)?.nodeIds ?: return
-    val n = ids.size
-    if (n == 0) return
-    if (state.positions.size < n * 3) state.positions = DoubleArray(n * 3)
-    val p = state.positions
-    val particles = state.particles
-    particles.clear()
-    for (k in 0 until n) {
-        val particle = getParticleById(ids[k])
-        particles.add(particle)
-        val at = particle?.position ?: continue
-        p[k * 3] = at.x(); p[k * 3 + 1] = at.y(); p[k * 3 + 2] = at.z()
+private fun PhysLevel.sampleWind(state: WindState, chains: Array<ChainId>, seconds: Double) {
+    val ids = state.nodeIds
+    ids.clear()
+    state.chainEnds.clear()
+    for (id in chains) {
+        val nodes = getChainById(id)?.nodeIds ?: continue
+        if (nodes.isEmpty()) continue
+        ids.addAll(nodes)
+        state.chainEnds.add(ids.size)
     }
-    for (k in 0 until n) {
-        val particle = particles[k] ?: continue
-        val x = p[k * 3]
-        val wind = wohlonWindSpeed(state.seed, seconds, x, p[k * 3 + 2])
-        val accel = windDragAccel(wind, particle.velocity.x(), exposure(p, maxOf(k - 1, 0), minOf(k + 1, n - 1)))
-        if (abs(accel) < MIN_ACCEL) continue
-        if (particle.isSleeping) particle.wake()
-        particle.applyWorldImpulse(Vector3d(particle.mass * accel * dt, 0.0, 0.0))
+    if (ids.isEmpty()) return
+    if (state.states.capacity < ids.size) {
+        state.states = ParticleStateBuffer(maxOf(ids.size, 64, state.states.capacity * 2))
+    }
+    val states = state.states
+    copyParticleStates(ids, states)
+    val p = states.positions
+    var first = 0
+    for (end in state.chainEnds) {
+        val start = first
+        first = end
+        var valid = true
+        for (k in start until end) {
+            if (!states.valid[k] || !p[k * 3].isFinite() ||
+                !p[k * 3 + 1].isFinite() || !p[k * 3 + 2].isFinite()
+            ) {
+                valid = false
+                break
+            }
+        }
+        if (!valid) continue
+        for (k in start until end) {
+            if (!state.liveNodes.add(ids[k])) continue
+            val wind = wohlonWindSpeed(state.seed, seconds, p[k * 3], p[k * 3 + 2])
+            val accel = windDragAccel(wind, states.velocities[k * 3],
+                exposure(p, maxOf(k - 1, start), minOf(k + 1, end - 1)))
+            if (!accel.isFinite() || abs(accel) < MIN_ACCEL) continue
+            val forceX = states.masses[k] * accel
+            if (!forceX.isFinite()) continue
+            val cached = state.forces.getOrPut(ids[k]) { CachedWindForce(ids[k]) }
+            cached.force.set(forceX, 0.0, 0.0)
+            state.batch.add(cached.input)
+        }
     }
 }
 

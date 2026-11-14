@@ -670,6 +670,8 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WoggakVineRenderer.tick(level) }
         VineHoldClient.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> VineHoldClient.tick() }
+        VineThrowClient.init()
+        ClientTickEvent.CLIENT_LEVEL_POST.register { level -> VineThrowClient.tick(level) }
 
         SselithEclipseClient.init()
         SselithEclipseSounds.init()
@@ -680,6 +682,7 @@ object EnderkinesisModClient {
             WogorBudClientTracker.clear()
             WoggakVineRenderer.clear()
             VineHoldClient.clear()
+            VineThrowClient.clear()
             SselithAmbience.onDisconnect()
             SselithEclipseSounds.onDisconnect()
             SselithVoidSounds.onDisconnect()
@@ -740,6 +743,7 @@ object EnderkinesisModClient {
             // A respawn makes a new client level, and the server sends its chunks again.
             MothClothClientPositions.clear()
             WoggakVineRenderer.clear()
+            VineThrowClient.clear()
             clearClientSession()
         }
         ClientTickEvent.CLIENT_POST.register { mc -> WohlonBiomePresenceScanner.tick(mc) }
@@ -905,6 +909,9 @@ object EnderkinesisModClient {
             IchaericInkDripParticle.Provider(sprites)
         }
         registrar.register(EKParticles.weatheringRain()) { sprites -> WeatheringRainParticle.Provider(sprites) }
+        registrar.register(EKParticles.woggakVineDrip()) { sprites -> WoggakVineDripParticle.Provider(sprites) }
+        registrar.register(EKParticles.woggakVineShedBeard()) { sprites -> WoggakVineShedParticle.Provider(sprites) }
+        registrar.register(EKParticles.woggakVineShedMoss()) { sprites -> WoggakVineShedParticle.Provider(sprites) }
 
         registrar.register(EKParticles.archiveSpiralDust()) { sprites ->
             ArchiveSpiralDustParticle.Provider(sprites)

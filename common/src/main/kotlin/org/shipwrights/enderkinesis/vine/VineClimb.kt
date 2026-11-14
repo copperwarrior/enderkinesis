@@ -1,7 +1,9 @@
 package org.shipwrights.enderkinesis.vine
 
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 // A grip is a place along a vine in node units: the integer part is a node, the fraction is the way to the next node.
@@ -38,6 +40,13 @@ internal fun gripTangent(nodes: DoubleArray, count: Int, grip: Double, axis: Int
     return gripCoordinate(nodes, count, (grip + 1.0).coerceAtMost(last), axis) -
         gripCoordinate(nodes, count, (grip - 1.0).coerceAtLeast(0.0), axis)
 }
+
+// The walk wish is level: it turns with the yaw only, so pitch and roll do not change it. Minecraft yaw 0 faces +z.
+/** The x part of the level walk wish for the [forward] and [right] key axes at [yaw] in radians. */
+internal fun walkWishX(forward: Double, right: Double, yaw: Double): Double = -sin(yaw) * forward - cos(yaw) * right
+
+/** The z part of the level walk wish for the [forward] and [right] key axes at [yaw] in radians. */
+internal fun walkWishZ(forward: Double, right: Double, yaw: Double): Double = cos(yaw) * forward - sin(yaw) * right
 
 /** The wish moves the grip only when the vine goes at least this much along it (cosine); else it pumps the swing. */
 internal const val MOVE_MIN_COS = 0.35
