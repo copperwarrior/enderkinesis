@@ -1212,7 +1212,7 @@ class WohlonnogondoniaChunkGenerator(
      * network. Flooded below sea level like the Mother's cave. Null outside it.
      */
     private fun childChamberBlock(site: ChildTreeSite, wx: Int, wy: Int, wz: Int): BlockState? {
-        if (wx == site.x && wz == site.z && wy == site.chamberY) return if (site.age == AGE_DEAD) null else CHILD_HEART
+        if (wx == site.x && wz == site.z && wy == site.chamberY) return if (site.age == AGE_DEAD) null else if (wy < SEA_LEVEL_Y) CHILD_HEART_WET else CHILD_HEART
         if (insideEntrance(site.entrance, wx + 0.5, wy + 0.5, wz + 0.5)) {
             return if (wy < SEA_LEVEL_Y) WATER else AIR
         }
@@ -4612,6 +4612,7 @@ class WohlonnogondoniaChunkGenerator(
 
         // ---- child heart chambers ----
         private val CHILD_HEART: BlockState = EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState()
+        private val CHILD_HEART_WET: BlockState = CHILD_HEART.setValue(BlockStateProperties.WATERLOGGED, true)
         /** Chamber centre this far under the trunk base, so the roof sits just below the ground. */
         private const val CHILD_CHAMBER_DEPTH = 6
         private const val CHILD_CHAMBER_R_MIN = 4.5
