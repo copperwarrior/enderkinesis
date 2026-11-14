@@ -7,7 +7,6 @@ import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
 import dev.architectury.event.events.client.ClientTickEvent
 import it.unimi.dsi.fastutil.longs.Long2FloatOpenHashMap
-import java.util.function.IntSupplier
 import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
@@ -15,13 +14,10 @@ import net.minecraft.client.renderer.EffectInstance
 import net.minecraft.core.BlockPos
 import net.minecraft.util.Mth
 import org.joml.Matrix4f
-import org.lwjgl.opengl.GL11
-import org.lwjgl.opengl.GL30
 import org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager
-import org.shipwrights.enderkinesis.client.volume.HalfResTarget
 import org.shipwrights.enderkinesis.client.volume.ScreenBounds
-import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 
@@ -80,11 +76,8 @@ object WohlonPortalVisuals {
     )
 
     private val view = VolumeView()
-    private val effect = VolumeEffect("wohlon_portal_volume")
-    private val fogEffect = VolumeEffect("wohlon_portal_fog")
-    private val fogHalf = HalfResTarget(GL30.GL_RGBA16F, GL11.GL_RGBA)
-    private val fogUpsample = VolumeEffect("wohlon_portal_fog_upsample", "HalfSampler" to IntSupplier { fogHalf.textureId })
-    private val pushUpsampleUniforms: (EffectInstance) -> Unit = ::pushUpsample
+    private val effect = VolumeEffect("wohlon_portal_volume", "DepthSampler" to VolumeLayer.depthTexture)
+    private val fogEffect = VolumeEffect("wohlon_portal_fog", "DepthSampler" to VolumeLayer.depthTexture)
     private val fogBounds = ScreenBounds()
     private var uniforms: Uniforms? = null
     private var fogUniforms: FogUniforms? = null
@@ -242,6 +235,7 @@ object WohlonPortalVisuals {
         // The fog goes first, so the glow shows through it.
         renderFog(main, tSec)
         renderGlow(main, tSec)
+        VolumeLayer.flush(main)
     }
 
     /** Eases each drawn portal's lean toward the local player's distance and sets the chest target in portal space. */
@@ -277,10 +271,8 @@ object WohlonPortalVisuals {
         }
     }
 
-    /** Marches the tentacles at half resolution, then a depth-aware upsample puts them on main. */
     private fun renderFog(main: RenderTarget, tSec: Double) {
         val eff = fogEffect.get() ?: return
-        val upsample = fogUpsample.get() ?: return
         fogBounds.reset()
         for (i in 0 until drawCount) {
             if (drawFade[i] <= 0f) continue
@@ -292,13 +284,9 @@ object WohlonPortalVisuals {
         }
         if (fogBounds.isEmpty) return
         val u = fogUniforms ?: FogUniforms(eff).also { fogUniforms = it }
-        fogHalf.bind(main)
-        // One texel of margin: the upsample reads the neighbours of each texel under the boxes.
-        fogBounds.applyScissor(fogHalf.width, fogHalf.height, 1)
-        fogHalf.clear()
-        VolumeComposite.bindPremultipliedLayer()
+        if (!VolumeLayer.begin(main, view)) return
         val phase = tSec % (2.0 * TIME_PERIOD_SEC)
-        u.pushFrame(fogHalf.width, fogHalf.height, RenderSystem.getShaderFogColor(), (if (phase <= TIME_PERIOD_SEC) phase else 2.0 * TIME_PERIOD_SEC - phase).toFloat())
+        u.pushFrame(VolumeLayer.width, VolumeLayer.height, RenderSystem.getShaderFogColor(), (if (phase <= TIME_PERIOD_SEC) phase else 2.0 * TIME_PERIOD_SEC - phase).toFloat())
         var drawn = 0
         for (i in 0 until drawCount) {
             if (drawFade[i] <= 0f) continue
@@ -321,16 +309,7 @@ object WohlonPortalVisuals {
             }
             drawn++
         }
-        VolumeProxy.endBound(eff)
-        fogBounds.applyScissor(main.width, main.height, 1)
-        VolumeComposite.drawOverMain(main, upsample, pushUpsampleUniforms, VolumeComposite.Blend.PREMULTIPLIED)
-        RenderSystem.disableScissor()
-        VolumeComposite.restore(main)
-    }
-
-    private fun pushUpsample(eff: EffectInstance) {
-        view.pushDepthParams(eff)
-        fogHalf.pushHalfSize(eff)
+        VolumeProxy.end(main, eff)
     }
 
     private fun renderGlow(main: RenderTarget, tSec: Double) {
@@ -351,7 +330,7 @@ object WohlonPortalVisuals {
             u.spin.set(((tSec * SPIN_RATE + offset) % TAU).toFloat())
             u.strength.set(drawFade[i] * breath)
             if (drawn == 0) {
-                VolumeProxy.begin(main, VolumeComposite.Blend.PREMULTIPLIED)
+                if (!VolumeProxy.beginLayer(main, view, eff)) return
                 VolumeProxy.draw(eff)
             } else {
                 u.upload()

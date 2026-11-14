@@ -1,8 +1,10 @@
 {
   "blend": {
     "func": "add",
-    "srcrgb": "one",
-    "dstrgb": "zero"
+    "srcrgb": "srcalpha",
+    "dstrgb": "one",
+    "srcalpha": "zero",
+    "dstalpha": "one"
   },
   "vertex": "blit",
   "fragment": "sselith_eclipse_glow",
@@ -17,7 +19,7 @@
     { "name": "LightVolume", "type": "int",       "count": 1,  "values": [ 4 ] },
     { "name": "CamWrap",     "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
     { "name": "VolumeSize",  "type": "float",     "count": 3,  "values": [ 1.0, 1.0, 1.0 ] },
-    { "name": "DepthParams", "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "FogColor", "type": "float", "count": 3, "values": [ 0.0, 0.0, 0.0 ] },
     { "name": "MaxDist",     "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "FadeStart",   "type": "float",     "count": 1,  "values": [ 0.0 ] },
     { "name": "Strength",    "type": "float",     "count": 1,  "values": [ 0.0 ] },

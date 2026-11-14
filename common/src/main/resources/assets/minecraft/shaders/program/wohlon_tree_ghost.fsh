@@ -1,4 +1,5 @@
 #version 150
+#extension GL_ARB_explicit_attrib_location : enable
 
 uniform sampler2D DepthSampler;
 // Roots, wood and leaves: signed margin to the surface, 128 at the surface, 16 for each block, inside above (WohlonTreeGhost).
@@ -26,11 +27,20 @@ uniform vec2 OutShape;
 uniform float Time;
 // 1 when every border voxel of Margin is past the field's reach, so clamped reads outside the grid are empty too.
 uniform float EdgeEmpty;
+// 0 to 63: moves the step jitter each frame, so the history resolves the grain.
+uniform float JitterFrame;
 
 in vec3 localPos;
 in vec3 viewPos;
 
+#ifdef GL_ARB_explicit_attrib_location
+layout(location = 0) out vec4 fragColor;
+// For the history reprojection (HalfResVolume volumeDepth): R = weighted march distance x coverage, G = coverage.
+layout(location = 1) out vec4 volumeDepthOut;
+#else
 out vec4 fragColor;
+vec4 volumeDepthOut;
+#endif
 
 const int STEPS = 72;
 // Shaded like the ritual root tendrils: a dark, lightly absorbing core and a faint glowing rim.
@@ -94,13 +104,18 @@ void main() {
     if (t1 <= t0) discard;
 
     float dt = (t1 - t0) / float(STEPS);
-    float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    vec2 jitterPos = gl_FragCoord.xy + 5.588238 * JitterFrame;
+    float jitter = fract(52.9829189 * fract(dot(jitterPos, vec2(0.06711056, 0.00583715))));
     vec3 emitted = vec3(0.0);
     float through = 1.0;
+    // The distance of each sample, weighted by the light and cover it gives the pixel.
+    float distSum = 0.0;
+    float weightSum = 0.0;
     float pull = 1.0 - Dispersal.x;
     ivec2 steps = pull <= 0.0 && EdgeEmpty > 0.5 ? gridSteps(inv, t0, dt, jitter) : ivec2(0, STEPS);
     for (int i = steps.x; i < steps.y; i++) {
-        vec3 p = CamLocal + dir * (t0 + (float(i) + jitter) * dt);
+        float t = t0 + (float(i) + jitter) * dt;
+        vec3 p = CamLocal + dir * t;
         // Settled fog with no tree here: skip the warp and noise reads, most of the box is empty. The field
         // stops at -2 blocks, so this tests for that floor; the leaf warp may lose only a sliver of faint rim.
         if (pull <= 0.0) {
@@ -138,6 +153,9 @@ void main() {
         float pulse = 0.55 + 0.45 * sin(r * 1.2 - Time * 3.0);
         float a = 1.0 - exp(-DENSITY * body * dt);
         emitted += through * (a * colour * CORE_SHADE + colour * glow * RIM_EMISSION * pulse * dt);
+        float weight = through * (a + glow * RIM_EMISSION * pulse * dt);
+        distSum += weight * t;
+        weightSum += weight;
         through *= 1.0 - a;
     }
     float alpha = (1.0 - through) * OPACITY * Strength;
@@ -145,4 +163,6 @@ void main() {
     if (alpha < 0.003 && max(max(outColour.r, outColour.g), outColour.b) < 0.003) discard;
     // Premultiplied (wohlon_tree_ghost.json blend).
     fragColor = vec4(outColour, alpha);
+    float cover = clamp(max(alpha, max(max(outColour.r, outColour.g), outColour.b)), 0.0, 1.0);
+    volumeDepthOut = vec4(distSum / max(weightSum, 1.0e-6) * cover, cover, 0.0, cover);
 }

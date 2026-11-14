@@ -7,6 +7,8 @@ uniform sampler2D HistorySampler;
 uniform sampler2D HalfDepthSampler;
 // R: transmittance-weighted march distance × alpha, G: alpha (premultiplied). Read only when UseVolumeDepth is 1.
 uniform sampler2D VolumeDepthSampler;
+// The half depth of the last frame; read only when DepthReject is 1.
+uniform sampler2D PrevDepthSampler;
 
 uniform mat4 InvViewProj;
 uniform mat4 PrevViewProj;
@@ -18,6 +20,8 @@ uniform vec4 Rect;
 uniform vec4 PrevRect;
 uniform float HistoryWeight;
 uniform float UseVolumeDepth;
+uniform float DepthReject;
+uniform vec2 DepthParams;
 
 out vec4 fragColor;
 
@@ -25,6 +29,9 @@ out vec4 fragColor;
 const float GAMMA = 1.25;
 // The history weight falls to MOVING_WEIGHT × HistoryWeight as the reprojection moves 0.5 to 6 half texels.
 const float MOVING_WEIGHT = 0.6;
+// Relative scene-depth change at which the history starts to drop out, and is gone at twice it.
+// Loose, as the checkerboard min/max pick can change between frames on the same surface.
+const float DEPTH_REJECT = 0.1;
 
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
@@ -38,6 +45,7 @@ void main() {
     vec2 uv = gl_FragCoord.xy / HalfSize;
     vec4 world = InvViewProj * vec4(vec3(uv, texelFetch(HalfDepthSampler, p, 0).r) * 2.0 - 1.0, 1.0);
     vec3 pos = world.xyz / world.w;
+    vec3 surface = pos;
     vec2 vd = texelFetch(VolumeDepthSampler, p, 0).rg;
     if (UseVolumeDepth > 0.5 && vd.g > 0.01) pos = normalize(pos) * (vd.r / vd.g);
     vec4 prevClip = PrevViewProj * vec4(pos + CamDelta, 1.0);
@@ -76,5 +84,15 @@ void main() {
 
     float moved = length(prevPos - gl_FragCoord.xy);
     float weight = HistoryWeight * mix(1.0, MOVING_WEIGHT, smoothstep(0.5, 6.0, moved));
+    // A scene surface that moved (a player, a falling block) is not where the history saw it: drop the history there.
+    if (DepthReject > 0.5) {
+        vec4 surfaceClip = PrevViewProj * vec4(surface + CamDelta, 1.0);
+        vec2 surfacePos = (surfaceClip.xy / surfaceClip.w * 0.5 + 0.5) * HalfSize;
+        ivec2 surfaceTexel = clamp(ivec2(surfacePos), ivec2(0), ivec2(HalfSize) - 1);
+        float prevRaw = texelFetch(PrevDepthSampler, surfaceTexel, 0).r;
+        float prevDepth = DepthParams.y / (prevRaw * 2.0 - 1.0 + DepthParams.x);
+        float change = abs(prevDepth - surfaceClip.w) / max(surfaceClip.w, 1.0e-3);
+        weight *= 1.0 - smoothstep(DEPTH_REJECT, 2.0 * DEPTH_REJECT, change);
+    }
     fragColor = mix(cur, hist, weight);
 }

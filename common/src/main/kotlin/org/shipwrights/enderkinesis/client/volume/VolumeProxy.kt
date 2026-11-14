@@ -22,6 +22,17 @@ object VolumeProxy {
         beginBound()
     }
 
+    /**
+     * Like [begin], into [VolumeLayer], and sets `ScreenSize` of [effect] to the layer size. The JSON blend of [effect]
+     * must suit the layer. End the run with [end]; the stage owner flushes the layer. False when nothing is bound.
+     */
+    fun beginLayer(main: RenderTarget, view: VolumeView, effect: EffectInstance): Boolean {
+        if (!VolumeLayer.begin(main, view)) return false
+        VolumeLayer.pushScreenSize(effect)
+        beginBound()
+        return true
+    }
+
     /** Like [begin], for a target and blend that the caller bound. End the run with [endBound]. */
     fun beginBound() {
         // The cube faces wind inward, so back-face culling keeps only the far faces.

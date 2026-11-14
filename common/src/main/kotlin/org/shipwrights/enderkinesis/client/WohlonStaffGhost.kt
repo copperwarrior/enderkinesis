@@ -22,8 +22,8 @@ import org.lwjgl.BufferUtils
 import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL12
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
@@ -86,7 +86,7 @@ object WohlonStaffGhost {
     private var count = 0
 
     private val view = VolumeView()
-    private val effect = VolumeEffect("wohlon_staff_ghost")
+    private val effect = VolumeEffect("wohlon_staff_ghost", "DepthSampler" to VolumeLayer.depthTexture)
     private val localToViewD = Matrix4d()
     private val localToView = Matrix4f()
     private val viewToLocal = Matrix4d()
@@ -126,7 +126,6 @@ object WohlonStaffGhost {
             view.update(projection, poseStack.last().pose(), cam.x, cam.y, cam.z)
             view.pushViewProj(eff)
             view.pushInvViewProj(eff)
-            eff.safeGetUniform("ScreenSize").set(main.width.toFloat(), main.height.toFloat())
             eff.safeGetUniform("LocalScale").set(LOCAL_SCALE)
             val now = System.nanoTime() * 1e-9
             val phase = now % (2.0 * TIME_PERIOD_SEC)
@@ -200,7 +199,7 @@ object WohlonStaffGhost {
         eff.safeGetUniform("Strength").set(strength)
         eff.safeGetUniform("Warble").set(if (isKnown(pedestal)) 0f else 1f)
         VolumeTextures.bind3D(MARGIN_UNIT, grid.texture)
-        if (first) VolumeProxy.begin(main, VolumeComposite.Blend.PREMULTIPLIED)
+        if (first && !VolumeProxy.beginLayer(main, view, eff)) return false
         VolumeProxy.draw(eff)
         return true
     }

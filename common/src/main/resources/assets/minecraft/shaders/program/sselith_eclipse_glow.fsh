@@ -8,7 +8,7 @@ uniform mat4 InvViewProj;
 uniform vec3 CamWrap;
 // Texel axes are (x, z, y).
 uniform vec3 VolumeSize;
-uniform vec2 DepthParams;
+uniform vec3 FogColor;
 uniform float MaxDist;
 uniform float FadeStart;
 uniform float Strength;
@@ -45,5 +45,8 @@ void main() {
         t += 1.0;
     }
 
-    fragColor = vec4(glow * Strength, DepthParams.y / (depth * 2.0 - 1.0 + DepthParams.x), 0.0, 1.0);
+    // Main is 8-bit, so its blend clamped the factor to 1; the float layer does not.
+    float alpha = min(glow * Strength, 1.0);
+    if (alpha <= 0.0) discard;
+    fragColor = vec4(FogColor, alpha);
 }

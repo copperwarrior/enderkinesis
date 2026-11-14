@@ -1,16 +1,14 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
-import java.util.function.IntSupplier
 import net.minecraft.client.Camera
 import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.EffectInstance
 import net.minecraft.util.Mth
 import org.joml.Matrix4f
-import org.shipwrights.enderkinesis.client.volume.HalfResTarget
 import org.shipwrights.enderkinesis.client.volume.SectionLightVolume
-import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
@@ -43,10 +41,8 @@ object SselithEclipseGlow {
 
     private val curve = FloatArray(LIGHTMAP_LEVELS)
     private val volume = SectionLightVolume(WINDOW_CHUNKS, WINDOW_SECTIONS)
-    private val half = HalfResTarget()
     private val view = VolumeView()
-    private val marchEffect = VolumeEffect("sselith_eclipse_glow")
-    private val upsampleEffect = VolumeEffect("sselith_eclipse_glow_upsample", "HalfSampler" to IntSupplier { half.textureId })
+    private val marchEffect = VolumeEffect("sselith_eclipse_glow", "DepthSampler" to VolumeLayer.depthTexture)
 
     private var camBlockX = 0
     private var camBlockY = 0
@@ -55,7 +51,6 @@ object SselithEclipseGlow {
     private var marchDist = 0f
 
     private val pushMarchUniforms: (EffectInstance) -> Unit = ::pushMarchUniforms
-    private val pushUpsampleUniforms: (EffectInstance) -> Unit = ::pushUpsampleUniforms
 
     /** Block and light change hook. */
     @JvmStatic
@@ -70,7 +65,6 @@ object SselithEclipseGlow {
             return
         }
         val march = marchEffect.get() ?: return
-        val upsample = upsampleEffect.get() ?: return
 
         val cam = camera.position
         camBlockX = Mth.floor(cam.x)
@@ -85,11 +79,11 @@ object SselithEclipseGlow {
         marchDist = minOf(volume.maxMarch, mc.options.effectiveRenderDistance * 16f)
 
         val main = mc.mainRenderTarget
+        if (!VolumeLayer.begin(main, view)) return
         VolumeTextures.bind3D(LIGHT_VOLUME_UNIT, volume.textureId)
-        half.draw(main, march, pushMarchUniforms)
+        RefractionPass.drawQuad(march, VolumeLayer.width, VolumeLayer.height, pushMarchUniforms)
         VolumeTextures.bind3D(LIGHT_VOLUME_UNIT, 0)
-        VolumeComposite.drawOverMain(main, upsample, pushUpsampleUniforms, VolumeComposite.Blend.ADDITIVE)
-        VolumeComposite.restore(main)
+        VolumeLayer.flush(main)
     }
 
     // Lightmap row 0 is block light with no sky light: the eclipse curve the world shows.
@@ -108,7 +102,7 @@ object SselithEclipseGlow {
 
     private fun pushMarchUniforms(eff: EffectInstance) {
         view.pushInvViewProj(eff)
-        view.pushDepthParams(eff)
+        eff.safeGetUniform("FogColor").set(GOLD_R, GOLD_G, GOLD_B)
         eff.safeGetUniform("CamWrap").set(
             volume.wrapXZ(camBlockX) + (view.camX - camBlockX).toFloat(),
             volume.wrapY(camBlockY) + (view.camY - camBlockY).toFloat(),
@@ -119,12 +113,6 @@ object SselithEclipseGlow {
         eff.safeGetUniform("FadeStart").set(marchDist * FADE_START)
         eff.safeGetUniform("Strength").set(strength)
         pushCurve(eff)
-    }
-
-    private fun pushUpsampleUniforms(eff: EffectInstance) {
-        eff.safeGetUniform("FogColor").set(GOLD_R, GOLD_G, GOLD_B)
-        view.pushDepthParams(eff)
-        half.pushHalfSize(eff)
     }
 
     fun onDisconnect() = volume.unbind()

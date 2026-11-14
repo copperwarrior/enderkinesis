@@ -17,6 +17,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.world.level.LightLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 import net.minecraft.world.phys.Vec3
@@ -125,7 +126,7 @@ object IncantationConeVolume {
     private var lastLevel: ClientLevel? = null
 
     private val view = VolumeView()
-    private val effect = VolumeEffect("wind_cone_volume")
+    private val effect = VolumeEffect("wind_cone_volume", "DepthSampler" to VolumeLayer.depthTexture)
     private val columnEffect = VolumeEffect("river_column_volume", "SceneSampler" to IntSupplier { SceneCopy.textureId })
     private var uniforms: Uniforms? = null
     private var columnUniforms: Uniforms? = null
@@ -278,11 +279,14 @@ object IncantationConeVolume {
             u.pushStyle(style, cone.range.toFloat())
             u.strength.set(strength)
             u.time.set((now - cone.startMillis) / MILLIS_PER_SECOND)
-            if (drawn == 0) VolumeProxy.begin(main, VolumeComposite.Blend.PREMULTIPLIED)
+            if (drawn == 0 && !VolumeProxy.beginLayer(main, view, eff)) return
             VolumeProxy.draw(eff)
             drawn++
         }
-        if (drawn > 0) VolumeProxy.end(main, eff)
+        if (drawn == 0) return
+        VolumeProxy.end(main, eff)
+        // The columns refract main, so the gusts must be on it first.
+        VolumeLayer.flush(main)
     }
 
     /** Each column refracts the scene as drawn so far, so it takes a fresh copy, as the Black Sun does. */

@@ -24,6 +24,10 @@ class HalfResVolume(
     private val temporal: Boolean = false,
     private val depthTolerance: Float = DEPTH_TOLERANCE,
     private val volumeDepth: Boolean = false,
+    /** False for a pass drawn only at renderLevel TAIL: it then asks for no translucent-layer copies. */
+    private val behindGlass: Boolean = true,
+    /** Drops the history where the scene depth changed since the last frame, so moving players leave no trail. */
+    private val depthReject: Boolean = false,
     perfDetails: (() -> String)? = null,
 ) {
     private val perf = VolumePerf.group(name) {
@@ -34,12 +38,26 @@ class HalfResVolume(
     private inner class Layer(prefix: String) {
         val meanDepth = if (volumeDepth) HalfResTarget(GL30.GL_RG16F, GL30.GL_RG) else null
         val colour = HalfResTarget(GL30.GL_RGBA16F, GL11.GL_RGBA, second = meanDepth)
-        val depth = HalfResTarget(GL30.GL_RG32F, GL30.GL_RG)
+        var depth = HalfResTarget(GL30.GL_RG32F, GL30.GL_RG)
+        // Swapped with depth at each march, so it holds the last frame's half depth.
+        var prevDepth = if (temporal && depthReject) HalfResTarget(GL30.GL_RG32F, GL30.GL_RG) else null
         val history = if (temporal) {
-            VolumeHistory(IntSupplier { colour.textureId }, IntSupplier { depth.textureId }, meanDepth?.let { m -> IntSupplier { m.textureId } })
+            VolumeHistory(
+                IntSupplier { colour.textureId },
+                IntSupplier { depth.textureId },
+                meanDepth?.let { m -> IntSupplier { m.textureId } },
+                prevDepth?.let { IntSupplier { checkNotNull(prevDepth).textureId } },
+            )
         } else {
             null
         }
+
+        fun swapDepth() {
+            val prev = prevDepth ?: return
+            prevDepth = depth
+            depth = prev
+        }
+
         var resolved = false
         val halfRect = IntArray(RECT_SIZE)
         val fullRect = IntArray(RECT_SIZE)
@@ -88,10 +106,12 @@ class HalfResVolume(
         val down = downsample.get() ?: return false
         if (upsample.get() == null || upsampleBehind.get() == null) return false
         layer = if (VolumeDepth.behind) back else front
-        VolumeDepth.requestSplit()
+        if (behindGlass) VolumeDepth.requestSplit()
         val l = layer
+        l.swapDepth()
         l.colour.allocate(main)
         l.depth.allocate(main)
+        l.prevDepth?.allocate(main)
         if (bounds != null) {
             bounds.scissorRect(l.colour.width, l.colour.height, PAD, l.halfRect)
         } else {
@@ -178,7 +198,7 @@ class HalfResVolume(
         const val PAD = 1
         const val JITTER_PERIOD = 64L
 
-        // Relative linear-depth gap at which a half texel counts as other geometry.
+        // Relative linear-depth spread of the upsample depth weight on a surface that faces the camera.
         const val DEPTH_TOLERANCE = 0.01f
     }
 }

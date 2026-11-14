@@ -29,10 +29,27 @@ float linearDepth(float raw) {
     return DepthParams.y / (raw * 2.0 - 1.0 + DepthParams.x);
 }
 
-// Nearest-depth upsampling (Bavoil 2010): bilinear over the half texels within DepthTolerance of the nearest in depth,
-// so a smooth surface still filters and a texel of other geometry adds nothing.
+float depthAt(ivec2 pixel, ivec2 maxPixel) {
+    return linearDepth(texelFetch(DepthSampler, clamp(pixel, ivec2(0), maxPixel), 0).r);
+}
+
+// A half texel can be 2.5 full pixels off along each axis: 1.5 from its centre, 1 from the checkerboard min/max pick.
+const float SLOPE_SPAN = 3.0;
+
+// Joint bilateral upsampling: bilinear weight x depth similarity over the 4 nearest half texels.
+// The similarity scale follows the local depth slope, so grazing ground filters smoothly.
+// Where no texel is near in depth, the nearest in depth wins.
 void main() {
-    float depth = linearDepth(texture(DepthSampler, texCoord).r);
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    ivec2 maxPixel = textureSize(DepthSampler, 0) - 1;
+    float depth = depthAt(pixel, maxPixel);
+    // The smaller one-sided step on each axis, so a silhouette next to the pixel does not count as slope.
+    float slopeX = min(abs(depthAt(pixel + ivec2(1, 0), maxPixel) - depth),
+        abs(depth - depthAt(pixel - ivec2(1, 0), maxPixel)));
+    float slopeY = min(abs(depthAt(pixel + ivec2(0, 1), maxPixel) - depth),
+        abs(depth - depthAt(pixel - ivec2(0, 1), maxPixel)));
+    float invSigma = 1.0 / (DepthTolerance * depth + SLOPE_SPAN * (slopeX + slopeY));
+
     vec2 halfPos = texCoord * HalfSize - 0.5;
     ivec2 base = ivec2(floor(halfPos));
     vec2 f = halfPos - vec2(base);
@@ -44,17 +61,17 @@ void main() {
     for (int i = 0; i < 4; i++) {
         ivec2 texel = clamp(base + ivec2(i & 1, i >> 1), ivec2(0), maxTexel);
         s[i] = texelFetch(HalfSampler, texel, 0);
-        diff[i] = abs(linearDepth(texelFetch(HalfDepthSampler, texel, 0).r) - depth) / depth;
+        diff[i] = abs(linearDepth(texelFetch(HalfDepthSampler, texel, 0).r) - depth);
         bestDiff = min(bestDiff, diff[i]);
     }
 
-    float limit = bestDiff + DepthTolerance;
     vec4 sum = vec4(0.0);
     float weightSum = 0.0;
     for (int i = 0; i < 4; i++) {
-        if (diff[i] > limit) continue;
-        // The floor keeps a matching texel when its bilinear weight is 0.
-        float w = ((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1.0e-4;
+        // Relative to the best texel, so it always has full similarity and a lone match is not lost.
+        float d = (diff[i] - bestDiff) * invSigma;
+        // The floor keeps the best texel when its bilinear weight is 0.
+        float w = (((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1.0e-4) * exp(-d * d);
         sum += w * s[i];
         weightSum += w;
     }
@@ -63,7 +80,6 @@ void main() {
     if (colour.a <= 0.0) discard;
     // The layer blends lerp-wise, so main = K + T * opaque; putting the gas under it gives K + T * (gas over opaque).
     if (BehindOn > 0.5) {
-        ivec2 pixel = ivec2(gl_FragCoord.xy);
         vec4 glass = texelFetch(GlassColourSampler, pixel, 0);
         vec3 opaque = texelFetch(OpaqueColourSampler, pixel, 0).rgb;
         colour = vec4(glass.rgb + (1.0 - glass.a) * (colour.rgb - colour.a * opaque), 1.0);

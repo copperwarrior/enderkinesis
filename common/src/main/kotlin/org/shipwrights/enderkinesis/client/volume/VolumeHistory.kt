@@ -12,7 +12,13 @@ import org.lwjgl.opengl.GL30
  * Temporal accumulation for a [HalfResVolume]. The new march blends with the last result, which is reprojected by the
  * last view-projection and clamped to the 3x3 neighbourhood of the new march. Render thread only.
  */
-internal class VolumeHistory(current: IntSupplier, halfDepth: IntSupplier, private val volumeDepth: IntSupplier?) {
+internal class VolumeHistory(
+    current: IntSupplier,
+    halfDepth: IntSupplier,
+    private val volumeDepth: IntSupplier?,
+    /** The half depth of the last frame; with it, the history drops out where the scene depth changed. */
+    private val prevDepth: IntSupplier? = null,
+) {
     private val targets = arrayOf(
         HalfResTarget(GL30.GL_RGBA16F, GL11.GL_RGBA, GL11.GL_LINEAR),
         HalfResTarget(GL30.GL_RGBA16F, GL11.GL_RGBA, GL11.GL_LINEAR),
@@ -24,6 +30,7 @@ internal class VolumeHistory(current: IntSupplier, halfDepth: IntSupplier, priva
         "HalfDepthSampler" to halfDepth,
         "HistorySampler" to IntSupplier { targets[latest].textureId },
         "VolumeDepthSampler" to (volumeDepth ?: halfDepth),
+        "PrevDepthSampler" to (prevDepth ?: halfDepth),
     )
 
     // The march writes the volume depth only where explicit output locations exist: core in GL 3.3, MC asks for 3.2.
@@ -88,6 +95,8 @@ internal class VolumeHistory(current: IntSupplier, halfDepth: IntSupplier, priva
         val useVolumeDepth = volumeDepthOn ?: (volumeDepth != null && GL.getCapabilities().let { it.OpenGL33 || it.GL_ARB_explicit_attrib_location })
             .also { volumeDepthOn = it }
         e.safeGetUniform("UseVolumeDepth").set(if (useVolumeDepth) 1f else 0f)
+        e.safeGetUniform("DepthReject").set(if (prevDepth != null) 1f else 0f)
+        v.pushDepthParams(e)
     }
 
     private companion object {

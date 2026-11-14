@@ -10,8 +10,8 @@ import org.joml.Matrix4d
 import org.joml.Matrix4dc
 import org.joml.Matrix4f
 import org.joml.Vector3d
-import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 
@@ -58,7 +58,7 @@ object TendrilVolume {
     private const val WRITHE_RATE = 1.4
 
     private val view = VolumeView()
-    private val effect = VolumeEffect("wohlon_tendril_volume")
+    private val effect = VolumeEffect("wohlon_tendril_volume", "DepthSampler" to VolumeLayer.depthTexture)
     private var uniforms: Uniforms? = null
     private var active: EffectInstance? = null
     private val localToViewD = Matrix4d()
@@ -79,10 +79,9 @@ object TendrilVolume {
         if (IrisCompat.isShaderPackInUse()) return false
         val eff = effect.get() ?: return false
         val u = uniforms ?: Uniforms(eff).also { uniforms = it }
-        val main = Minecraft.getInstance().mainRenderTarget
         val cam = camera.position
         view.update(projection, poseStack.last().pose(), cam.x, cam.y, cam.z)
-        u.pushFrame(eff, main.width, main.height)
+        u.pushFrame(eff)
         u.flow.set(((System.nanoTime() * 1e-9 * FLOW_RATE) % (Math.PI * 2.0)).toFloat())
         u.writhe.set(writhePhase().toFloat())
         active = eff
@@ -122,7 +121,7 @@ object TendrilVolume {
         u.colourEnd.set(style.to[0], style.to[1], style.to[2])
         val main = Minecraft.getInstance().mainRenderTarget
         if (drawn == 0) {
-            VolumeProxy.begin(main, VolumeComposite.Blend.PREMULTIPLIED)
+            if (!VolumeProxy.beginLayer(main, view, eff)) return
             VolumeProxy.draw(eff)
         } else {
             u.upload()
@@ -176,7 +175,6 @@ object TendrilVolume {
         val writhe: AbstractUniform = eff.safeGetUniform("Writhe")
         val colourStart: AbstractUniform = eff.safeGetUniform("ColourStart")
         val colourEnd: AbstractUniform = eff.safeGetUniform("ColourEnd")
-        private val screenSize: AbstractUniform = eff.safeGetUniform("ScreenSize")
         // Flow and Writhe are set one time for each frame, before the first draw applies the program.
         private val perTendril: List<Uniform> = listOf(
             boxMin, boxMax, localToView, camLocal, p0, p1, p2, reach, radius, strength, colourStart, colourEnd, wild, seed,
@@ -186,10 +184,9 @@ object TendrilVolume {
             for (uniform in perTendril) uniform.upload()
         }
 
-        fun pushFrame(eff: EffectInstance, width: Int, height: Int) {
+        fun pushFrame(eff: EffectInstance) {
             view.pushViewProj(eff)
             view.pushInvViewProj(eff)
-            screenSize.set(width.toFloat(), height.toFloat())
         }
     }
 }

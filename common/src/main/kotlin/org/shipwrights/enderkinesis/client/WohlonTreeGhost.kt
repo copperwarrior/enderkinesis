@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.client
 
-import com.mojang.blaze3d.pipeline.RenderTarget
 import com.mojang.blaze3d.platform.GlStateManager
 import com.mojang.blaze3d.vertex.PoseStack
 import dev.architectury.networking.NetworkManager
@@ -18,8 +17,11 @@ import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL12
 import org.shipwrights.enderkinesis.block.WohlonRitualNetwork
 import org.shipwrights.enderkinesis.block.WohlonnogondoniaTreeGrower
+import org.shipwrights.enderkinesis.client.volume.HalfResVolume
+import org.shipwrights.enderkinesis.client.volume.ScreenBounds
 import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeProxy
 import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
@@ -83,6 +85,10 @@ object WohlonTreeGhost {
         var lastSyncSec = startSec
         /** Start of the even fade, when the syncs stopped. */
         var fadeOutSec = Double.NaN
+        // This frame's draw values, set before the march.
+        var strength = 0f
+        var dispersedIn = 0f
+        var dispersedOut = 0f
         /** Distance from the Heart to the farthest grid corner; the dispersal out goes by the share of it. */
         val reach: Float = run {
             val hx = heart.x + 0.5f - grid.minX; val hy = heart.y + 0.5f - grid.minY; val hz = heart.z + 0.5f - grid.minZ
@@ -93,7 +99,12 @@ object WohlonTreeGhost {
 
     private val ghosts = Long2ObjectOpenHashMap<Ghost>()
     private val view = VolumeView()
-    private val effect = VolumeEffect("wohlon_tree_ghost")
+    // Drawn only at the world-volume stage, never behind glass.
+    private val volume = HalfResVolume(
+        "tree ghost", temporal = true, volumeDepth = true, behindGlass = false, depthReject = true,
+    )
+    private val effect = VolumeEffect("wohlon_tree_ghost", "DepthSampler" to volume.marchDepth)
+    private val bounds = ScreenBounds()
     private val localToView = Matrix4f()
 
     fun init() {
@@ -178,16 +189,32 @@ object WohlonTreeGhost {
     @JvmStatic
     fun render(poseStack: PoseStack, projection: Matrix4f, camera: Camera) {
         if (ghosts.isEmpty() || IrisCompat.isShaderPackInUse()) return
-        val now = nowSec()
         val eff = effect.get() ?: return
         val main = Minecraft.getInstance().mainRenderTarget
         val cam = camera.position
         view.update(projection, poseStack.last().pose(), cam.x, cam.y, cam.z)
+        updateGhosts()
+        if (bounds.isEmpty) return
+        // The ghost composites straight over main, so the passes in the shared layer before it must go under it first.
+        VolumeLayer.flush(main)
         view.pushViewProj(eff)
         view.pushInvViewProj(eff)
-        eff.safeGetUniform("ScreenSize").set(main.width.toFloat(), main.height.toFloat())
+        if (!volume.beginMarch(main, eff, bounds)) return
+        eff.safeGetUniform("ScreenSize").set(volume.width.toFloat(), volume.height.toFloat())
         VolumeTextures.bind3D(WARP_UNIT, WohlonNoiseTexture.id3D())
-        var drawn = 0
+        VolumeProxy.beginBound()
+        for (g in ghosts.values) drawGhost(eff, g)
+        VolumeProxy.endBound(eff)
+        volume.composite(main, view, bounds)
+        VolumeComposite.restore(main)
+        VolumeTextures.bind3D(MARGIN_UNIT, 0)
+        VolumeTextures.bind3D(WARP_UNIT, 0)
+    }
+
+    /** Frees ended ghosts, sets the draw values of the rest, and fills [bounds] with their boxes. */
+    private fun updateGhosts() {
+        val now = nowSec()
+        bounds.reset()
         val iter = ghosts.long2ObjectEntrySet().fastIterator()
         while (iter.hasNext()) {
             val g = iter.next().value
@@ -202,15 +229,18 @@ object WohlonTreeGhost {
                 iter.remove()
                 continue
             }
-            val dispersedIn = smooth((age / IN_SEC).coerceIn(0.0, 1.0).toFloat())
-            val dispersedOut = if (g.rootGrowth) rootDispersal(g, now) else smooth(((age - IN_SEC - HOLD_SEC) / OUT_SEC).coerceIn(0.0, 1.0).toFloat())
+            g.strength = fadeOut.toFloat()
+            g.dispersedIn = smooth((age / IN_SEC).coerceIn(0.0, 1.0).toFloat())
+            g.dispersedOut = if (g.rootGrowth) rootDispersal(g, now) else smooth(((age - IN_SEC - HOLD_SEC) / OUT_SEC).coerceIn(0.0, 1.0).toFloat())
             if (g.texture == -1) g.texture = upload(g.grid, g.grid.margin)
-            drawGhost(eff, g, fadeOut.toFloat(), dispersedIn, dispersedOut, drawn == 0, main)
-            drawn++
+            val sx = (g.grid.minX - view.camX).toFloat()
+            val sy = (g.grid.minY - view.camY).toFloat()
+            val sz = (g.grid.minZ - view.camZ).toFloat()
+            bounds.addBox(
+                view, sx - PULL_ROOM, sy - PULL_ROOM, sz - PULL_ROOM,
+                sx + g.grid.dx + PULL_ROOM, sy + g.grid.dy + PULL_ROOM, sz + g.grid.dz + PULL_ROOM,
+            )
         }
-        if (drawn > 0) VolumeProxy.end(main, eff)
-        VolumeTextures.bind3D(MARGIN_UNIT, 0)
-        VolumeTextures.bind3D(WARP_UNIT, 0)
     }
 
     private fun smooth(t: Float) = t * t * (3f - 2f * t)
@@ -225,10 +255,7 @@ object WohlonTreeGhost {
         return key / (1f + ROOT_OUT_SOFT)
     }
 
-    @Suppress("LongParameterList") // One ghost's uniforms.
-    private fun drawGhost(
-        eff: EffectInstance, g: Ghost, strength: Float, dispersedIn: Float, dispersedOut: Float, first: Boolean, main: RenderTarget,
-    ) {
+    private fun drawGhost(eff: EffectInstance, g: Ghost) {
         val grid = g.grid
         val sx = (grid.minX - view.camX).toFloat()
         val sy = (grid.minY - view.camY).toFloat()
@@ -240,13 +267,13 @@ object WohlonTreeGhost {
         localToView.translation(sx, sy, sz)
         eff.safeGetUniform("LocalToView").set(localToView)
         eff.safeGetUniform("CamLocal").set(-sx, -sy, -sz)
-        eff.safeGetUniform("Strength").set(strength)
+        eff.safeGetUniform("Strength").set(g.strength)
         eff.safeGetUniform("Heart").set(
             (g.heart.x + 0.5 - grid.minX).toFloat(), (g.heart.y + 0.5 - grid.minY).toFloat(), (g.heart.z + 0.5 - grid.minZ).toFloat(),
         )
         eff.safeGetUniform("Reach").set(g.reach)
         eff.safeGetUniform("EdgeEmpty").set(if (grid.edgeEmpty) 1f else 0f)
-        eff.safeGetUniform("Dispersal").set(dispersedIn, dispersedOut)
+        eff.safeGetUniform("Dispersal").set(g.dispersedIn, g.dispersedOut)
         if (g.rootGrowth) {
             eff.safeGetUniform("OutShape").set(ROOT_OUT_FROM_HEART, ROOT_OUT_SOFT)
         } else {
@@ -256,7 +283,6 @@ object WohlonTreeGhost {
         eff.safeGetUniform("Time").set((if (phase <= TIME_PERIOD_SEC) phase else 2.0 * TIME_PERIOD_SEC - phase).toFloat())
         // Each ghost has its own texture, so bind it and apply the program again for each one.
         VolumeTextures.bind3D(MARGIN_UNIT, g.texture)
-        if (first) VolumeProxy.begin(main, VolumeComposite.Blend.PREMULTIPLIED)
         VolumeProxy.draw(eff)
     }
 

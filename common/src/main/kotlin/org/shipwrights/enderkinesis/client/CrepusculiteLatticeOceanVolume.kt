@@ -15,6 +15,7 @@ import org.lwjgl.opengl.GL14
 import org.lwjgl.opengl.GL30
 import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeTextures
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
@@ -49,6 +50,7 @@ object CrepusculiteLatticeOceanVolume {
 
     private val effect = VolumeEffect(
         "lattice_ocean_volume",
+        "DepthSampler" to VolumeLayer.depthTexture,
         "HeightMap" to IntSupplier { heightTex },
         "ShoreMap" to IntSupplier { shoreMap?.textureId ?: -1 },
         "HullMask" to IntSupplier { mask?.textureId ?: -1 },
@@ -223,7 +225,8 @@ object CrepusculiteLatticeOceanVolume {
                 .translate(view.camX, view.camY, view.camZ)
             maskMatF.set(maskMatD)
         }
-        VolumeComposite.drawOverMain(Minecraft.getInstance().mainRenderTarget, eff, pushUniforms)
+        if (!VolumeLayer.begin(Minecraft.getInstance().mainRenderTarget, view)) return
+        RefractionPass.drawQuad(eff, VolumeLayer.width, VolumeLayer.height, pushUniforms)
         zonesDrawn++
     }
 
@@ -234,7 +237,10 @@ object CrepusculiteLatticeOceanVolume {
         shoreMap = null
         if (!stateSet) return
         stateSet = false
-        VolumeComposite.restore(Minecraft.getInstance().mainRenderTarget)
+        val main = Minecraft.getInstance().mainRenderTarget
+        VolumeLayer.flush(main)
+        // A zone with a height map and no volume draw left the height map target bound.
+        VolumeComposite.restore(main)
     }
 
     // R = height over the height range, G = 1 where the mesh has a fragment. With linear

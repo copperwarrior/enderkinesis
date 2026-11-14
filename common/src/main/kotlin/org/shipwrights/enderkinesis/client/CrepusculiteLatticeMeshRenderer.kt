@@ -12,6 +12,7 @@ import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.ShaderInstance
 import org.joml.Matrix4f
 import org.joml.Vector3d
+import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.physics.GerstnerOcean
 import org.shipwrights.enderkinesis.physics.LatticeCatchZone
 import org.shipwrights.enderkinesis.physics.LatticeRegistry
@@ -215,6 +216,22 @@ object CrepusculiteLatticeMeshRenderer {
     private val surfacePasses = arrayOfNulls<PassBuffer>(4)
     private val authorityByShip = it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<net.minecraft.core.BlockPos>()
 
+    // The volume layer composites zones "over" in draw order, so overlapping oceans must draw far to near.
+    private val drawOrder = ArrayList<Map.Entry<CrepusculiteLatticeBlockEntity, LatticeCatchZone>>()
+    private var sortCamX = 0.0
+    private var sortCamY = 0.0
+    private var sortCamZ = 0.0
+    private val farFirst = Comparator<Map.Entry<CrepusculiteLatticeBlockEntity, LatticeCatchZone>> { a, b ->
+        java.lang.Double.compare(cameraDistSq(b.value), cameraDistSq(a.value))
+    }
+
+    private fun cameraDistSq(zone: LatticeCatchZone): Double {
+        val dx = zone.cx - sortCamX
+        val dy = zone.waterLineY - sortCamY
+        val dz = zone.cz - sortCamZ
+        return dx * dx + dy * dy + dz * dz
+    }
+
     fun renderAll(
         poseStack: PoseStack,
         bufferSource: MultiBufferSource,
@@ -259,7 +276,11 @@ object CrepusculiteLatticeMeshRenderer {
             }
         }
 
-        for ((be, zone) in entries) {
+        drawOrder.clear()
+        for (entry in entries) drawOrder.add(entry)
+        sortCamX = cameraX; sortCamY = cameraY; sortCamZ = cameraZ
+        drawOrder.sortWith(farFirst)
+        for ((be, zone) in drawOrder) {
             // Lattice ocean stays on main FB through cloaking (see BEAM_LINE notes) —
             // the fade is baked into the vertex build via cloakFade.
             val ship = level.getShipManagingPos(be.blockPos) as? ClientShip

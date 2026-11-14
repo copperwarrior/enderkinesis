@@ -9,7 +9,7 @@ uniform mat4 InvViewProj;
 uniform ivec2 CamBlockWrap;
 uniform vec2 CamFrac;
 uniform float CamY;
-uniform vec2 DepthParams;
+uniform vec3 FogColor;
 uniform vec2 FogRange;
 uniform vec2 SlabY;
 uniform float MaxDist;
@@ -118,5 +118,7 @@ void main() {
     float alpha = voidLen > 0.0
         ? smoothstep(FogRange.x, FogRange.y, voidLen) * voidMass / voidLen
         : 0.0;
-    fragColor = vec4(alpha, DepthParams.y / (depth * 2.0 - 1.0 + DepthParams.x), 0.0, 1.0);
+    if (alpha <= 0.0) discard;
+    // Premultiplied, as VolumeLayer binds it: the BlendMode cache can skip the JSON blend.
+    fragColor = vec4(FogColor * alpha, alpha);
 }

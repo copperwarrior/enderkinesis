@@ -1,8 +1,10 @@
 {
   "blend": {
     "func": "add",
-    "srcrgb": "one",
-    "dstrgb": "zero"
+    "srcrgb": "1",
+    "dstrgb": "1-srcalpha",
+    "srcalpha": "1",
+    "dstalpha": "1-srcalpha"
   },
   "vertex": "blit",
   "fragment": "sselith_void_fog",
@@ -18,7 +20,7 @@
     { "name": "CamBlockWrap", "type": "int",      "count": 2,  "values": [ 0, 0 ] },
     { "name": "CamFrac",     "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
     { "name": "CamY",        "type": "float",     "count": 1,  "values": [ 0.0 ] },
-    { "name": "DepthParams", "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
+    { "name": "FogColor",    "type": "float",     "count": 3,  "values": [ 0.0, 0.0, 0.0 ] },
     { "name": "FogRange",    "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] },
     { "name": "SlabY",       "type": "float",     "count": 2,  "values": [ 0.0, 0.0 ] },
     { "name": "MaxDist",     "type": "float",     "count": 1,  "values": [ 0.0 ] },

@@ -6,7 +6,8 @@
     { "name": "CurrentSampler" },
     { "name": "HistorySampler" },
     { "name": "HalfDepthSampler" },
-    { "name": "VolumeDepthSampler" }
+    { "name": "VolumeDepthSampler" },
+    { "name": "PrevDepthSampler" }
   ],
   "uniforms": [
     { "name": "ProjMat",       "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0 ] },
@@ -18,6 +19,8 @@
     { "name": "Rect",          "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 1.0, 1.0 ] },
     { "name": "PrevRect",      "type": "float",     "count": 4,  "values": [ 0.0, 0.0, 1.0, 1.0 ] },
     { "name": "HistoryWeight", "type": "float",     "count": 1,  "values": [ 0.0 ] },
-    { "name": "UseVolumeDepth", "type": "float",    "count": 1,  "values": [ 0.0 ] }
+    { "name": "UseVolumeDepth", "type": "float",    "count": 1,  "values": [ 0.0 ] },
+    { "name": "DepthReject",   "type": "float",     "count": 1,  "values": [ 0.0 ] },
+    { "name": "DepthParams",   "type": "float",     "count": 2,  "values": [ 0.0, 1.0 ] }
   ]
 }

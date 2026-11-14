@@ -168,6 +168,6 @@ void main() {
     }
     float alpha = (1.0 - through) * Strength;
     if (alpha < 0.003) discard;
-    // Premultiplied into the half-res layer (wohlon_portal_fog.json blend); wohlon_portal_fog_upsample puts it on main.
+    // Premultiplied into VolumeLayer (wohlon_portal_fog.json blend).
     fragColor = vec4(colour * Strength, alpha);
 }

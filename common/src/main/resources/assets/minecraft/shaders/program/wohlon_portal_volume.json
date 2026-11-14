@@ -3,8 +3,8 @@
     "func": "add",
     "srcrgb": "1",
     "dstrgb": "1-srcalpha",
-    "srcalpha": "zero",
-    "dstalpha": "one"
+    "srcalpha": "1",
+    "dstalpha": "1-srcalpha"
   },
   "vertex": "volume_proxy",
   "fragment": "wohlon_portal_volume",

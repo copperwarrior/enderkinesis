@@ -45,6 +45,7 @@ import org.shipwrights.enderkinesis.client.WohlonStaffGhost;
 import org.shipwrights.enderkinesis.client.SureibjinDreamVignette;
 import org.shipwrights.enderkinesis.client.SureibjinWaterFilm;
 import org.shipwrights.enderkinesis.client.TomeSummonOverlay;
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer;
 import org.shipwrights.enderkinesis.client.volume.VolumePerf;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -160,17 +161,22 @@ public abstract class LevelRendererBubblePassMixin {
         GrandStaffClient.render(poseStack, projectionMatrix, camera);
         GrandStaffDreadClient.render(poseStack, projectionMatrix, camera);
         GrandStaffDecayClient.render(poseStack, projectionMatrix, camera);
+        // The tendril and staff ghost run must composite under the dome.
+        VolumeLayer.INSTANCE.flush(Minecraft.getInstance().getMainRenderTarget());
         // The dome goes after the water murk, and the upwelling's mist over the dome.
         FountainOfBlessingDome.render(poseStack, camera);
         FountainOfBlessingVolume.render(poseStack, projectionMatrix, camera);
         WeatheringFog.render(poseStack, projectionMatrix, camera);
         WohlonTreeGhost.render(poseStack, projectionMatrix, camera);
+        // The fog wisps draw straight over main and must go over the tree ghost.
+        VolumeLayer.INSTANCE.flush(Minecraft.getInstance().getMainRenderTarget());
         WohlonFogWisps.render(poseStack, projectionMatrix, camera);
 
         // World-space fog goes under the screen-space overlays below.
         VolumePerf.INSTANCE.getVoidFog().begin();
         SselithVoidFog.render(poseStack, projectionMatrix, camera, partialTick);
         VolumePerf.INSTANCE.getVoidFog().end();
+        VolumeLayer.INSTANCE.flush(Minecraft.getInstance().getMainRenderTarget());
 
         // Each renderRefraction call is a no-op when its effect isn't active.
         // Order: concealment first so scrying/tome-summon see the refracted

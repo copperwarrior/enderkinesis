@@ -1,10 +1,10 @@
 {
   "blend": {
     "func": "add",
-    "srcrgb": "srcalpha",
+    "srcrgb": "1",
     "dstrgb": "1-srcalpha",
-    "srcalpha": "zero",
-    "dstalpha": "one"
+    "srcalpha": "1",
+    "dstalpha": "1-srcalpha"
   },
   "vertex": "blit",
   "fragment": "lattice_ocean_volume",

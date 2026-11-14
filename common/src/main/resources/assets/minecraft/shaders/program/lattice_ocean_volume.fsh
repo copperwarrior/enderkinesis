@@ -169,5 +169,6 @@ void main() {
     }
     float alpha = 1.0 - through;
     if (alpha < 0.004) discard;
-    fragColor = vec4(colour / alpha, alpha * Opacity * ZoneFade);
+    // Premultiplied, as VolumeLayer binds it: the BlendMode cache skips the JSON blend on a second zone in a run.
+    fragColor = vec4(colour, alpha) * (Opacity * ZoneFade);
 }

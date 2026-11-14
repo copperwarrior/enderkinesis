@@ -12,15 +12,13 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.LevelChunk
 import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.client.volume.ChunkColumnMask
-import org.shipwrights.enderkinesis.client.volume.HalfResTarget
-import org.shipwrights.enderkinesis.client.volume.VolumeComposite
 import org.shipwrights.enderkinesis.client.volume.VolumeEffect
+import org.shipwrights.enderkinesis.client.volume.VolumeLayer
 import org.shipwrights.enderkinesis.client.volume.VolumeView
 import org.shipwrights.enderkinesis.dimension.SselithRepertory
 
 /** Volumetric fog in Sselith columns that have no blocks from world bottom to world top.
- *  A half-resolution pass ray-marches a toroidal column mask around the camera; a depth-aware
- *  upsample blends the result over main. All state is on the client render thread. */
+ *  The march goes over a toroidal column mask around the camera, in [VolumeLayer]. Render thread only. */
 object SselithVoidFog {
 
     // The shader's COLUMN_WRAP is WINDOW_CHUNKS * 16 - 1.
@@ -30,10 +28,12 @@ object SselithVoidFog {
     private const val EDGE_FADE = 32f
 
     private val columnMask = ChunkColumnMask(WINDOW_CHUNKS, ::fillColumns)
-    private val half = HalfResTarget()
     private val view = VolumeView()
-    private val marchEffect = VolumeEffect("sselith_void_fog", "ColumnMask" to IntSupplier { columnMask.textureId })
-    private val upsampleEffect = VolumeEffect("sselith_void_fog_upsample", "HalfSampler" to IntSupplier { half.textureId })
+    private val marchEffect = VolumeEffect(
+        "sselith_void_fog",
+        "DepthSampler" to VolumeLayer.depthTexture,
+        "ColumnMask" to IntSupplier { columnMask.textureId },
+    )
 
     private var camBlockX = 0
     private var camBlockZ = 0
@@ -46,7 +46,6 @@ object SselithVoidFog {
     private val densityBreaks = FloatArray(8)
 
     private val pushMarchUniforms: (EffectInstance) -> Unit = ::pushMarchUniforms
-    private val pushUpsampleUniforms: (EffectInstance) -> Unit = ::pushUpsampleUniforms
 
     /** Chunk load and unload hook. */
     @JvmStatic
@@ -66,7 +65,6 @@ object SselithVoidFog {
             return
         }
         val march = marchEffect.get() ?: return
-        val upsample = upsampleEffect.get() ?: return
 
         val cam = camera.position
         camBlockX = Mth.floor(cam.x)
@@ -81,14 +79,14 @@ object SselithVoidFog {
         marchDist = minOf(columnMask.maxMarch, mc.options.effectiveRenderDistance * 16f)
 
         val main = mc.mainRenderTarget
-        half.draw(main, march, pushMarchUniforms)
-        VolumeComposite.drawOverMain(main, upsample, pushUpsampleUniforms)
-        VolumeComposite.restore(main)
+        if (!VolumeLayer.begin(main, view)) return
+        RefractionPass.drawQuad(march, VolumeLayer.width, VolumeLayer.height, pushMarchUniforms)
+        VolumeLayer.flush(main)
     }
 
     private fun pushMarchUniforms(eff: EffectInstance) {
         view.pushInvViewProj(eff)
-        view.pushDepthParams(eff)
+        eff.safeGetUniform("FogColor").set(SselithFog.red() * fogDim, SselithFog.green() * fogDim, SselithFog.blue() * fogDim)
         eff.safeGetUniform("CamBlockWrap").set(columnMask.wrap(camBlockX), columnMask.wrap(camBlockZ))
         eff.safeGetUniform("CamFrac").set((view.camX - camBlockX).toFloat(), (view.camZ - camBlockZ).toFloat())
         eff.safeGetUniform("CamY").set(view.camY.toFloat())
@@ -99,12 +97,6 @@ object SselithVoidFog {
         eff.safeGetUniform("BreaksHi").set(densityBreaks[4], densityBreaks[5], densityBreaks[6], densityBreaks[7])
         eff.safeGetUniform("MaxDist").set(marchDist)
         eff.safeGetUniform("Density").set(SselithRepertory.FOG_FALLOFF_Y.toFloat(), SselithRepertory.FOG_MIN_DENSITY)
-    }
-
-    private fun pushUpsampleUniforms(eff: EffectInstance) {
-        eff.safeGetUniform("FogColor").set(SselithFog.red() * fogDim, SselithFog.green() * fogDim, SselithFog.blue() * fogDim)
-        view.pushDepthParams(eff)
-        half.pushHalfSize(eff)
     }
 
     private fun fillDensityBreaks() {
