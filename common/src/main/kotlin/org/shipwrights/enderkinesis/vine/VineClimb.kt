@@ -102,8 +102,8 @@ internal fun isSteepAt(nodes: DoubleArray, count: Int, grip: Double): Boolean {
 /** Gap between the vine top and the feet of a mantled player, so the stand does not start inside the vine. */
 private const val MANTLE_GAP = 0.01
 
-/** Feet height of a player that mantles onto the vine at grip height [gripY]. */
-internal fun mantleFeetY(gripY: Double): Double = gripY + VINE_HALF_WIDTH + MANTLE_GAP
+/** Feet height of a player that mantles onto a vine of half width [ropeHalf] at grip height [gripY]. */
+internal fun mantleFeetY(gripY: Double, ropeHalf: Double = VINE_HALF_WIDTH): Double = gripY + ropeHalf + MANTLE_GAP
 
 /**
  * True when a body of [halfWidth] and [height] can stand on top of the vine at ([gx], [gy], [gz]): [isFree] gets its
@@ -111,10 +111,10 @@ internal fun mantleFeetY(gripY: Double): Double = gripY + VINE_HALF_WIDTH + MANT
  */
 @Suppress("LongParameterList") // Plain doubles keep the hold tick free of allocation.
 internal inline fun hasMantleRoom(
-    gx: Double, gy: Double, gz: Double, halfWidth: Double, height: Double,
+    gx: Double, gy: Double, gz: Double, halfWidth: Double, height: Double, ropeHalf: Double = VINE_HALF_WIDTH,
     isFree: (Double, Double, Double, Double, Double, Double) -> Boolean,
 ): Boolean {
-    val feet = mantleFeetY(gy)
+    val feet = mantleFeetY(gy, ropeHalf)
     return isFree(gx - halfWidth, feet, gz - halfWidth, gx + halfWidth, feet + height, gz + halfWidth)
 }
 

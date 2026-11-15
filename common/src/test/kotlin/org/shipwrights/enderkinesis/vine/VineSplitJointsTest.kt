@@ -21,7 +21,7 @@ class VineSplitJointsTest {
     /** Vine 1 (nodes 0..20, the start on a block) is cut at link 10: piece 11 holds nodes 0..10, piece 12 nodes 11..20. */
     private class Cut(val anchoredPiece: WoggakVine, val freePiece: WoggakVine)
 
-    private fun cut(data: WoggakVineData, grips: List<VineGrip> = emptyList(), keepFreePiece: Boolean = true): Cut {
+    private fun cut(data: WoggakVineData, keepFreePiece: Boolean = true): Cut {
         val old = data.vine(1L).shouldNotBeNull()
         val anchoredPiece = WoggakVine(11L, ChainId(110L), WoggakVineAnchor(old.start.point), free())
         val freePiece = WoggakVine(12L, ChainId(120L), free(), free())
@@ -31,7 +31,7 @@ class VineSplitJointsTest {
             data.add(freePiece)
             pieces += SplitPiece(11..20, freePiece)
         }
-        data.repointSplit(1L, old, pieces, grips)
+        data.repointSplit(1L, old, pieces)
         data.remove(old)
         return Cut(anchoredPiece, freePiece)
     }
@@ -107,23 +107,13 @@ class VineSplitJointsTest {
     }
 
     @Test
-    fun `hull grips move to the piece that holds their node`() {
-        val data = weave()
-        val grips = listOf(VineGrip(3, 42L, Vector3d(1.0, 2.0, 3.0)), VineGrip(14, 42L, Vector3d(4.0, 5.0, 6.0)))
-        val cut = cut(data, grips)
-        cut.anchoredPiece.grips.map { it.node } shouldBe listOf(3)
-        cut.freePiece.grips.map { it.node } shouldBe listOf(3)
-        cut.freePiece.grips.single().local.x() shouldBe 4.0
-    }
-
-    @Test
     fun `a joint that the split vine shares with its piece moves once`() {
         val data = WoggakVineData()
         // Vine 1's own end is tied to its node 18: the free piece keeps that end, and the shared joint moves once.
         val old = WoggakVine(1L, ChainId(10L), block(0), joined(1L, 18)).also(data::add)
         val anchoredPiece = WoggakVine(11L, ChainId(110L), WoggakVineAnchor(old.start.point), free()).also(data::add)
         val freePiece = WoggakVine(12L, ChainId(120L), free(), WoggakVineAnchor(old.end.point)).also(data::add)
-        data.repointSplit(1L, old, listOf(SplitPiece(0..10, anchoredPiece), SplitPiece(11..20, freePiece)), emptyList())
+        data.repointSplit(1L, old, listOf(SplitPiece(0..10, anchoredPiece), SplitPiece(11..20, freePiece)))
         freePiece.end.joint.vine shouldBe 12L
         freePiece.end.joint.node shouldBe 7
     }

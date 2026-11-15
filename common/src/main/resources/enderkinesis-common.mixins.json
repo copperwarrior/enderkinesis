@@ -252,6 +252,7 @@
     "PlayerSureibjinWakeMixin",
     "LivingEntityWeyyeFruitUninterruptibleMixin",
     "LootItemAccessor",
+    "FireBlockInvoker",
     "LootPoolAccessor",
     "LootingEnchantFunctionDisintegrationMixin",
     "NaturalSpawnerSkipMixin",

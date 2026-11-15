@@ -22,7 +22,7 @@
     },
     "minimum_size": { "type": "minecraft:two_layers_feature_size", "min_clipped_height": 0, "limit": 1, "lower_size": 0, "upper_size": 1 },
     "decorators": [
-      { "type": "minecraft:leave_vine", "probability": 0.125 }
+      { "type": "enderkinesis:weje_leave_vine", "probability": 0.125 }
     ],
     "force_dirt": false, "ignore_vines": false
   }

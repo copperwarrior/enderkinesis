@@ -3,6 +3,9 @@ package org.shipwrights.enderkinesis
 import dev.architectury.hooks.item.tool.AxeItemHooks
 import dev.architectury.registry.ReloadListenerRegistry
 import net.minecraft.world.level.block.entity.BlockEntityType
+import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.ComposterBlock
+import org.shipwrights.enderkinesis.mixin.FireBlockInvoker
 import net.minecraft.server.packs.PackType
 import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.compat.create.CreateCompat
@@ -78,6 +81,8 @@ object EnderkinesisMod {
         dev.architectury.event.events.common.LifecycleEvent.SETUP.register {
             AxeItemHooks.addStrippable(EKBlocks.WOGOR_LOG.get(), EKBlocks.STRIPPED_WOGOR_LOG.get())
             AxeItemHooks.addStrippable(EKBlocks.WOGOR_WOOD.get(), EKBlocks.STRIPPED_WOGOR_WOOD.get())
+            (Blocks.FIRE as FireBlockInvoker).`enderkinesis$setFlammable`(EKBlocks.WEJE_VINE.get(), 15, 100)
+            ComposterBlock.COMPOSTABLES.put(EKItems.WEJE_VINE_ITEM.get(), 0.5f)
         }
         EKSounds.register()
         // Instruments resolve their sound-event holder at construction time, so must come after sounds.

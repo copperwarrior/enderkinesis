@@ -11,12 +11,18 @@ import org.valkyrienskies.core.api.chains.ChainEnd
 import org.valkyrienskies.core.api.chains.ChainReelControl
 import org.valkyrienskies.core.api.chains.ServerChain
 import org.valkyrienskies.core.api.util.GameTickOnly
+import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 private const val LINK_EPS = 1e-9
+/** Blocks of vine that a normal use on a vine's own anchor pays out there, one item each. */
+private const val DROP_BLOCKS = 4
+/** A use point this close to a vine anchor on the same block and ship counts as that anchor's spot. */
+private const val SAME_SPOT_DISTANCE = 0.25
 
 /**
  * Links that a VS pay-out adds for one item, and the credit after it. VS pays out whole links only, so the part of
@@ -29,16 +35,19 @@ internal fun extendLinks(credit: Double, spacing: Double): Pair<Int, Double> {
     return links to validReelCredit(owed - links * spacing)
 }
 
-/** Creative pay-outs keep no credit, so they add the whole links nearest one block. */
-internal fun creativeExtendLinks(spacing: Double): Int = (BLOCKS_PER_ITEM / spacing).roundToInt().coerceAtLeast(1)
+/** Creative pay-outs keep no credit, so they add the whole links nearest [items] blocks. */
+internal fun creativeExtendLinks(spacing: Double, items: Int = 1): Int =
+    (items * BLOCKS_PER_ITEM / spacing).roundToInt().coerceAtLeast(1)
 
 /**
  * Node [node] of a vine of [links] links and [rest] length, after [added] blocks go on at the start ([atStart]) or the
- * end. VS lays the new chain out again at [VINE_TARGET_SPACING], so the node keeps its place along the vine.
+ * end. VS lays the new chain out again at [spacing], so the node keeps its place along the vine.
  */
-internal fun extendedNode(node: Int, links: Int, rest: Double, added: Double, atStart: Boolean): Int {
+internal fun extendedNode(
+    node: Int, links: Int, rest: Double, added: Double, atStart: Boolean, spacing: Double = VINE_TARGET_SPACING,
+): Int {
     val length = rest + added
-    val newLinks = ceil(length / VINE_TARGET_SPACING - LINK_EPS).toInt().coerceAtLeast(1)
+    val newLinks = ceil(length / spacing - LINK_EPS).toInt().coerceAtLeast(1)
     val along = node * rest / links + if (atStart) added else 0.0
     return (along * newLinks / length).roundToInt().coerceIn(0, newLinks)
 }
@@ -58,10 +67,7 @@ internal fun ServerPlayer.extendVine(stack: ItemStack): Boolean {
     val vine = pick.vine
     val chain = pick.chain
     val status = chain.status
-    data.reels.remove(vine.id)?.let { reel ->
-        level.endReel(reel)
-        if (reel.held) level.server.playerList.getPlayer(reel.player)?.sendReelEnd()
-    }
+    level.endReelOf(data, vine)
     // A pay-out in progress blocks an extend.
     if (!status.isReelable() || status.reelBusy()) {
         LOG.info("[VineReelDebug] server extend: refused reelable={} busy={} status={}", status.isReelable(), status.reelBusy(), status)
@@ -85,16 +91,78 @@ internal fun ServerPlayer.extendVine(stack: ItemStack): Boolean {
     return true
 }
 
+/**
+ * Normal use on the block spot where a vine is already anchored: [DROP_BLOCKS] more blocks pay out at that end, so
+ * they drop down from the anchor, one item each. False when no vine end is anchored at [point].
+ */
 @OptIn(GameTickOnly::class)
-private fun payOutBlock(vine: WoggakVine, chain: ServerChain, end: ChainEnd, creative: Boolean): Boolean {
+internal fun ServerPlayer.dropVineAt(stack: ItemStack, point: VinePoint): Boolean {
+    if (point.joint != null || !stack.`is`(EKItems.WOGGAK_VINE.get())) return false
+    val level = serverLevel()
+    val data = level.loadedWoggakVines ?: return false
+    var found: WoggakVine? = null
+    var end = ChainEnd.START
+    for (vine in data.vines) {
+        if (vine.fadeStart >= 0) continue
+        end = when {
+            vine.start.isAt(point) -> ChainEnd.START
+            vine.end.isAt(point) -> ChainEnd.END
+            else -> continue
+        }
+        found = vine
+        break
+    }
+    val vine = found ?: return false
+    // From here the use is spent, so a second vine never goes on the same spot.
+    val chain = level.shipObjectWorld.allChains.getById(vine.chain) ?: return true
+    level.endReelOf(data, vine)
+    val status = chain.status
+    val attached = if (end == ChainEnd.START) status.startAttachment else status.endAttachment
+    if (!status.isReelable() || status.reelBusy() || attached != ChainAttachmentState.ATTACHED) {
+        LOG.info("[VineReelDebug] server drop: refused vine={} end={} attached={} status={}", vine.id, end, attached, status)
+        return true
+    }
+    val creative = abilities.instabuild
+    val items = if (creative) DROP_BLOCKS else min(DROP_BLOCKS, stack.count)
+    if (items <= 0 || !payOutBlocks(vine, chain, end, creative, items)) return true
+    LOG.info("[VineReelDebug] server drop: vine={} end={} items={}", vine.id, end, items)
+    data.setDirty()
+    if (!creative) stack.shrink(items)
+    level.playSound(null, x, y, z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
+    return true
+}
+
+private fun ServerLevel.endReelOf(data: WoggakVineData, vine: WoggakVine) {
+    val reel = data.reels.remove(vine.id) ?: return
+    endReel(reel)
+    if (reel.held) server.playerList.getPlayer(reel.player)?.sendReelEnd()
+}
+
+private fun WoggakVineAnchor.isAt(point: VinePoint): Boolean {
+    val own = this.point ?: return false
+    return !released && own.joint == null && own.block == point.block && own.shipId == point.shipId &&
+        own.local.distanceSquared(point.local) <= SAME_SPOT_DISTANCE * SAME_SPOT_DISTANCE
+}
+
+@OptIn(GameTickOnly::class)
+private fun payOutBlock(vine: WoggakVine, chain: ServerChain, end: ChainEnd, creative: Boolean): Boolean =
+    payOutBlocks(vine, chain, end, creative, 1)
+
+/** A VS pay-out of [items] blocks at the attached [end]; the remainder of whole links stays in the vine's credit. */
+@OptIn(GameTickOnly::class)
+private fun payOutBlocks(vine: WoggakVine, chain: ServerChain, end: ChainEnd, creative: Boolean, items: Int): Boolean {
     val status = chain.status
     val spacing = status.reel?.nodeSpacing ?: (status.currentRestLength / (status.nodeCount - 1))
     if (!spacing.isFinite() || spacing <= 0.0) return false
     val links = if (creative) {
-        creativeExtendLinks(spacing)
+        creativeExtendLinks(spacing, items)
     } else {
-        val (count, credit) = extendLinks(vine.reelCredit, spacing)
-        vine.reelCredit = credit
+        var count = 0
+        repeat(items) {
+            val (added, credit) = extendLinks(vine.reelCredit, spacing)
+            vine.reelCredit = credit
+            count += added
+        }
         count
     }
     LOG.info("[VineReelDebug] server VS pay-out end={} links={} spacing={} rest={}", end, links, spacing, status.currentRestLength)
@@ -102,7 +170,7 @@ private fun payOutBlock(vine: WoggakVine, chain: ServerChain, end: ChainEnd, cre
     return true
 }
 
-/** Makes [vine] again with one more block past its node at [end], with the same id, anchors, joints and grips. */
+/** Makes [vine] again with one more block past its node at [end], with the same id, anchors and joints. */
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.rebuildLonger(data: WoggakVineData, vine: WoggakVine, chain: ServerChain, end: ChainEnd): Boolean {
     val status = chain.status
@@ -127,10 +195,11 @@ private fun ServerLevel.rebuildLonger(data: WoggakVineData, vine: WoggakVine, ch
     val tipSlot = tip + shift
     velocities?.let { it.copyInto(it, slot * 3, tipSlot * 3, tipSlot * 3 + 3) }
     val piece = addPiece(
-        positions, velocities, 0..nodes, rest + added, vine.start, vine.end, vine.fromBreak, vine.dropsOnFade, vine.id,
+        positions, velocities, 0..nodes, rest + added, vine.start, vine.end, vine.fromBreak, vine.dropsOnFade, vine.spacing, vine.id,
+        width = vine.width,
     ) ?: return false
-    piece.grips = vine.grips.map { VineGrip(extendedNode(it.node, links, rest, added, atStart), it.shipId, it.local) }
-    replaceRebuilt(data, vine, piece) { node -> extendedNode(node, links, rest, added, atStart) }
+    val spacing = vine.spacing
+    replaceRebuilt(data, vine, piece) { node -> extendedNode(node, links, rest, added, atStart, spacing) }
     return true
 }
 

@@ -177,7 +177,7 @@ class WohlonTrunkBaseFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<N
             val face = VineBlock.getPropertyForFace(dir.opposite)
             for (y in maxOf(tip - 1, waterTopY + 1)..tip) {
                 if (!level.isEmptyBlock(pos.set(kx + dir.stepX, y, kz + dir.stepZ))) continue
-                level.setBlock(pos, Blocks.VINE.defaultBlockState().setValue(face, true), Block.UPDATE_CLIENTS)
+                level.setBlock(pos, EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(face, true), Block.UPDATE_CLIENTS)
             }
         }
     }

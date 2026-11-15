@@ -68,7 +68,7 @@ class WogorTreeBuilder(private val level: WorldGenLevel, val random: RandomSourc
 
     private fun canWood(x: Int, y: Int, z: Int): Boolean {
         val p = planned.get(key(x, y, z))
-        if (p != null) return p.`is`(leafBlock) || p.`is`(Blocks.VINE)
+        if (p != null) return p.`is`(leafBlock) || p.`is`(EKBlocks.WEJE_VINE.get())
         val s = worldState(x, y, z)
         return s.isAir || s.canBeReplaced() || s.`is`(BlockTags.LEAVES)
     }
@@ -199,7 +199,7 @@ class WogorTreeBuilder(private val level: WorldGenLevel, val random: RandomSourc
                 val nx = x + dir.stepX
                 val nz = z + dir.stepZ
                 if (!isOpen(nx, y, nz) || !chance(p)) continue
-                val vine = Blocks.VINE.defaultBlockState().setValue(VineBlock.getPropertyForFace(dir.opposite), true)
+                val vine = EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(VineBlock.getPropertyForFace(dir.opposite), true)
                 hang(nx, y, nz, VINE_LENGTH, vine)
             }
         }

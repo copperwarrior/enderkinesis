@@ -31,10 +31,12 @@ internal const val HANG_ROPE_FORWARD_DEGREES = 40.0
  * beside a pitched head at the hang angle, as pitch turns the head about the side axis. The hitbox can overlap the
  * held rope; the hang sweep has no vine shapes.
  */
-internal val HANG_RADIUS = max(
-    DRAWN_RADIUS + VINE_HALF_WIDTH + DRAWN_GAP,
-    (DRAWN_HALF_WIDTH + VINE_HALF_WIDTH + DRAWN_GAP) / cos(Math.toRadians(HANG_ROPE_FORWARD_DEGREES)),
+internal fun hangRadius(ropeHalf: Double): Double = max(
+    DRAWN_RADIUS + ropeHalf + DRAWN_GAP,
+    (DRAWN_HALF_WIDTH + ropeHalf + DRAWN_GAP) / cos(Math.toRadians(HANG_ROPE_FORWARD_DEGREES)),
 )
+
+internal val HANG_RADIUS = hangRadius(VINE_HALF_WIDTH)
 /** Grip height over the drawn head top: the raised hands of the player model end about 0.1 over it. */
 internal const val HAND_REACH = 0.1
 /** The body never drops more than this under the grip, so the hands stay near the rope. */
@@ -57,7 +59,7 @@ private const val SIDE_RADIUS_STEPS = 20
 private const val SIDE_RADIUS_BISECTIONS = 8
 
 /** Upper bound of the distance from the grip to the top centre of the hitbox, for the server hold-gap check. */
-internal val MAX_HANG_OFFSET = HANG_RADIUS + MAX_SIDE_EXTRA + MAX_HANG_DROP + DRAWN_HEIGHT
+internal val MAX_HANG_OFFSET = hangRadius(MAX_VINE_WIDTH * 0.5) + MAX_SIDE_EXTRA + MAX_HANG_DROP + DRAWN_HEIGHT
 
 internal fun smoothStep(edge0: Double, edge1: Double, x: Double): Double {
     val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0.0, 1.0)
@@ -100,9 +102,11 @@ internal fun stepOrbitAngle(current: Double, target: Double): Double {
  * Infinite when a vertical rope goes through the model.
  */
 @Suppress("LongParameterList") // Plain doubles keep the hang tick free of allocation.
-internal fun hangDrop(cx: Double, cz: Double, downX: Double, downZ: Double, tanSlope: Double, downReach: Double): Double {
+internal fun hangDrop(
+    cx: Double, cz: Double, downX: Double, downZ: Double, tanSlope: Double, downReach: Double, ropeHalf: Double = VINE_HALF_WIDTH,
+): Double {
     // Less a hair, so a body placed exactly on the radius counts as clear.
-    val radius = HANG_RADIUS - DEGENERATE
+    val radius = hangRadius(ropeHalf) - DEGENERATE
     val vertical = !tanSlope.isFinite() || (abs(downX) < DEGENERATE && abs(downZ) < DEGENERATE)
     if (vertical) return if (cx * cx + cz * cz < radius * radius) Double.POSITIVE_INFINITY else HAND_REACH
     val along = cx * downX + cz * downZ
@@ -113,7 +117,7 @@ internal fun hangDrop(cx: Double, cz: Double, downX: Double, downZ: Double, tanS
     val low = along - half
     val high = min(along + half, downReach)
     if (low >= high) return HAND_REACH
-    val clearance = VINE_HALF_WIDTH + DRAWN_GAP
+    val clearance = ropeHalf + DRAWN_GAP
     // The deepest drop that keeps the rope under the feet over that span.
     val underFeet = low * tanSlope - DRAWN_HEIGHT - clearance
     if (HAND_REACH <= underFeet) return HAND_REACH
@@ -121,23 +125,25 @@ internal fun hangDrop(cx: Double, cz: Double, downX: Double, downZ: Double, tanS
 }
 
 /**
- * The smallest side radius at [angle], from [HANG_RADIUS] up to [MAX_SIDE_EXTRA] more, where the rope clears the drawn
+ * The smallest side radius at [angle], from [hangRadius] up to [MAX_SIDE_EXTRA] more, where the rope clears the drawn
  * model at the hands' reach: on the downhill side of a leaning rope the body moves out round the rope. NaN when none.
  */
 @Suppress("LongParameterList") // Plain doubles keep the hang tick free of allocation.
-internal fun sideRadius(angle: Double, downX: Double, downZ: Double, tanSlope: Double, downReach: Double): Double {
+internal fun sideRadius(
+    angle: Double, downX: Double, downZ: Double, tanSlope: Double, downReach: Double, ropeHalf: Double = VINE_HALF_WIDTH,
+): Double {
     val c = cos(angle)
     val s = sin(angle)
     var previous = Double.NaN
-    var r = HANG_RADIUS
+    var r = hangRadius(ropeHalf)
     for (i in 0..SIDE_RADIUS_STEPS) {
-        if (hangDrop(c * r, s * r, downX, downZ, tanSlope, downReach) <= HAND_REACH) {
+        if (hangDrop(c * r, s * r, downX, downZ, tanSlope, downReach, ropeHalf) <= HAND_REACH) {
             if (previous.isNaN()) return r
             var low = previous
             var high = r
             repeat(SIDE_RADIUS_BISECTIONS) {
                 val mid = (low + high) / 2
-                if (hangDrop(c * mid, s * mid, downX, downZ, tanSlope, downReach) <= HAND_REACH) high = mid else low = mid
+                if (hangDrop(c * mid, s * mid, downX, downZ, tanSlope, downReach, ropeHalf) <= HAND_REACH) high = mid else low = mid
             }
             return high
         }

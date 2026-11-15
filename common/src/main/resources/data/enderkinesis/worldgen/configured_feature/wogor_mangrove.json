@@ -22,7 +22,7 @@
     },
     "minimum_size": { "type": "minecraft:two_layers_feature_size", "min_clipped_height": 0, "limit": 1, "lower_size": 0, "upper_size": 1 },
     "decorators": [
-      { "type": "minecraft:leave_vine", "probability": 0.125 },
+      { "type": "enderkinesis:weje_leave_vine", "probability": 0.125 },
       { "type": "minecraft:attached_to_leaves", "probability": 0.04, "exclusion_radius_xz": 1, "exclusion_radius_y": 1, "required_empty_blocks": 1, "directions": [ "down" ], "block_provider": { "type": "minecraft:simple_state_provider", "state": { "Name": "minecraft:mangrove_propagule", "Properties": { "age": "0", "hanging": "true", "stage": "0", "waterlogged": "false" } } } }
     ],
     "force_dirt": false, "ignore_vines": false

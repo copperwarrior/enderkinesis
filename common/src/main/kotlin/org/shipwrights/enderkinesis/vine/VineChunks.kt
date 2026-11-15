@@ -21,13 +21,18 @@ import net.minecraft.world.level.chunk.ProtoChunk
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.duck.WorldgenVineHolder
 import org.valkyrienskies.core.api.chains.ChainId
+import org.valkyrienskies.core.api.chains.ChainLifecycle
 import org.valkyrienskies.core.api.chains.ServerChain
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.shipObjectWorld
 
 internal const val CHUNK_TAG = "enderkinesis:woggak_vines"
-/** An entry is at most 89 bytes (no end is both joined and ship-held), so a page stays under 512 KB. */
-private const val VINES_PER_PAGE = 4096
+/** A page closes past this size; a live entry is at most 99 bytes and a parked or new one carries its nodes, far under the 1 MiB payload cap. */
+private const val PAGE_BYTES = 256 * 1024
+/** What follows a synced vine's head: nothing, the frozen shape of a sleeping vine, or the path of a new one. */
+const val VINE_SHAPE_NONE = 0
+const val VINE_SHAPE_PARKED = 1
+const val VINE_SHAPE_SEED = 2
 
 /** The saved state of one vine whose chunk unloaded: enough to make its chain again in the same shape. */
 class VineRecord(
@@ -44,14 +49,20 @@ class VineRecord(
     /** The VS chain at the save; VS restores it from its own save, so the rebuild deletes it. */
     val chain: Long,
     val reelCredit: Double = 0.0,
-    val grips: List<VineGrip> = emptyList(),
+    val spacing: Double = VINE_TARGET_SPACING,
+    /** A worldgen vine that no one used yet; only such a vine sleeps. */
+    val natural: Boolean = false,
+    val width: Double = VINE_WIDTH,
 ) {
     init {
         require(positions.size % 3 == 0 && positions.size >= 6) { "Woggak Vine record $id has ${positions.size} coordinates" }
         require(restLength.isFinite() && restLength > 0) { "Woggak Vine record $id has rest length $restLength" }
+        require(spacing.isFinite() && spacing > 0) { "Woggak Vine record $id has spacing $spacing" }
+        require(validVineWidth(width)) { "Woggak Vine record $id has width $width" }
     }
 
     val nodeCount: Int get() = positions.size / 3
+    internal val bounds = VineBounds.of(positions)
 
     fun save(): CompoundTag = CompoundTag().apply {
         // A bare id here is CompoundTag.getId().
@@ -66,7 +77,9 @@ class VineRecord(
         putIntArray("broken", brokenLinks)
         putLong("chain", chain)
         putDouble("reelCredit", reelCredit)
-        putGrips(grips)
+        putDouble("spacing", spacing)
+        putBoolean("natural", natural)
+        putDouble("width", width)
     }
 
     companion object {
@@ -75,12 +88,15 @@ class VineRecord(
             val bits = tag.getLongArray("nodes")
             val positions = DoubleArray(bits.size) { Double.fromBits(bits[it]) }
             val rest = tag.getDouble("rest")
+            val spacing = tag.getDouble("spacing")
+            val width = tag.getDouble("width")
             if (positions.size % 3 != 0 || positions.size < 6 || positions.any { !it.isFinite() }) return null
-            if (!rest.isFinite() || rest <= 0) return null
+            if (!rest.isFinite() || rest <= 0 || !spacing.isFinite() || spacing <= 0 || !validVineWidth(width)) return null
             return VineRecord(
                 tag.getLong("id"), tag.getAnchor("a"), tag.getAnchor("b"), tag.getLong("fade"),
                 tag.getBoolean("fromBreak"), !tag.getBoolean("noDrops"), rest, positions, tag.getIntArray("broken"),
-                tag.getLong("chain"), validReelCredit(tag.getDouble("reelCredit")), tag.getGrips(),
+                tag.getLong("chain"), validReelCredit(tag.getDouble("reelCredit")), spacing,
+                tag.getBoolean("natural"), width,
             )
         }
     }
@@ -264,7 +280,7 @@ private fun ServerLevel.vineRecord(vine: WoggakVine): VineRecord? {
         if (chain.copyNodePositions(positions) == nodes && positions.all { it.isFinite() }) {
             return VineRecord(
                 vine.id, vine.start, vine.end, vine.fadeStart, vine.fromBreak, vine.dropsOnFade, rest, positions,
-                status.brokenLinks.toIntArray(), vine.chain.value, vine.reelCredit, vine.grips,
+                status.brokenLinks.toIntArray(), vine.chain.value, vine.reelCredit, vine.spacing, vine.natural, vine.width,
             )
         }
     }
@@ -272,7 +288,7 @@ private fun ServerLevel.vineRecord(vine: WoggakVine): VineRecord? {
     if (seed.size < 6 || !vine.seedRest.isFinite() || vine.seedRest <= 0) return null
     return VineRecord(
         vine.id, vine.start, vine.end, vine.fadeStart, vine.fromBreak, vine.dropsOnFade, vine.seedRest, seed,
-        IntArray(0), vine.chain.value, vine.reelCredit, vine.grips,
+        IntArray(0), vine.chain.value, vine.reelCredit, vine.spacing, vine.natural, vine.width,
     )
 }
 
@@ -329,15 +345,28 @@ internal fun ServerLevel.isJointWaiting(data: WoggakVineData, joint: VineJoint):
     return !hasChunk(joint.home)
 }
 
-/** Makes the chains of the vines in the chunks that are now loaded. */
+/**
+ * Makes the chains of the waiting records of loaded chunks, nearest first, up to [VINE_WAKE_NODES_PER_TICK] nodes a
+ * tick. A chunk wakes when a record in it is within [VINE_WAKE_DISTANCE] of an observer, is not natural, or is joined;
+ * other records sleep: the chunk saves them and its trackers draw them frozen.
+ */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.rebuildLoadedVines(data: WoggakVineData) {
     val pending = pendingVines[dimension()] ?: return
     if (pending.isEmpty()) return
-    val iterator = pending.entries.iterator()
-    while (iterator.hasNext()) {
-        val (chunk, records) = iterator.next()
+    val sleep = data.sleep
+    for (chunk in pending.keys) {
         if (!hasChunk(chunk)) continue
+        val records = pending[chunk] ?: continue
+        val distance = if (sleep.jointHomes.contains(chunk)) 0.0 else sleep.wakeDistance(data, records)
+        if (distance <= VINE_WAKE_DISTANCE * VINE_WAKE_DISTANCE) sleep.offerWake(chunk, distance)
+    }
+    for (i in 0 until sleep.wakeCount) {
+        val chunk = sleep.wakeChunks[i]
+        val records = pending[chunk] ?: continue
+        var nodes = 0
+        for (record in records) nodes += wakeNodes(record)
+        if (!sleep.budget.take(nodes)) break
         // The joints move after the whole chunk is back, so a vine of this chunk joined to a split one moves too.
         val splits = records.mapNotNull { record -> rebuildVine(data, record, chunk)?.let { record to it } }
         // [VineReloadDebug] temporary
@@ -347,14 +376,85 @@ internal fun ServerLevel.rebuildLoadedVines(data: WoggakVineData) {
             if (data.vine(record.id) != null) vineReloadDebug("rebuild $source vines made", this, 1)
         }
         for ((record, pieces) in splits) {
-            for (pair in data.repointSplit(record.id, null, pieces, record.grips)) pair.restoreContacts(this)
+            for (pair in data.repointSplit(record.id, null, pieces)) pair.restoreContacts(this)
         }
         // The snapshot takes the records before the pending entry goes, so an async save always sees them.
         refreshSnapshot(data, chunk)
-        iterator.remove()
+        pending.remove(chunk, records)
+        sleep.wakes += records.size
         data.anchorsDirty = true
         data.jointsDirty = true
     }
+}
+
+/**
+ * Squared blocks from [records] to the nearest observer. A player vine, or a record joined to a live vine, wakes at
+ * any distance, so it is 0.
+ */
+private fun VineSleep.wakeDistance(data: WoggakVineData, records: List<VineRecord>): Double {
+    var best = Double.POSITIVE_INFINITY
+    for (record in records) {
+        if (!record.natural || record.start.joinsLive(data) || record.end.joinsLive(data)) return 0.0
+        best = minOf(best, nearestSquared(record.bounds))
+    }
+    return best
+}
+
+private fun WoggakVineAnchor.joinsLive(data: WoggakVineData): Boolean {
+    val joint = point?.joint ?: return false
+    return isJoined && data.vine(joint.vine) != null
+}
+
+/**
+ * Takes live vine [index] out of physics and keeps it as a record of its home chunk, which its trackers draw frozen.
+ * False when it cannot: its chain is not active and whole, or its home chunk is not loaded.
+ */
+@OptIn(GameTickOnly::class)
+internal fun ServerLevel.parkVine(data: WoggakVineData, index: Int): Boolean {
+    val vine = data.vines[index]
+    val world = shipObjectWorld
+    val status = world.allChains.getById(vine.chain)?.status ?: return false
+    if (status.lifecycle != ChainLifecycle.ACTIVE || status.brokenLinks.isNotEmpty()) return false
+    val home = vine.home
+    // Only a loaded chunk saves its records.
+    if (!hasChunk(home)) return false
+    val record = vineRecord(vine) ?: return false
+    // The record is in place before the vine goes, so an async save of the chunk never misses it.
+    addParked(home, record)
+    if (!world.deleteChain(vine.chain)) LOG.warn("Woggak Vine {} was already removed", vine.chain.value)
+    data.removeAt(index)
+    data.unloadedIds.add(vine.id)
+    data.anchorsDirty = true
+    data.jointsDirty = true
+    refreshSnapshot(data, home)
+    return true
+}
+
+/**
+ * Keeps [record] asleep in its home chunk from its birth, with no chain; a wake makes the chain. False when the home
+ * chunk is not loaded or the vine already exists.
+ */
+internal fun ServerLevel.parkNewVine(data: WoggakVineData, record: VineRecord): Boolean {
+    val home = fixedBlockHome(record.start, record.end) ?: centroidHome(record.positions, record.nodeCount)
+    if (!hasChunk(home) || data.vine(record.id) != null || parkedIn(home).any { it.id == record.id }) return false
+    addParked(home, record)
+    data.dirtyChunks.add(home)
+    return true
+}
+
+private fun ServerLevel.addParked(home: Long, record: VineRecord) {
+    pendingVines.computeIfAbsent(dimension()) { ConcurrentHashMap() }.merge(home, listOf(record)) { old, new -> old + new }
+    chunkSource.getChunkNow(ChunkPos.getX(home), ChunkPos.getZ(home))?.isUnsaved = true
+}
+
+/** The sleeping and not yet made vines of [chunk]. */
+private fun ServerLevel.parkedIn(chunk: Long): List<VineRecord> = pendingVines[dimension()]?.get(chunk).orEmpty()
+
+/** Sleeping and not yet made vines of the loaded chunks of this level. */
+internal fun ServerLevel.parkedVineCount(): Int {
+    var count = 0
+    pendingVines[dimension()]?.let { pending -> for (chunk in pending.keys) if (hasChunk(chunk)) count += pending[chunk]?.size ?: 0 }
+    return count
 }
 
 /**
@@ -375,11 +475,11 @@ private fun ServerLevel.rebuildVine(data: WoggakVineData, record: VineRecord, ch
         val end = if (run.last == nodes - 1) record.end else null
         val vine = addPiece(
             record.positions, null, run, restPerLink * (run.last - run.first), start, end,
-            record.fromBreak, record.dropsOnFade, id, chunk,
+            record.fromBreak, record.dropsOnFade, record.spacing, id, chunk, record.width,
         )
         if (vine != null) {
+            vine.natural = record.natural && runs.size == 1
             vine.fadeStart = record.fadeStart
-            vine.grips = record.grips.inRun(run)
             // The credit stays with the first piece, which keeps the id; a later piece starts with none.
             if (id == record.id) vine.reelCredit = record.reelCredit
             pieces += SplitPiece(run, vine)
@@ -449,7 +549,7 @@ internal fun ServerLevel.flushVineSync(data: WoggakVineData) {
         if (hasChunk(chunk)) refreshSnapshot(data, chunk)
         chunkSource.getChunkNow(pos.x, pos.z)?.isUnsaved = true
         val players = chunkSource.chunkMap.getPlayers(pos, false)
-        if (players.isNotEmpty()) sendVinePages(players, chunk, data.inChunk(chunk), data.splits.get(chunk))
+        if (players.isNotEmpty()) sendVinePages(players, chunk, data.inChunk(chunk), parkedIn(chunk), data.splits.get(chunk))
         // [VineReloadDebug] temporary
         if (players.isNotEmpty()) vineReloadDebug("sync sent", this, data.inChunk(chunk).size)
     }
@@ -459,8 +559,10 @@ internal fun ServerLevel.flushVineSync(data: WoggakVineData) {
 
 /** Called when [chunk] is sent to this player. */
 fun ServerPlayer.sendVineChunk(chunk: Long) {
-    val vines = serverLevel().loadedWoggakVines?.inChunk(chunk) ?: return
-    if (vines.isNotEmpty()) sendVinePages(listOf(this), chunk, vines)
+    val level = serverLevel()
+    val vines = level.loadedWoggakVines?.inChunk(chunk) ?: return
+    val parked = level.parkedIn(chunk)
+    if (vines.isNotEmpty() || parked.isNotEmpty()) sendVinePages(listOf(this), chunk, vines, parked)
     // [VineReloadDebug] temporary
     if (vines.isNotEmpty()) vineReloadDebug("track sent", serverLevel(), vines.size)
 }
@@ -487,40 +589,87 @@ private fun ServerLevel.logVineReloadDebug() {
 fun ServerPlayer.forgetVineChunk(chunk: Long) {
     val data = serverLevel().loadedWoggakVines ?: return
     // A change that the next flush would send is lost once the player no longer tracks the chunk.
-    if (data.inChunk(chunk).isEmpty() && !data.dirtyChunks.contains(chunk)) return
+    if (data.inChunk(chunk).isEmpty() && !data.dirtyChunks.contains(chunk) && serverLevel().parkedIn(chunk).isEmpty()) return
     NetworkManager.sendToPlayer(this, WOGGAK_VINE_FORGET, FriendlyByteBuf(Unpooled.buffer()).apply { writeLong(chunk) })
 }
 
-/** The first page also holds the [splits] of vines of [chunk], so the client draws each old vine until its pieces show. */
-private fun sendVinePages(players: List<ServerPlayer>, chunk: Long, vines: List<WoggakVine>, splits: List<VineSplit>? = null) {
-    var first = 0
+/**
+ * Sends the live [vines] and then the [parked] ones of [chunk]. The first page also holds the [splits] of vines of
+ * [chunk], so the client draws each old vine until its pieces show.
+ */
+private fun sendVinePages(
+    players: List<ServerPlayer>, chunk: Long, vines: List<WoggakVine>, parked: List<VineRecord>, splits: List<VineSplit>? = null,
+) {
+    val total = vines.size + parked.size
+    var next = 0
+    var first = true
     do {
-        val last = minOf(first + VINES_PER_PAGE, vines.size)
+        val entries = FriendlyByteBuf(Unpooled.buffer())
+        var count = 0
+        while (next < total && entries.writerIndex() < PAGE_BYTES) {
+            if (next < vines.size) entries.writeVine(vines[next]) else entries.writeParked(parked[next - vines.size])
+            next++
+            count++
+        }
         val buf = FriendlyByteBuf(Unpooled.buffer())
         buf.writeLong(chunk)
-        buf.writeBoolean(first == 0)
-        buf.writeVarInt(last - first)
-        for (i in first until last) buf.writeVine(vines[i])
-        val pageSplits = if (first == 0) splits.orEmpty() else emptyList()
+        buf.writeBoolean(first)
+        buf.writeVarInt(count)
+        buf.writeBytes(entries)
+        entries.release()
+        val pageSplits = if (first) splits.orEmpty() else emptyList()
         buf.writeVarInt(pageSplits.size)
         for (split in pageSplits) {
             buf.writeLong(split.old)
             buf.writeLongArray(split.pieces)
         }
         for (player in players) NetworkManager.sendToPlayer(player, WOGGAK_VINE_SYNC, FriendlyByteBuf(buf.copy()))
-        first = last
-    } while (first < vines.size)
+        buf.release()
+        first = false
+    } while (next < total)
 }
 
+/** A new vine before VS has its nodes also sends the path it was made along, so the client draws it at once. */
 private fun FriendlyByteBuf.writeVine(vine: WoggakVine) {
-    writeLong(vine.id)
-    writeLong(vine.chain.value)
-    writeLong(vine.fadeStart)
-    writeByte(vine.joinedEnds or vine.shipEnds or vine.blockEnds)
-    writeJointTarget(vine.start)
-    writeHold(vine.start)
-    writeJointTarget(vine.end)
-    writeHold(vine.end)
+    writeVineHead(vine.id, vine.chain.value, vine.fadeStart, vine.start, vine.end, vine.spacing, vine.width)
+    val seed = vine.seedNodes
+    if (seed == null || seed.size < 6) {
+        writeByte(VINE_SHAPE_NONE)
+        return
+    }
+    writeByte(VINE_SHAPE_SEED)
+    writeNodes(seed, seed.size / 3)
+}
+
+/** A sleeping vine has no chain, so its nodes go along. */
+private fun FriendlyByteBuf.writeParked(record: VineRecord) {
+    writeVineHead(record.id, 0L, record.fadeStart, record.start, record.end, record.spacing, record.width)
+    writeByte(VINE_SHAPE_PARKED)
+    writeDouble(record.restLength)
+    writeNodes(record.positions, record.nodeCount)
+}
+
+/** The first node as doubles, the others as float offsets from it. */
+private fun FriendlyByteBuf.writeNodes(p: DoubleArray, nodes: Int) {
+    writeVarInt(nodes)
+    writeDouble(p[0]); writeDouble(p[1]); writeDouble(p[2])
+    for (i in 3 until nodes * 3) writeFloat((p[i] - p[i % 3]).toFloat())
+}
+
+@Suppress("LongParameterList") // The synced fields of one vine, live or parked.
+private fun FriendlyByteBuf.writeVineHead(
+    id: Long, chain: Long, fadeStart: Long, start: WoggakVineAnchor, end: WoggakVineAnchor, spacing: Double, width: Double,
+) {
+    writeLong(id)
+    writeLong(chain)
+    writeLong(fadeStart)
+    writeByte(anchorFlags(start, end))
+    writeJointTarget(start)
+    writeHold(start)
+    writeJointTarget(end)
+    writeHold(end)
+    writeDouble(spacing)
+    writeDouble(width)
 }
 
 /** The target vine id and node of a joined end, so the client draws the end on the target node. */

@@ -5,6 +5,7 @@ import dev.architectury.event.events.common.InteractionEvent
 import dev.architectury.event.events.common.LifecycleEvent
 import dev.architectury.event.events.common.PlayerEvent
 import dev.architectury.event.events.common.TickEvent
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import java.util.UUID
@@ -33,6 +34,7 @@ import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.ceil
+import kotlin.math.max
 
 /** S2C: one page of the vines of one chunk; the first page replaces the chunk's vines on the client. */
 val WOGGAK_VINE_SYNC: ResourceLocation = EnderkinesisMod.id("woggak_vine/sync")
@@ -50,6 +52,10 @@ internal const val MASS_PER_LENGTH = 5.0
 internal const val VINE_BREAK_FORCE = 1.0e7
 /** Rigid for now: a finite stiffness snaps vines under their own movement; a VS bug report is pending. */
 internal const val VINE_LINK_STIFFNESS = Double.POSITIVE_INFINITY
+/** Full width of a player-made vine; the physics values above are for this width. */
+const val VINE_WIDTH = 2 * VINE_HALF_WIDTH
+const val MIN_VINE_WIDTH = 3.0 / 16
+const val MAX_VINE_WIDTH = 6.0 / 16
 private const val MIN_LENGTH = 1.0
 internal const val BLOCKS_PER_ITEM = 1.0
 private const val SAG_FRACTION = 0.08
@@ -93,7 +99,16 @@ class WoggakVineAnchor(val point: VinePoint?) {
  */
 class WoggakVine(
     val id: Long, val chain: ChainId, val start: WoggakVineAnchor, end: WoggakVineAnchor, val fromBreak: Boolean = false,
+    /** The VS target link length; every rebuild of this vine uses it again. */
+    val spacing: Double = VINE_TARGET_SPACING,
+    /** Rope width in blocks; it sets the drawn size and the particle radius, mass and strength. */
+    val width: Double = VINE_WIDTH,
 ) {
+    init {
+        require(spacing.isFinite() && spacing > 0) { "Woggak Vine $id has spacing $spacing" }
+        require(validVineWidth(width)) { "Woggak Vine $id has width $width" }
+    }
+
     var end = end
         internal set
     /** Game time when the last anchor went, or -1. */
@@ -105,27 +120,30 @@ class WoggakVine(
     /** The chunk (ChunkPos long) that saves this vine and whose trackers get it; see [fixedBlockHome]. */
     var home = 0L
         internal set
-    /** Nodes that grip a ship's hull; saved with the vine. */
-    var grips: List<VineGrip> = emptyList()
-    /** The physics grips of [grips] on chain [hullGripChain]; node ids change with the chain. Not saved. */
-    internal var hullGrips: Array<HullGrip>? = null
-    internal var hullGripChain = 0L
     /** The path this vine was made along, for a save before VS has its first node positions; not saved. */
     internal var seedNodes: DoubleArray? = null
     internal var seedRest = 0.0
+    /** A worldgen vine that no one used yet; only such a vine sleeps. Any use clears it for good. */
+    internal var natural = false
 
     /** Bit 0: the start is joined to another vine; bit 1: the end is. */
     val joinedEnds: Int
-        get() = (if (start.isJoined) JOINED_START else 0) or (if (end.isJoined) JOINED_END else 0)
+        get() = anchorFlags(start, end) and (JOINED_START or JOINED_END)
 
     /** Bit 2: a ship block holds the start; bit 3: one holds the end. */
     val shipEnds: Int
-        get() = (if (start.isShipHeld) SHIP_START else 0) or (if (end.isShipHeld) SHIP_END else 0)
+        get() = anchorFlags(start, end) and (SHIP_START or SHIP_END)
 
     /** Bit 4: a world block holds the start; bit 5: one holds the end. */
     val blockEnds: Int
-        get() = (if (start.isBlockHeld) BLOCK_START else 0) or (if (end.isBlockHeld) BLOCK_END else 0)
+        get() = anchorFlags(start, end) and (BLOCK_START or BLOCK_END)
 }
+
+/** The joined, ship-held and block-held bits of the two ends, as the sync sends them. */
+internal fun anchorFlags(start: WoggakVineAnchor, end: WoggakVineAnchor): Int =
+    (if (start.isJoined) JOINED_START else 0) or (if (end.isJoined) JOINED_END else 0) or
+        (if (start.isShipHeld) SHIP_START else 0) or (if (end.isShipHeld) SHIP_END else 0) or
+        (if (start.isBlockHeld) BLOCK_START else 0) or (if (end.isBlockHeld) BLOCK_END else 0)
 
 /** Vine [old] was split into the vines [pieces] this tick. */
 class VineSplit(val old: Long, val pieces: LongArray)
@@ -190,8 +208,13 @@ class WoggakVineData : SavedData() {
     internal val throws = Long2ObjectOpenHashMap<VineThrow>()
     /** Ritual of Capturing runs; not saved, so a reload leaves the vines as they are. */
     internal val captures = ArrayList<VineCapture>()
+    /** Cross-link chains the captures may make this tick; reset each tick. */
+    internal val captureBudget = VineBuildBudget(CAPTURE_LINK_NODES_PER_TICK, CAPTURE_LINKS_PER_TICK)
     /** Set once the first tick deleted the hold particles that the last session left; not saved. */
     internal var strayHoldsDeleted = false
+    internal val sleep = VineSleep()
+    /** Game time of the last pin of each vine tip that an animal chews, by vine id; not saved. */
+    internal val chewedTips = Long2LongOpenHashMap()
 
     fun vine(id: Long): WoggakVine? = byId[id]
 
@@ -240,6 +263,7 @@ class WoggakVineData : SavedData() {
 
     /** Sends [vine]'s chunk again, after a change that the client draws. */
     internal fun touch(vine: WoggakVine) {
+        vine.natural = false
         dirtyChunks.add(vine.home)
     }
 
@@ -271,8 +295,10 @@ class WoggakVineData : SavedData() {
                 putBoolean("fromBreak", vine.fromBreak)
                 putBoolean("noDrops", !vine.dropsOnFade)
                 putDouble("reelCredit", vine.reelCredit)
+                putDouble("spacing", vine.spacing)
+                putDouble("width", vine.width)
+                putBoolean("natural", vine.natural)
                 putLong("home", vine.home)
-                putGrips(vine.grips)
             })
         }
         if (strayCount < strays.size) strays = strays.copyOf(strayCount)
@@ -288,12 +314,17 @@ class WoggakVineData : SavedData() {
             val list = tag.getList("vines", Tag.TAG_COMPOUND.toInt())
             for (i in 0 until list.size) {
                 val t = list.getCompound(i)
-                val vine = WoggakVine(t.getLong("id"), ChainId(t.getLong("chain")), t.getAnchor("a"), t.getAnchor("b"), t.getBoolean("fromBreak"))
+                val spacing = t.getDouble("spacing")
+                val width = t.getDouble("width")
+                if (!spacing.isFinite() || spacing <= 0 || !validVineWidth(width)) continue
+                val vine = WoggakVine(
+                    t.getLong("id"), ChainId(t.getLong("chain")), t.getAnchor("a"), t.getAnchor("b"), t.getBoolean("fromBreak"), spacing, width,
+                )
+                vine.natural = t.getBoolean("natural")
                 vine.fadeStart = t.getLong("fade")
                 vine.dropsOnFade = !t.getBoolean("noDrops")
                 vine.reelCredit = validReelCredit(t.getDouble("reelCredit"))
                 vine.home = t.getLong("home")
-                vine.grips = t.getGrips()
                 data.add(vine)
             }
             data.strayChains = tag.getLongArray("chunkChains")
@@ -331,6 +362,7 @@ fun registerWoggakVineEvents() {
     registerVineHolds()
     registerVineChunks()
     registerVineThrows()
+    registerVineTipHolds()
     registerWohlonWind()
     LifecycleEvent.SERVER_LEVEL_UNLOAD.register { level ->
         // The hold particles go with the level save; the next load deletes them by tag.
@@ -344,6 +376,7 @@ fun registerWoggakVineEvents() {
         clearVineJoints()
     }
     InteractionEvent.RIGHT_CLICK_ITEM.register(::shearWoggakVine)
+    VineCutNetwork.init()
 }
 
 /** [cost] is the number of vine items the vine uses; [error] is set when no vine is made. */
@@ -377,10 +410,21 @@ internal fun sagPath(a: Vector3dc, b: Vector3dc): List<Vector3dc> {
     }
 }
 
+internal fun validVineWidth(width: Double): Boolean = width in MIN_VINE_WIDTH..MAX_VINE_WIDTH
+
+/** Radius goes with the width; mass and break force go with the cross-section, so with the width squared. */
+internal fun vineParticleRadius(width: Double): Double = PARTICLE_RADIUS * width / VINE_WIDTH
+internal fun vineMassPerLength(width: Double): Double = MASS_PER_LENGTH * (width / VINE_WIDTH).let { it * it }
+internal fun vineBreakForce(width: Double): Double = VINE_BREAK_FORCE * (width / VINE_WIDTH).let { it * it }
+
+/** At least four particle radii, as for [VINE_TARGET_SPACING]: a rebuild then never makes a link under one diameter. */
+internal fun vineSpacing(width: Double): Double = max(VINE_TARGET_SPACING, 4 * vineParticleRadius(width))
+
+/** [massPerLength] is for the [VINE_WIDTH] rope; the chain scales it to [width]. */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.makeVineChain(
     path: List<Vector3dc>, start: ChainEndpoint, end: ChainEndpoint, initialVelocity: Vector3dc = Vector3d(),
-    massPerLength: Double = MASS_PER_LENGTH, targetSpacing: Double = VINE_TARGET_SPACING,
+    massPerLength: Double = MASS_PER_LENGTH, targetSpacing: Double = VINE_TARGET_SPACING, width: Double = VINE_WIDTH,
 ): ServerChain? = try {
     shipObjectWorld.createChain(ChainCreateData(
         dimensionId = dimensionId,
@@ -388,9 +432,9 @@ internal fun ServerLevel.makeVineChain(
         start = start,
         end = end,
         targetSpacing = targetSpacing,
-        particleRadius = PARTICLE_RADIUS,
-        massPerLength = massPerLength,
-        breakForce = VINE_BREAK_FORCE,
+        particleRadius = vineParticleRadius(width),
+        massPerLength = massPerLength * vineMassPerLength(width) / MASS_PER_LENGTH,
+        breakForce = vineBreakForce(width),
         stiffness = VINE_LINK_STIFFNESS,
         initialVelocity = initialVelocity,
     ))
@@ -431,11 +475,14 @@ internal fun ServerLevel.attachment(point: VinePoint): Pair<Vector3d, ChainEndpo
 private fun ServerLevel.tickWoggakVines() {
     val data = loadedWoggakVines ?: woggakVines
     deleteStrayVineChains(data)
+    data.sleep.collectObservers(this)
+    data.sleep.scanVines(data)
     rebuildLoadedVines(data)
+    // [VineSleepDebug] temporary
+    logVineSleepDebug(data)
     data.collider.clear()
     tickVineThrows(data)
     tickVineCaptures(data)
-    tickHullGrips(data)
     tickVineHolds(data)
     tickVineReels(data)
     tickVineRiders(data)
@@ -474,7 +521,7 @@ private fun ServerLevel.tickWoggakVines() {
             }
             followHome(data, vine, chain)
         }
-        if (!data.collider.add(chain, vine.joinedEnds)) {
+        if (!data.collider.add(chain, vine.joinedEnds, vine.width * 0.5)) {
             LOG.warn("Woggak Vine {} has a position that is not finite; it is removed", vine.chain.value)
             if (!world.deleteChain(vine.chain)) LOG.warn("Woggak Vine {} was already removed", vine.chain.value)
             data.removeAt(i); count--; topology = true
@@ -494,6 +541,7 @@ private fun ServerLevel.tickWoggakVines() {
         data.jointsDirty = true
         data.setDirty()
     }
+    sleepFarVines(data)
     publishJointPairs(data)
     if (data.anchorsDirty) {
         data.anchorsDirty = false

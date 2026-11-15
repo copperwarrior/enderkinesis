@@ -67,20 +67,8 @@ class JointPair(val follower: ParticleId, val target: ParticleId, val second: Pa
     @Volatile var weight = 0.0
 }
 
-/**
- * Holds [particle], node [node] of its vine, at [local], a shipyard point of ship [shipId]. The physics thread sets
- * [broken] and alone uses [point] and [pointVelocity] as scratch.
- */
-class HullGrip(val particle: ParticleId, val shipId: Long, local: Vector3dc, val node: Int) {
-    val local: Vector3dc = Vector3d(local)
-    @Volatile var broken = false
-    internal val point = Vector3d()
-    internal val pointVelocity = Vector3d()
-}
-
 // Server thread publishes, physics thread reads; each array is replaced, never changed.
 private val publishedPairs = ConcurrentHashMap<DimensionId, Array<JointPair>>()
-private val publishedGrips = ConcurrentHashMap<DimensionId, Array<HullGrip>>()
 
 /** Current world position of the joined node, or null when the target vine is gone or not loaded. */
 @OptIn(GameTickOnly::class)
@@ -143,9 +131,6 @@ internal fun ServerLevel.publishJointPairs(data: WoggakVineData) {
     for (hold in data.holds.values) pairs.add(hold.pair)
     for (rider in data.riding.riders.values) pairs.add(rider.pair)
     if (pairs.isEmpty()) publishedPairs.remove(dimensionId) else publishedPairs[dimensionId] = pairs.toTypedArray()
-    val grips = ArrayList<HullGrip>()
-    for (vine in data.vines) vine.hullGrips?.let { grips.addAll(it) }
-    if (grips.isEmpty()) publishedGrips.remove(dimensionId) else publishedGrips[dimensionId] = grips.toTypedArray()
 }
 
 @OptIn(VsBeta::class, PhysTickOnly::class)
@@ -155,12 +140,10 @@ fun registerVineJoints() {
 
 fun clearVineJoints() {
     publishedPairs.clear()
-    publishedGrips.clear()
 }
 
 @OptIn(PhysTickOnly::class)
 private fun PhysLevel.solveJoints(dt: Double) {
-    solveGrips(dt)
     val pairs = publishedPairs[dimension] ?: return
     val maxImpulse = VINE_BREAK_FORCE * dt
     for (pair in pairs) {
@@ -194,34 +177,5 @@ private fun PhysLevel.solveJoints(dt: Double) {
             if (c.isSleeping) c.wake()
             c.applyWorldImpulse(Vector3d(-jx * wc, -jy * wc, -jz * wc))
         }
-    }
-}
-
-/** As a joint pair, with the ship point as the target; the ship takes the opposite pull as a force at that point. */
-@OptIn(PhysTickOnly::class, VsBeta::class)
-private fun PhysLevel.solveGrips(dt: Double) {
-    val grips = publishedGrips[dimension] ?: return
-    val maxImpulse = VINE_BREAK_FORCE * dt
-    val k = POSITION_CORRECTION / dt
-    for (grip in grips) {
-        if (grip.broken) continue
-        val a = getParticleById(grip.particle) ?: continue
-        val ship = getShipById(grip.shipId) ?: continue
-        ship.transform.shipToWorld.transformPosition(grip.local, grip.point)
-        ship.pointVelocity(grip.point, grip.pointVelocity)
-        val shipMass = if (ship.isStatic) 0.0 else ship.mass
-        val reduced = if (shipMass > 0.0) a.mass * shipMass / (a.mass + shipMass) else a.mass
-        if (!reduced.isFinite() || reduced <= 0.0) continue
-        val pa = a.position; val va = a.velocity
-        val p = grip.point; val v = grip.pointVelocity
-        val jx = -reduced * ((va.x() - v.x) + k * (pa.x() - p.x))
-        val jy = -reduced * ((va.y() - v.y) + k * (pa.y() - p.y))
-        val jz = -reduced * ((va.z() - v.z) + k * (pa.z() - p.z))
-        val size = sqrt(jx * jx + jy * jy + jz * jz)
-        if (!size.isFinite() || size <= 0.0) continue
-        if (size > maxImpulse) { grip.broken = true; continue }
-        if (a.isSleeping) a.wake()
-        a.applyWorldImpulse(Vector3d(jx, jy, jz))
-        if (shipMass > 0.0) ship.applyWorldForce(Vector3d(-jx / dt, -jy / dt, -jz / dt), Vector3d(p))
     }
 }

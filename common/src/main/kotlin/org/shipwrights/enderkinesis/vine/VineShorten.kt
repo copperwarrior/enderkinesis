@@ -49,14 +49,15 @@ private const val LENGTH_EPS = 1e-6
 /** The end of a vine of [links] links that is nearest to node [node]; the start on a tie. */
 internal fun nearestEnd(node: Int, links: Int): ChainEnd = if (node * 2 <= links) ChainEnd.START else ChainEnd.END
 
-/** The shortest rest length that [links] links can reel to. */
-internal fun reelFloor(links: Int): Double = links * MIN_REEL_SPACING
+/** The shortest rest length that [links] links of a [width] vine can reel to; the particle radius goes with the width. */
+internal fun reelFloor(links: Int, width: Double = VINE_WIDTH): Double = links * MIN_REEL_SPACING * width / VINE_WIDTH
 
 /** True when a rest length of [rest] is at the [reelFloor] of [links] links. */
-internal fun atReelFloor(rest: Double, links: Int): Boolean = rest <= reelFloor(links) + LENGTH_EPS
+internal fun atReelFloor(rest: Double, links: Int, width: Double = VINE_WIDTH): Boolean = rest <= reelFloor(links, width) + LENGTH_EPS
 
-/** Links that VS gives a new chain of [rest] length: it lays any path out again at [VINE_TARGET_SPACING]. */
-internal fun respacedLinks(rest: Double): Int = ceil(rest / VINE_TARGET_SPACING - LENGTH_EPS).toInt().coerceAtLeast(1)
+/** Links that VS gives a new chain of [rest] length: it lays any path out again at [spacing]. */
+internal fun respacedLinks(rest: Double, spacing: Double = VINE_TARGET_SPACING): Int =
+    ceil(rest / spacing - LENGTH_EPS).toInt().coerceAtLeast(1)
 
 /** The length that came in since the paid rest length [paidRest]; never negative, so a longer vine pays nothing. */
 internal fun reelArrival(paidRest: Double, rest: Double): Double =
@@ -191,16 +192,18 @@ private fun ServerLevel.stepReel(data: WoggakVineData, id: Long, reel: VineReel,
     val links = status.nodeCount - 1
     val rest = status.currentRestLength
     if (links < 1 || !rest.isFinite() || rest <= 0.0) return false
-    if (atReelFloor(rest, links)) {
-        if (respacedLinks(rest) >= links) return false.also { LOG.info("[VineReelDebug] server stepReel: at the shortest, rest={} links={}", rest, links) }
-        val vine = data.vine(id) ?: return false
+    val vine = data.vine(id) ?: return false
+    if (atReelFloor(rest, links, vine.width)) {
+        if (respacedLinks(rest, vine.spacing) >= links) {
+            return false.also { LOG.info("[VineReelDebug] server stepReel: at the shortest, rest={} links={}", rest, links) }
+        }
         val piece = rebuildRespaced(data, vine, chain) ?: return false
-        LOG.info("[VineReelDebug] server stepReel: respaced rest={} links={} -> {}", rest, links, respacedLinks(rest))
+        LOG.info("[VineReelDebug] server stepReel: respaced rest={} links={} -> {}", rest, links, respacedLinks(rest, vine.spacing))
         reel.chain = piece.chain
         reel.target = Double.NaN
         return true
     }
-    val floor = reelFloor(links)
+    val floor = reelFloor(links, vine.width)
     if (reel.target != floor) {
         LOG.info("[VineReelDebug] server stepReel: setTargetLength target={} rest={} links={}", floor, rest, links)
         chain.setTargetLength(floor, REEL_SPEED)
@@ -286,11 +289,11 @@ internal fun ServerPlayer.payReel(data: WoggakVineData, vine: WoggakVine, reeled
 }
 
 /**
- * Makes [vine] again at its rest length, with the same id, anchors, joints and grips. VS lays it out at
- * [VINE_TARGET_SPACING], so a vine squeezed to the [reelFloor] gets fewer links. Null when it cannot.
+ * Makes [vine] again at its rest length, with the same id, anchors and joints. VS lays it out at
+ * its spacing, so a vine squeezed to the [reelFloor] gets fewer links. Null when it cannot.
  */
 @OptIn(GameTickOnly::class)
-private fun ServerLevel.rebuildRespaced(data: WoggakVineData, vine: WoggakVine, chain: ServerChain): WoggakVine? {
+internal fun ServerLevel.rebuildRespaced(data: WoggakVineData, vine: WoggakVine, chain: ServerChain): WoggakVine? {
     val status = chain.status
     val nodes = status.nodeCount
     val links = nodes - 1
@@ -298,10 +301,11 @@ private fun ServerLevel.rebuildRespaced(data: WoggakVineData, vine: WoggakVine, 
     val positions = DoubleArray(nodes * 3)
     if (chain.copyNodePositions(positions) != nodes) return null
     val piece = addPiece(
-        positions, nodeVelocities(chain, nodes), 0 until nodes, rest, vine.start, vine.end, vine.fromBreak, vine.dropsOnFade, vine.id,
+        positions, nodeVelocities(chain, nodes), 0 until nodes, rest, vine.start, vine.end, vine.fromBreak, vine.dropsOnFade,
+        vine.spacing, vine.id, width = vine.width,
     ) ?: return null
-    piece.grips = vine.grips.map { VineGrip(extendedNode(it.node, links, rest, 0.0, false), it.shipId, it.local) }
-    replaceRebuilt(data, vine, piece) { node -> extendedNode(node, links, rest, 0.0, false) }
+    val spacing = vine.spacing
+    replaceRebuilt(data, vine, piece) { node -> extendedNode(node, links, rest, 0.0, false, spacing) }
     return piece
 }
 

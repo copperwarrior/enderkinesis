@@ -1066,6 +1066,9 @@ object EKBlocks {
     val WOHLON_HANGING_ROOTS: RegistrySupplier<Block> = BLOCKS.register("wohlon_hanging_roots") {
         net.minecraft.world.level.block.HangingRootsBlock(BlockBehaviour.Properties.copy(Blocks.HANGING_ROOTS))
     }
+    val WEJE_VINE: RegistrySupplier<Block> = BLOCKS.register("weje_vine") {
+        net.minecraft.world.level.block.VineBlock(BlockBehaviour.Properties.copy(Blocks.VINE))
+    }
     val WOHLON_LICHEN: RegistrySupplier<Block> = BLOCKS.register("wohlon_lichen") {
         org.shipwrights.enderkinesis.block.WohlonLichenBlock(
             BlockBehaviour.Properties.copy(Blocks.GLOW_LICHEN).mapColor(MapColor.PLANT).lightLevel { 0 }

@@ -36,7 +36,7 @@
       "upper_size": 1
     },
     "decorators": [
-      { "type": "minecraft:leave_vine", "probability": 0.25 }
+      { "type": "enderkinesis:weje_leave_vine", "probability": 0.25 }
     ],
     "force_dirt": false,
     "ignore_vines": false

@@ -8,14 +8,13 @@ import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.ChunkAccess
 import org.joml.Vector3d
-import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.duck.WorldgenVineHolder
-import org.valkyrienskies.core.api.chains.ChainEndpoint
-import org.valkyrienskies.core.api.util.GameTickOnly
 
 private const val MAX_ROOM_SCAN = 384
 /** A loop whose anchor moved this much nearer its other end is too tight to hang; it is not made. */
 private const val LOOP_MIN_SLACK = 1.02
+/** Generated vines get longer links than player vines, so far fewer particles. */
+internal const val WORLDGEN_VINE_SPACING = 0.8
 
 /** Reads the cells a planned vine needs: solid like the anchor rule in releaseIfLost, open like the air a rope hangs in. */
 internal interface VineProbe {
@@ -84,20 +83,21 @@ internal fun realiseVine(plan: PlannedVine, probe: VineProbe): RealVine? {
         val dx = plan.bx - plan.ax.toDouble(); val dy = plan.by - y.toDouble(); val dz = plan.bz - plan.az.toDouble()
         if (plan.length < Math.sqrt(dx * dx + dy * dy + dz * dz) * LOOP_MIN_SLACK) return null
         val nodes = catenaryNodes(
-            plan.ax + 0.5, y.toDouble(), plan.az + 0.5, plan.bx + 0.5, plan.by.toDouble(), plan.bz + 0.5, plan.length, VINE_TARGET_SPACING,
+            plan.ax + 0.5, y.toDouble(), plan.az + 0.5, plan.bx + 0.5, plan.by.toDouble(), plan.bz + 0.5, plan.length, WORLDGEN_VINE_SPACING,
         )
         return RealVine(start, anchorPoint(plan.bx, plan.by, plan.bz), nodes, polylineLength(nodes))
     }
     val room = openRoom(probe, plan.ax, y, plan.az) - VineGenRules.FLOOR_GAP
     val length = if (plan.kind == PlannedKind.DROP) room else min(plan.length, room)
     if (length < plan.minLength) return null
-    val nodes = strandNodes(plan.ax + 0.5, y.toDouble(), plan.az + 0.5, length, VINE_TARGET_SPACING)
+    val nodes = strandNodes(plan.ax + 0.5, y.toDouble(), plan.az + 0.5, length, WORLDGEN_VINE_SPACING)
     return RealVine(start, null, nodes, polylineLength(nodes))
 }
 
 internal fun RealVine.toRecord(id: Long) = VineRecord(
     id, WoggakVineAnchor(start), WoggakVineAnchor(end), -1L, fromBreak = false, dropsOnFade = true,
-    restLength = rest, positions = nodes, brokenLinks = IntArray(0), chain = 0L,
+    restLength = rest, positions = nodes, brokenLinks = IntArray(0), chain = 0L, spacing = WORLDGEN_VINE_SPACING,
+    natural = true,
 )
 
 /** Adds the records of [plans] whose home anchor is in [chunk]; it reads only [chunk]'s own blocks, so any C2ME worker can run it. */
@@ -114,8 +114,10 @@ internal fun ChunkAccess.putWorldgenVines(records: List<VineRecord>) {
 
 internal enum class PlanResult { MADE, WAIT, DROP }
 
-/** Makes [plan]'s vine now, as a live chain. [waitOn] is true for an anchor block that will become solid later. */
-@OptIn(GameTickOnly::class)
+/**
+ * Makes [plan]'s vine now, asleep with no chain until an observer comes near. [waitOn] is true for an anchor block
+ * that will become solid later.
+ */
 internal fun ServerLevel.makePlannedVine(plan: PlannedVine, waitOn: (BlockState) -> Boolean): PlanResult {
     val a = BlockPos(plan.ax, plan.ay, plan.az)
     val b = if (plan.kind == PlannedKind.LOOP) BlockPos(plan.bx, plan.by, plan.bz) else null
@@ -125,12 +127,8 @@ internal fun ServerLevel.makePlannedVine(plan: PlannedVine, waitOn: (BlockState)
     val probe = BlockVineProbe(this, minBuildHeight)
     if (b != null && !probe.solid(b.x, b.y, b.z)) return PlanResult.DROP
     val real = realiseVine(plan, probe) ?: return PlanResult.DROP
-    val path = ArrayList<Vector3dc>(real.nodes.size / 3)
-    for (i in 0 until real.nodes.size / 3) path += Vector3d(real.nodes[i * 3], real.nodes[i * 3 + 1], real.nodes[i * 3 + 2])
-    val end = real.end?.let { ChainEndpoint.World(Vector3d(it.local)) } ?: ChainEndpoint.Free
-    val chain = makeVineChain(path, ChainEndpoint.World(Vector3d(real.start.local)), end) ?: return PlanResult.DROP
-    addVine(WoggakVine(if (plan.id != 0L) plan.id else newVineId(), chain.id, WoggakVineAnchor(real.start), WoggakVineAnchor(real.end)), path)
-    return PlanResult.MADE
+    val record = real.toRecord(if (plan.id != 0L) plan.id else newVineId())
+    return if (parkNewVine(woggakVines, record)) PlanResult.MADE else PlanResult.DROP
 }
 
 /** [plan] with its anchor fixed at [y]: no snap is left to do. */

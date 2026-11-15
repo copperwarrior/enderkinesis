@@ -17,7 +17,8 @@ import org.shipwrights.enderkinesis.dimension.TreeTip
 
 /** The "Medium + Long" preset of the woggak-vine-worldgen preview, which the user picked. */
 internal object VineGenRules {
-    const val MOTHER_VINES = 140
+    /** A quarter of the picked preset's 140, for physics cost. */
+    const val MOTHER_VINES = 35
     /** The attractor radius of the Mother crown; other crowns scale [MOTHER_VINES] by their area. */
     const val MOTHER_CROWN_RADIUS = 140.0
     const val LOOP_SHARE = 0.20
@@ -43,7 +44,8 @@ internal object VineGenRules {
     const val LOOP_TRIES = 64
     const val FLOOR_GAP = 0.3
     const val LOOP_FLOOR_GAP = 0.4
-    const val ARCH_STRANDS = 7
+    /** About a quarter of the preset's 7, for physics cost. */
+    const val ARCH_STRANDS = 2
     const val ARCH_LOOP_SPAN = 14.0
     const val ARCH_CLEARANCE = 2
     const val ARCH_END_SHARE = 0.08

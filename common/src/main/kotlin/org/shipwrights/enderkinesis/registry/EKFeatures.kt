@@ -6,10 +6,12 @@ import net.minecraft.core.registries.Registries
 import net.minecraft.world.level.levelgen.feature.Feature
 import net.minecraft.world.level.levelgen.feature.configurations.GeodeConfiguration
 import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration
+import net.minecraft.world.level.levelgen.feature.treedecorators.TreeDecoratorType
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.worldgen.CrepusculiteGeodeFeature
 import org.shipwrights.enderkinesis.worldgen.HugeWohlonMushroomFeature
 import org.shipwrights.enderkinesis.worldgen.WogorTreeConfiguration
+import org.shipwrights.enderkinesis.worldgen.WejeLeaveVineDecorator
 import org.shipwrights.enderkinesis.worldgen.WogorTreeFeature
 import org.shipwrights.enderkinesis.worldgen.WohlonDeadwoodFeature
 import org.shipwrights.enderkinesis.worldgen.WohlonHugeFungiFeature
@@ -49,5 +51,14 @@ object EKFeatures {
     val WOHLON_HUGE_FUNGI: RegistrySupplier<Feature<*>> =
         FEATURES.register("wohlon_huge_fungi") { WohlonHugeFungiFeature(NoneFeatureConfiguration.CODEC) }
 
-    fun register() = FEATURES.register()
+    val TREE_DECORATORS: DeferredRegister<TreeDecoratorType<*>> =
+        DeferredRegister.create(EnderkinesisMod.MOD_ID, Registries.TREE_DECORATOR_TYPE)
+
+    val WEJE_LEAVE_VINE: RegistrySupplier<TreeDecoratorType<*>> =
+        TREE_DECORATORS.register("weje_leave_vine") { TreeDecoratorType(WejeLeaveVineDecorator.CODEC) }
+
+    fun register() {
+        FEATURES.register()
+        TREE_DECORATORS.register()
+    }
 }

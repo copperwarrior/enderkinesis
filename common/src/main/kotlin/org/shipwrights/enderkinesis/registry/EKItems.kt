@@ -623,6 +623,7 @@ object EKItems {
     val WOHLON_LEAF_LITTER_ITEM = blockItem("wohlon_leaf_litter", EKBlocks.WOHLON_LEAF_LITTER)
     val HEARTFIRE_ITEM = blockItem("heartfire", EKBlocks.HEARTFIRE)
     val WOHLON_HANGING_ROOTS_ITEM = blockItem("wohlon_hanging_roots", EKBlocks.WOHLON_HANGING_ROOTS)
+    val WEJE_VINE_ITEM = blockItem("weje_vine", EKBlocks.WEJE_VINE)
     val WOHLON_LUMPY_MUSHROOM_ITEM = blockItem("wohlon_lumpy_mushroom", EKBlocks.WOHLON_LUMPY_MUSHROOM)
     val WOHLON_CUP_MUSHROOM_ITEM = blockItem("wohlon_cup_mushroom", EKBlocks.WOHLON_CUP_MUSHROOM)
     val WOHLON_LUMPY_MUSHROOM_BLOCK_ITEM = blockItem("wohlon_lumpy_mushroom_block", EKBlocks.WOHLON_LUMPY_MUSHROOM_BLOCK)

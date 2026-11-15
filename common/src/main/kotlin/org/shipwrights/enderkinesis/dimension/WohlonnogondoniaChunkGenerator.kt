@@ -3466,7 +3466,7 @@ class WohlonnogondoniaChunkGenerator(
             val cell = target[lx][lz][ly]
             if (cell != null) {
                 if (cell === AIR || cell === WATER) return false
-                if (cell.block === Blocks.VINE) return false
+                if (cell.block is VineBlock) return false
                 return true
             }
             // Cache null in-chunk → segment painter saw this voxel
@@ -4856,10 +4856,10 @@ class WohlonnogondoniaChunkGenerator(
          *  gives visual variety along a canopy's rim. */
         private val VINE_BLOCKS: Array<BlockState> by lazy {
             arrayOf(
-                Blocks.VINE.defaultBlockState().setValue(VineBlock.NORTH, true),
-                Blocks.VINE.defaultBlockState().setValue(VineBlock.SOUTH, true),
-                Blocks.VINE.defaultBlockState().setValue(VineBlock.EAST, true),
-                Blocks.VINE.defaultBlockState().setValue(VineBlock.WEST, true),
+                EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(VineBlock.NORTH, true),
+                EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(VineBlock.SOUTH, true),
+                EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(VineBlock.EAST, true),
+                EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(VineBlock.WEST, true),
             )
         }
 
@@ -4875,7 +4875,7 @@ class WohlonnogondoniaChunkGenerator(
          *  found). */
         private val VINE_STATES: Array<BlockState> by lazy {
             Array(16) { mask ->
-                var s = Blocks.VINE.defaultBlockState()
+                var s = EKBlocks.WEJE_VINE.get().defaultBlockState()
                 if ((mask and 0x1) != 0) s = s.setValue(VineBlock.NORTH, true)
                 if ((mask and 0x2) != 0) s = s.setValue(VineBlock.SOUTH, true)
                 if ((mask and 0x4) != 0) s = s.setValue(VineBlock.EAST, true)

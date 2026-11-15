@@ -22,6 +22,7 @@ import org.valkyrienskies.core.api.chains.ChainEndpoint
 import org.valkyrienskies.core.api.chains.ServerChain
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.mod.common.shipObjectWorld
+import kotlin.math.max
 import kotlin.math.sqrt
 
 internal const val PICK_REACH = 5.0
@@ -44,7 +45,7 @@ private const val PUFF_STEP = 2
  * The chain API has no call to cut a link, so this deletes the chain and makes new ones.
  * Each piece is laid along its deformed shape but at its rest length, so a stretched vine never makes a bigger one.
  * ChainCreateData takes one initial velocity, so a piece keeps the mean velocity of its nodes, not their spin.
- * Joints and grips on a node move to the piece that holds that node; see [repointSplit].
+ * Joints on a node move to the piece that holds that node; see [repointSplit].
  * Returns true when the caller must drop [vine] from the list.
  */
 @OptIn(GameTickOnly::class)
@@ -59,7 +60,7 @@ internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, f
     if (chain.copyNodePositions(positions) != nodes) return false
     val velocities = nodeVelocities(chain, nodes)
     // The paid length: a reel that has not pulled its node in yet was already paid out in items.
-    val restPerLink = (status.paidLength() / (nodes - 1)).takeIf { it.isFinite() && it > 0 } ?: VINE_TARGET_SPACING
+    val restPerLink = (status.paidLength() / (nodes - 1)).takeIf { it.isFinite() && it > 0 } ?: vine.spacing
     val blownUp = blownUpReason(vine, positions, velocities, maxRebuildSpeed(restPerLink * (nodes - 1)))
     if (!shipObjectWorld.deleteChain(vine.chain)) return false
     if (blownUp != null || velocities == null) {
@@ -70,11 +71,11 @@ internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, f
     for (run in runs) {
         val start = if (run.first == 0) vine.start else null
         val end = if (run.last == nodes - 1) vine.end else null
-        addPiece(positions, velocities, run, restPerLink * (run.last - run.first), start, end, fromBreak, vine.dropsOnFade)
+        addPiece(positions, velocities, run, restPerLink * (run.last - run.first), start, end, fromBreak, vine.dropsOnFade, vine.spacing, width = vine.width)
             ?.let { pieces += SplitPiece(run, it) }
     }
     woggakVines.noteSplit(vine, pieces)
-    for (pair in woggakVines.repointSplit(vine.id, vine, pieces, vine.grips)) pair.restoreContacts(this)
+    for (pair in woggakVines.repointSplit(vine.id, vine, pieces)) pair.restoreContacts(this)
     return true
 }
 
@@ -82,16 +83,11 @@ internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, f
 internal class SplitPiece(val run: IntRange, val vine: WoggakVine)
 
 /**
- * After vine [oldId] is split into [pieces]: each joint on a node of it moves to the piece that holds that node, and
- * each piece gets the [grips] in its run. A joint on a node that no piece holds (a piece too short to keep) is lost,
+ * After vine [oldId] is split into [pieces]: each joint on a node of it moves to the piece that holds that node. A joint on a node that no piece holds (a piece too short to keep) is lost,
  * and its end is released. Then the anchor walk decides which vines live. [old] is skipped while it is still listed.
  * Returns the pairs of the lost joints, so the caller gives their nodes the contacts back.
  */
-internal fun WoggakVineData.repointSplit(oldId: Long, old: WoggakVine?, pieces: List<SplitPiece>, grips: List<VineGrip>): List<JointPair> {
-    for (piece in pieces) {
-        piece.vine.grips = grips.inRun(piece.run)
-        piece.vine.hullGrips = null
-    }
+internal fun WoggakVineData.repointSplit(oldId: Long, old: WoggakVine?, pieces: List<SplitPiece>): List<JointPair> {
     val lost = ArrayList<JointPair>()
     // A piece shares its end points, and so their joints, with [old]; each joint moves once.
     val moved = Collections.newSetFromMap(IdentityHashMap<VineJoint, Boolean>())
@@ -169,10 +165,11 @@ private fun maxRebuildSpeed(restLength: Double): Double =
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.addPiece(
     positions: DoubleArray, velocities: DoubleArray?, run: IntRange, restLength: Double,
-    start: WoggakVineAnchor?, end: WoggakVineAnchor?, fromBreak: Boolean, dropsOnFade: Boolean,
-    id: Long = newVineId(), fallbackHome: Long? = null,
+    start: WoggakVineAnchor?, end: WoggakVineAnchor?, fromBreak: Boolean, dropsOnFade: Boolean, spacing: Double,
+    id: Long = newVineId(), fallbackHome: Long? = null, width: Double = VINE_WIDTH,
 ): WoggakVine? {
-    if (restLength < MIN_PIECE_LENGTH) return null
+    // VS refuses a link under one particle diameter.
+    if (restLength < max(MIN_PIECE_LENGTH, 2 * vineParticleRadius(width))) return null
     val startAnchor = start.kept()
     val endAnchor = end.kept()
     val pivot = when {
@@ -192,8 +189,10 @@ internal fun ServerLevel.addPiece(
     // VS adds the carrier velocity of a body end to each node, so only the rest is passed in.
     val initial = velocities?.meanRelative(run, carrierVelocity(startAnchor.point, startHold), carrierVelocity(endAnchor.point, endHold))
         ?: Vector3d()
-    val chain = makeVineChain(path, startHold?.second ?: ChainEndpoint.Free, endHold?.second ?: ChainEndpoint.Free, initial) ?: return null
-    val vine = WoggakVine(id, chain.id, startAnchor, endAnchor, fromBreak).also { it.dropsOnFade = dropsOnFade }
+    val chain = makeVineChain(
+        path, startHold?.second ?: ChainEndpoint.Free, endHold?.second ?: ChainEndpoint.Free, initial, targetSpacing = spacing, width = width,
+    ) ?: return null
+    val vine = WoggakVine(id, chain.id, startAnchor, endAnchor, fromBreak, spacing, width).also { it.dropsOnFade = dropsOnFade }
     addVine(vine, path, fallbackHome)
     return vine
 }
@@ -310,8 +309,13 @@ internal fun ServerLevel.nearestNode(pick: VinePick): Int {
 
 @OptIn(GameTickOnly::class)
 internal fun shearWoggakVine(player: Player, hand: InteractionHand): CompoundEventResult<ItemStack> {
+    if (player.getItemInHand(hand).item !is ShearsItem) return CompoundEventResult.pass()
+    return cutWoggakVine(player, hand)
+}
+
+@OptIn(GameTickOnly::class)
+internal fun cutWoggakVine(player: Player, hand: InteractionHand): CompoundEventResult<ItemStack> {
     val stack = player.getItemInHand(hand)
-    if (stack.item !is ShearsItem) return CompoundEventResult.pass()
     val level = player.level() as? ServerLevel ?: return CompoundEventResult.pass()
     val data = level.woggakVines
     // Shears in both hands send a use packet for each hand on one click.

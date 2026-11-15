@@ -4,7 +4,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.RandomSource
-import net.minecraft.world.level.block.Blocks
+import org.shipwrights.enderkinesis.registry.EKBlocks
 import net.minecraft.world.level.block.RotatedPillarBlock
 import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.level.block.state.BlockState
@@ -35,7 +35,7 @@ class WogorWoodBlock(properties: Properties) : RotatedPillarBlock(properties) {
             if (!sideState.isAir) continue
 
             // VineBlock property names the wall the vine attaches to — from the vine's POV at sidePos, the wood is in dir.opposite.
-            val vineState = Blocks.VINE.defaultBlockState()
+            val vineState = EKBlocks.WEJE_VINE.get().defaultBlockState()
                 .setValue(faceProperty(dir.opposite), true)
             level.setBlock(sidePos, vineState, 2)
             return

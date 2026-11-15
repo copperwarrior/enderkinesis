@@ -46,9 +46,9 @@ const val MOVE_BACK = 2
 const val MOVE_LEFT = 4
 const val MOVE_RIGHT = 8
 const val MOVE_MASK = MOVE_FORWARD or MOVE_BACK or MOVE_LEFT or MOVE_RIGHT
-/** The jump key: climbs up a steep vine, mantles onto a flat one. */
+/** The jump key: climbs up a steep vine or toward the anchor of a free-end vine, mantles onto a flat one. */
 const val CLIMB_UP = 16
-/** The sneak key: slides down a steep vine, lets go of a flat one. */
+/** The sneak key: slides down a steep vine or toward a free end; lets go of a flat span. */
 const val CLIMB_DOWN = 32
 const val CLIMB_MASK = CLIMB_UP or CLIMB_DOWN
 
@@ -538,6 +538,16 @@ internal fun Player.canHoldVine(): Boolean = isAlive && !isSpectator && !isPasse
 /** True when [chainId] is a vine that does not fade; a fading vine has no anchor, so its holder falls with it. */
 private fun WoggakVineData.holdsUnfaded(chainId: ChainId): Boolean = vines.any { it.chain == chainId && it.fadeStart < 0 }
 
+/** The node direction toward the only free end of [chainId]: 1 for the end, -1 for the start, else 0. */
+private fun WoggakVineData.freeEndWay(chainId: ChainId): Int {
+    val vine = vines.firstOrNull { it.chain == chainId } ?: return 0
+    return when {
+        vine.end.released && !vine.start.released -> 1
+        vine.start.released && !vine.end.released -> -1
+        else -> 0
+    }
+}
+
 private fun WoggakVineData.isSpan(chainId: ChainId): Boolean = vines.any { it.chain == chainId && it.isSpan }
 
 /** True when both ends of the vine are fixed, to a block, a body or another vine. */
@@ -602,7 +612,7 @@ private enum class GripStep { MOVED, STILL, LOST }
 
 /**
  * One tick of the held keys. On a steep vine jump and sneak climb; on a flat one jump mantles and a sneak press lets
- * go. On a span (both ends fixed) the walk keys move the grip where the vine goes along the level wish, and pump
+ * go, but on a free-end vine sneak and jump climb at any slope, and jump mantles only at the anchor. On a span (both ends fixed) the walk keys move the grip where the vine goes along the level wish, and pump
  * the swing with the rest; on a vine with a free end they only pump.
  * Needs the [nodes] of the vine in [WoggakVineData.scratch].
  */
@@ -612,8 +622,18 @@ private fun ServerLevel.steerHold(data: WoggakVineData, player: ServerPlayer, ho
     hold.pressed = 0
     val input = hold.input
     val steep = isSteepAt(data.scratch, nodes, hold.grip)
-    if (!steep && (pressed and CLIMB_DOWN) != 0) return HoldStep.LET_GO
-    if (!steep && (input and CLIMB_UP) != 0 && player.findMantle(data.scratch, nodes, hold.grip, hold.mantle)) return HoldStep.MANTLE
+    // A swing turns the grip level and back, so on a free-end vine sneak and jump climb at any slope.
+    val freeWay = data.freeEndWay(hold.chain)
+    val climbKeys = input and CLIMB_MASK
+    val atAnchor = hold.grip == (if (freeWay > 0) 0.0 else (nodes - 1).toDouble())
+    val freeClimb = when {
+        freeWay == 0 || climbKeys == 0 || climbKeys == CLIMB_MASK -> 0
+        climbKeys == CLIMB_DOWN -> freeWay
+        atAnchor -> 0
+        else -> -freeWay
+    }
+    if (!steep && freeWay == 0 && (pressed and CLIMB_DOWN) != 0) return HoldStep.LET_GO
+    if (!steep && freeClimb == 0 && (input and CLIMB_UP) != 0 && player.findMantle(data.scratch, nodes, hold.grip, ropeHalfOf(data, hold), hold.mantle)) return HoldStep.MANTLE
     val forward = keyAxis(input, MOVE_FORWARD, MOVE_BACK)
     val right = keyAxis(input, MOVE_RIGHT, MOVE_LEFT)
     val yaw = Math.toRadians(player.yRot.toDouble())
@@ -621,10 +641,10 @@ private fun ServerLevel.steerHold(data: WoggakVineData, player: ServerPlayer, ho
     var wz = walkWishZ(forward, right, yaw)
     val length = sqrt(wx * wx + wz * wz)
     if (length > MIN_WISH) { wx /= length; wz /= length } else { wx = 0.0; wz = 0.0 }
-    val climbing = steep && (input and CLIMB_MASK) != 0
+    val climbing = freeClimb != 0 || (steep && climbKeys != 0)
     val span = data.isSpan(hold.chain)
     val step = when {
-        climbing -> climb(data, player, hold, nodes, wx, wz)
+        climbing -> climb(data, player, hold, nodes, wx, wz, freeClimb)
         length > MIN_WISH && span -> walk(data, player, hold, nodes, wx, 0.0, wz)
         else -> GripStep.STILL
     }
@@ -659,14 +679,24 @@ private fun ServerLevel.walk(
 private fun keyAxis(input: Int, plus: Int, minus: Int): Double =
     (if ((input and plus) != 0) 1.0 else 0.0) - (if ((input and minus) != 0) 1.0 else 0.0)
 
-/** A jump or sneak climb on a steep vine, at the vanilla ladder speeds; the level walk wish ([wx], [wz]) steers it. */
+/**
+ * A jump or sneak climb at the vanilla ladder speeds; the level walk wish ([wx], [wz]) steers it. A [way] other than 0
+ * fixes the node direction, as for a climb on a free-end vine.
+ */
 @OptIn(GameTickOnly::class)
 @Suppress("LongParameterList") // Plain doubles keep the hold tick free of allocation.
-private fun ServerLevel.climb(data: WoggakVineData, player: ServerPlayer, hold: VineHold, nodes: Int, wx: Double, wz: Double): GripStep {
+private fun ServerLevel.climb(
+    data: WoggakVineData, player: ServerPlayer, hold: VineHold, nodes: Int, wx: Double, wz: Double, way: Int,
+): GripStep {
     val up = (hold.input and CLIMB_UP) != 0
     val wishX = wx * CLIMB_STEER_SHARE
     val wishY = if (up) 1.0 else -1.0
     val wishZ = wz * CLIMB_STEER_SHARE
+    if (way != 0 && hold.climbDir != way) {
+        // TODO [VineHoldDebug] temporary
+        LOG.info("[VineHoldDebug] free-vine climb: way {} -> {} up={}, grip={}", hold.climbDir, way, up, hold.grip)
+        hold.climbDir = way
+    }
     if (hold.climbDir == 0) hold.climbDir = climbDirection(data.scratch, nodes, hold.grip, wishX, wishY, wishZ)
     return moveGrip(data, player, hold, nodes, if (up) CLIMB_UP_SPEED else CLIMB_DOWN_SPEED, wishX, wishY, wishZ, CLIMB_MIN_COS)
 }
@@ -776,15 +806,18 @@ private fun ServerLevel.placeGrip(data: WoggakVineData, player: ServerPlayer, ho
  * The feet place on top of the vine at [grip] into [out]; false when the player has no head room there. Needs the
  * [nodes] of the vine.
  */
-private fun ServerPlayer.findMantle(nodes: DoubleArray, count: Int, grip: Double, out: Vector3d): Boolean {
+private fun ServerPlayer.findMantle(nodes: DoubleArray, count: Int, grip: Double, ropeHalf: Double, out: Vector3d): Boolean {
     val gx = gripCoordinate(nodes, count, grip, 0)
     val gy = gripCoordinate(nodes, count, grip, 1)
     val gz = gripCoordinate(nodes, count, grip, 2)
-    out.set(gx, mantleFeetY(gy), gz)
-    return hasMantleRoom(gx, gy, gz, bbWidth / 2.0, bbHeight.toDouble()) { minX, minY, minZ, maxX, maxY, maxZ ->
+    out.set(gx, mantleFeetY(gy, ropeHalf), gz)
+    return hasMantleRoom(gx, gy, gz, bbWidth / 2.0, bbHeight.toDouble(), ropeHalf) { minX, minY, minZ, maxX, maxY, maxZ ->
         mantleSpaceFree(AABB(minX, minY, minZ, maxX, maxY, maxZ).deflate(MANTLE_PROBE_DEFLATE))
     }
 }
+
+private fun ropeHalfOf(data: WoggakVineData, hold: VineHold): Double =
+    (data.vines.firstOrNull { it.chain == hold.chain }?.width ?: VINE_WIDTH) * 0.5
 
 /**
  * True when [target] is free of blocks and entities, and the pull from the hang place up to it meets no block or ship.

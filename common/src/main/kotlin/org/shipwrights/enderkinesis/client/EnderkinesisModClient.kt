@@ -335,6 +335,7 @@ object EnderkinesisModClient {
             EKBlocks.HEARTFIRE.get(),
             EKBlocks.WEYYE_FRUIT_POD.get(),
             EKBlocks.WOHLON_HANGING_ROOTS.get(),
+            EKBlocks.WEJE_VINE.get(),
             EKBlocks.WOHLON_CUP_MUSHROOM.get(),
             EKBlocks.POTTED_WOHLON_FERN.get(),
             EKBlocks.POTTED_WOHLON_CUP_MUSHROOM.get(),

@@ -26,6 +26,9 @@ const val VINE_HALF_WIDTH = 2.0 / 16
 /** Half the side of the knot at a vine end joined to another vine; drawn and solid. */
 const val VINE_KNOT_HALF = 3.0 / 16
 
+/** The largest knot half, for searches that must find a knot of any vine width. */
+private const val MAX_KNOT_HALF = VINE_KNOT_HALF * MAX_VINE_WIDTH / VINE_WIDTH
+
 /** Cubes stay closed on a link up to 2 * VINE_HALF_WIDTH * this = 8 blocks long, 20 times the rest spacing. */
 internal const val MAX_CUBES_PER_LINK = 32
 
@@ -48,8 +51,8 @@ private const val FLOAT_CHECK_INFLATE = 0.0625
 private const val FLOAT_CHECK_DEPTH = 0.55
 /** How near a vine an uncarried entity still counts as on it, in blocks; an onGround flicker there gives no fling. */
 private const val LEAVE_INFLATE = 0.0625
-/** The bounds hold the cube half width; a pick hits up to SHEAR_RADIUS from a link. */
-private const val PICK_BOUNDS_INFLATE = SHEAR_RADIUS - VINE_HALF_WIDTH
+/** A pick hits up to SHEAR_RADIUS from a link. */
+private const val PICK_BOUNDS_INFLATE = SHEAR_RADIUS
 private const val VELOCITY_UNREAD: Byte = 0
 private const val VELOCITY_MISSING: Byte = 1
 private const val VELOCITY_READ: Byte = 2
@@ -71,6 +74,8 @@ class VineCollider {
     private var bounds = DoubleArray(0)
     /** For each vine: its JOINED_START and JOINED_END bits, which put a knot cube on that end node. */
     private var knots = IntArray(0)
+    /** For each vine: half its rope width, the half size of its link cubes. */
+    private var halves = DoubleArray(0)
     /** For each vine: System.nanoTime when its copied chain frame came in; 0 when not known. */
     private var frameArrivals = LongArray(0)
     private val chains = ArrayList<Chain>()
@@ -97,24 +102,24 @@ class VineCollider {
     }
 
     /** Copies [chain]'s nodes; returns false when a position is not finite, which is a blown-up chain. */
-    fun add(chain: Chain, joinedEnds: Int): Boolean {
+    fun add(chain: Chain, joinedEnds: Int, halfWidth: Double = VINE_HALF_WIDTH): Boolean {
         val n = chain.status.nodeCount
         if (n < 2) return true
         ensure(nodeCount + n, vineCount + 1)
         if (chain.copyNodePositions(nodes, nodeCount * 3) != n) return true
-        return commit(chain, n, joinedEnds, 0L)
+        return commit(chain, n, joinedEnds, 0L, halfWidth)
     }
 
     /**
      * As [add], but with [count] node positions from [positions]: the client gives the shape that it draws, from the
      * chain frame that came in at [frameArrival] (System.nanoTime).
      */
-    fun add(chain: Chain, positions: DoubleArray, count: Int, joinedEnds: Int, frameArrival: Long): Boolean {
+    fun add(chain: Chain, positions: DoubleArray, count: Int, joinedEnds: Int, frameArrival: Long, halfWidth: Double = VINE_HALF_WIDTH): Boolean {
         require(positions.size >= count * 3) { "Vine positions hold fewer than $count nodes" }
         if (count < 2) return true
         ensure(nodeCount + count, vineCount + 1)
         positions.copyInto(nodes, nodeCount * 3, 0, count * 3)
-        return commit(chain, count, joinedEnds, frameArrival)
+        return commit(chain, count, joinedEnds, frameArrival, halfWidth)
     }
 
     /** Nanoseconds from the arrival of vine [chainId]'s copied chain frame to [now]; 0 when not known. */
@@ -124,7 +129,8 @@ class VineCollider {
         return (now - frameArrivals[v]).coerceAtLeast(0L)
     }
 
-    private fun commit(chain: Chain, n: Int, joinedEnds: Int, frameArrival: Long): Boolean {
+    private fun commit(chain: Chain, n: Int, joinedEnds: Int, frameArrival: Long, halfWidth: Double): Boolean {
+        require(halfWidth > 0 && halfWidth.isFinite()) { "Vine half width $halfWidth" }
         var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
         var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
         for (i in 0 until n) {
@@ -141,7 +147,8 @@ class VineCollider {
         if (broken.isNotEmpty()) for (link in broken) if (link in 0 until n) gaps[nodeCount + link] = true
         knots[vineCount] = joinedEnds and (JOINED_START or JOINED_END)
         frameArrivals[vineCount] = frameArrival
-        val pad = if (knots[vineCount] != 0) VINE_KNOT_HALF else VINE_HALF_WIDTH
+        halves[vineCount] = halfWidth
+        val pad = if (knots[vineCount] != 0) knotHalf(vineCount) else halfWidth
         val b = vineCount * 6
         bounds[b] = minX - pad; bounds[b + 1] = minY - pad; bounds[b + 2] = minZ - pad
         bounds[b + 3] = maxX + pad; bounds[b + 4] = maxY + pad; bounds[b + 5] = maxZ + pad
@@ -250,6 +257,12 @@ class VineCollider {
         return if (v < 0) 0 else ranges[v * 2 + 1] - ranges[v * 2]
     }
 
+    /** Half the rope width of vine [chainId]; the standard half width when the vine is not here. */
+    fun halfWidth(chainId: Long): Double {
+        val v = indexOf(chainId)
+        return if (v < 0) VINE_HALF_WIDTH else halves[v]
+    }
+
     private fun indexOf(chainId: Long): Int {
         for (v in 0 until vineCount) if (chains[v].id.value == chainId) return v
         return -1
@@ -289,22 +302,22 @@ class VineCollider {
      */
     fun contacts(box: AABB, out: VineContacts, pass: VinePass? = null) {
         out.clear()
-        val r = VINE_HALF_WIDTH
         for (v in 0 until vineCount) {
             if (!overlapsVine(v, box) || pass?.passes(chains[v].id.value) == true) continue
+            val r = halves[v]
             val first = ranges[v * 2]
             val last = ranges[v * 2 + 1] - 1
             for (end in 0..1) {
                 if (knots[v] and (if (end == 0) JOINED_START else JOINED_END) == 0) continue
                 val link = if (end == 0) first else last - 1
-                if (gaps[link] || !knotTouches((if (end == 0) first else last) * 3, box)) continue
+                if (gaps[link] || !knotTouches((if (end == 0) first else last) * 3, knotHalf(v), box)) continue
                 if (!out.add(chains[v], link - first, end.toDouble(), 1.0)) return
             }
             for (i in first until ranges[v * 2 + 1]) {
                 if (gaps[i]) continue
                 val k = i * 3
                 val ux = nodes[k + 3] - nodes[k]; val uy = nodes[k + 4] - nodes[k + 1]; val uz = nodes[k + 5] - nodes[k + 2]
-                val steps = cubeSteps(sqrt(ux * ux + uy * uy + uz * uz))
+                val steps = cubeSteps(sqrt(ux * ux + uy * uy + uz * uz), r)
                 var touching = 0
                 var tSum = 0.0
                 for (s in 0..steps) {
@@ -330,7 +343,7 @@ class VineCollider {
             val i = first + link
             if (link < 0 || i >= last + 1 || gaps[i]) return null
             val knotted = (i == first && knots[v] and JOINED_START != 0) || (i == last - 1 && knots[v] and JOINED_END != 0)
-            val r = if (knotted) VINE_KNOT_HALF else VINE_HALF_WIDTH
+            val r = if (knotted) knotHalf(v) else halves[v]
             val k = i * 3
             val apart = box.maxX < min(nodes[k], nodes[k + 3]) - r || box.minX > max(nodes[k], nodes[k + 3]) + r ||
                 box.maxY < min(nodes[k + 1], nodes[k + 4]) - r || box.minY > max(nodes[k + 1], nodes[k + 4]) + r ||
@@ -384,7 +397,7 @@ class VineCollider {
         var nearest = Double.MAX_VALUE
         var bestVine = -1; var bestNode = 0; var bestT = 0.0
         var bestX = 0.0; var bestY = 0.0; var bestZ = 0.0
-        forEachCube(minX, low - 2 * VINE_KNOT_HALF, minZ, maxX, high, maxZ, pass) { v, i, t, x, y, z, half ->
+        forEachCube(minX, low - 2 * MAX_KNOT_HALF, minZ, maxX, high, maxZ, pass) { v, i, t, x, y, z, half ->
             val cubeTop = y + half
             if (cubeTop < low || cubeTop > high || !overlapsAcross(x, z, half, minX, minZ, maxX, maxZ)) return@forEachCube
             count++
@@ -494,10 +507,10 @@ class VineCollider {
         minX: Double, minY: Double, minZ: Double, maxX: Double, maxY: Double, maxZ: Double, pass: VinePass?,
         action: (vine: Int, node: Int, t: Double, x: Double, y: Double, z: Double, half: Double) -> Unit,
     ) {
-        val r = VINE_HALF_WIDTH
-        val h = VINE_KNOT_HALF
         for (v in 0 until vineCount) {
             if (!overlapsVine(v, minX, minY, minZ, maxX, maxY, maxZ) || pass?.passes(chains[v].id.value) == true) continue
+            val r = halves[v]
+            val h = knotHalf(v)
             val first = ranges[v * 2]
             val last = ranges[v * 2 + 1] - 1
             for (i in first until last + 1) {
@@ -507,7 +520,7 @@ class VineCollider {
                 val ux = nodes[k + 3] - ax; val uy = nodes[k + 4] - ay; val uz = nodes[k + 5] - az
                 if (maxX < min(ax, ax + ux) - r || minX > max(ax, ax + ux) + r || maxY < min(ay, ay + uy) - r ||
                     minY > max(ay, ay + uy) + r || maxZ < min(az, az + uz) - r || minZ > max(az, az + uz) + r) continue
-                val steps = cubeSteps(sqrt(ux * ux + uy * uy + uz * uz))
+                val steps = cubeSteps(sqrt(ux * ux + uy * uy + uz * uz), r)
                 for (s in 0..steps) {
                     val t = s.toDouble() / steps
                     val x = ax + ux * t; val y = ay + uy * t; val z = az + uz * t
@@ -574,8 +587,9 @@ class VineCollider {
         return true
     }
 
-    private fun knotTouches(k: Int, box: AABB): Boolean {
-        val h = VINE_KNOT_HALF
+    private fun knotHalf(v: Int): Double = halves[v] * (VINE_KNOT_HALF / VINE_HALF_WIDTH)
+
+    private fun knotTouches(k: Int, h: Double, box: AABB): Boolean {
         return nodes[k] + h >= box.minX && nodes[k] - h <= box.maxX && nodes[k + 1] + h >= box.minY &&
             nodes[k + 1] - h <= box.maxY && nodes[k + 2] + h >= box.minZ && nodes[k + 2] - h <= box.maxZ
     }
@@ -600,22 +614,21 @@ class VineCollider {
             val last = ranges[v * 2 + 1] - 1
             for (i in first..last) {
                 if (gaps[i]) continue
-                out = addLink(i * 3, box, base, out)
+                out = addLink(i * 3, halves[v], box, base, out)
             }
-            if (knots[v] and JOINED_START != 0) out = addCube(first * 3, VINE_KNOT_HALF, box, base, out)
-            if (knots[v] and JOINED_END != 0) out = addCube(last * 3, VINE_KNOT_HALF, box, base, out)
+            if (knots[v] and JOINED_START != 0) out = addCube(first * 3, knotHalf(v), box, base, out)
+            if (knots[v] and JOINED_END != 0) out = addCube(last * 3, knotHalf(v), box, base, out)
         }
         return out ?: base
     }
 
-    private fun addLink(k: Int, box: AABB, base: List<VoxelShape>, current: MutableList<VoxelShape>?): MutableList<VoxelShape>? {
+    private fun addLink(k: Int, r: Double, box: AABB, base: List<VoxelShape>, current: MutableList<VoxelShape>?): MutableList<VoxelShape>? {
         val ax = nodes[k]; val ay = nodes[k + 1]; val az = nodes[k + 2]
         val bx = nodes[k + 3]; val by = nodes[k + 4]; val bz = nodes[k + 5]
-        val r = VINE_HALF_WIDTH
         if (box.maxX < min(ax, bx) - r || box.minX > max(ax, bx) + r || box.maxY < min(ay, by) - r ||
             box.minY > max(ay, by) + r || box.maxZ < min(az, bz) - r || box.minZ > max(az, bz) + r) return current
         val length = sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az))
-        val steps = cubeSteps(length)
+        val steps = cubeSteps(length, r)
         var out = current
         for (s in 0..steps) {
             val t = s.toDouble() / steps
@@ -641,7 +654,7 @@ class VineCollider {
     }
 
     // Cube centres no farther apart than one half width, so the cubes overlap into a solid rope.
-    private fun cubeSteps(length: Double): Int = ceil(length / VINE_HALF_WIDTH).toInt().coerceIn(1, MAX_CUBES_PER_LINK)
+    private fun cubeSteps(length: Double, half: Double): Int = ceil(length / half).toInt().coerceIn(1, MAX_CUBES_PER_LINK)
 
     private fun ensure(nodesNeeded: Int, vinesNeeded: Int) {
         if (nodes.size < nodesNeeded * 3) {
@@ -654,6 +667,7 @@ class VineCollider {
             ranges = ranges.copyOf(max(vinesNeeded * 2, ranges.size * 2))
             bounds = bounds.copyOf(ranges.size * 3)
             knots = knots.copyOf(ranges.size / 2)
+            halves = halves.copyOf(ranges.size / 2)
             frameArrivals = frameArrivals.copyOf(ranges.size / 2)
             nodeIdLists = nodeIdLists.copyOf(ranges.size / 2)
         }

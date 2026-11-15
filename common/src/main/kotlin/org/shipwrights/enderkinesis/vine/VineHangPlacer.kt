@@ -40,6 +40,7 @@ internal class VineHangPlacer : OrbitBlocker {
     private var downZ = 0.0
     private var tanSlope = 0.0
     private var downReach = 0.0
+    private var ropeHalf = VINE_HALF_WIDTH
     private var targetAmount = 0.0
 
     fun reset() {
@@ -50,6 +51,7 @@ internal class VineHangPlacer : OrbitBlocker {
     /** Puts the feet place for [player] holding [chainId] at [grip], with the grip point [gripPoint], into [feet]. */
     fun place(player: Player, chainId: Long, grip: Double, gripPoint: Vector3dc): Boolean {
         if (!readRope(chainId, grip)) return false
+        ropeHalf = clientVineCollider.halfWidth(chainId)
         halfWidth = player.bbWidth / 2.0
         gripX = gripPoint.x(); gripY = gripPoint.y(); gripZ = gripPoint.z()
         val desired = orbitTargetAngle(player.yRot.toDouble())
@@ -69,11 +71,11 @@ internal class VineHangPlacer : OrbitBlocker {
             orbitAngle = stepOrbitAngle(orbitAngle, angleTarget)
             amount += (targetAmount - amount) * HANG_AMOUNT_EASE
         }
-        val side = sideRadius(orbitAngle, downX, downZ, tanSlope, downReach)
-        val radius = (if (side.isNaN()) HANG_RADIUS + MAX_SIDE_EXTRA else side) * amount
+        val side = sideRadius(orbitAngle, downX, downZ, tanSlope, downReach, ropeHalf)
+        val radius = (if (side.isNaN()) hangRadius(ropeHalf) + MAX_SIDE_EXTRA else side) * amount
         val cx = cos(orbitAngle) * radius
         val cz = sin(orbitAngle) * radius
-        val drop = min(hangDrop(cx, cz, downX, downZ, tanSlope, downReach), MAX_HANG_DROP)
+        val drop = min(hangDrop(cx, cz, downX, downZ, tanSlope, downReach, ropeHalf), MAX_HANG_DROP)
         feet.set(gripX + cx, gripY - drop - DRAWN_HEIGHT, gripZ + cz)
         return true
     }
@@ -110,12 +112,12 @@ internal class VineHangPlacer : OrbitBlocker {
 
     override fun isBlocked(angle: Double): Boolean {
         val player = probe ?: return false
-        val side = sideRadius(angle, downX, downZ, tanSlope, downReach)
+        val side = sideRadius(angle, downX, downZ, tanSlope, downReach, ropeHalf)
         if (side.isNaN()) return true
         val radius = side * targetAmount
         val cx = cos(angle) * radius
         val cz = sin(angle) * radius
-        val drop = hangDrop(cx, cz, downX, downZ, tanSlope, downReach)
+        val drop = hangDrop(cx, cz, downX, downZ, tanSlope, downReach, ropeHalf)
         if (drop > MAX_SIDE_DROP) return true
         val feetY = gripY - drop - DRAWN_HEIGHT
         val box = AABB(

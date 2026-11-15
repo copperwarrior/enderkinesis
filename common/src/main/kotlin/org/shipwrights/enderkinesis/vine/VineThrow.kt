@@ -38,6 +38,8 @@ import org.valkyrienskies.core.api.chains.ChainReelControl
 import org.valkyrienskies.core.api.chains.PhysChain
 import org.valkyrienskies.core.api.chains.ServerChain
 import org.valkyrienskies.core.api.particles.ParticleId
+import org.valkyrienskies.core.api.particles.ParticleStateBuffer
+import org.valkyrienskies.core.api.particles.ParticleVectorInput
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.world.PhysLevel
@@ -48,10 +50,12 @@ import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.shipObjectWorld
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** S2C: a throw starts; each client flies the same arc. */
 val WOGGAK_VINE_THROW_START: ResourceLocation = EnderkinesisMod.id("woggak_vine/throw_start")
@@ -60,16 +64,16 @@ val WOGGAK_VINE_THROW_END: ResourceLocation = EnderkinesisMod.id("woggak_vine/th
 
 /** Tip speed in m/s of a full bow draw. */
 private const val MAX_THROW_SPEED = 40.0
-/** A shorter draw than this bow power throws nothing, as for a bow. */
-internal const val MIN_THROW_POWER = 0.1f
+/** A shorter draw than this many ticks throws nothing, as for a trident; bow power passes 0.1 in one tick, so a tap would throw. */
+internal const val MIN_THROW_DRAW_TICKS = 10
 /** Vanilla arrow drag and gravity per tick, so the tip flies the arc of an arrow. */
 internal const val THROW_DRAG = 0.99
 internal const val THROW_GRAVITY = 0.05
 /** Rule 2 cap; the length ends every real flight sooner, as the fall speed goes to gravity over drag. */
 internal const val MAX_FLIGHT_STEPS = 400
 /** The link of a default reel seed and the shortest throw spacing; under [VINE_TARGET_SPACING], so a default seed has two links. */
-private const val FIRST_LINK = 0.39
-private const val FIRST_LINKS = 2
+internal const val FIRST_LINK = 0.39
+internal const val FIRST_LINKS = 2
 /** VS default: 3 physics ticks per game tick. The reel pays at most one node per physics tick. */
 private const val PHYSICS_TICKS_PER_SECOND = 60.0
 /** The reel credit must reach one spacing in one physics tick; a rate of exactly spacing/dt can fall a hair short. */
@@ -89,6 +93,19 @@ private const val HAND_DROP = 0.25
 private const val LENGTH_EPS = 1e-9
 /** A shorter path step than this merges into the next one, so no chain link has no length. */
 private const val MIN_PATH_STEP = 1e-3
+/** At a hit, each node keeps this share of its speed over the anchor, so the taut rope does not whip. */
+private const val LANDING_KEEP = 0.35
+/** A landed vine gets this much more rest than its node path, so it does not spring back from a stretch. */
+private const val LANDING_SLACK = 0.05
+/** VS gives every link rest/links; this caps the extra rest that makes the longest link unstretched too. */
+private const val MAX_LANDING_SLACK = 0.25
+/** Relative speed decay rate per second right after landing; it fades to 0 over [SETTLE_DAMP_SECONDS]. */
+private const val SETTLE_DAMPING = 5.0
+private const val SETTLE_DAMP_SECONDS = 1.0
+/** Rule 2: the settle watch ends after this, settled or not. */
+private const val SETTLE_WATCH_SECONDS = 3.0
+/** m/s; a landed vine whose fastest node moves slower than this over the anchor counts as settled. */
+private const val SETTLED_SPEED = 0.5
 
 /**
  * The tip of a thrown vine and its path from the hand, in world coordinates; the server and each client fly it alike.
@@ -117,15 +134,18 @@ class ThrowFlight(start: Vector3dc, velocity: Vector3dc, val length: Double) {
 
     /** The next tip point into [out], cut so the path never passes [length]; then drag and gravity act. Returns the move. */
     fun advance(out: Vector3d): Double {
-        out.set(tip).add(velocity)
-        var move = out.distance(tip)
-        val left = length - flown
-        if (move > left) {
-            out.sub(tip).mul(left / move).add(tip)
-            move = left
-        }
+        peek(out)
+        val move = out.distance(tip)
         velocity.mul(THROW_DRAG).sub(0.0, THROW_GRAVITY, 0.0)
         return move
+    }
+
+    /** The next tip point into [out], cut at [length], without a move. */
+    fun peek(out: Vector3d) {
+        out.set(tip).add(velocity)
+        val move = out.distance(tip)
+        val left = length - flown
+        if (move > left) out.sub(tip).mul(left / move).add(tip)
     }
 
     /** Moves the tip [move] along the path to [point]; the flight ends on a [stop], at the full length or at the cap. */
@@ -183,14 +203,28 @@ internal fun Level.stepFlight(flight: ThrowFlight, entity: Entity, next: Vector3
 }
 
 /**
+ * Where the tip of [flight] will be after the next tick, into [out]: the next arc point, or the first block on the way.
+ * The physics tip goes there over this tick, so it keeps up with the virtual tip and never enters a block.
+ */
+internal fun Level.peekFlight(flight: ThrowFlight, entity: Entity, out: Vector3d) {
+    flight.peek(out)
+    if (!blockLoaded(BlockPos.containing(out.x, out.y, out.z))) return
+    val hit = clip(ClipContext(Vec3(flight.tip.x, flight.tip.y, flight.tip.z), Vec3(out.x, out.y, out.z),
+        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity))
+    if (hit.type == HitResult.Type.BLOCK) out.set(hit.location.x, hit.location.y, hit.location.z)
+}
+
+/**
  * The first [links] links of [link] each of a vine that a reel at its start pays out, from [start] along the unit [dir].
  * A node of a placed vine weighs one spacing of vine; VS splits the mass over nodes, one more than links.
  */
-internal class ReelSeed(start: Vector3dc, dir: Vector3dc, link: Double = FIRST_LINK, links: Int = FIRST_LINKS) {
+internal class ReelSeed(
+    start: Vector3dc, dir: Vector3dc, link: Double = FIRST_LINK, links: Int = FIRST_LINKS, minSpacing: Double = VINE_TARGET_SPACING,
+) {
     val path: List<Vector3dc> = List(links + 1) { i -> Vector3d(dir).mul(link * i).add(start) }
     // The same sum as VS, so the reel spacing here is the one on the physics thread.
     val length = path.zipWithNext { a, b -> a.distance(b) }.sum()
-    val targetSpacing = max(VINE_TARGET_SPACING, link * SEED_SPACING_MARGIN)
+    val targetSpacing = max(minSpacing, link * SEED_SPACING_MARGIN)
     val spacing = chainSpacing(length, targetSpacing)
     val massPerLength = MASS_PER_LENGTH * path.size / (path.size - 1)
 }
@@ -256,6 +290,9 @@ internal class ThrowDrive(val dimension: DimensionId, val chain: ChainId, val sp
     @Volatile var step: ThrowStep? = null
     /** The paid rest length, set when the physics thread let go of both ends. */
     @Volatile var releasedRest = Double.NaN
+    /** The first chain frame tick that shows the let-go; written before [releasedRest]. */
+    @Volatile var releaseTick = 0L
+    var settle: ThrowSettle? = null
     @Volatile var failure: String? = null
     @Volatile var done = false
     var seen: ThrowStep? = null
@@ -279,6 +316,7 @@ internal class VineThrow(
     val creative: Boolean, val drive: ThrowDrive, val trackedFrom: ChunkPos,
 ) {
     val next = Vector3d()
+    val lead = Vector3d()
     val hand = Vector3d(flight.tip)
     /** The block the tip hit; the vine end fixes there once the physics thread let go. */
     var contact: VinePoint? = null
@@ -354,6 +392,7 @@ private fun ServerLevel.sendThrowEnd(thrown: VineThrow, chain: Long) {
         NetworkManager.sendToPlayer(player, WOGGAK_VINE_THROW_END, FriendlyByteBuf(Unpooled.buffer()).apply {
             writeLong(thrown.id)
             writeLong(chain)
+            writeLong(thrown.drive.releaseTick)
         })
     }
 }
@@ -367,7 +406,8 @@ internal fun ServerLevel.tickVineThrows(data: WoggakVineData) {
         val thrown = iterator.next()
         if (stepThrow(data, thrown)) continue
         iterator.remove()
-        throwDrives.remove(thrown.chain)
+        // A released drive stays until the physics thread has settled the landed vine.
+        if (thrown.drive.releasedRest.isNaN()) throwDrives.remove(thrown.chain)
         data.anchorsDirty = true
     }
 }
@@ -416,8 +456,9 @@ private fun ServerLevel.fly(thrown: VineThrow) {
     else thrown.hand.set(handPoint(player.eyePosition, player.lookAngle, player.yRot, thrown.side))
     val hit = player?.let { stepFlight(flight, it, thrown.next) }
     val velocity = Vector3d(flight.velocity).div(SECONDS_PER_TICK)
-    if (!flight.ended) {
-        thrown.publish(flight.tip, velocity, false, null)
+    if (!flight.ended && player != null) {
+        peekFlight(flight, player, thrown.lead)
+        thrown.publish(thrown.lead, velocity, false, null)
         return
     }
     val contact = hit?.let { blockContact(it) }
@@ -508,7 +549,13 @@ private fun ServerLevel.blockContact(hit: BlockHitResult): VinePoint? {
 private fun PhysLevel.driveThrows(dt: Double) {
     if (throwDrives.isEmpty() || !dt.isFinite() || dt <= 0.0) return
     for (drive in throwDrives.values) {
-        if (drive.done || drive.dimension != dimension) continue
+        if (drive.dimension != dimension) continue
+        val settle = drive.settle
+        if (settle != null) {
+            if (!settleThrow(drive, settle, dt)) throwDrives.remove(drive.chain, drive)
+            continue
+        }
+        if (drive.done) continue
         val chain = getChainById(drive.chain) ?: continue
         try {
             driveThrow(chain, drive, dt)
@@ -524,7 +571,8 @@ private fun PhysLevel.driveThrows(dt: Double) {
 
 /**
  * Pins the tip end to the virtual tip and the start end to the hand, moved along the tick's step, and pays out up to
- * the hand-to-tip distance. The tip lags the virtual tip by one game tick, so it never goes past a hit.
+ * the hand-to-tip distance. The tip goes to the clipped next arc point, so it keeps up with the virtual tip but never
+ * goes past a hit.
  */
 @OptIn(PhysTickOnly::class)
 private fun PhysLevel.driveThrow(chain: PhysChain, drive: ThrowDrive, dt: Double) {
@@ -559,15 +607,156 @@ private fun PhysLevel.driveThrow(chain: PhysChain, drive: ThrowDrive, dt: Double
     drive.nodeCount = nodes.size
 }
 
-/** Lets go of the hand and fixes or frees the tip; the reel ends at the paid length, so no vine is lost. */
+/**
+ * Lets go of the hand and fixes or frees the tip. The rest gets a little slack over the node path, within the thrown
+ * items, so the stretched rope does not spring back; a hit also takes most of the node speed over the anchor.
+ */
 @OptIn(PhysTickOnly::class)
 private fun PhysLevel.releaseThrow(chain: PhysChain, drive: ThrowDrive, step: ThrowStep, nodes: List<ParticleId>) {
     val anchor = step.anchor
     chain.setEndpoint(ChainEnd.END, anchor ?: ChainEndpoint.Free)
     if (anchor == null) nodes.lastOrNull()?.let { getParticleById(it)?.setVelocity(step.velocity) }
     chain.setEndpoint(ChainEnd.START, ChainEndpoint.Free)
-    val rest = (nodes.size - 1) * drive.spacing
+    val paid = (nodes.size - 1) * drive.spacing
+    var rest = paid
+    if (nodes.size >= 2) {
+        val settle = ThrowSettle(nodes, anchor)
+        val energy = settle.read(this)
+        val path = settle.pathLength()
+        // No link starts stretched, so the first solver step puts no speed into the vine.
+        val unstretched = max(path * (1.0 + LANDING_SLACK), settle.longestLink * (nodes.size - 1))
+        rest = max(paid, minOf(unstretched, path * (1.0 + MAX_LANDING_SLACK), drive.maxLinks * drive.spacing))
+        if (!energy.isNaN() && settle.still) settle.damp(this, 1.0 - LANDING_KEEP) else settle.calmPending = settle.anchored
+        settle.landingEnergy = energy
+        drive.settle = settle
+        LOG.info("[VineThrowDebug] landing chain={} {} energy={}J maxSpeed={} path={} longestLink={} paid={} rest={}",
+            drive.chain.value, if (settle.anchored) "fixed" else "free", energy, settle.maxSpeed, path, settle.longestLink, paid, rest)
+    }
     chain.setTargetLength(rest)
+    // The let-go acts in the next step, so frames from the one after the last published tick show it.
+    drive.releaseTick = chain.status.physicsTick + 1
     drive.done = true
     drive.releasedRest = rest
+}
+
+/** One physics tick of a landed vine's calm-down; false once it is over. */
+@OptIn(PhysTickOnly::class)
+private fun PhysLevel.settleThrow(drive: ThrowDrive, settle: ThrowSettle, dt: Double): Boolean {
+    settle.elapsed += dt
+    val energy = settle.read(this)
+    if (energy.isNaN()) {
+        LOG.info("[VineThrowDebug] settle lost chain={} after={}s", drive.chain.value, settle.elapsed)
+        return false
+    }
+    if (settle.settledAt.isNaN() && settle.maxSpeed < SETTLED_SPEED) settle.settledAt = settle.elapsed
+    val left = 1.0 - settle.elapsed / SETTLE_DAMP_SECONDS
+    if (settle.calmPending) {
+        settle.calmPending = false
+        settle.damp(this, 1.0 - LANDING_KEEP)
+    } else if (left > 0.0) {
+        settle.damp(this, 1.0 - exp(-SETTLE_DAMPING * left * dt))
+    }
+    val over = settle.elapsed >= SETTLE_WATCH_SECONDS || (left <= 0.0 && !settle.settledAt.isNaN())
+    if (over) {
+        LOG.info("[VineThrowDebug] settle chain={} landingEnergy={}J settledAt={}s after={}s energy={}J maxSpeed={}",
+            drive.chain.value, settle.landingEnergy, settle.settledAt, settle.elapsed, energy, settle.maxSpeed)
+    }
+    return !over
+}
+
+/**
+ * The node states of a landed throw, read and pushed in one batch each physics tick. Speeds are taken over the
+ * anchored tip's speed, or over the vine's mean speed when no end is fixed, so the vine keeps its whole motion.
+ */
+internal class ThrowSettle(nodes: List<ParticleId>, anchor: ChainEndpoint?) {
+    val anchored = anchor != null
+    /** A world anchor stands still; a body anchor's speed is its tip node's, known only a step after the pin. */
+    val still = anchor is ChainEndpoint.World
+    var calmPending = false
+    private val ids: List<ParticleId> = ArrayList(nodes)
+    private val states = ParticleStateBuffer(ids.size)
+    // VS copies each impulse into its command buffer at submit, so the vectors can be set again next tick.
+    private val impulses = Array(ids.size) { Vector3d() }
+    private val inputs: List<ParticleVectorInput> = List(ids.size) { ParticleVectorInput(ids[it], impulses[it]) }
+    private val reference = Vector3d()
+    var elapsed = 0.0
+    var landingEnergy = Double.NaN
+    var settledAt = Double.NaN
+    var maxSpeed = 0.0
+        private set
+    /** The longest link of the last [pathLength]. */
+    var longestLink = 0.0
+        private set
+
+    /** Reads the nodes; returns their kinetic energy over the reference speed in J, or NaN when too few are live. */
+    @OptIn(PhysTickOnly::class)
+    fun read(level: PhysLevel): Double {
+        level.copyParticleStates(ids, states)
+        val v = states.velocities
+        val m = states.masses
+        val live = states.valid
+        val last = ids.size - 1
+        reference.set(0.0)
+        if (anchored) {
+            if (!still && live[last]) reference.set(v[last * 3], v[last * 3 + 1], v[last * 3 + 2])
+        } else {
+            var mass = 0.0
+            for (i in ids.indices) {
+                if (!usable(i)) continue
+                reference.add(v[i * 3] * m[i], v[i * 3 + 1] * m[i], v[i * 3 + 2] * m[i])
+                mass += m[i]
+            }
+            if (mass <= 0.0) return Double.NaN
+            reference.div(mass)
+        }
+        var energy = 0.0
+        var count = 0
+        maxSpeed = 0.0
+        for (i in ids.indices) {
+            if (!usable(i)) continue
+            val k = i * 3
+            val dx = v[k] - reference.x; val dy = v[k + 1] - reference.y; val dz = v[k + 2] - reference.z
+            val speed2 = dx * dx + dy * dy + dz * dz
+            energy += 0.5 * m[i] * speed2
+            maxSpeed = max(maxSpeed, sqrt(speed2))
+            count++
+        }
+        return if (count >= 2) energy else Double.NaN
+    }
+
+    /** Path length over the live nodes of the last [read]. */
+    fun pathLength(): Double {
+        val p = states.positions
+        var length = 0.0
+        var prev = -1
+        longestLink = 0.0
+        for (i in ids.indices) {
+            if (!states.valid[i]) continue
+            if (prev >= 0) {
+                val dx = p[i * 3] - p[prev * 3]; val dy = p[i * 3 + 1] - p[prev * 3 + 1]; val dz = p[i * 3 + 2] - p[prev * 3 + 2]
+                val link = sqrt(dx * dx + dy * dy + dz * dz)
+                length += link
+                if (i == prev + 1) longestLink = max(longestLink, link)
+            }
+            prev = i
+        }
+        return length
+    }
+
+    /** Takes [fraction] of each node's speed over the reference away; the anchored tip moves with its anchor. */
+    @OptIn(PhysTickOnly::class)
+    fun damp(level: PhysLevel, fraction: Double) {
+        val v = states.velocities
+        val m = states.masses
+        val last = ids.size - 1
+        for (i in ids.indices) {
+            val k = i * 3
+            if (!usable(i) || (anchored && i == last)) impulses[i].set(0.0)
+            else impulses[i].set(reference.x - v[k], reference.y - v[k + 1], reference.z - v[k + 2]).mul(m[i] * fraction)
+        }
+        // A stale id (a node cut away since the last read) only skips that node.
+        level.applyParticleImpulses(inputs)
+    }
+
+    private fun usable(i: Int) = states.valid[i] && states.masses[i].isFinite() && states.masses[i] > 0.0
 }

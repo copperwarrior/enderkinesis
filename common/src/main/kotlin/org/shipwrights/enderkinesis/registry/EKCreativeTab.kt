@@ -191,6 +191,7 @@ object EKCreativeTab {
             output.accept(EKItems.WOHLON_DUCKWEED_ITEM.get())
             output.accept(EKItems.WOHLON_LEAF_LITTER_ITEM.get())
             output.accept(EKItems.WOHLON_HANGING_ROOTS_ITEM.get())
+            output.accept(EKItems.WEJE_VINE_ITEM.get())
             output.accept(EKItems.BINDING_ROOTS_ITEM.get())
             output.accept(EKItems.WOHLON_LUMPY_MUSHROOM_ITEM.get())
             output.accept(EKItems.WOHLON_CUP_MUSHROOM_ITEM.get())

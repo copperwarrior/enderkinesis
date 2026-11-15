@@ -13,7 +13,7 @@ import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.FluidTags
 import net.minecraft.util.RandomSource
 import net.minecraft.world.level.block.Block
-import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import org.shipwrights.enderkinesis.registry.EKBlocks
@@ -158,7 +158,7 @@ object WohlonEcologyAmbience {
             block === EKBlocks.WOHLON_MUD.get() && isOpenAbove(level) -> Spot.MUD
             isDeadwood(level, state) -> Spot.ROT
             rise >= BOUGH_MIN_RISE && isBough(state) -> Spot.BOUGH
-            block === EKBlocks.WOHLON_HANGING_ROOTS.get() || block === Blocks.VINE -> Spot.ROOTS
+            block === EKBlocks.WOHLON_HANGING_ROOTS.get() || block is VineBlock -> Spot.ROOTS
             isFungus(block) -> Spot.FUNGUS
             block === EKBlocks.HEARTFIRE.get() -> Spot.HEARTFIRE
             else -> null

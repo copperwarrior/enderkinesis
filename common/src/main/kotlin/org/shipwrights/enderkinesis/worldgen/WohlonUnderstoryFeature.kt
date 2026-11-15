@@ -261,7 +261,7 @@ class WohlonUnderstoryFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<
         val dir = HORIZONTAL[random.nextInt(HORIZONTAL.size)]
         val vx = c.x + dir.stepX
         val vz = c.z + dir.stepZ
-        val vine = Blocks.VINE.defaultBlockState().setValue(VineBlock.getPropertyForFace(dir.opposite), true)
+        val vine = EKBlocks.WEJE_VINE.get().defaultBlockState().setValue(VineBlock.getPropertyForFace(dir.opposite), true)
         val length = ROPE_MIN_LENGTH + random.nextInt(ROPE_MAX_LENGTH - ROPE_MIN_LENGTH + 1)
         var hung = 0
         for (y in branchY downTo maxOf(branchY - length + 1, c.groundY + 2)) {

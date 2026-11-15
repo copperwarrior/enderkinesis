@@ -31,13 +31,16 @@ class WoggakVineItem(properties: Properties) : Item(properties) {
         val level = context.level as? ServerLevel ?: return InteractionResult.SUCCESS
         val player = context.player
         if (player is ServerPlayer && player.isShiftKeyDown && player.extendVine(context.itemInHand)) return InteractionResult.CONSUME
-        // A vine in front of the clicked block takes the use.
-        val point = player?.let { level.vinePointAtLook(it) } ?: run {
-            val clicked = context.clickedPos.immutable()
-            // The use-on hit of a ship block is in shipyard coordinates, the same frame as the Body anchor.
-            val hit = level.snapToShapeAnchor(clicked, context.clickedFace, context.clickLocation)
-            VinePoint(clicked, Vector3d(hit.x, hit.y, hit.z), level.getShipManagingPos(clicked)?.id)
+        val clicked = context.clickedPos.immutable()
+        // The use-on hit of a ship block is in shipyard coordinates, the same frame as the Body anchor.
+        val hit = level.snapToShapeAnchor(clicked, context.clickedFace, context.clickLocation)
+        val blockPoint = VinePoint(clicked, Vector3d(hit.x, hit.y, hit.z), level.getShipManagingPos(clicked)?.id)
+        // Before the vine pick: the vine at its own anchor is under the look too.
+        if (player is ServerPlayer && !player.isShiftKeyDown && player.dropVineAt(context.itemInHand, blockPoint)) {
+            return InteractionResult.CONSUME
         }
+        // A vine in front of the clicked block takes the use.
+        val point = player?.let { level.vinePointAtLook(it) } ?: blockPoint
         selectPoint(level, player, context.itemInHand, point)
         return InteractionResult.CONSUME
     }
@@ -66,9 +69,9 @@ class WoggakVineItem(properties: Properties) : Item(properties) {
 
     override fun releaseUsing(stack: ItemStack, level: Level, entity: LivingEntity, timeLeft: Int) {
         if (level !is ServerLevel || entity !is ServerPlayer) return
-        val power = BowItem.getPowerForTime(getUseDuration(stack) - timeLeft)
-        if (power < MIN_THROW_POWER) return
-        if (!level.throwWoggakVine(entity, entity.usedItemHand, stack, power)) {
+        val drawTicks = getUseDuration(stack) - timeLeft
+        if (drawTicks < MIN_THROW_DRAW_TICKS) return
+        if (!level.throwWoggakVine(entity, entity.usedItemHand, stack, BowItem.getPowerForTime(drawTicks))) {
             entity.displayClientMessage(Component.translatable("item.enderkinesis.woggak_vine.unsupported"), true)
         }
     }

@@ -38,13 +38,13 @@ class VineGenPlanTest {
     }
 
     @Test
-    fun `the Mother budget is the Medium preset`() {
+    fun `the Mother budget is a quarter of the Medium preset`() {
         val b = treeVineBudget(140.0, 74.0, 252.0)
-        b.total shouldBe 140
-        b.loops shouldBe 28
-        b.reach shouldBe 7
-        b.rim shouldBe 47
-        b.branch shouldBe 58
+        b.total shouldBe 35
+        b.loops shouldBe 7
+        b.reach shouldBe 2
+        b.rim shouldBe 12
+        b.branch shouldBe 14
         b.rimDistance shouldBe (95.0 plusOrMinus 1e-9)
         b.reachMaxY shouldBe (175.0 plusOrMinus 1e-9)
     }
@@ -52,8 +52,8 @@ class VineGenPlanTest {
     @Test
     fun `a smaller crown keeps the density for each block of crown area`() {
         val b = treeVineBudget(70.0, 64.0, 120.0)
-        b.total shouldBe 35
-        b.loops shouldBe 7
+        b.total shouldBe 9
+        b.loops shouldBe 2
         b.rimDistance shouldBe (47.5 plusOrMinus 1e-9)
     }
 

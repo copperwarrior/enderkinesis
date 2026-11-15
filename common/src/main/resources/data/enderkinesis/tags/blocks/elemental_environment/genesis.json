@@ -27,6 +27,10 @@
       "required": false
     },
     {
+      "id": "enderkinesis:weje_vine",
+      "required": false
+    },
+    {
       "id": "minecraft:moss_block",
       "required": false
     },
