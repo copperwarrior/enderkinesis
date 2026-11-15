@@ -426,6 +426,17 @@ object EKBlocks {
         )
     }
 
+    val CLAWHOD: RegistrySupplier<Block> = BLOCKS.register("clawhod") {
+        org.shipwrights.enderkinesis.block.ClawhodBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.COLOR_BLACK)
+                .strength(2.0f, 6.0f)
+                .sound(SoundType.STONE)
+                // The core model does not fill the cell.
+                .noOcclusion()
+        )
+    }
+
     /** Lid half of [SHULKER_STRUT]. Hand-placement isn't allowed (no `BlockItem`); the
      *  strut's BE creates it inline + immediately assembles it into a 1-block VS2 ship. */
     val SHULKER_STRUT_TOP: RegistrySupplier<Block> = BLOCKS.register("shulker_strut_top") {
@@ -533,6 +544,20 @@ object EKBlocks {
         )
     }
 
+    val WOGOR_LEAF_BUD: RegistrySupplier<Block> = BLOCKS.register("wogor_leaf_bud") {
+        WogorBudBlock(
+            BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .strength(0.2f, 0.5f)
+                .sound(SoundType.AZALEA_LEAVES)
+                .noOcclusion()
+                .noCollission()
+                .pushReaction(net.minecraft.world.level.material.PushReaction.DESTROY)
+                .noLootTable(),
+            leaf = true,
+        )
+    }
+
     val GUARDIAN_SPIKE: RegistrySupplier<Block> = BLOCKS.register("guardian_spike") {
         org.shipwrights.enderkinesis.block.GuardianSpikeBlock(guardianSpikeProps())
     }
@@ -636,6 +661,15 @@ object EKBlocks {
 
     val SCRIBES_DESK: RegistrySupplier<Block> = BLOCKS.register("scribes_desk") {
         ScribesDeskBlock(
+            BlockBehaviour.Properties.copy(Blocks.CRAFTING_TABLE)
+                .mapColor(MapColor.COLOR_YELLOW)
+                .sound(SoundType.BAMBOO_WOOD)
+                .noOcclusion()
+        )
+    }
+
+    val DRAFTING_TABLE: RegistrySupplier<Block> = BLOCKS.register("drafting_table") {
+        org.shipwrights.enderkinesis.block.DraftingTableBlock(
             BlockBehaviour.Properties.copy(Blocks.CRAFTING_TABLE)
                 .mapColor(MapColor.COLOR_YELLOW)
                 .sound(SoundType.BAMBOO_WOOD)
@@ -855,7 +889,6 @@ object EKBlocks {
                 .noOcclusion()
                 .strength(4.0f)
                 .sound(SoundType.WET_GRASS)
-                .randomTicks()
         )
     }
 
@@ -1006,7 +1039,7 @@ object EKBlocks {
         Block(BlockBehaviour.Properties.copy(Blocks.MOSS_BLOCK))
     }
     val WOHLON_MOSS_CARPET: RegistrySupplier<Block> = BLOCKS.register("wohlon_moss_carpet") {
-        CarpetBlock(BlockBehaviour.Properties.copy(Blocks.MOSS_CARPET))
+        org.shipwrights.enderkinesis.block.WohlonMossCarpetBlock(BlockBehaviour.Properties.copy(Blocks.MOSS_CARPET))
     }
     val WOHLON_FERN: RegistrySupplier<Block> = BLOCKS.register("wohlon_fern") {
         org.shipwrights.enderkinesis.block.WohlonUndergrowthBlock(BlockBehaviour.Properties.copy(Blocks.FERN))

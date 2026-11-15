@@ -22,6 +22,7 @@ import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.glyphTint
 import org.shipwrights.enderkinesis.registry.EKOceanParticleType
 import org.shipwrights.enderkinesis.item.UlderScrollItem
 import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
@@ -221,6 +222,7 @@ object EnderkinesisModClient {
         // The Ancrite Chain block uses the same alpha-cutout layer as vanilla chain — without
         // this the transparent texture columns render opaque.
         RenderTypeRegistry.register(RenderType.cutoutMipped(), EKBlocks.ANCRITE_CHAIN.get())
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.CLAWHOD.get())
 
         // The model uses the brighter `ancrite_chain_bright` texture as its source; this
         // BlockColor scales it down (white tint, R=G=B) so POWER 0 looks like the original
@@ -287,12 +289,13 @@ object EnderkinesisModClient {
         // The base shard stands in for glyphs that have no shard item of their own.
         ColorHandlerRegistry.registerItemColors(
             ItemColor { stack, _ ->
-                stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.let(EKItems::glyphTint) ?: -1
+                stack.tag?.getString(EKItems.NBT_SHARD_ELEMENT)?.let(Element::byId)?.glyphTint ?: -1
             },
             EKItems.ULDER_SHARD.get(),
         )
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.INEGRIC_RETORT.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.DRAFTING_TABLE.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.OARSCRIBE.get())
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.JAR_RECEPTACLE.get())
 
@@ -324,6 +327,7 @@ object EnderkinesisModClient {
             EKBlocks.WOHLON_LICHEN.get(),
             EKBlocks.WOHLON_REED.get(),
             EKBlocks.WOHLON_LILY_PAD.get(),
+            EKBlocks.WOHLON_MOSS_CARPET.get(),
             EKBlocks.WOHLON_DUCKWEED.get(),
             EKBlocks.WOHLON_LEAF_LITTER.get(),
             EKBlocks.WOHLON_LUMPY_MUSHROOM.get(),
@@ -461,6 +465,8 @@ object EnderkinesisModClient {
         BlockEntityRendererRegistry.register(EKBlockEntities.CONSTRILIAR_PLATFORM.get()) { ctx ->
             ConstriliarPlatformRenderer(ctx)
         }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.CLAWHOD.get()) { ctx -> ClawhodRenderer(ctx) }
 
         BlockEntityRendererRegistry.register(EKBlockEntities.SCRIBES_DESK.get()) { ctx ->
             ScribesDeskRenderer(ctx)
@@ -650,6 +656,9 @@ object EnderkinesisModClient {
         FusionClient.init()
         // Staff of Command — type-selector wheel + shift-scroll cycle.
         CommandWheelClient.init()
+        org.shipwrights.enderkinesis.construction.ClientPlans.init()
+        org.shipwrights.enderkinesis.construction.ClientBuildJobs.init()
+        DraftingTableClient.init()
         // Staff of Aegis — per-tick particle spawn inside the shield box.
         // The wireframe render itself is hooked per-platform (Fabric:
         // WorldRenderEvents.AFTER_TRANSLUCENT; see fabric client init).
@@ -664,9 +673,11 @@ object EnderkinesisModClient {
         EchoCannonClient.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> EchoCannonClient.clientTick() }
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WogorBudClientTracker.tick(level) }
+        ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WohlonMudCreepTracker.tick(level) }
         WoggakVineRenderer.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> WoggakVineRenderer.tick(level) }
         VineHoldClient.init()
+        VineBurnClient.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { _ -> VineHoldClient.tick() }
         VineThrowClient.init()
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> VineThrowClient.tick(level) }
@@ -678,6 +689,7 @@ object EnderkinesisModClient {
         // Static client state holds game times and entities of the session that ends here.
         ClientPlayerEvent.CLIENT_PLAYER_QUIT.register {
             WogorBudClientTracker.clear()
+            WohlonMudCreepTracker.clear()
             WoggakVineRenderer.clear()
             VineHoldClient.clear()
             VineThrowClient.clear()

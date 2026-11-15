@@ -168,9 +168,7 @@ object EKItems {
         )
     }
 
-    /** Java-callable accessor for [WEYYE_FRUIT.get()] — used by client
-     *  and server code that compares stack items without bouncing
-     *  through the Kotlin object's instance getter. */
+    /** For the Java mixins; Kotlin uses [WEYYE_FRUIT]. */
     @JvmStatic
     fun weyyeFruit(): Item = WEYYE_FRUIT.get()
 
@@ -350,18 +348,6 @@ object EKItems {
     val ULDER_SPINEL_SHARD: RegistrySupplier<Item> = shard("spinel", Element.CHAOS)
     val ULDER_BLOODSTONE_SHARD: RegistrySupplier<Item> = shard("bloodstone", Element.BLOOD)
 
-    private val SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
-        mapOf(
-            Element.PYRE to ULDER_CITRINE_SHARD, Element.GRAVITY to ULDER_ONYX_SHARD,
-            Element.GENESIS to ULDER_JADE_SHARD, Element.WINTER to ULDER_AQUAMARINE_SHARD,
-            Element.QUINTESSENCE to ULDER_MOONSTONE_SHARD, Element.CHAOS to ULDER_SPINEL_SHARD,
-            Element.BLOOD to ULDER_BLOODSTONE_SHARD,
-        )
-    }
-
-    /** Null for the fusions and Sundering, which have no inscribable shard. */
-    fun shardOf(element: Element): Item? = SHARDS[element]?.get()
-
     /** A fusion is never inscribed as a shard. These only draw its glyph on the altar. */
     private fun fusionShard(name: String): RegistrySupplier<Item> = ITEMS.register("ulder_${name}_shard") { Item(props()) }
 
@@ -369,24 +355,10 @@ object EKItems {
     val ULDER_CORRUPTION_SHARD: RegistrySupplier<Item> = fusionShard("corruption")
     val ULDER_VOID_SHARD: RegistrySupplier<Item> = fusionShard("void")
 
-    private val FUSION_SHARDS: Map<Element, RegistrySupplier<Item>> by lazy {
-        mapOf(Element.SUNFIRE to ULDER_SUNFIRE_SHARD, Element.CORRUPTION to ULDER_CORRUPTION_SHARD, Element.VOID to ULDER_VOID_SHARD)
-    }
-
     /** Tinted from [NBT_SHARD_ELEMENT]. Only draws a glyph that has no shard (Sundering). */
     val ULDER_SHARD: RegistrySupplier<Item> = ITEMS.register("ulder_shard") { Item(props()) }
 
     const val NBT_SHARD_ELEMENT = "Element"
-
-    /** Sunfire glyphs use the bright yellow of its shard. Its [Element.color] stays the same elsewhere. */
-    fun glyphTint(element: Element): Int = if (element == Element.SUNFIRE) SUNFIRE_GLYPH else element.color
-
-    private const val SUNFIRE_GLYPH = 0xFFE03A
-
-    fun glyphStack(element: Element): ItemStack {
-        (shardOf(element) ?: FUSION_SHARDS[element]?.get())?.let { return ItemStack(it) }
-        return ItemStack(ULDER_SHARD.get()).apply { orCreateTag.putString(NBT_SHARD_ELEMENT, element.id) }
-    }
 
     private fun gem(name: String, element: Element, shard: RegistrySupplier<Item>): RegistrySupplier<Item> =
         ITEMS.register("ulder_$name") { UlderGemItem(element, shard::get, props().stacksTo(1).fireResistant()) }
@@ -398,14 +370,6 @@ object EKItems {
     val ULDER_MOONSTONE: RegistrySupplier<Item> = gem("moonstone", Element.QUINTESSENCE, ULDER_MOONSTONE_SHARD)
     val ULDER_SPINEL: RegistrySupplier<Item> = gem("spinel", Element.CHAOS, ULDER_SPINEL_SHARD)
     val ULDER_BLOODSTONE: RegistrySupplier<Item> = gem("bloodstone", Element.BLOOD, ULDER_BLOODSTONE_SHARD)
-
-    private val GEMS: Map<Element, RegistrySupplier<Item>> by lazy {
-        listOf(ULDER_CITRINE, ULDER_ONYX, ULDER_JADE, ULDER_AQUAMARINE, ULDER_MOONSTONE, ULDER_SPINEL, ULDER_BLOODSTONE)
-            .associateBy { (it.get() as UlderGemItem).element }
-    }
-
-    /** Null for the fusions and Sundering, which have no gem. */
-    fun gemOf(element: Element): Item? = GEMS[element]?.get()
 
     val MUNDANE_STONE: RegistrySupplier<Item> = ITEMS.register("mundane_stone") {
         org.shipwrights.enderkinesis.item.MundaneStoneItem(
@@ -505,6 +469,7 @@ object EKItems {
     val INEGRIC_RETORT_ITEM = blockItem("inegric_retort", EKBlocks.INEGRIC_RETORT)
 
     val SCRIBES_DESK_ITEM = blockItem("scribes_desk", EKBlocks.SCRIBES_DESK)
+    val DRAFTING_TABLE_ITEM = blockItem("drafting_table", EKBlocks.DRAFTING_TABLE)
     val OARSCRIBE_ITEM = blockItem("oarscribe", EKBlocks.OARSCRIBE)
     val JAR_RECEPTACLE_ITEM = blockItem("jar_receptacle", EKBlocks.JAR_RECEPTACLE)
 
@@ -538,6 +503,7 @@ object EKItems {
     val ANCRITE_EYE_ITEM = blockItem("analog_eye", EKBlocks.ANCRITE_EYE)
     val VOID_HARNESS_ITEM = blockItem("void_harness", EKBlocks.VOID_HARNESS)
     val VOID_HOOK_ITEM = blockItem("void_hook", EKBlocks.VOID_HOOK)
+    val CLAWHOD_ITEM = blockItem("clawhod", EKBlocks.CLAWHOD)
     val SHULKER_PUFFER_ITEM = blockItem("shulker_puffer", EKBlocks.SHULKER_PUFFER)
     val GAS_VENT_ITEM = blockItem("gas_vent", EKBlocks.GAS_VENT)
     val SHULKER_STRUT_ITEM = blockItem("shulker_strut", EKBlocks.SHULKER_STRUT)
@@ -819,4 +785,43 @@ object EKItems {
         }
 
     fun register() = ITEMS.register()
+}
+
+private val shards: Map<Element, RegistrySupplier<Item>> by lazy {
+    mapOf(
+        Element.PYRE to EKItems.ULDER_CITRINE_SHARD, Element.GRAVITY to EKItems.ULDER_ONYX_SHARD,
+        Element.GENESIS to EKItems.ULDER_JADE_SHARD, Element.WINTER to EKItems.ULDER_AQUAMARINE_SHARD,
+        Element.QUINTESSENCE to EKItems.ULDER_MOONSTONE_SHARD, Element.CHAOS to EKItems.ULDER_SPINEL_SHARD,
+        Element.BLOOD to EKItems.ULDER_BLOODSTONE_SHARD,
+    )
+}
+
+private val fusionShards: Map<Element, RegistrySupplier<Item>> by lazy {
+    mapOf(
+        Element.SUNFIRE to EKItems.ULDER_SUNFIRE_SHARD,
+        Element.CORRUPTION to EKItems.ULDER_CORRUPTION_SHARD,
+        Element.VOID to EKItems.ULDER_VOID_SHARD,
+    )
+}
+
+private val gems: Map<Element, RegistrySupplier<Item>> by lazy {
+    with(EKItems) {
+        listOf(ULDER_CITRINE, ULDER_ONYX, ULDER_JADE, ULDER_AQUAMARINE, ULDER_MOONSTONE, ULDER_SPINEL, ULDER_BLOODSTONE)
+    }.associateBy { (it.get() as UlderGemItem).element }
+}
+
+/** Null for the fusions and Sundering, which have no inscribable shard. */
+fun Element.shardItem(): Item? = shards[this]?.get()
+
+/** Null for the fusions and Sundering, which have no gem. */
+fun Element.gemItem(): Item? = gems[this]?.get()
+
+private const val SUNFIRE_GLYPH = 0xFFE03A
+
+/** Sunfire glyphs use the bright yellow of its shard. Its [Element.color] stays the same elsewhere. */
+val Element.glyphTint: Int get() = if (this == Element.SUNFIRE) SUNFIRE_GLYPH else color
+
+fun Element.glyphStack(): ItemStack {
+    (shardItem() ?: fusionShards[this]?.get())?.let { return ItemStack(it) }
+    return ItemStack(EKItems.ULDER_SHARD.get()).apply { orCreateTag.putString(EKItems.NBT_SHARD_ELEMENT, id) }
 }

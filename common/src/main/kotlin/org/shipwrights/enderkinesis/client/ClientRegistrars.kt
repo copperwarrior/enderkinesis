@@ -11,6 +11,7 @@ import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.client.model.BlessedGoatModel
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
+import org.shipwrights.enderkinesis.client.model.ClawhodHandModel
 import org.shipwrights.enderkinesis.client.model.ConstriliarModel
 import org.shipwrights.enderkinesis.client.model.EauhorranaModel
 import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
@@ -36,6 +37,8 @@ import org.shipwrights.enderkinesis.client.model.WohlemModel
 fun registerModelLayers(register: (ModelLayerLocation, () -> LayerDefinition) -> Unit) {
     register(CatalogerModel.LAYER_LOCATION, CatalogerModel::createBodyLayer)
     register(WohlemModel.LAYER_LOCATION, WohlemModel::createBodyLayer)
+    register(ClawhodHandModel.LEFT_LAYER, ClawhodHandModel::createLeftLayer)
+    register(ClawhodHandModel.RIGHT_LAYER, ClawhodHandModel::createRightLayer)
     register(ConstriliarModel.LAYER_LOCATION, ConstriliarModel::createBodyLayer)
     register(HeartOfTheWildModel.LAYER_LOCATION, HeartOfTheWildModel::createBodyLayer)
     register(BlessedGoatModel.LAYER_LOCATION, BlessedGoatModel::createBodyLayer)

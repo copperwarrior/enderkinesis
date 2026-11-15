@@ -3,13 +3,27 @@ package org.shipwrights.enderkinesis.forge
 import dev.architectury.platform.forge.EventBuses
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.FlowerPotBlock
+import java.util.function.Consumer
 import net.minecraftforge.common.MinecraftForge
+import net.minecraftforge.eventbus.api.Event
+import net.minecraftforge.eventbus.api.EventPriority
+import net.minecraftforge.eventbus.api.IEventBus
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent
 import net.minecraftforge.fml.common.Mod
 import thedarkcolour.kotlinforforge.forge.MOD_BUS
 import net.minecraftforge.fml.loading.FMLEnvironment
 import org.shipwrights.enderkinesis.EnderkinesisMod
-import org.shipwrights.enderkinesis.forge.client.EnderkinesisModForgeClient
+import org.shipwrights.enderkinesis.forge.client.captureWyllandTomeBakes
+import org.shipwrights.enderkinesis.forge.client.clientInit
+import org.shipwrights.enderkinesis.forge.client.onAddPackFinders
+import org.shipwrights.enderkinesis.forge.client.onRenderGuiPost
+import org.shipwrights.enderkinesis.forge.client.onRenderGuiPre
+import org.shipwrights.enderkinesis.forge.client.onRenderLevelStage
+import org.shipwrights.enderkinesis.forge.client.registerAdditionalModels
+import org.shipwrights.enderkinesis.forge.client.registerDimensionEffects
+import org.shipwrights.enderkinesis.forge.client.registerLayerDefinitions
+import org.shipwrights.enderkinesis.forge.client.registerParticleProviders
+import org.shipwrights.enderkinesis.forge.client.registerShaders
 import org.shipwrights.enderkinesis.forge.compat.curios.CuriosCompat
 import org.shipwrights.enderkinesis.registry.EKBlocks
 
@@ -38,19 +52,19 @@ class EnderkinesisModForge {
         if (FMLEnvironment.dist.isClient) {
             // Before the renderer event and the options load; FMLClientSetupEvent is too late.
             org.shipwrights.enderkinesis.client.EnderkinesisModClient.initClientEarly()
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::clientInit)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::registerLayerDefinitions)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::registerParticleProviders)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::registerAdditionalModels)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::captureWyllandTomeBakes)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::registerShaders)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::registerDimensionEffects)
-            modEventBus.addListener(EnderkinesisModForgeClient.Companion::onAddPackFinders)
+            modEventBus.listen(::clientInit)
+            modEventBus.listen(::registerLayerDefinitions)
+            modEventBus.listen(::registerParticleProviders)
+            modEventBus.listen(::registerAdditionalModels)
+            modEventBus.listen(::captureWyllandTomeBakes)
+            modEventBus.listen(::registerShaders)
+            modEventBus.listen(::registerDimensionEffects)
+            modEventBus.listen(::onAddPackFinders)
             // RenderLevelStageEvent fires on the Forge event bus, not
             // the mod bus — registered separately.
-            MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderLevelStage)
-            MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderGuiPre)
-            MinecraftForge.EVENT_BUS.addListener(EnderkinesisModForgeClient.Companion::onRenderGuiPost)
+            MinecraftForge.EVENT_BUS.listen(::onRenderLevelStage)
+            MinecraftForge.EVENT_BUS.listen(::onRenderGuiPre)
+            MinecraftForge.EVENT_BUS.listen(::onRenderGuiPost)
         }
     }
 
@@ -62,3 +76,7 @@ class EnderkinesisModForge {
         }
     }
 }
+
+// TypeTools often cannot read the event type of a Kotlin function reference, which crashes at startup; pass the class.
+private inline fun <reified T : Event> IEventBus.listen(noinline handler: (T) -> Unit) =
+    addListener(EventPriority.NORMAL, false, T::class.java, Consumer { handler(it) })

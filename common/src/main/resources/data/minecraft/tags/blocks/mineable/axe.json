@@ -2,6 +2,7 @@
   "replace": false,
   "values": [
     "enderkinesis:scribes_desk",
+    "enderkinesis:drafting_table",
     "enderkinesis:stripped_wogor_log",
     "enderkinesis:stripped_wogor_wood",
     "enderkinesis:wogor_door",
@@ -14,6 +15,23 @@
     "enderkinesis:wohlon_lumpy_mushroom_block",
     "enderkinesis:wohlon_cup_mushroom_block",
     "enderkinesis:wohlon_mushroom_stem",
+    "enderkinesis:wogor_planks",
+    "enderkinesis:wogor_stairs",
+    "enderkinesis:wogor_slab",
+    "enderkinesis:wogor_fence_gate",
+    "enderkinesis:wogor_pressure_plate",
+    "enderkinesis:wogor_button",
+    "enderkinesis:wogor_wood_stairs",
+    "enderkinesis:wogor_wood_slab",
+    "enderkinesis:wogor_wood_wall",
+    "enderkinesis:wogor_wood_pane",
+    "enderkinesis:wogor_wood_button",
+    "enderkinesis:sselith_bookshelf",
+    "enderkinesis:sselith_lectern",
+    "enderkinesis:sselith_ladder",
+    "enderkinesis:sselith_trapdoor",
+    "enderkinesis:weyye_fruit_pod",
+    "enderkinesis:wogor_bud",
     "enderkinesis:weje_vine"
   ]
 }

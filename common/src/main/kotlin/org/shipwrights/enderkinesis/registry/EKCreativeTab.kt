@@ -41,7 +41,7 @@ object EKCreativeTab {
             for (element in Element.entries) if (element != Element.SUNDERING) output.accept(scroll(List(Inscription.MAX_GLYPHS) { element }))
             for (signature in Signature.entries) output.accept(scroll(signature.glyphs))
         }
-        // Main tab in board-column order: Ygann (with all of the End), Sselith, Wohlon, Sureibjin, General.
+        // Main tab in board-column order: Ygann (with all of the End), Ygann/Sselith, Sselith, Wohlon, Sureibjin, General.
         CreativeTabRegistry.modify(MAIN) { _, output, _ ->
             // Ygann, with everything of the End: materials, blocks, devices, tools, books, wearables, food, music
             output.accept(EKItems.CREPUSCULITE.get())
@@ -96,6 +96,10 @@ object EKCreativeTab {
             output.accept(EKItems.SHELL_OF_TIDES.get())
             output.accept(EKItems.HRASS_SACK.get())
             output.accept(EKItems.GAS_VENT_ITEM.get())
+
+            // Ygann and Sselith together
+            output.accept(EKItems.CLAWHOD_ITEM.get())
+            output.accept(EKItems.DRAFTING_TABLE_ITEM.get())
 
             // Sselith: materials, blocks, devices, tools, books, wearables, food
             output.accept(EKItems.OLD_PAPER.get())

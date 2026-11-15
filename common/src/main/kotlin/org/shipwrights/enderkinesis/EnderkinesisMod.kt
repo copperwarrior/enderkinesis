@@ -178,17 +178,6 @@ object EnderkinesisMod {
                 .useJacksonSerializer()
                 .build()
         )
-        // NOTE: no custom BlockStateInfoProvider for the platform — one existed briefly
-        // and its generic `solid` type outranked the datapack resolver's per-state
-        // SHAPE, voxelizing the plate as a full cube. forceSolidOn() + the context-split
-        // outline + the vs_mass entry drive the whole chain through the resolver now.
-
-        // Orb of Potential gravity cancel. Non-ship VS Bodies can't host
-        // a `ShipPhysicsListener`, so the per-tick counter-force is
-        // applied through the global `vsApi.physTickEvent` against the
-        // per-dimension orb registry. The registry itself is persisted
-        // via [OrbWorldData] and rehydrated into memory each time a
-        // server level loads.
         org.shipwrights.enderkinesis.body.OrbGravityCanceller.register()
         org.shipwrights.enderkinesis.physics.BodyForceQueue.register()
         org.shipwrights.enderkinesis.physics.HeldPushes.register()
@@ -196,14 +185,7 @@ object EnderkinesisMod {
         dev.architectury.event.events.common.LifecycleEvent.SERVER_LEVEL_LOAD.register { level ->
             org.shipwrights.enderkinesis.body.OrbBodyRegistry.rehydrate(level)
         }
-        // Drain Sselith deferred-spawn queue (catalogers + paintings
-        // enqueued during chunk gen) at a small per-tick budget so
-        // the server thread doesn't spike when a batch of chunks
-        // reaches SPAWN status the same tick.
         org.shipwrights.enderkinesis.dimension.SselithPendingSpawns.init()
-        // Send the orb table to each player when they first see a
-        // dimension's chunks (either on initial login or after a
-        // dimension change). LevelChangedEvent fires for both.
         dev.architectury.event.events.common.PlayerEvent.CHANGE_DIMENSION.register { player, _, _ ->
             org.shipwrights.enderkinesis.body.OrbBodyNetwork.sendFullList(player, player.serverLevel())
         }
@@ -275,13 +257,13 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.worldgen.YgannAnchorShipifyProcessor.init()
         org.shipwrights.enderkinesis.worldgen.RoamingEndShipShipifyProcessor.init()
         org.shipwrights.enderkinesis.util.ServerTicks.init()
+        org.shipwrights.enderkinesis.entity.ConstriliarCargo.init()
         // Before the other death redirects, so a death in a pocket always returns the player.
         org.shipwrights.enderkinesis.dimension.WeheloPocket.init()
         org.shipwrights.enderkinesis.entity.WikLakDeathRedirect.init()
         org.shipwrights.enderkinesis.item.WeheloBlade.init()
         org.shipwrights.enderkinesis.entity.WohlonAnimalConversion.init()
         org.shipwrights.enderkinesis.item.GamylanCageManager.init()
-        // Wand of Ga'Mylan capture pipeline.
 
         YgannAbyssGuard.init()
         YgannAbyssBlockSweeper.init()
@@ -304,11 +286,8 @@ object EnderkinesisMod {
         SselithChatTeleport.init()
         org.shipwrights.enderkinesis.sselith.SselithEclipse.init()
 
-        // Sureibjin drown-to-wake exit.
         org.shipwrights.enderkinesis.dimension.SureibjinExit.init()
 
-        // Sureibjin block-uninteractable enforcement — the dream coast is
-        // walk-only; break/place/use/left-click are all cancelled.
         org.shipwrights.enderkinesis.dimension.SureibjinBlockGuard.init()
         // Must register after SselithChatTeleport so the teleport phrase is detected
         // before this suppresses and re-broadcasts the corrupted line.
@@ -331,6 +310,9 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.item.StaffOfCommandItem.initEvents()
         org.shipwrights.enderkinesis.item.SilverpointItem.initEvents()
         org.shipwrights.enderkinesis.item.SilverpointNetwork.init()
+        org.shipwrights.enderkinesis.construction.PlanNetwork.init()
+        org.shipwrights.enderkinesis.construction.DraftingTableNetwork.init()
+        org.shipwrights.enderkinesis.construction.BuildJobs.init()
         org.shipwrights.enderkinesis.item.GrandStaffRaising.init()
         org.shipwrights.enderkinesis.item.ShipCloakingTracker.init()
         org.shipwrights.enderkinesis.item.SunderingManager.init()

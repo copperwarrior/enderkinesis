@@ -14,6 +14,9 @@
     "enderkinesis:refined_ancrite_wall",
     "enderkinesis:ancrite_beam",
     "enderkinesis:ender_astrolabe",
-    "enderkinesis:eyeroscope"
+    "enderkinesis:eyeroscope",
+    "enderkinesis:crepusculite_ore",
+    "enderkinesis:crepusculite_block",
+    "enderkinesis:crepusculite_lattice"
   ]
 }
