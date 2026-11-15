@@ -14,6 +14,7 @@ import net.minecraft.core.Direction
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.Mth
 import net.minecraft.world.inventory.InventoryMenu
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList
 import org.joml.FrustumIntersection
 import org.joml.Matrix3f
 import org.joml.Matrix4f
@@ -40,6 +41,7 @@ object WogorBudRenderer {
 
     private val LOG = ResourceLocation("enderkinesis", "block/wogor_log")
     private val ROOTS = ResourceLocation("enderkinesis", "block/wohlon_hanging_roots")
+    private val LEAVES = ResourceLocation("enderkinesis", "block/wogor_leaves")
     private val SOLID_TYPE: RenderType = RenderType.entityCutout(InventoryMenu.BLOCK_ATLAS)
     private val ROOT_TYPE: RenderType = RenderType.entityCutoutNoCull(InventoryMenu.BLOCK_ATLAS)
     private val DIRECTIONS: Array<Direction> = Direction.values()
@@ -58,8 +60,15 @@ object WogorBudRenderer {
     private val frustum = FrustumIntersection()
 
     private var rankedSprite: TextureAtlasSprite? = null
-    private var rootRank = FloatArray(0)
-    private var rootOpaque = BooleanArray(0)
+    private var rootW = 0
+    private var rootH = 0
+    /** Fade order of each opaque texel, or [NOT_ROOT]. A texel shows while its order is at or past the fade step. */
+    private var rootOrder = IntArray(0)
+    /** Rank of fade order j, ascending; the fade step is the count of ranks below `gone`. */
+    private var sortedRanks = FloatArray(0)
+    /** Merged root rectangles by fade step at full reveal, 6 values each (s0, s1, y0, y1, u0, u1). */
+    private var rectsByStep = arrayOfNulls<DoubleArray>(0)
+    private val shipCentre = Vector3d()
 
     // The render thread reads the client ship's render transform, not physics state; as in YgannBarnacleDeathRenderer.
     @OptIn(GameTickOnly::class)
@@ -74,6 +83,7 @@ object WogorBudRenderer {
         val atlas = mc.getTextureAtlas(InventoryMenu.BLOCK_ATLAS)
         val log = atlas.apply(LOG)
         val roots = atlas.apply(ROOTS)
+        val leaves = atlas.apply(LEAVES)
         rankRoots(roots)
         val time = level.gameTime + partialTicks.toDouble()
         val maxDist = mc.options.renderDistance().get() * BLOCKS_PER_CHUNK
@@ -92,7 +102,7 @@ object WogorBudRenderer {
 
             val size = Mth.lerp(partialTicks.toDouble(), bud.prevSize, bud.size)
             val t0 = time - bud.rootStart
-            val reveal = if (bud.animated) easeOutCubic((t0 / (ROOT_GROW_SHARE * bud.mature)).coerceIn(0.0, 1.0)) else 0.0
+            val reveal = if (bud.animated && !bud.leaf) easeOutCubic((t0 / (ROOT_GROW_SHARE * bud.mature)).coerceIn(0.0, 1.0)) else 0.0
             val gone = ((t0 - ROOT_FADE_START * bud.mature) / (ROOT_FADE_SHARE * bud.mature)).coerceIn(0.0, 1.0)
             @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; Mojang marks it internal only.
             val seed = Mth.getSeed(pos)
@@ -102,10 +112,10 @@ object WogorBudRenderer {
                 emit.face = dir
                 if (size > MIN_DRAW_PX) {
                     emit.consumer = solid
-                    emit.sprite = log
+                    emit.sprite = if (bud.leaf) leaves else log
                     drawBulb(size, dir.ordinal, Math.floorMod(seed + dir.ordinal, KNOTS.size.toLong()).toInt())
                 }
-                if (reveal > 0.0 && gone < 1.0 && rootRank.isNotEmpty()) {
+                if (reveal > 0.0 && gone < 1.0 && rootOrder.isNotEmpty()) {
                     val rb = rootBuffer ?: buffers.getBuffer(ROOT_TYPE).also { rootBuffer = it }
                     emit.consumer = rb
                     emit.sprite = roots
@@ -131,16 +141,29 @@ object WogorBudRenderer {
             if (!inView) return false
             emit.begin(poseStack.last(), x0, y0, z0)
         } else {
-            // Big world offset in double, only the ship rotation in the float pose (precision; see YgannBarnacleDeathRenderer).
-            poseStack.pushPose()
             shipOrigin.set(pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble())
             ship.renderTransform.shipToWorld.transformPosition(shipOrigin)
+            if (!shipBudInView(ship, cameraX, cameraY, cameraZ)) return false
+            // Big world offset in double, only the ship rotation in the float pose (precision; see YgannBarnacleDeathRenderer).
+            poseStack.pushPose()
             poseStack.translate(shipOrigin.x - cameraX, shipOrigin.y - cameraY, shipOrigin.z - cameraZ)
             val r = ship.renderTransform.shipToWorldRotation
             poseStack.mulPose(Quaternionf(r.x().toFloat(), r.y().toFloat(), r.z().toFloat(), r.w().toFloat()))
             emit.begin(poseStack.last(), 0f, 0f, 0f)
         }
         return true
+    }
+
+    /** The bud draws unscaled at [shipOrigin] with the ship rotation only, so the test sphere does the same. */
+    @OptIn(GameTickOnly::class)
+    private fun shipBudInView(ship: ClientShip, cameraX: Double, cameraY: Double, cameraZ: Double): Boolean {
+        ship.renderTransform.shipToWorldRotation.transform(shipCentre.set(HALF_BLOCK, HALF_BLOCK, HALF_BLOCK))
+        return frustum.testSphere(
+            (shipOrigin.x + shipCentre.x - cameraX).toFloat(),
+            (shipOrigin.y + shipCentre.y - cameraY).toFloat(),
+            (shipOrigin.z + shipCentre.z - cameraZ).toFloat(),
+            CULL_RADIUS,
+        )
     }
 
     private fun drawBulb(size: Double, rank: Int, variant: Int) {
@@ -189,39 +212,77 @@ object WogorBudRenderer {
 
     /** Two diagonal planes as a vanilla cross, texture row 0 on the support face, [heightPx] of the strands shown. */
     private fun drawRoots(dir: Direction, heightPx: Double, gone: Float) {
-        val sprite = emit.sprite
-        val w = sprite.contents().width()
-        val h = sprite.contents().height()
-        val texelX = CROSS_WIDTH_PX / w
-        val texelY = FULL_PX / h
+        val rects = if (gone <= 0f) null else rootRects(fadeStep(gone), heightPx)
         val turn = if (dir == Direction.UP || dir == Direction.SOUTH || dir == Direction.EAST) CROSS_TURN else 0.0
         for (plane in 0..1) {
             val a = (if (plane == 0) QUARTER_PI else -QUARTER_PI) + turn
             val ca = cos(a); val sa = sin(a)
             emit.normal((-sa).toFloat(), 0f, ca.toFloat())
-            if (gone <= 0f) {
+            if (rects == null) {
                 strip(ca, sa, -CROSS_WIDTH_PX / 2, CROSS_WIDTH_PX / 2, 0.0, heightPx, 0.0, FULL_PX)
                 continue
             }
-            var row = 0
-            while (row < h && row * texelY < heightPx) {
-                val y0 = row * texelY
-                val y1 = min((row + 1) * texelY, heightPx)
-                var c = 0
-                while (c < w) {
-                    if (!visible(row * w + c, gone)) { c++; continue }
-                    val start = c
-                    while (c < w && visible(row * w + c, gone)) c++
-                    val s0 = -CROSS_WIDTH_PX / 2 + start * texelX
-                    val s1 = -CROSS_WIDTH_PX / 2 + c * texelX
-                    strip(ca, sa, s0, s1, y0, y1, start * FULL_PX / w, c * FULL_PX / w)
-                }
-                row++
+            var r = 0
+            while (r < rects.size) {
+                strip(ca, sa, rects[r], rects[r + 1], rects[r + 2], rects[r + 3], rects[r + 4], rects[r + 5])
+                r += RECT_VALUES
             }
         }
     }
 
-    private fun visible(i: Int, gone: Float): Boolean = rootOpaque[i] && rootRank[i] >= gone
+    private fun fadeStep(gone: Float): Int {
+        var lo = 0
+        var hi = sortedRanks.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (sortedRanks[mid] < gone) lo = mid + 1 else hi = mid
+        }
+        return lo
+    }
+
+    private fun rootRects(step: Int, heightPx: Double): DoubleArray {
+        if (heightPx != ROOT_REVEAL_PX) return buildRootRects(step, heightPx)
+        return rectsByStep[step] ?: buildRootRects(step, heightPx).also { rectsByStep[step] = it }
+    }
+
+    /** Visible texel runs, with runs of the same columns in next rows merged into one rectangle. v = y, so a merged
+     *  rectangle maps the same texels as its rows. */
+    private fun buildRootRects(step: Int, heightPx: Double): DoubleArray {
+        val w = rootW
+        val h = rootH
+        val texelX = CROSS_WIDTH_PX / w
+        val texelY = FULL_PX / h
+        val openEnd = IntArray(w) { -1 }
+        val firstRow = IntArray(w)
+        val lastRow = IntArray(w)
+        val out = DoubleArrayList()
+        fun close(start: Int) {
+            val end = openEnd[start]
+            out.add(-CROSS_WIDTH_PX / 2 + start * texelX); out.add(-CROSS_WIDTH_PX / 2 + end * texelX)
+            out.add(firstRow[start] * texelY); out.add(min((lastRow[start] + 1) * texelY, heightPx))
+            out.add(start * FULL_PX / w); out.add(end * FULL_PX / w)
+            openEnd[start] = -1
+        }
+        var row = 0
+        while (row < h && row * texelY < heightPx) {
+            var c = 0
+            while (c < w) {
+                if (rootOrder[row * w + c] < step) { c++; continue }
+                val start = c
+                while (c < w && rootOrder[row * w + c] >= step) c++
+                if (openEnd[start] == c && lastRow[start] == row - 1) {
+                    lastRow[start] = row
+                    continue
+                }
+                if (openEnd[start] >= 0) close(start)
+                openEnd[start] = c; firstRow[start] = row; lastRow[start] = row
+            }
+            for (start in 0 until w) if (openEnd[start] >= 0 && lastRow[start] != row) close(start)
+            row++
+        }
+        for (start in 0 until w) if (openEnd[start] >= 0) close(start)
+        return out.toDoubleArray()
+    }
 
     private fun strip(ca: Double, sa: Double, s0: Double, s1: Double, y0: Double, y1: Double, u0: Double, u1: Double) {
         val e = emit
@@ -243,10 +304,13 @@ object WogorBudRenderer {
         val jitter = FloatArray(w * h) { rng.nextFloat() }
         val order = (0 until w * h).filter { opaque[it] }
             .sortedBy { hypot(it % w + 0.5 - w / 2.0, it / w + 0.5) + jitter[it] * RANK_JITTER_TEXELS * w / FULL_PX }
-        val rank = FloatArray(w * h) { 2f }
-        order.forEachIndexed { j, i -> rank[i] = (j + 0.5f) / order.size }
-        rootOpaque = opaque
-        rootRank = rank
+        val orderOf = IntArray(w * h) { NOT_ROOT }
+        order.forEachIndexed { j, i -> orderOf[i] = j }
+        rootW = w
+        rootH = h
+        rootOrder = orderOf
+        sortedRanks = FloatArray(order.size) { j -> (j + 0.5f) / order.size }
+        rectsByStep = arrayOfNulls(order.size + 1)
     }
 
     private fun easeOutCubic(u: Double): Double { val v = 1 - u; return 1 - v * v * v }
@@ -325,4 +389,9 @@ object WogorBudRenderer {
     private const val ROOT_FADE_SHARE = 0.45
     private const val RANK_SEED = 11
     private const val RANK_JITTER_TEXELS = 2.5
+    private const val RECT_VALUES = 6
+    /** Below every fade step, so a transparent texel never shows. */
+    private const val NOT_ROOT = Int.MIN_VALUE
+    private const val HALF_BLOCK = 0.5
+    private const val CULL_RADIUS = (0.5f + CULL_PAD) * 1.7320508f
 }

@@ -20,6 +20,7 @@ import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConf
 import org.shipwrights.enderkinesis.block.WogorBudBlock
 import org.shipwrights.enderkinesis.block.WogorVineNoise
 import org.shipwrights.enderkinesis.block.WohlonLichenBlock
+import org.shipwrights.enderkinesis.block.placeWohlonMossCarpet
 import org.shipwrights.enderkinesis.registry.EKBlocks
 
 /**
@@ -106,12 +107,8 @@ class WohlonUnderstoryFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<
             if (random.nextFloat() >= LOG_CARPET_CHANCE * mossPatch) return false
             // Nurse logs: seedlings take on mossy logs. Static bud, no growth tick, so it stays a seedling.
             val at = pos.set(c.x, c.groundY + 1, c.z)
-            val top = if (fallen && random.nextFloat() < NURSE_BUD_SHARE) {
-                WogorBudBlock.newBud(level, at)
-            } else {
-                EKBlocks.WOHLON_MOSS_CARPET.get().defaultBlockState()
-            }
-            return place(level, at, top)
+            if (fallen && random.nextFloat() < NURSE_BUD_SHARE) return place(level, at, WogorBudBlock.newBud(level, at))
+            return level.placeWohlonMossCarpet(at, Block.UPDATE_CLIENTS)
         }
         if (!ground.`is`(EKBlocks.WOHLON_MUD.get())) return false
 
@@ -119,7 +116,7 @@ class WohlonUnderstoryFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<
         if ((hollowEdge || nearTreeBase(level, pos, c)) && random.nextFloat() < MAT_CHANCE * mossPatch) {
             level.setBlock(pos.set(c.x, c.groundY, c.z), EKBlocks.WOHLON_MOSS.get().defaultBlockState(), Block.UPDATE_CLIENTS)
             if (random.nextFloat() < MAT_CARPET_CHANCE) {
-                place(level, pos.set(c.x, c.groundY + 1, c.z), EKBlocks.WOHLON_MOSS_CARPET.get().defaultBlockState())
+                level.placeWohlonMossCarpet(pos.set(c.x, c.groundY + 1, c.z), Block.UPDATE_CLIENTS)
             }
             return true
         }

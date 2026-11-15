@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import java.util.function.Predicate
 import net.minecraft.core.BlockPos
@@ -29,8 +28,6 @@ import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.level.block.Block
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKItems
-
-private val LOG = LogUtils.getLogger()
 
 class KekhekhEntity(type: EntityType<out KekhekhEntity>, level: Level) : AbstractFish(type, level) {
 
@@ -138,7 +135,6 @@ class KekhekhEntity(type: EntityType<out KekhekhEntity>, level: Level) : Abstrac
             holdTicks = 0
             // Return value ignored: with no path the flee times out after FLEE_TICKS.
             navigation.moveTo(at.x + HALF, at.y + HALF, at.z + HALF, FLEE_SPEED)
-            LOG.info("[FishDebug] Kekhekh {} flees from an Eauhorrana to refuge {}", id, at)
         }
 
         override fun tick() {

@@ -14,7 +14,7 @@ import kotlin.math.min
 // Client thread only.
 object WogorBudClientTracker {
 
-    class Bud(val pos: Long) {
+    class Bud(val pos: Long, val leaf: Boolean) {
         var age = 0
         var stageStart = 0L
         /** Game time at which AGE 0 began; estimated from [WogorBudBlock.growDelay] for a late sighting. */
@@ -40,14 +40,15 @@ object WogorBudClientTracker {
         if (!level.isClientSide) return
         useLevel(level)
         val key = pos.asLong()
-        if (state.block !is WogorBudBlock) {
+        val block = state.block
+        if (block !is WogorBudBlock) {
             buds.remove(key)
             return
         }
         val age = state.getValue(WogorBudBlock.AGE)
         val bud = buds.get(key)
-        if (bud == null) {
-            add(level, key, age, animated = true)
+        if (bud == null || bud.leaf != block.leaf) {
+            add(level, key, age, block.leaf, animated = true)
         } else if (bud.age != age) {
             startStage(bud, age, level.gameTime)
         }
@@ -66,9 +67,10 @@ object WogorBudClientTracker {
             val baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i))
             for (y in 0 until SECTION_SIZE) for (z in 0 until SECTION_SIZE) for (x in 0 until SECTION_SIZE) {
                 val state = section.getBlockState(x, y, z)
-                if (state.block !is WogorBudBlock) continue
+                val block = state.block
+                if (block !is WogorBudBlock) continue
                 val key = BlockPos.asLong(chunk.pos.minBlockX + x, baseY + y, chunk.pos.minBlockZ + z)
-                if (!buds.containsKey(key)) add(level, key, state.getValue(WogorBudBlock.AGE), animated = false)
+                if (!buds.containsKey(key)) add(level, key, state.getValue(WogorBudBlock.AGE), block.leaf, animated = false)
             }
         }
     }
@@ -88,7 +90,7 @@ object WogorBudClientTracker {
             }
             val age = state.getValue(WogorBudBlock.AGE)
             if (age != bud.age) startStage(bud, age, now)
-            bud.faces = WogorBudBlock.supportMask(level, scratch, neighbour)
+            bud.faces = WogorBudBlock.supportMask(level, scratch, neighbour, bud.leaf)
             integrate(bud, now)
         }
     }
@@ -104,13 +106,13 @@ object WogorBudClientTracker {
         trackedLevel = level
     }
 
-    private fun add(level: Level, key: Long, age: Int, animated: Boolean) {
-        if (buds.size >= MAX_BUDS) buds.removeFirst()
-        val bud = Bud(key)
+    private fun add(level: Level, key: Long, age: Int, leaf: Boolean, animated: Boolean) {
+        if (buds.size >= MAX_BUDS && !buds.containsKey(key)) buds.removeFirst()
+        val bud = Bud(key, leaf)
         scratch.set(key)
         bud.mature = (0..WogorBudBlock.MAX_AGE).sumOf { WogorBudBlock.growDelay(scratch, it) }
         bud.animated = animated
-        bud.faces = WogorBudBlock.supportMask(level, scratch, neighbour)
+        bud.faces = WogorBudBlock.supportMask(level, scratch, neighbour, leaf)
         startStage(bud, age, level.gameTime)
         if (!animated) {
             bud.size = stageEndPx(age)

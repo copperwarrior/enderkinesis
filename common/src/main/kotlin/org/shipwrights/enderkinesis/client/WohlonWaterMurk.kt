@@ -13,6 +13,8 @@ import net.minecraft.tags.FluidTags
 import net.minecraft.util.Mth
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.LevelChunk
+import net.minecraft.world.level.material.FlowingFluid
+import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.level.material.FogType
 import org.joml.Matrix4f
 import org.shipwrights.enderkinesis.client.volume.ChunkColumnMask
@@ -28,7 +30,7 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 /**
  * Murky Wohlon water seen from above. Main depth is copied before the translucent pass; a screen
  * pass then adds murk by the water depth behind each water-surface pixel. A column mask of the top
- * water block keeps glass and ice out. Streaks in the murk flow out from the world centre. Render
+ * [MAX_RUNS] water runs keeps glass and ice out. Streaks in the murk flow out from the world centre. Render
  * thread only.
  */
 object WohlonWaterMurk {
@@ -41,8 +43,16 @@ object WohlonWaterMurk {
     private const val WINDOW_CHUNKS = 32
     // Past the window the mask wraps to other columns, so the murk fades out over this before its edge.
     private const val EDGE_FADE = 32f
-    private const val NO_WATER = 255
-    private const val MAX_CODE = 254
+    private const val MAX_RUNS = 2
+    // A run top code is y - baseY + 1, so 0 reads as no run, as do unloaded texels.
+    private const val MAX_TOP = 255
+    private const val MAX_BELOW = 127
+    private const val FALLING_BIT = 0x80
+    private const val STAGE_DONE = 2 * MAX_RUNS
+    // A later run must start this close below the lowest block of the run above it.
+    private const val NEXT_RUN_REACH = 32
+    // Per mask: a diagonal window crossing (63 slots) takes 4 frames, not one long frame.
+    private const val MAX_REBUILDS = 16
 
     /** Murk for each block of water behind the surface. */
     private const val DENSITY = 0.35f
@@ -55,9 +65,16 @@ object WohlonWaterMurk {
     private const val TIME_PERIOD_SEC = 4000.0
 
     private val opaqueDepth = DepthTextureCopy()
-    private val columns = ChunkColumnMask(WINDOW_CHUNKS, ::fillColumns, raw = true, unloadedValue = NO_WATER)
+    // Per run: top code, then blocks below the top with FALLING_BIT, so falling faces get murk and a thin clamp.
+    private val runs = ChunkColumnMask(
+        WINDOW_CHUNKS, ::fillRuns, raw = true, unloadedValue = 0, rgba = true, maxRebuilds = MAX_REBUILDS,
+    )
+    // Per column: even = looking for run stage / 2, odd = inside it.
+    private val runStage = IntArray(256)
+    // Per column: the lowest Y where the next run may start.
+    private val searchFloor = IntArray(256)
     // Wohlon share of each column over the biome blend radius, so the murk fades like vanilla water colour.
-    private val weights = ChunkColumnMask(WINDOW_CHUNKS, ::fillWeights, raw = true, unloadedValue = 0)
+    private val weights = ChunkColumnMask(WINDOW_CHUNKS, ::fillWeights, raw = true, unloadedValue = 0, maxRebuilds = MAX_REBUILDS)
     private var blendRadius = -1
     private val blendFlags = BooleanArray(BLEND_GRID * BLEND_GRID)
     private val blendSums = IntArray((BLEND_GRID + 1) * (BLEND_GRID + 1))
@@ -65,8 +82,8 @@ object WohlonWaterMurk {
     private val effect = VolumeEffect(
         "wohlon_water_murk",
         "OpaqueDepth" to IntSupplier { depthTexture },
-        "ColumnMask" to IntSupplier { columns.textureId },
         "WeightMask" to IntSupplier { weights.textureId },
+        "RunMask" to IntSupplier { runs.textureId },
     )
 
     private var copied = false
@@ -80,18 +97,31 @@ object WohlonWaterMurk {
 
     @JvmStatic
     fun markChunkDirty(chunkX: Int, chunkZ: Int) {
-        columns.markDirty(chunkX, chunkZ)
+        runs.markDirty(chunkX, chunkZ)
+        markBiomesDirty(chunkX, chunkZ)
+    }
+
+    // fillRuns reads only water, so a biome resend rebuilds only the weights.
+    @JvmStatic
+    fun markBiomesDirty(chunkX: Int, chunkZ: Int) {
         // The blend reaches up to 7 blocks into the neighbouring chunks.
         for (dx in -1..1) for (dz in -1..1) weights.markDirty(chunkX + dx, chunkZ + dz)
     }
 
-    // fillColumns reads only water and fillWeights only biomes, so Wohlon growth into air must not rebuild either.
+    // fillRuns reads only water and fillWeights only biomes, so Wohlon growth into air must not rebuild either.
     @JvmStatic
     fun onBlockChanged(pos: BlockPos, oldState: BlockState, newState: BlockState) {
-        if (oldState.fluidState.`is`(FluidTags.WATER) != newState.fluidState.`is`(FluidTags.WATER)) {
-            columns.markDirty(pos.x shr 4, pos.z shr 4)
-        }
+        if (waterKind(oldState.fluidState) != waterKind(newState.fluidState)) runs.markDirty(pos.x shr 4, pos.z shr 4)
     }
+
+    private fun waterKind(fluid: FluidState): Int = when {
+        !fluid.`is`(FluidTags.WATER) -> 0
+        isFalling(fluid) -> 2
+        else -> 1
+    }
+
+    private fun isFalling(fluid: FluidState): Boolean =
+        !fluid.isSource && fluid.hasProperty(FlowingFluid.FALLING) && fluid.getValue(FlowingFluid.FALLING)
 
     /** Call just before the translucent chunk layer. */
     @JvmStatic
@@ -138,7 +168,7 @@ object WohlonWaterMurk {
             blendRadius = radius
             weights.unbind()
         }
-        columns.refresh(level, camBlockX shr 4, camBlockZ shr 4)
+        runs.refresh(level, camBlockX shr 4, camBlockZ shr 4)
         weights.refresh(level, camBlockX shr 4, camBlockZ shr 4)
         view.update(projection, poseStack.last().pose(), cam.x, cam.y, cam.z)
         colour[0] = WohlonAtmosphere.murkRed()
@@ -152,7 +182,7 @@ object WohlonWaterMurk {
     }
 
     fun onDisconnect() {
-        columns.unbind()
+        runs.unbind()
         weights.unbind()
         blendRadius = -1
         codeLevel = null
@@ -161,7 +191,7 @@ object WohlonWaterMurk {
 
     private fun pushUniforms(eff: EffectInstance) {
         view.pushInvViewProj(eff)
-        eff.safeGetUniform("CamBlockWrap").set(columns.wrap(camBlockX), columns.wrap(camBlockZ))
+        eff.safeGetUniform("CamBlockWrap").set(runs.wrap(camBlockX), runs.wrap(camBlockZ))
         eff.safeGetUniform("CamFrac").set((view.camX - camBlockX).toFloat(), (view.camZ - camBlockZ).toFloat())
         eff.safeGetUniform("CamY").set(view.camY.toFloat())
         eff.safeGetUniform("BaseY").set(baseY.toFloat())
@@ -169,7 +199,7 @@ object WohlonWaterMurk {
         eff.safeGetUniform("Density").set(DENSITY)
         eff.safeGetUniform("MaxMurk").set(MAX_MURK)
         eff.safeGetUniform("FogRange").set(WohlonAtmosphere.terrainFogStart, WohlonAtmosphere.terrainFogEnd)
-        eff.safeGetUniform("MaskReach").set(columns.maxMarch - EDGE_FADE, columns.maxMarch)
+        eff.safeGetUniform("MaskReach").set(runs.maxMarch - EDGE_FADE, runs.maxMarch)
         // The flow runs out from the world centre (0, 0).
         eff.safeGetUniform("CamFromCentre").set(view.camX.toFloat(), view.camZ.toFloat())
         eff.safeGetUniform("CamNoise").set(view.camX.mod(NOISE_PERIOD).toFloat(), view.camZ.mod(NOISE_PERIOD).toFloat())
@@ -224,36 +254,78 @@ object WohlonWaterMurk {
     }
 
     /**
-     * The top water block of each Wohlon column, above [baseY], or [NO_WATER]. Sections go top-down,
-     * and a section whose palette holds no water is skipped whole, so a tall canopy costs nothing.
+     * The top [MAX_RUNS] water runs of each column, top-down. Sections whose palette holds no water
+     * end every open run and are skipped whole, so a tall canopy costs nothing.
      */
-    private fun fillColumns(chunk: LevelChunk, out: ByteBuffer) {
-        for (i in 0 until 256) out.put(i, NO_WATER.toByte())
-        var left = 256
+    private fun fillRuns(chunk: LevelChunk, out: ByteBuffer) {
+        for (i in 0 until 256 * 4) out.put(i, 0)
+        runStage.fill(0)
+        var open = 256
         val sections = chunk.sections
         for (idx in sections.indices.reversed()) {
             val section = sections[idx]
-            if (section.hasOnlyAir() || !section.states.maybeHas { it.fluidState.`is`(FluidTags.WATER) }) continue
-            val baseSectionY = chunk.getSectionYFromSectionIndex(idx) shl 4
-            for (z in 0 until 16) {
-                for (x in 0 until 16) {
-                    val i = z * 16 + x
-                    if (out.get(i).toInt() and 0xFF != NO_WATER) continue
+            val sectionY = chunk.getSectionYFromSectionIndex(idx) shl 4
+            if (section.hasOnlyAir() || !section.states.maybeHas { it.fluidState.`is`(FluidTags.WATER) }) {
+                for (i in 0 until 256) {
+                    val stage = runStage[i]
+                    if (stage == STAGE_DONE) continue
+                    if (stage and 1 == 1) endRun(i, sectionY + 16)
+                    // No water here, so the next block to scan is sectionY - 1.
+                    if (runStage[i] == STAGE_DONE || (runStage[i] > 0 && sectionY - 1 < searchFloor[i])) {
+                        runStage[i] = STAGE_DONE
+                        open--
+                    }
+                }
+            } else {
+                for (i in 0 until 256) {
+                    if (runStage[i] == STAGE_DONE) continue
                     for (ly in 15 downTo 0) {
-                        if (!section.getFluidState(x, ly, z).`is`(FluidTags.WATER)) continue
-                        out.put(i, waterCode(baseSectionY + ly).toByte())
-                        left--
+                        if (!scanBlock(out, i, section.getFluidState(i and 15, ly, i shr 4), sectionY + ly)) continue
+                        open--
                         break
                     }
                 }
             }
-            if (left == 0) return
+            // Runs that start below baseY cannot get a code, and older runs have hit MAX_BELOW.
+            if (open == 0 || sectionY < baseY - MAX_BELOW) return
         }
     }
 
-    /** Every water column gets a code; [fillWeights] decides how much of it is Wohlon. */
-    private fun waterCode(y: Int): Int {
-        val code = y - baseY
-        return if (code in 0..MAX_CODE) code else NO_WATER
+    private fun endRun(i: Int, lowestWaterY: Int) {
+        runStage[i]++
+        searchFloor[i] = lowestWaterY - NEXT_RUN_REACH
+    }
+
+    /** Steps column [i] one block down; true when the column has just finished. */
+    private fun scanBlock(out: ByteBuffer, i: Int, fluid: FluidState, y: Int): Boolean {
+        val water = fluid.`is`(FluidTags.WATER)
+        val stage = runStage[i]
+        val at = i * 4 + (stage shr 1) * 2
+        if (stage and 1 == 0) {
+            if (stage > 0 && y < searchFloor[i]) {
+                runStage[i] = STAGE_DONE
+                return true
+            }
+            if (!water) return false
+            val top = y - baseY + 1
+            if (top < 1) {
+                runStage[i] = STAGE_DONE
+                return true
+            }
+            if (top > MAX_TOP) return false
+            out.put(at, top.toByte())
+            if (isFalling(fluid)) out.put(at + 1, FALLING_BIT.toByte())
+            runStage[i] = stage + 1
+            return false
+        }
+        if (!water) {
+            endRun(i, y + 1)
+            return runStage[i] == STAGE_DONE
+        }
+        val info = out.get(at + 1).toInt() and 0xFF
+        val below = info and MAX_BELOW
+        val falling = if (isFalling(fluid)) FALLING_BIT else info and FALLING_BIT
+        out.put(at + 1, ((if (below < MAX_BELOW) below + 1 else below) or falling).toByte())
+        return false
     }
 }

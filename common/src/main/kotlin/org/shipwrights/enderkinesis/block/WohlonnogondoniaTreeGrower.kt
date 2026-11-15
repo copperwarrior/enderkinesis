@@ -21,11 +21,12 @@ import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.TagKey
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.LeavesBlock
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
+import net.minecraft.world.level.material.Fluids
 import net.minecraft.world.level.saveddata.SavedData
 import org.shipwrights.enderkinesis.blockentity.HeartOfTheWildBlockEntity
+import org.shipwrights.enderkinesis.duck.TreeJobsHolder
 import org.shipwrights.enderkinesis.dimension.TreeSegment
 import org.shipwrights.enderkinesis.dimension.TreeTip
 import org.shipwrights.enderkinesis.util.warmUpClasses
@@ -164,29 +165,24 @@ object WohlonnogondoniaTreeGrower {
     //   Growth control
     // ===================================================
 
-    /** Frontier voxels scanned per server tick. The frontier
-     *  for a typical child tree is ~3–15 k voxels in steady
-     *  state; we want to scan all of it every tick so a
-     *  voxel waiting on a maturing neighbour gets re-checked
-     *  the moment that neighbour matures. The cap is here as a
-     *  safety against pathological cases (a 100 k-voxel
-     *  frontier would spend ~10 ms / tick scanning).
-     *
-     *  **Why this matters for the roots.** Child trees have a
-     *  buttress-flared trunk base (`maxThickness + buttressFlare`
-     *  → ~10-block-radius base) that contributes ~3 k voxels
-     *  at distances 0–10 from the candle origin. The
-     *  root-emergence voxels live in roughly the same distance
-     *  band (radius 3 from trunk centre, Y ≈ candle.y + 1..4
-     *  → distance ~3–5). At `MAX_SCAN_PER_TICK = 2000` the
-     *  scan would exhaust on early trunk-base voxels (most
-     *  still waiting on the bottom layer to mature) before
-     *  ever reaching the root-emergence voxels — they stayed
-     *  in the frontier but never got a sturdy-face check. */
+    /** Frontier voxels checked per server tick: a bound on the work after many blocks near the tree change at once. */
     private const val MAX_SCAN_PER_TICK = 50_000
 
+    /** Ticks between full frontier re-checks: a safety net for block changes that skip [onBlockChanged]. */
+    private const val RECHECK_SWEEP_TICKS = 200L
+
+    /** dx, dy, dz of each cell within Manhattan distance 2: a voxel's check reads its neighbours and, through
+     *  [orphansNeighbourBud], their neighbours. */
+    private val RECHECK_OFFSETS: IntArray = run {
+        val out = IntArrayList()
+        for (dx in -2..2) for (dy in -2..2) for (dz in -2..2) {
+            if (abs(dx) + abs(dy) + abs(dz) <= 2) { out.add(dx); out.add(dy); out.add(dz) }
+        }
+        out.toIntArray()
+    }
+
     /** Bud / leaf placements per server tick. Slow pacing
-     *  knob — combined with the 20–28 tick bud maturation
+     *  knob — combined with the 12–42 tick bud maturation
      *  window, this is what makes the tree feel like it's
      *  taking its time. For a typical 30–80 k voxel child tree
      *  at 25/tick, the placement work is spread over
@@ -259,6 +255,8 @@ object WohlonnogondoniaTreeGrower {
     /** Candle tendrils of each fresh ignite, by portal, for [WohlonRitualTimeline.riseEnd]. Server thread only. */
     private val igniteCandles = Long2IntOpenHashMap()
     private const val NO_IGNITE = Long.MIN_VALUE
+    private const val NO_VOXEL = -1
+    private val NO_DATA = Any()
 
     fun init() {
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
@@ -366,7 +364,7 @@ object WohlonnogondoniaTreeGrower {
 
     /** Placed part of each growth phase (roots, wood, leaves) of the job at [trunk], or null. */
     fun progress(level: ServerLevel, trunk: Long, out: FloatArray): Boolean {
-        val data = level.dataStorage.get({ tag -> TreeJobsData.load(tag) }, DATA_NAME) ?: return false
+        val data = cachedData(level) ?: return false
         val job = data.jobs.firstOrNull { it.trunk == trunk } ?: return false
         // Roots, wood and leaves interleave in growth order, so count by flag, not by index range.
         val roots = job.isRoot.cardinality()
@@ -855,7 +853,12 @@ object WohlonnogondoniaTreeGrower {
         // heart (placed by `WohlonnogondoniaChunkGenerator` at
         // `(0, HEART_Y, 0)`); putting it here would arm the
         // dim-wipe catastrophe trigger on every ritual portal.
-        level.setBlock(params.portalPos, EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState(), 3)
+        val inWater = level.getFluidState(params.portalPos).type === Fluids.WATER
+        level.setBlock(
+            params.portalPos,
+            EKBlocks.HEART_OF_THE_WILD.get().defaultBlockState().setValue(HeartOfTheWildBlock.WATERLOGGED, inWater),
+            3,
+        )
         level.blockEvent(params.portalPos, EKBlocks.HEART_OF_THE_WILD.get(), HeartOfTheWildBlockEntity.EVENT_GROW, 0)
         playAt(level, params.portalPos.asLong(), EKSounds.WOHLON_RITUAL_HEART_ARRIVE.get(), HEART_ARRIVE_VOLUME, 1f)
     }
@@ -983,9 +986,7 @@ object WohlonnogondoniaTreeGrower {
 
     private fun tickLevel(level: ServerLevel) {
         if (WohlonnogondoniaCatastrophe.isDraining(level)) return
-        val data = level.dataStorage.get(
-            { tag -> TreeJobsData.load(tag) }, DATA_NAME,
-        ) ?: return
+        val data = cachedData(level) ?: return
         if (data.pending.isNotEmpty()) resumePendingBuilds(level, data)
         if (data.vines.isNotEmpty() && tickRitualVines(level, data)) data.setDirty()
         if (data.jobs.isEmpty()) return
@@ -1020,7 +1021,6 @@ object WohlonnogondoniaTreeGrower {
     /** Makes the planned vines whose anchors grew, [RITUAL_VINES_PER_TICK] at most each tick. */
     private fun tickRitualVines(level: ServerLevel, data: TreeJobsData): Boolean {
         val vines = data.vines
-        val bud = EKBlocks.WOGOR_BUD.get()
         var changed = false
         var made = 0
         var scanned = 0
@@ -1043,8 +1043,8 @@ object WohlonnogondoniaTreeGrower {
                 vine.armed = true
                 changed = true
             }
-            // A bud has no collision, so a vine on it would let go at once; it waits for the wood.
-            when (level.makePlannedVine(vine.plan) { it.`is`(bud) }) {
+            // A bud has no collision, so a vine on it would let go at once; it waits for the wood or leaves.
+            when (level.makePlannedVine(vine.plan) { it.block is WogorBudBlock }) {
                 PlanResult.WAIT -> data.vineCursor++
                 PlanResult.MADE -> { vines.removeAt(data.vineCursor); made++; changed = true }
                 PlanResult.DROP -> { vines.removeAt(data.vineCursor); changed = true }
@@ -1063,11 +1063,11 @@ object WohlonnogondoniaTreeGrower {
     }
 
     private fun TreeJob.hasPlaced(plan: PlannedVine): Boolean {
-        val a = voxelIdx[BlockPos.asLong(plan.ax, plan.ay, plan.az)] ?: return false
-        if (!placed.get(a)) return false
+        val a = voxelIdx.get(BlockPos.asLong(plan.ax, plan.ay, plan.az))
+        if (a == NO_VOXEL || !placed.get(a)) return false
         if (plan.kind != PlannedKind.LOOP) return true
-        val b = voxelIdx[BlockPos.asLong(plan.bx, plan.by, plan.bz)] ?: return false
-        return placed.get(b)
+        val b = voxelIdx.get(BlockPos.asLong(plan.bx, plan.by, plan.bz))
+        return b != NO_VOXEL && placed.get(b)
     }
 
     private class RitualVine(val plan: PlannedVine, val trunk: Long, var armed: Boolean = false)
@@ -1095,7 +1095,7 @@ object WohlonnogondoniaTreeGrower {
 
     /** Calls [action] with the trunk of each job, and true while the job ticks. */
     fun forEachTrunk(level: ServerLevel, action: (trunk: Long, growing: Boolean) -> Unit) {
-        val data = level.dataStorage.get({ tag -> TreeJobsData.load(tag) }, DATA_NAME) ?: return
+        val data = cachedData(level) ?: return
         for (job in data.jobs) {
             val trunk = job.trunk ?: continue
             // The sync can run before or after the grow tick in the same game tick.
@@ -1103,37 +1103,61 @@ object WohlonnogondoniaTreeGrower {
         }
     }
 
-    /** Scans the frontier in growth order. Wood needs a sturdy neighbour face for its bud; leaves need
-     *  placed wood or leaves next to them. Voxels that fail stay in the frontier and are tried again. */
+    /** A block in [level] changed: frontier voxels whose check reads it get checked again. Server thread. */
+    @JvmStatic
+    fun onBlockChanged(level: ServerLevel, pos: BlockPos) {
+        val data = cachedData(level) ?: return
+        if (data.jobs.isEmpty()) return
+        val x = pos.x
+        val y = pos.y
+        val z = pos.z
+        // Index loop: this runs on every setBlock in the level, so no iterator.
+        for (j in data.jobs.indices) {
+            val job = data.jobs[j]
+            if (x < job.minX - 2 || x > job.maxX + 2 || z < job.minZ - 2 || z > job.maxZ + 2 ||
+                y < job.minY - 2 || y > job.maxY + 2) continue
+            var k = 0
+            while (k < RECHECK_OFFSETS.size) {
+                val idx = job.voxelIdx.get(BlockPos.asLong(x + RECHECK_OFFSETS[k], y + RECHECK_OFFSETS[k + 1], z + RECHECK_OFFSETS[k + 2]))
+                k += 3
+                if (idx != NO_VOXEL && job.frontier.get(idx)) job.recheck.set(idx)
+            }
+        }
+    }
+
+    /** Checks the frontier voxels in [TreeJob.recheck] in growth order. Wood needs a sturdy neighbour face for its
+     *  bud; leaves need wood, leaves or a leaf bud next to them. A voxel that fails stays in the frontier, and
+     *  [onBlockChanged] queues it again when a block it reads changes. */
     private fun tickJob(level: ServerLevel, job: TreeJob): Boolean {
         // Architectury's RegistrySupplier.get checks the registry on each call; once per tick, not once per voxel.
         val wood = EKBlocks.WOGOR_WOOD.get()
-        val leaves = EKBlocks.WOGOR_LEAVES.get()
         val bud = EKBlocks.WOGOR_BUD.get()
+        val leafBud = EKBlocks.WOGOR_LEAF_BUD.get()
         var changed = false
         var scanBudget = MAX_SCAN_PER_TICK
         var placeBudget = placeBudgetFor(job)
-        val newlyPlaced = ArrayList<Int>(64)
+        val placedPositions = job.placedPosScratch
+        placedPositions.clear()
         // Scratch: the scan runs up to [MAX_SCAN_PER_TICK] times each tick.
         val pos = BlockPos.MutableBlockPos()
         val nPos = BlockPos.MutableBlockPos()
         job.lastSetIdx = -1
-        var i = job.frontier.nextSetBit(0)
+        if (level.gameTime % RECHECK_SWEEP_TICKS == 0L) job.recheck.or(job.frontier)
+        var i = job.recheck.nextSetBit(0)
         while (i >= 0 && scanBudget > 0 && placeBudget > 0) {
             scanBudget--
             pos.set(job.voxels[i])
             val isLeaf = job.isLeaf.get(i)
 
             var didPlace = false
+            // setBlock keeps the pos it gets (onPlace schedules the bud tick with it), so it needs its own copy.
+            var placedAt: BlockPos? = null
             if (isLeaf) {
-                // Leaves stay tethered to their branch: wood or an already-placed leaf must touch them.
+                // Leaves stay tethered to their branch: matured wood, leaves or a leaf bud must touch them.
                 var hasNeighbour = false
                 for (dir in SIX_DIRECTIONS) {
                     val nState = level.getBlockState(nPos.setWithOffset(pos, dir))
-                    if (
-                        nState.`is`(wood) ||
-                        nState.`is`(leaves)
-                    ) {
+                    if (nState.`is`(wood) || isLeafTether(nState, pos)) {
                         hasNeighbour = true
                         break
                     }
@@ -1141,15 +1165,9 @@ object WohlonnogondoniaTreeGrower {
                 if (hasNeighbour) {
                     val existing = level.getBlockState(pos)
                     if (isTreeReplaceable(existing)) {
-                        val state = leaves.defaultBlockState()
-                            .setValue(LeavesBlock.PERSISTENT, true)
-                        // Flag 2 (UPDATE_CLIENTS only) — leaves
-                        // are persistent and have no canSurvive
-                        // requirement, and we want to avoid
-                        // their placement triggering neighbour
-                        // updateShape that could drop adjacent
-                        // buds.
-                        level.setBlock(pos.immutable(), state, 2)
+                        // Flag 2: no neighbour updates, which could re-check and drop nearby buds.
+                        placedAt = pos.immutable()
+                        level.setBlock(placedAt, WogorBudBlock.newBud(level, pos, leafBud), 2)
                         job.lastSetIdx = i
                     }
                     didPlace = true
@@ -1239,12 +1257,14 @@ object WohlonnogondoniaTreeGrower {
                         // A bud is not sturdy: in a solid cell it takes that face from its neighbours, so wait
                         // while a neighbouring bud still hangs on this cell alone. Once that bud matures, retry.
                         if (!soft && orphansNeighbourBud(level, pos, bud)) {
-                            i = job.frontier.nextSetBit(i + 1)
+                            job.recheck.clear(i)
+                            i = job.recheck.nextSetBit(i + 1)
                             continue
                         }
                         // After the seed, a bud anchors only on wood, logs or mud; retry when matured wood is next to it.
                         if (job.hasSeed && !level.getBlockState(nPos.setWithOffset(pos, supportDir)).`is`(WogorBudBlock.WOGOR_BUD_GROWABLE)) {
-                            i = job.frontier.nextSetBit(i + 1)
+                            job.recheck.clear(i)
+                            i = job.recheck.nextSetBit(i + 1)
                             continue
                         }
                         // Soil is pushed aside into nearby air as mud when it can be; otherwise the bud takes its place.
@@ -1252,7 +1272,8 @@ object WohlonnogondoniaTreeGrower {
                             tryDisplaceToAdjacentAir(level, pos)
                         }
                         // Flag 2: no neighbour updates, which could re-check and drop nearby buds.
-                        level.setBlock(pos.immutable(), WogorBudBlock.newBud(level, pos, bud), 2)
+                        placedAt = pos.immutable()
+                        level.setBlock(placedAt, WogorBudBlock.newBud(level, pos, bud), 2)
                         job.lastSetIdx = i
                         job.hasSeed = true
                     }
@@ -1260,14 +1281,16 @@ object WohlonnogondoniaTreeGrower {
                 }
             }
 
+            // After setBlock: its onBlockChanged marks this voxel too.
+            job.recheck.clear(i)
             if (didPlace) {
                 job.placed.set(i)
                 job.frontier.clear(i)
-                newlyPlaced.add(i)
+                placedPositions.add(placedAt ?: pos.immutable())
                 placeBudget--
                 changed = true
             }
-            i = job.frontier.nextSetBit(i + 1)
+            i = job.recheck.nextSetBit(i + 1)
         }
 
         // Propagate: every unplaced voxel-set neighbour of a
@@ -1282,18 +1305,17 @@ object WohlonnogondoniaTreeGrower {
         // bounded even at the upper end of [MAX_PLACES_PER_TICK].
         // The tree's painted shape carries the biome with it
         // as the wave moves outward.
-        if (newlyPlaced.isNotEmpty()) {
+        if (placedPositions.isNotEmpty()) {
             // Only neighbours in an open layer join; later ones join when their layer opens.
             val frontierEnd = job.layerEnds[job.currentLayer.coerceAtMost(job.layerEnds.size - 1)]
-            val placedPositions = ArrayList<BlockPos>(newlyPlaced.size)
-            for (idx in newlyPlaced) {
-                val pos = BlockPos.of(job.voxels[idx])
-                placedPositions.add(pos)
+            for (p in placedPositions) {
                 for (dir in SIX_DIRECTIONS) {
-                    val nKey = pos.relative(dir).asLong()
-                    val nIdx = job.voxelIdx[nKey] ?: continue
-                    if (job.placed.get(nIdx)) continue
-                    if (nIdx < frontierEnd) job.frontier.set(nIdx)
+                    val nIdx = job.voxelIdx.get(BlockPos.asLong(p.x + dir.stepX, p.y + dir.stepY, p.z + dir.stepZ))
+                    if (nIdx == NO_VOXEL || job.placed.get(nIdx)) continue
+                    if (nIdx < frontierEnd) {
+                        job.frontier.set(nIdx)
+                        job.recheck.set(nIdx)
+                    }
                 }
             }
             WohlonnogondoniaSpreader.convertCellsToWohlon(level, placedPositions)
@@ -1328,9 +1350,10 @@ object WohlonnogondoniaTreeGrower {
             val pos = BlockPos.of(job.voxels[idx])
             for (dir in SIX_DIRECTIONS) {
                 val nKey = pos.relative(dir).asLong()
-                val nIdx = job.voxelIdx[nKey]
-                if (nIdx == null || job.placed.get(nIdx)) {
+                val nIdx = job.voxelIdx.get(nKey)
+                if (nIdx == NO_VOXEL || job.placed.get(nIdx)) {
                     job.frontier.set(idx)
+                    job.recheck.set(idx)
                     break
                 }
             }
@@ -1358,6 +1381,13 @@ object WohlonnogondoniaTreeGrower {
         if (isTreeReplaceable(state)) return true
         if (state.`is`(ROOT_REPLACEABLE)) return true
         return false
+    }
+
+    // A leaf bud tethers a new one only at a hashed AGE: same-tick chaining spreads leaves as a Manhattan diamond.
+    private fun isLeafTether(state: BlockState, pos: BlockPos): Boolean {
+        val block = state.block
+        if (block is WogorBudBlock && block.leaf) return state.getValue(WogorBudBlock.AGE) >= WogorBudBlock.leafSpreadAge(pos)
+        return WogorBudBlock.isLeafSupport(state)
     }
 
     /** True when a bud next to [pos] has [pos] as its only sturdy support. */
@@ -1753,17 +1783,14 @@ object WohlonnogondoniaTreeGrower {
             val isRoot = pos in rootPositions
             nearestOnSkeleton(pos, if (isRoot) roots else canopy, if (isRoot) rootArcs else canopyArcs, near)
             if (isRoot) near[0] = abs(near[0] - tipArcs[near[2].toInt()])
-            val patch = (WohlonnogondoniaChunkGenerator.valueNoise3D(
-                BlockPos.getX(pos) * RING_NOISE_FREQ, BlockPos.getY(pos) * RING_NOISE_FREQ, BlockPos.getZ(pos) * RING_NOISE_FREQ + noiseOffset,
-            ) - 0.5) * 2.0 * RING_NOISE
-            keys[n] = growthKey(near[0] + near[1] * near[1] * THICKEN_LAG + patch, n)
+            keys[n] = growthKey(near[0] + near[1] * near[1] * THICKEN_LAG + ringNoise(pos, noiseOffset), n)
             packed[n] = pos
             kind[n] = if (isRoot) KIND_ROOT else KIND_WOOD
             n++
         }
         for (pos in leafVoxels) {
             nearestOnSkeleton(pos, canopy, canopyArcs, near)
-            keys[n] = growthKey(near[0] + LEAF_LAG + near[1] * LEAF_SPREAD, n)
+            keys[n] = growthKey(near[0] + LEAF_LAG + near[1] * LEAF_SPREAD + ringNoise(pos, noiseOffset), n)
             packed[n] = pos
             kind[n] = KIND_LEAF
             n++
@@ -1790,6 +1817,10 @@ object WohlonnogondoniaTreeGrower {
         ends.add(count)
         return GrowthOrder(voxels, isLeaf, isRoot, ends.toIntArray())
     }
+
+    private fun ringNoise(pos: Long, offset: Double): Double = (WohlonnogondoniaChunkGenerator.valueNoise3D(
+        BlockPos.getX(pos) * RING_NOISE_FREQ, BlockPos.getY(pos) * RING_NOISE_FREQ, BlockPos.getZ(pos) * RING_NOISE_FREQ + offset,
+    ) - 0.5) * 2.0 * RING_NOISE
 
     private fun growthKey(time: Double, index: Int): Long =
         ((time.coerceIn(0.0, MAX_GROWTH_TIME) * GROWTH_TIME_SCALE).toLong() shl 32) or (index.toLong() and 0xFFFFFFFFL)
@@ -1921,10 +1952,20 @@ object WohlonnogondoniaTreeGrower {
     //   SavedData
     // ===================================================
 
-    private fun getData(level: ServerLevel): TreeJobsData {
-        return level.dataStorage.computeIfAbsent(
-            { tag -> TreeJobsData.load(tag) }, { TreeJobsData() }, DATA_NAME,
-        )
+    private fun getData(level: ServerLevel): TreeJobsData =
+        level.dataStorage.computeIfAbsent({ tag -> TreeJobsData.load(tag) }, { TreeJobsData() }, DATA_NAME)
+            .also { (level as TreeJobsHolder).`enderkinesis$setTreeJobs`(it) }
+
+    /** [onBlockChanged] runs on each setBlock in the level, so the storage lookup runs once per level. */
+    private fun cachedData(level: ServerLevel): TreeJobsData? {
+        val holder = level as TreeJobsHolder
+        when (val cached = holder.`enderkinesis$treeJobs`()) {
+            is TreeJobsData -> return cached
+            NO_DATA -> return null
+        }
+        val data = level.dataStorage.get({ tag -> TreeJobsData.load(tag) }, DATA_NAME)
+        holder.`enderkinesis$setTreeJobs`(data ?: NO_DATA)
+        return data
     }
 
     private class TreeJob(
@@ -1969,9 +2010,13 @@ object WohlonnogondoniaTreeGrower {
         val vinePlans: List<PlannedVine> = emptyList(),
     ) {
         // Runtime-only — rebuilt on construction / save load.
-        val voxelIdx: HashMap<Long, Int> = HashMap(voxels.size + voxels.size / 2)
+        val voxelIdx = Long2IntOpenHashMap(voxels.size).apply { defaultReturnValue(NO_VOXEL) }
         val frontier: BitSet = BitSet(voxels.size)
-        var minX = 0; var maxX = 0; var minZ = 0; var maxZ = 0
+        /** Frontier voxels to check next tick: a subset of [frontier]. Each other frontier voxel failed its last
+         *  check, and no block that check reads has changed since. */
+        val recheck: BitSet = BitSet(voxels.size)
+        val placedPosScratch = ArrayList<BlockPos>()
+        var minX = 0; var maxX = 0; var minY = 0; var maxY = 0; var minZ = 0; var maxZ = 0
         var idleTicks = 0
         /** The game time of the last tick with the area loaded. */
         var lastGrowTick = Long.MIN_VALUE
@@ -1993,13 +2038,17 @@ object WohlonnogondoniaTreeGrower {
          *  maturing while the world was loaded). */
         fun rebuildRuntimeState() {
             voxelIdx.clear()
-            minX = Int.MAX_VALUE; maxX = Int.MIN_VALUE; minZ = Int.MAX_VALUE; maxZ = Int.MIN_VALUE
+            minX = Int.MAX_VALUE; maxX = Int.MIN_VALUE; minY = Int.MAX_VALUE; maxY = Int.MIN_VALUE
+            minZ = Int.MAX_VALUE; maxZ = Int.MIN_VALUE
             for (i in voxels.indices) {
-                voxelIdx[voxels[i]] = i
+                voxelIdx.put(voxels[i], i)
                 val x = BlockPos.getX(voxels[i])
+                val y = BlockPos.getY(voxels[i])
                 val z = BlockPos.getZ(voxels[i])
                 if (x < minX) minX = x
                 if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
                 if (z < minZ) minZ = z
                 if (z > maxZ) maxZ = z
             }
@@ -2012,13 +2061,15 @@ object WohlonnogondoniaTreeGrower {
                 val pos = BlockPos.of(voxels[i])
                 for (dir in SIX_DIRECTIONS) {
                     val nKey = pos.relative(dir).asLong()
-                    val nIdx = voxelIdx[nKey]
-                    if (nIdx == null || placed.get(nIdx)) {
+                    val nIdx = voxelIdx.get(nKey)
+                    if (nIdx == NO_VOXEL || placed.get(nIdx)) {
                         frontier.set(i)
                         break
                     }
                 }
             }
+            recheck.clear()
+            recheck.or(frontier)
         }
     }
 

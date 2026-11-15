@@ -205,9 +205,9 @@ object WohlonnogondoniaSpreader {
 
     // Succession at the front: chance per random tick on a frontier cell that a pioneer plant takes a free spot.
     private const val PIONEER_CHANCE = 0.12
-    // Blocks of depth into the swamp: ground shallower than DAMP_DEPTH keeps its front stage, and
+    // Blocks of depth into the swamp: wood and leaves shallower than INTERIOR_DEPTH wait, and
     // pioneer plants grow shallower than PIONEER_DEPTH. DEPTH_NOISE moves both edges by up to that much.
-    private const val DAMP_DEPTH = 3.0
+    private const val INTERIOR_DEPTH = 3.0
     private const val PIONEER_DEPTH = 4.0
     private const val DEPTH_FAR = 8.0
     private const val DEPTH_NOISE = 1.5
@@ -297,8 +297,8 @@ object WohlonnogondoniaSpreader {
     /** **Visual de-grid #1: noise gate on neighbour selection.**
      *  Each spread sample evaluates a 3D Perlin field at the
      *  candidate neighbour's quarter-cell coords; if the value is
-     *  below [SPREAD_NOISE_THRESHOLD], the sample is rejected and
-     *  no enqueue happens. Over many samples the boundary follows
+     *  below [SPREAD_NOISE_THRESHOLD], the sample passes only at
+     *  [NOISE_TROUGH_ACCEPTANCE], or when the cell is enclosed. Over many samples the boundary follows
      *  noise iso-lines rather than the 4-block biome grid — cells
      *  with high noise value convert quickly; cells with low value
      *  hold out, creating organic perimeter shape.
@@ -330,6 +330,12 @@ object WohlonnogondoniaSpreader {
      *  slows in noise-trough regions and speeds up in noise-peaks,
      *  giving organic boundary curvature. */
     private const val SPREAD_NOISE_THRESHOLD: Double = -0.3
+
+    /** Acceptance below [SPREAD_NOISE_THRESHOLD]: troughs hold out at the front but close behind it. */
+    private const val NOISE_TROUGH_ACCEPTANCE: Float = 0.15f
+
+    /** Wohlon cells among the 8 horizontal neighbours that let a cell pass the noise gate always. */
+    private const val ENCLOSED_SIDES: Int = 4
 
     /** **Visual de-grid #4: block-level noise gate on frontier cells.**
      *
@@ -1134,8 +1140,6 @@ object WohlonnogondoniaSpreader {
         // to hot) only if at least one conversion fired; the return
         // value is that count.
         var converted = 0
-        val mud = EKBlocks.WOHLON_MUD.get()
-        val damp = Blocks.PODZOL.defaultBlockState()
         val pioneerRate = (PIONEER_CHANCE * spreadSpeed).coerceAtMost(1.0)
         for (idx in sections.indices) {
             if ((sectionMask ushr idx) and 1L == 0L) continue
@@ -1211,8 +1215,8 @@ object WohlonnogondoniaSpreader {
                     if (blockNoise < BLOCK_NOISE_THRESHOLD) return@repeat
                     val rate = (baseRate * spreadSpeed).coerceAtMost(1.0)
                     if (random.nextDouble() >= rate) return@repeat
-                    // The fringe is ahead of the front: the pioneer stage only.
-                    val staged = frontStage(state, sourceTarget, mud, damp) ?: return@repeat
+                    // The fringe is ahead of the front: wood and leaves wait.
+                    val staged = frontStage(state, sourceTarget) ?: return@repeat
                     mutPos.set(bx, by, bz)
                     // Flag 2 | 16 = UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE.
                     // Without the 16 bit Level.setBlock still fires the
@@ -1240,8 +1244,8 @@ object WohlonnogondoniaSpreader {
                 // Already final: no depth test, so the search runs only on ground still to convert.
                 if (state.`is`(sourceTarget.block)) return@repeat
                 // The stage follows each block's own depth into the swamp, not its 4-block biome cell.
-                val front = frontDepth(level, bx, by, bz) < DAMP_DEPTH
-                val staged = if (front) frontStage(state, sourceTarget, mud, damp) else sourceTarget
+                val front = frontDepth(level, bx, by, bz) < INTERIOR_DEPTH
+                val staged = if (front) frontStage(state, sourceTarget) else sourceTarget
                 if (staged == null) {
                     stagedWaiting++
                     return@repeat
@@ -1260,13 +1264,12 @@ object WohlonnogondoniaSpreader {
     }
 
     /**
-     * The pioneer stage of a conversion at the front: ground goes damp before it goes to mud, and the
-     * wogor wood and leaves wait for the interior. Undergrowth swaps go ahead. Null: wait.
+     * A conversion at the front: wogor wood and leaves wait for the interior. Ground and undergrowth go ahead;
+     * WohlonMudCreepTracker draws the mud creep on the client. Null: wait.
      */
-    private fun frontStage(source: BlockState, target: BlockState, mud: Block, damp: BlockState): BlockState? = when {
+    private fun frontStage(source: BlockState, target: BlockState): BlockState? = when {
         // Wohlon mud is shovel ground too, so it matches its own conversion; it is already final.
         source.`is`(target.block) -> null
-        target.`is`(mud) -> if (source.`is`(damp.block)) null else damp
         target.`is`(BlockTags.LOGS) || target.`is`(BlockTags.LEAVES) -> null
         else -> target
     }
@@ -1352,9 +1355,9 @@ object WohlonnogondoniaSpreader {
         return placeIfSurvives(level, x, y, z, EKBlocks.WOHLON_LEAF_LITTER.get().defaultBlockState())
     }
 
-    // The dimension's floor is mud; at the front the ground may still be in its damp stage.
+    // The dimension's floor is mud.
     private fun isLitterGround(state: BlockState): Boolean =
-        state.`is`(EKBlocks.WOHLON_MUD.get()) || state.`is`(Blocks.MUD) || state.`is`(Blocks.PODZOL)
+        state.`is`(EKBlocks.WOHLON_MUD.get()) || state.`is`(Blocks.MUD)
 
     /** Standing water around a column at one height, read without loading chunks. Server thread only. */
     private class WetAround : WohlonWetlandZones.WetGrid {
@@ -1875,19 +1878,16 @@ object WohlonnogondoniaSpreader {
             val nqz = qz + dz
             val neighbor = getBiomeCellNonLoading(level, nqx, nqy, nqz) ?: return@repeat
             if (isWohlon(neighbor)) return@repeat
-            // Visual de-grid #1: noise gate. Reject if the noise
-            // field at this neighbour's coords is below
-            // [SPREAD_NOISE_THRESHOLD]. The same cell will get
-            // resampled later (still in the frontier sampler's
-            // pool), so this just delays its conversion, weighting
-            // spread toward noise-high regions. Boundary follows
-            // noise iso-lines rather than the 4-block biome grid.
+            // The noise is fixed per cell, so a hard reject left trough cells unclaimed forever behind the front.
             val noiseValue = SPREAD_BOUNDARY_NOISE.noise(
                 nqx.toDouble() * SPREAD_NOISE_FREQUENCY,
                 nqy.toDouble() * SPREAD_NOISE_FREQUENCY,
                 nqz.toDouble() * SPREAD_NOISE_FREQUENCY,
             )
-            if (noiseValue < SPREAD_NOISE_THRESHOLD) return@repeat
+            if (noiseValue < SPREAD_NOISE_THRESHOLD &&
+                random.nextFloat() >= NOISE_TROUGH_ACCEPTANCE &&
+                wohlonHorizontalSides(level, nqx, nqy, nqz) < ENCLOSED_SIDES
+            ) return@repeat
             // Air-only cells get spread only from the vertical-up cascade
             // ([enqueueVerticalSpread] from [setBiomeCellSilent]). The
             // frontier sampler covers horizontal / diagonal / down moves
@@ -1922,6 +1922,17 @@ object WohlonnogondoniaSpreader {
         val above = (nqy shl 2) - level.seaLevel
         if (above > HIGHER_GROUND) a *= HIGHER_FACTOR else if (above > HIGH_GROUND) a *= HIGH_FACTOR
         return a.coerceIn(ACCEPT_FLOOR, 1f)
+    }
+
+    // Unloaded neighbours count as non-Wohlon. Never loads a chunk.
+    private fun wohlonHorizontalSides(level: ServerLevel, qx: Int, qy: Int, qz: Int): Int {
+        var sides = 0
+        for (dqx in -1..1) for (dqz in -1..1) {
+            if (dqx == 0 && dqz == 0) continue
+            val cell = getBiomeCellNonLoading(level, qx + dqx, qy, qz + dqz) ?: continue
+            if (isWohlon(cell)) sides++
+        }
+        return sides
     }
 
     /** Carries the spread further along a water run, at the same level or one cell down. Bounded by [WATER_HOP_MAX]. */
@@ -2004,6 +2015,7 @@ object WohlonnogondoniaSpreader {
             }
         }
         level.setBlock(pos, target, flags)
+        if (target.`is`(EKBlocks.WOHLON_MUD.get())) level.queueMudCreep(pos, source)
     }
 
     /** Writes one biome cell. Never loads a chunk, and queues the client resync in

@@ -411,7 +411,8 @@ object HeartOfTheWildManager : ShipMoveListener {
         blockType: Block, pos: BlockPos, level: ServerLevel,
     ): BlockState? {
         if (blockType is WogorBudBlock) {
-            return if (WogorBudBlock.supportMask(level, pos) != 0) WogorBudBlock.newBud(level, pos, blockType) else null
+            val supported = WogorBudBlock.supportMask(level, pos, leaf = blockType.leaf) != 0
+            return if (supported) WogorBudBlock.newBud(level, pos, blockType) else null
         }
         var state = blockType.defaultBlockState()
 

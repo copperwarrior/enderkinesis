@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -207,7 +206,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         if (!hasRestriction()) restrictTo(blockPosition(), HOME_RANGE)
         if (satietyTicks > -FAIRLY_HUNGRY_TICKS) {
             satietyTicks--
-            if (satietyTicks == HUNT_HUNGER_TICKS) LOG.info("[GoatDebug] goat {} at {} is hungry", id, blockPosition())
         }
         if (action == Action.BITE && tickCount >= biteEndTick) setAction(Action.NONE)
         if (longJumpCooldown > 0) longJumpCooldown--
@@ -320,7 +318,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         mealX = Double.NaN
         mealPausedTick = -1L
         if (!eatingKill) return
-        LOG.info("[GoatDebug] goat {} at {} finished its kill, full meal {}", id, blockPosition(), fullMeal)
         eatingKill = false
         satietyTicks = (maxOf(satietyTicks, 0) + KILL_SATIETY_TICKS).coerceAtMost(SATED_TICKS)
         restTicks = if (fullMeal) REST_TICKS else 0
@@ -340,7 +337,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         addEffect(MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, STRIKE_SLOW_TICKS, STRIKE_SLOW_AMPLIFIER, false, false))
         stamina = maxOf(0, stamina - STRIKE_STAMINA_COST)
         endurance = maxOf(0, endurance - STRIKE_ENDURANCE_COST)
-        LOG.info("[GoatDebug] goat {} takes a deer strike: slowed, stamina {}, endurance {}", id, stamina, endurance)
     }
 
     /** Lower is better: near, weak, injured or young prey first. */
@@ -352,9 +348,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
 
     private fun isEasyPrey(prey: LivingEntity): Boolean =
         prey.isBaby || prey.health < prey.maxHealth * EASY_PREY_HEALTH_FRACTION || (prey as? ShilleagkDeerEntity)?.isTired == true
-
-    private fun fatigueText(prey: LivingEntity): String =
-        (prey as? ShilleagkDeerEntity)?.let { "%.2f".format(it.fatigue) + if (it.isExhausted) " (at bay)" else "" } ?: "n/a"
 
     // Position delta, not deltaMovement: the server does not keep a player's deltaMovement.
     // A deer reports its own flight, as its move this tick may still be ahead of the goat's goals.
@@ -424,34 +417,26 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         val walks = navigation.moveTo(victim, speed)
         val path = navigation.path
         // moveTo is also false for a partial path trimmed to no nodes, as when the prey stands on a ledge beside the goat.
-        val reason = when {
-            walks -> poorPathReason() ?: return true
-            path == null -> "no path"
-            !path.canReach() -> "path ends short"
-            else -> return true
-        }
+        val pathIsGood = if (walks) !hasPoorPath() else path != null && path.canReach()
+        if (pathIsGood) return true
         // During the cooldown a goat with no path waits for the next jump search and does not give up.
-        if (huntJumpCooldown > 0) {
-            if (!walks) LOG.info("[GoatDebug] goat {} hunt jump ({}) waits: cooldown", id, reason)
-            return true
-        }
-        val failure = huntLongJump(victim, reason) ?: return true
-        LOG.info("[GoatDebug] goat {} hunt jump ({}) fails: {}{}", id, reason, failure, if (walks) "" else ", gives up")
+        if (huntJumpCooldown > 0) return true
+        if (huntLongJump(victim)) return true
         return walks
     }
 
-    private fun poorPathReason(): String? {
-        val path = navigation.path ?: return "no path"
-        if (!path.canReach()) return "path ends short"
-        if (path.nodeCount > path.target.distManhattan(blockPosition()) * DETOUR_FACTOR + DETOUR_SLACK) return "long detour"
+    private fun hasPoorPath(): Boolean {
+        val path = navigation.path ?: return true
+        if (!path.canReach()) return true
+        if (path.nodeCount > path.target.distManhattan(blockPosition()) * DETOUR_FACTOR + DETOUR_SLACK) return true
         // Wading is normal in the swamp; only a swim in deep water away from the prey counts.
         val pathEnd = path.target
         for (i in 0 until path.nodeCount) {
             val node = path.getNode(i)
             if (node.type != BlockPathTypes.WATER || !isDeepWater(node.x, node.y, node.z)) continue
-            if (abs(node.x - pathEnd.x) + abs(node.z - pathEnd.z) > WADE_RANGE) return "path swims"
+            if (abs(node.x - pathEnd.x) + abs(node.z - pathEnd.z) > WADE_RANGE) return true
         }
-        return null
+        return false
     }
 
     private fun isDeepWater(x: Int, y: Int, z: Int): Boolean {
@@ -471,19 +456,17 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
 
     private fun canStartLongJump(): Boolean = onGround() && !isInWater && !isInLava && !isLongJumping && !isPassenger
 
-    /** Jumps to the walkable spot in reach that is nearest to [victim], if it is nearer than the goat is now; else the failure. */
-    private fun huntLongJump(victim: LivingEntity, reason: String): String? {
-        if (isInWater) return "in water"
-        if (!canStartLongJump()) return "not on firm ground"
+    /** Jumps to the walkable spot in reach that is nearest to [victim], if it is nearer than the goat is now; true when it jumps. */
+    private fun huntLongJump(victim: LivingEntity): Boolean {
+        if (isInWater || !canStartLongJump()) return false
         val progress = distanceTo(victim) - JUMP_MIN_PROGRESS
-        if (progress <= 0.0) return "no progress"
+        if (progress <= 0.0) return false
         huntJumpCooldown = HUNT_JUMP_COOLDOWN_TICKS
         val count = collectHuntLandings(victim, progress * progress)
-        if (count == 0) return "no candidate"
         for (i in 0 until count) {
-            if (launchLongJump(jumpScratch.set(jumpCandidates[i]), reason)) return null
+            if (launchLongJump(jumpScratch.set(jumpCandidates[i]))) return true
         }
-        return "arc blocked"
+        return false
     }
 
     // A fixed-size best list, so the scan does not allocate.
@@ -526,7 +509,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             val horizontalSq = dx * dx + dz * dz
             if (horizontalSq > JUMP_MAX_HORIZONTAL * JUMP_MAX_HORIZONTAL || horizontalSq < JUMP_MIN_HORIZONTAL_SQ) continue
             jumpScratch.set(origin.x + dx, origin.y + random.nextIntBetweenInclusive(-JUMP_MAX_DOWN, JUMP_MAX_UP), origin.z + dz)
-            if (isLandingSpot(jumpScratch, homeSq) && launchLongJump(jumpScratch, "wander")) return true
+            if (isLandingSpot(jumpScratch, homeSq) && launchLongJump(jumpScratch)) return true
         }
         return false
     }
@@ -537,9 +520,8 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         return navigation.nodeEvaluator.getBlockPathType(level(), pos.x, pos.y, pos.z) == BlockPathTypes.WALKABLE
     }
 
-    private fun launchLongJump(landing: BlockPos, reason: String): Boolean {
+    private fun launchLongJump(landing: BlockPos): Boolean {
         val velocity = longJumpVelocity(landing.x + 0.5, landing.y + 0.5, landing.z + 0.5, JUMP_MAX_VELOCITY) ?: return false
-        LOG.info("[GoatDebug] goat {} long-jumps ({}) from {} to {}", id, reason, blockPosition(), landing)
         navigation.stop()
         val yaw = (Mth.atan2(velocity.z, velocity.x) * Mth.RAD_TO_DEG).toFloat() - 90f
         yRot = yaw
@@ -565,7 +547,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
     /** Sets the hunt target; the chase itself is [ChargeGoal]. */
     private inner class HuntPreyGoal : TargetGoal(this@BlessedGoatEntity, false) {
         private var prey: LivingEntity? = null
-        private var reason = ""
 
         // TargetGoal sets no flags; without TARGET this goal can replace the target that HurtByTargetGoal set.
         init {
@@ -587,15 +568,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             prey = nearby.filter {
                 (hungry || (isEasyPrey(it) && distanceTo(it) <= OPPORTUNITY_RANGE)) && hasLineOfSight(it)
             }.minByOrNull(::preyScore)
-            reason = when {
-                !hungry -> "easy prey close"
-                scarce -> "very hungry, deer scarce"
-                else -> "hungry"
-            }
-            if (prey == null) {
-                prey = nearestPlayerToHunt()
-                reason = "starving, no deer in sight"
-            }
+            if (prey == null) prey = nearestPlayerToHunt()
             return prey != null
         }
 
@@ -610,13 +583,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
 
         override fun start() {
             mob.target = prey
-            prey?.let {
-                LOG.info(
-                    "[GoatDebug] goat {} at {} hunts {} {} blocks away ({}), satiety {}, endurance {}, deer fatigue {}",
-                    id, blockPosition(), it.type.toShortString(), "%.1f".format(distanceTo(it)), reason, satietyTicks,
-                    endurance, fatigueText(it),
-                )
-            }
             super.start()
         }
 
@@ -631,7 +597,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
     /** Stalks, then trots after the prey until it tires, and charges only to close in; out of sight it follows the deer's trail. */
     private inner class ChargeGoal : Goal() {
         private var chased: LivingEntity? = null
-        private var endReason = REASON_TARGET_DROPPED
         private var ticks = 0
         private var unseenTicks = 0
         private var pursuit = Pursuit.STALK
@@ -661,8 +626,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         override fun canContinueToUse(): Boolean {
             val victim = target ?: return false
             if (!victim.isAlive || isEating || isBiteTarget(victim)) return false
-            endReason = giveUpReason(victim) ?: return true
-            return false
+            return !shouldGiveUp(victim)
         }
 
         override fun requiresUpdateEveryTick(): Boolean = true
@@ -670,7 +634,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         override fun start() {
             val victim = target
             chased = victim
-            endReason = REASON_TARGET_DROPPED
             ticks = 0
             unseenTicks = 0
             pursuit = Pursuit.STALK
@@ -698,32 +661,24 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             trackProgress(victim)
             if (isLongJumping || tickCount < recoverUntil) return
             val distance = distanceTo(victim)
-            if (pursuit == Pursuit.STALK && shouldEngage(victim, distance)) setPursuit(Pursuit.TROT, victim, "stalked $ticks ticks")
+            if (pursuit == Pursuit.STALK && shouldEngage(victim, distance)) pursuit = Pursuit.TROT
             if (pursuit == Pursuit.TROT && wantsCharge(victim, distance)) {
                 if (!rollClose(victim)) return
                 startCharge(victim)
             } else if (pursuit == Pursuit.CHARGE) {
-                chargeEndReason(victim, distance)?.let { endCharge(victim, it) }
+                if (chargeEnds(victim, distance)) endCharge()
             }
             if (waitsAtRefuge(victim, distance)) return
             if ((ticks % REPATH_TICKS == 1 || repathDue) && !move(victim)) pathLost = true
             repathDue = false
             if (isLongJumping) return
             if (pursuit == Pursuit.CHARGE && horizontalCollision && isDistanceCharge() && hasRammedHornBreakingBlock()) {
-                ramBlock(victim)
+                ramBlock()
                 return
             }
             if (pursuit == Pursuit.STALK || tickCount < nextBiteTick || !inBiteReach(victim)) return
-            if (pursuit == Pursuit.CHARGE) endCharge(victim, "contact")
-            if (bite(victim)) {
-                endReason = REASON_KILL
-            } else {
-                markProgress(victim)
-                LOG.info(
-                    "[GoatDebug] goat {} bites {}, its health now {}, fatigue {}",
-                    id, victim.type.toShortString(), victim.health, fatigueText(victim),
-                )
-            }
+            if (pursuit == Pursuit.CHARGE) endCharge()
+            if (!bite(victim)) markProgress(victim)
         }
 
         // Most real hunts fail; one roll at the first close on a deer decides whether this one can.
@@ -742,7 +697,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             }
             refugeTicks++
             if (!isInWater) return false
-            if (pursuit == Pursuit.CHARGE) endCharge(victim, "prey in deep water")
+            if (pursuit == Pursuit.CHARGE) endCharge()
             navigation.stop()
             return true
         }
@@ -763,15 +718,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             Pursuit.STALK -> STALK_SPEED
         }
 
-        private fun setPursuit(next: Pursuit, victim: LivingEntity, why: String) {
-            LOG.info(
-                "[GoatDebug] goat {} {} -> {} on {} {} blocks away ({}), stamina {}, endurance {}, deer fatigue {}",
-                id, pursuit, next, victim.type.toShortString(), "%.1f".format(distanceTo(victim)), why, stamina, endurance,
-                fatigueText(victim),
-            )
-            pursuit = next
-        }
-
         private fun wantsCharge(victim: LivingEntity, distance: Float): Boolean {
             if (stamina < CHARGE_MIN_STAMINA) return false
             if (victim !is ShilleagkDeerEntity) return distance > CLOSE_RANGE || isFleeing(victim)
@@ -779,14 +725,11 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             return distance <= range && (distance > CLOSE_RANGE || isFleeing(victim))
         }
 
-        private fun chargeEndReason(victim: LivingEntity, distance: Float): String? = when {
-            stamina <= 0 -> "out of charge stamina"
-            victim is ShilleagkDeerEntity && distance > CHARGE_BREAK_RANGE -> "prey pulled away"
-            else -> null
-        }
+        private fun chargeEnds(victim: LivingEntity, distance: Float): Boolean =
+            stamina <= 0 || (victim is ShilleagkDeerEntity && distance > CHARGE_BREAK_RANGE)
 
         private fun startCharge(victim: LivingEntity) {
-            setPursuit(Pursuit.CHARGE, victim, if (victim is ShilleagkDeerEntity && victim.isTired) "prey tired" else "prey close")
+            pursuit = Pursuit.CHARGE
             setAction(Action.CHARGE)
             playSound(SoundEvents.GOAT_PREPARE_RAM, 1f, 1f)
             chargeTravel = 0.0
@@ -798,8 +741,8 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             navigation.moveTo(victim, CHARGE_SPEED)
         }
 
-        private fun endCharge(victim: LivingEntity, why: String) {
-            setPursuit(Pursuit.TROT, victim, why)
+        private fun endCharge() {
+            pursuit = Pursuit.TROT
             if (action == Action.CHARGE) setAction(Action.NONE)
             repathDue = true
         }
@@ -820,11 +763,10 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             chargeTravel >= HORN_SNAP_CHARGE_DISTANCE && maxOf(step, previousStep) >= HORN_SNAP_MIN_SPEED
 
         // Vanilla RamTarget ends the ram on a horn-breaking block; here only the charge ends, and the hunt goes on.
-        private fun ramBlock(victim: LivingEntity) {
+        private fun ramBlock() {
             playSound(SoundEvents.GOAT_RAM_IMPACT, 1f, 1f)
             if (dropHorn()) level().playSound(null, this@BlessedGoatEntity, SoundEvents.GOAT_HORN_BREAK, SoundSource.NEUTRAL, 1f, 1f)
-            LOG.info("[GoatDebug] goat {} rams a horn-breaking block after a {} block charge", id, "%.1f".format(chargeTravel))
-            endCharge(victim, "horn snapped")
+            endCharge()
             navigation.stop()
             recoverUntil = tickCount + HORN_SNAP_RECOVER_TICKS
         }
@@ -835,12 +777,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             pursuing = false
             if (action == Action.CHARGE) setAction(Action.NONE)
             navigation.stop()
-            if (victim != null) {
-                LOG.info(
-                    "[GoatDebug] goat {} stops chasing {} after {} ticks: {}, health {}, stamina {}, endurance {}, deer fatigue {}",
-                    id, victim.type.toShortString(), ticks, endReason, health, stamina, endurance, fatigueText(victim),
-                )
-            }
             if (!isEating) {
                 if (victim != null && isPrey(victim)) huntCooldown = FAILED_HUNT_COOLDOWN
                 // A Moskuo sting during the chase leaves its target for BiteGoal.
@@ -865,18 +801,13 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             !isPrey(victim) || ticks >= STALK_MAX_TICKS || distance <= CHARGE_RANGE || isFleeing(victim) ||
                 victim.lastHurtByMob === this@BlessedGoatEntity
 
-        private fun giveUpReason(victim: LivingEntity): String? = when {
-            pathLost -> "no path"
-            missedClose -> "missed the close (chance roll)"
-            refugeTicks >= REFUGE_GIVE_UP_TICKS -> "prey safe in deep water"
-            endurance <= 0 -> "out of endurance"
-            ticks - lastProgressTick >= NO_PROGRESS_TICKS -> "no progress"
-            victim !is ShilleagkDeerEntity && unseenTicks >= LOST_SIGHT_TICKS -> "lost sight"
-            distanceTo(victim) > GIVE_UP_DISTANCE -> "too far"
-            hasRestriction() && victim.blockPosition().distSqr(restrictCenter) > HUNT_LEASH * HUNT_LEASH -> "outside hunt leash"
-            isPrey(victim) && health < maxHealth * RETREAT_HEALTH_FRACTION -> "low health"
-            else -> null
-        }
+        private fun shouldGiveUp(victim: LivingEntity): Boolean =
+            pathLost || missedClose || refugeTicks >= REFUGE_GIVE_UP_TICKS || endurance <= 0 ||
+                ticks - lastProgressTick >= NO_PROGRESS_TICKS ||
+                (victim !is ShilleagkDeerEntity && unseenTicks >= LOST_SIGHT_TICKS) ||
+                distanceTo(victim) > GIVE_UP_DISTANCE ||
+                (hasRestriction() && victim.blockPosition().distSqr(restrictCenter) > HUNT_LEASH * HUNT_LEASH) ||
+                (isPrey(victim) && health < maxHealth * RETREAT_HEALTH_FRACTION)
     }
 
     /** Drops a fish attacker as soon as it is out of bite reach; TargetGoal would otherwise keep setting it again. */
@@ -967,7 +898,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             val paused = mealPausedTick
             mealPausedTick = -1L
             if (paused >= 0 && level().gameTime - paused > MEAL_SPOT_KEEP_TICKS) {
-                LOG.info("[GoatDebug] goat {} was away from its kill too long; the meal ends", id)
                 finishMeal(fullMeal = false)
             }
         }
@@ -1036,9 +966,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
     companion object {
         const val ID_PATH = "blessed_goat"
 
-        private val LOG = LogUtils.getLogger()
-        private const val REASON_TARGET_DROPPED = "target dropped"
-        private const val REASON_KILL = "kill"
 
         private val DATA_ACTION: EntityDataAccessor<Byte> =
             SynchedEntityData.defineId(BlessedGoatEntity::class.java, EntityDataSerializers.BYTE)

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client.model;
 
+import net.minecraft.client.animation.AnimationDefinition;
 import net.minecraft.client.animation.KeyframeAnimations;
 import net.minecraft.client.model.HierarchicalModel;
 import net.minecraft.client.model.geom.ModelLayerLocation;
@@ -10,37 +11,31 @@ import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.AnimationState;
+import org.joml.Vector3f;
+
+import java.util.List;
 import org.shipwrights.enderkinesis.EnderkinesisMod;
 import org.shipwrights.enderkinesis.entity.WohlemEntity;
 
-/**
- * Wohlem model — hulking many-eyed brute. Part hierarchy is the artist's
- * Blockbench export verbatim (the {@link WohlemAnimations} keyframes were
- * authored against these exact pivots; bones are resolved by NAME through
- * {@code KeyframeAnimations.animate}).
- *
- * Animation layering mirrors {@code CatalogerModel}: idle and walk states run
- * continuously (phase preserved across stops) and cross-fade by the entity's
- * walk blend; the one-shot scratch flavour REPLACES idle at the idle weight
- * while its state runs; attack layers on top at full weight.
- */
+/** Keep the Blockbench part tree verbatim: {@link WohlemAnimations} resolves bones by name against these pivots. */
 public class WohlemModel extends HierarchicalModel<WohlemEntity> {
 
 	public static final ModelLayerLocation LAYER_LOCATION =
 		new ModelLayerLocation(EnderkinesisMod.INSTANCE.id("wohlem"), "main");
 
-	/** Shared scratch vector for KeyframeAnimations.animate — matches what
-	 *  HierarchicalModel does internally; rendering is single-threaded. */
-	private static final org.joml.Vector3f ANIMATION_VECTOR_CACHE = new org.joml.Vector3f();
+	/** Shared like HierarchicalModel's own cache; rendering is single-threaded. */
+	private static final Vector3f ANIMATION_VECTOR_CACHE = new Vector3f();
 
 	private final ModelPart root;
 	private final ModelPart head;
+	private final List<ModelPart> allParts;
 
 	public WohlemModel(ModelPart root) {
 		this.root = root;
 		this.head = root.getChild("pelvis").getChild("body").getChild("head");
+		this.allParts = root.getAllParts().toList();
 	}
 
 	@Override
@@ -148,43 +143,39 @@ public class WohlemModel extends HierarchicalModel<WohlemEntity> {
 	@Override
 	public void setupAnim(WohlemEntity entity, float limbSwing, float limbSwingAmount,
 			float ageInTicks, float netHeadYaw, float headPitch) {
-		this.root.getAllParts().forEach(ModelPart::resetPose);
+		for (ModelPart part : this.allParts) {
+			part.resetPose();
+		}
 		this.head.yRot = netHeadYaw * Mth.DEG_TO_RAD;
 		this.head.xRot = headPitch * Mth.DEG_TO_RAD;
 
-		// Advance every state's clock — we call KeyframeAnimations directly
-		// (for per-layer weights), which skips the updateTime that
-		// HierarchicalModel.animate would otherwise do.
+		// Direct KeyframeAnimations calls (for per-layer weights) skip HierarchicalModel.animate's updateTime.
 		entity.getIdleAnimationState().updateTime(ageInTicks, 1f);
 		entity.getWalkingAnimationState().updateTime(ageInTicks, 1f);
 		entity.getScratchAnimationState().updateTime(ageInTicks, 1f);
 		entity.getAttackAnimationState().updateTime(ageInTicks, 1f);
 
-		// Sub-tick-smooth idle/walk cross-fade (see CatalogerModel for the
-		// rationale on lerping the previous/current blend by partial tick).
 		float partialTick = Mth.clamp(ageInTicks - (float) entity.tickCount, 0f, 1f);
 		float rawBlend = Mth.lerp(partialTick, entity.getWalkBlendOld(), entity.getWalkBlend());
-		final float blend = rawBlend * rawBlend * rawBlend * (rawBlend * (rawBlend * 6f - 15f) + 10f);   // smootherstep
+		float blend = rawBlend * rawBlend * rawBlend * (rawBlend * (rawBlend * 6f - 15f) + 10f);   // smootherstep
 
 		if (blend < 1f) {
 			float idleWeight = 1f - blend;
 			if (entity.getScratchAnimationState().isStarted()) {
-				entity.getScratchAnimationState().ifStarted(state -> KeyframeAnimations.animate(
-					this, WohlemAnimations.idle_scratch, state.getAccumulatedTime(), idleWeight,
-					ANIMATION_VECTOR_CACHE));
+				animateIfStarted(entity.getScratchAnimationState(), WohlemAnimations.idle_scratch, idleWeight);
 			} else {
-				entity.getIdleAnimationState().ifStarted(state -> KeyframeAnimations.animate(
-					this, WohlemAnimations.idle, state.getAccumulatedTime(), idleWeight,
-					ANIMATION_VECTOR_CACHE));
+				animateIfStarted(entity.getIdleAnimationState(), WohlemAnimations.idle, idleWeight);
 			}
 		}
 		if (blend > 0f) {
-			entity.getWalkingAnimationState().ifStarted(state -> KeyframeAnimations.animate(
-				this, WohlemAnimations.walk, state.getAccumulatedTime(), blend,
-				ANIMATION_VECTOR_CACHE));
+			animateIfStarted(entity.getWalkingAnimationState(), WohlemAnimations.walk, blend);
 		}
-		entity.getAttackAnimationState().ifStarted(state -> KeyframeAnimations.animate(
-			this, WohlemAnimations.attack, state.getAccumulatedTime(), 1f,
-			ANIMATION_VECTOR_CACHE));
+		animateIfStarted(entity.getAttackAnimationState(), WohlemAnimations.attack, 1f);
+	}
+
+	private void animateIfStarted(AnimationState state, AnimationDefinition animation, float weight) {
+		if (state.isStarted()) {
+			KeyframeAnimations.animate(this, animation, state.getAccumulatedTime(), weight, ANIMATION_VECTOR_CACHE);
+		}
 	}
 }

@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.block
 
-import com.mojang.logging.LogUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.core.SectionPos
@@ -26,8 +25,6 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.entity.MoskuoEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
-
-private val LOG = LogUtils.getLogger()
 
 /**
  * Moskuo eggs and larvae on still water, after vanilla FrogspawnBlock. They hatch into Moskuo unless fish eat them.
@@ -81,7 +78,6 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
         if (count <= 0) {
             val retries = state.getValue(RETRIES)
             if (retries >= MAX_HATCH_RETRIES) {
-                LOG.info("[MoskuoDebug] Larvae at {} never found room to hatch ({} Moskuo near) and died", pos, near)
                 level.removeBlock(pos, false)
             } else {
                 level.setBlock(pos, state.setValue(RETRIES, retries + 1), Block.UPDATE_CLIENTS)
@@ -95,7 +91,6 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
             // Return value ignored: a refused spawn just loses that larva.
             level.addFreshEntity(moskuo)
         }
-        LOG.info("[MoskuoDebug] Larvae at {} hatched {} of {} ({} Moskuo near)", pos, count, larvae, near)
         level.removeBlock(pos, false)
     }
 
@@ -114,7 +109,7 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
         private const val HATCH_MAX_TICKS = 7000
         private const val RETRY_TICKS = 1200
         private const val DENSITY_RADIUS = 24.0
-        private const val MAX_MOSKUO_NEAR = 8
+        private const val MAX_MOSKUO_NEAR = 5
         private const val SPACING = 6
         private const val AREA_RADIUS = 16
         private const val AREA_RADIUS_Y = 3

@@ -5,17 +5,7 @@ import net.minecraft.client.animation.AnimationDefinition;
 import net.minecraft.client.animation.Keyframe;
 import net.minecraft.client.animation.KeyframeAnimations;
 
-/**
- * Wohlem animations — Blockbench 5.1.4 export (Mojang 1.19+ keyframe format),
- * kept verbatim from the artist's file:
- *  - {@code idle}: 6 s loop.
- *  - {@code idle_scratch}: 6 s one-shot flavour; the model plays it INSTEAD of
- *    idle while its state runs (both animate the same bones from rest pose).
- *  - {@code walk}: 6.96 s loop, time-driven so the lumbering cadence is
- *    preserved regardless of actual movement speed.
- *  - {@code attack}: 1.25 s one-shot. The damage frame lands 0.58-0.67 s in —
- *    {@code WohlemEntity.ATTACK_HIT_TICK} fires the hurt at tick 12 (0.60 s).
- */
+/** Blockbench 5.1.4 export, kept verbatim. {@code WohlemEntity.ATTACK_HIT_TICK} matches the attack damage frame (0.58-0.67 s). */
 public class WohlemAnimations {
 
 	public static final AnimationDefinition idle = AnimationDefinition.Builder.withLength(6.0F).looping()

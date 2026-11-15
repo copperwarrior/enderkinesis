@@ -1,0 +1,15 @@
+{
+  "textures": {
+    "particle": "enderkinesis:block/wohlon_moss",
+    "side": "enderkinesis:block/wohlon_moss_carpet_side"
+  },
+  "elements": [
+    {
+      "from": [0, -16, -0.05],
+      "to": [16, 0, -0.05],
+      "faces": {
+        "north": {"uv": [0, 0, 16, 16], "texture": "#side"}
+      }
+    }
+  ]
+}

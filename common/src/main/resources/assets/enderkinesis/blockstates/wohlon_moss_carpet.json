@@ -1,7 +1,9 @@
 {
-  "variants": {
-    "": {
-      "model": "enderkinesis:block/wohlon_moss_carpet"
-    }
-  }
+  "multipart": [
+    {"apply": {"model": "enderkinesis:block/wohlon_moss_carpet"}},
+    {"when": {"north": "true"}, "apply": [{"model": "enderkinesis:block/wohlon_moss_carpet_side"}, {"model": "enderkinesis:block/wohlon_moss_carpet_side_mirrored"}]},
+    {"when": {"east": "true"}, "apply": [{"model": "enderkinesis:block/wohlon_moss_carpet_side", "y": 90}, {"model": "enderkinesis:block/wohlon_moss_carpet_side_mirrored", "y": 90}]},
+    {"when": {"south": "true"}, "apply": [{"model": "enderkinesis:block/wohlon_moss_carpet_side", "y": 180}, {"model": "enderkinesis:block/wohlon_moss_carpet_side_mirrored", "y": 180}]},
+    {"when": {"west": "true"}, "apply": [{"model": "enderkinesis:block/wohlon_moss_carpet_side", "y": 270}, {"model": "enderkinesis:block/wohlon_moss_carpet_side_mirrored", "y": 270}]}
+  ]
 }

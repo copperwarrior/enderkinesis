@@ -2,15 +2,11 @@ package org.shipwrights.enderkinesis.client
 
 import it.unimi.dsi.fastutil.longs.LongArrayList
 import it.unimi.dsi.fastutil.longs.LongArrays
-import java.util.function.Predicate
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
-import net.minecraft.core.Holder
 import net.minecraft.world.level.ChunkPos
-import net.minecraft.world.level.biome.Biome
 import net.minecraft.world.level.chunk.ChunkStatus
 import net.minecraft.world.level.chunk.LevelChunk
-import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.dimension.WohlonBiomePresence
 
 /** Keeps [WohlonBiomePresence.nearby] current, one scan each second. */
@@ -20,8 +16,6 @@ object WohlonBiomePresenceScanner {
 
     // Remeshing all found chunks in one tick made the light floor appear in one step.
     private const val REMESH_CHUNKS_PER_TICK = 4
-
-    private val IS_WOHLON = Predicate<Holder<Biome>> { it.`is`(Wohlonnogondonia.BIOME_KEY) }
 
     // Found chunks that still need a remesh, nearest first; [remeshCursor] is the next one. Client thread only.
     private val found = LongArrayList()
@@ -101,7 +95,7 @@ object WohlonBiomePresenceScanner {
     // `maybeHas` reads the palette only, not the 64 cells of the section.
     private fun hasWohlon(chunk: LevelChunk): Boolean {
         for (section in chunk.sections) {
-            if (section.biomes.maybeHas(IS_WOHLON)) return true
+            if (section.biomes.maybeHas(WohlonBiomePresence.IS_WOHLON)) return true
         }
         return false
     }

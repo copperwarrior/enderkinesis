@@ -2,18 +2,24 @@ package org.shipwrights.enderkinesis.mixin;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.PalettedContainerRO;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.BlockLightEngine;
 import net.minecraft.world.level.lighting.LightEngine;
 import org.shipwrights.enderkinesis.dimension.WohlonBiomePresence;
 import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia;
+import org.shipwrights.enderkinesis.duck.WohlonCellMask;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -43,6 +49,9 @@ public abstract class LayerLightEngineWohlonAmbientMixin {
      * is {@code 0.1}.
      */
     private static final int WOHLON_AMBIENT_BLOCKLIGHT = 5;
+
+    // Cells of unloaded neighbour chunks count as non-Wohlon, so the divisor is always 9.
+    private static final int SAMPLE_CELLS = 9;
 
     @Inject(method = "getLightValue(Lnet/minecraft/core/BlockPos;)I", at = @At("RETURN"), cancellable = true)
     private void enderkinesis$wohlonAmbientFloor(BlockPos pos, CallbackInfoReturnable<Integer> cir) {
@@ -82,36 +91,68 @@ public abstract class LayerLightEngineWohlonAmbientMixin {
         int centreQz = z >> 2;
         int centreCx = x >> 4;
         int centreCz = z >> 4;
+        int minQx = centreQx - 1;
+        int maxQx = centreQx + 1;
+        int minQz = centreQz - 1;
+        int maxQz = centreQz + 1;
         int wohlonCount = 0;
-        int totalCount = 0;
-        for (int dqx = -1; dqx <= 1; dqx++) {
-            for (int dqz = -1; dqz <= 1; dqz++) {
-                int sampleQx = centreQx + dqx;
-                int sampleQz = centreQz + dqz;
-                int sampleCx = sampleQx >> 2;   // 4 quart cells per chunk
-                int sampleCz = sampleQz >> 2;
-                ChunkAccess sampleAccess;
-                if (sampleCx == centreCx && sampleCz == centreCz) {
-                    sampleAccess = access;
+        // The 3x3 cells span at most 2x2 chunks: read each chunk once, not once per cell.
+        for (int cx = minQx >> 2; cx <= maxQx >> 2; cx++) {
+            for (int cz = minQz >> 2; cz <= maxQz >> 2; cz++) {
+                ChunkAccess chunk;
+                if (cx == centreCx && cz == centreCz) {
+                    chunk = access;
+                } else if (chunkSource.getChunkForLighting(cx, cz) instanceof ChunkAccess loaded) {
+                    chunk = loaded;
                 } else {
-                    BlockGetter sg = chunkSource.getChunkForLighting(sampleCx, sampleCz);
-                    if (!(sg instanceof ChunkAccess)) {
-                        // Unloaded neighbour chunk → treat as non-Wohlon.
-                        // Lets the gradient taper smoothly into view-distance
-                        // edges instead of clamping artificially high.
-                        totalCount++;
-                        continue;
-                    }
-                    sampleAccess = (ChunkAccess) sg;
+                    // Unloaded neighbour chunk counts as non-Wohlon, so the gradient tapers at the view edge.
+                    continue;
                 }
-                Holder<Biome> sample = sampleAccess.getNoiseBiome(sampleQx, centreQy, sampleQz);
-                totalCount++;
-                if (sample.is(Wohlonnogondonia.BIOME_KEY)) wohlonCount++;
+                wohlonCount += enderkinesis$countWohlon(
+                    chunk,
+                    Math.max(minQx, cx << 2), Math.min(maxQx, (cx << 2) + 3),
+                    centreQy,
+                    Math.max(minQz, cz << 2), Math.min(maxQz, (cz << 2) + 3)
+                );
             }
         }
         if (wohlonCount == 0) return;   // No Wohlon nearby — fall through to vanilla.
 
-        int boost = Math.round((float) wohlonCount / (float) totalCount * WOHLON_AMBIENT_BLOCKLIGHT);
+        int boost = Math.round((float) wohlonCount / (float) SAMPLE_CELLS * WOHLON_AMBIENT_BLOCKLIGHT);
         if (boost > stored) cir.setReturnValue(boost);
+    }
+
+    /** Wohlon cells in the quart box of [chunk], the same cells {@code ChunkAccess.getNoiseBiome} reads. */
+    @Unique
+    private static int enderkinesis$countWohlon(ChunkAccess chunk, int minQx, int maxQx, int qy, int minQz, int maxQz) {
+        int count = 0;
+        // EmptyLevelChunk and other subclasses can override getNoiseBiome; keep their own lookup.
+        if (chunk.getClass() != LevelChunk.class) {
+            for (int qx = minQx; qx <= maxQx; qx++) {
+                for (int qz = minQz; qz <= maxQz; qz++) {
+                    if (chunk.getNoiseBiome(qx, qy, qz).is(Wohlonnogondonia.BIOME_KEY)) count++;
+                }
+            }
+            return count;
+        }
+        int minY = QuartPos.fromBlock(chunk.getMinBuildHeight());
+        int clampedQy = Mth.clamp(qy, minY, minY + QuartPos.fromBlock(chunk.getHeight()) - 1);
+        PalettedContainerRO<Holder<Biome>> biomes =
+            chunk.getSection(chunk.getSectionIndex(QuartPos.toBlock(clampedQy))).getBiomes();
+        if (!(biomes instanceof WohlonCellMask cells)) {
+            for (int qx = minQx; qx <= maxQx; qx++) {
+                for (int qz = minQz; qz <= maxQz; qz++) {
+                    if (biomes.get(qx & 3, clampedQy & 3, qz & 3).is(Wohlonnogondonia.BIOME_KEY)) count++;
+                }
+            }
+            return count;
+        }
+        long mask = cells.enderkinesis$wohlonMask();
+        if (mask == 0L) return 0;
+        long xBits = ((1L << (maxQx - minQx + 1)) - 1L) << (minQx & 3);
+        for (int qz = minQz; qz <= maxQz; qz++) {
+            count += Long.bitCount((mask >>> (((clampedQy & 3) << 4) | ((qz & 3) << 2))) & xBits);
+        }
+        return count;
     }
 }

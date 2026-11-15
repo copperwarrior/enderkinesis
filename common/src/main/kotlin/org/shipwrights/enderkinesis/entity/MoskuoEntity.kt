@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import java.util.UUID
 import net.minecraft.core.BlockPos
@@ -46,8 +45,6 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.block.MoskuoLarvaeBlock
 import org.shipwrights.enderkinesis.registry.EKEffects
-
-private val LOG = LogUtils.getLogger()
 
 /**
  * Wohlon mosquito. It waits inside leaves and plants, bursts out to sting anything alive, and spreads Trypoemia.
@@ -153,7 +150,6 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
         }
         if (hasEggs && ++eggTicks > EGG_HOLD_TICKS) {
             hasEggs = false
-            LOG.info("[MoskuoDebug] Moskuo {} found no still water and dropped its eggs", id)
         }
         entityData.set(DATA_PERCHED, onGround() || settledInCover)
     }
@@ -414,12 +410,9 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
             deltaMovement = Vec3.ZERO
             if (++layTicks < LAY_TICKS) return
             val level = level() as? ServerLevel ?: return
-            if (MoskuoLarvaeBlock.isLayingWater(level, at, BlockPos.MutableBlockPos()) &&
+            if (MoskuoLarvaeBlock.isLayingWater(level, at, BlockPos.MutableBlockPos())) {
+                // Return value ignored: with no room the eggs are lost.
                 MoskuoLarvaeBlock.lay(level, at, MoskuoLarvaeBlock.MAX_LARVAE)
-            ) {
-                LOG.info("[MoskuoDebug] Moskuo {} laid {} larvae above {}", id, MoskuoLarvaeBlock.MAX_LARVAE, at)
-            } else {
-                LOG.info("[MoskuoDebug] Moskuo {} found no room for larvae above {} and dropped its eggs", id, at)
             }
             hasEggs = false
             water = null

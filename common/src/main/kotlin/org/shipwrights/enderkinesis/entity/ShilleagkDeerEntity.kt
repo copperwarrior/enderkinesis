@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import dev.architectury.registry.registries.RegistrySupplier
 import java.util.EnumSet
 import java.util.UUID
@@ -231,12 +230,12 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
 
     // A dead or removed deer runs no goal stop, so its pinned vine tip must be let go here.
     override fun die(source: DamageSource) {
-        if (::vineTipGoal.isInitialized) vineTipGoal.letGo("died")
+        if (::vineTipGoal.isInitialized) vineTipGoal.letGo()
         super.die(source)
     }
 
     override fun remove(reason: RemovalReason) {
-        if (::vineTipGoal.isInitialized) vineTipGoal.letGo("removed")
+        if (::vineTipGoal.isInitialized) vineTipGoal.letGo()
         super.remove(reason)
     }
 
@@ -666,8 +665,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             age = BREED_COOLDOWN_TICKS
             mate.age = BREED_COOLDOWN_TICKS
             level.addFreshEntityWithPassengers(fawn)
-            // [DeerDebug] temporary
-            LOG.info("[DeerDebug] deer {} and {} bred a fawn at {}", id, mate.id, blockPosition())
         }
     }
 
@@ -912,12 +909,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
                 return false
             }
             path = found
-            // [DeerDebug] temporary
-            LOG.info(
-                "[DeerDebug] deer {} vine target: vine {} node {} ({}) at {} {} {}, {} above ground",
-                id, tip.vineId, tip.node, kind(), "%.2f".format(tip.x), "%.2f".format(tip.y), "%.2f".format(tip.z),
-                "%.2f".format(tip.y - tip.groundY),
-            )
             return true
         }
 
@@ -958,19 +949,17 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         override fun stop() {
             if (action == Action.ATTACK_BITE || action == Action.VINE_CHEW) setAction(Action.NONE)
             navigation.stop()
-            letGo(abortReason ?: if (hurtTime > 0) "hurt" else "interrupted by another goal")
+            letGo()
             if (!ate) mealCooldown = maxOf(mealCooldown, FAILED_MEAL_COOLDOWN)
             abortReason = null
         }
 
         /** Ends a running meal and frees the tip; no-op when no meal runs. */
-        fun letGo(reason: String) {
+        fun letGo() {
             if (stage == VineMealStage.DONE) return
             if (pinned || tip.nodeHold != null || tip.partnerHold != null) (level() as? ServerLevel)?.releaseVineTip(tip)
             pinned = false
             stage = VineMealStage.DONE
-            // [DeerDebug] temporary
-            LOG.info("[DeerDebug] deer {} vine meal aborted: {} (vine {} node {}, {})", id, reason, tip.vineId, tip.node, kind())
         }
 
         override fun groundUnder(nodeX: Double, nodeY: Double, nodeZ: Double): Double {
@@ -1023,8 +1012,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
                 caughtX = tip.x
                 caughtY = tip.y
                 caughtZ = tip.z
-                // [DeerDebug] temporary
-                LOG.info("[DeerDebug] deer {} bit vine {} node {} ({})", id, tip.vineId, tip.node, kind())
             }
             if (stageTicks >= BITE_HIT_TICK) pin(level, caughtX, caughtY, caughtZ)
             if (stageTicks >= BITE_TICKS) {
@@ -1061,8 +1048,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         }
 
         private fun finish(level: ServerLevel) {
-            // [DeerDebug] temporary
-            LOG.info("[DeerDebug] deer {} chew end on vine {} node {} ({})", id, tip.vineId, tip.node, kind())
             val griefing = level.gameRules.getBoolean(GameRules.RULE_MOBGRIEFING)
             if (griefing && !level.eatVineTip(tip)) {
                 abortReason = "the split failed"
@@ -1076,11 +1061,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             playSound(EKSounds.SHILLEAGK_DEER_GRAZE.get(), 1f, 1f)
             mealCooldown = MEAL_COOLDOWN_MIN + random.nextInt(MEAL_COOLDOWN_SPREAD)
             wellFedTicks = WELL_FED_TICKS
-            // [DeerDebug] temporary
-            LOG.info(
-                "[DeerDebug] deer {} vine {} node {} ({}) segment {}", id, tip.vineId, tip.node, kind(),
-                if (griefing) (if (tip.isTip) "eaten" else "eaten, vine snapped") else "kept (mobGriefing off)",
-            )
         }
 
         private fun pin(level: ServerLevel, px: Double, py: Double, pz: Double) {
@@ -1091,8 +1071,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
             stage = next
             stageTicks = 0
         }
-
-        private fun kind(): String = if (tip.isTip) "tip" else "middle"
     }
 
     /** Chews hand-fed meat with the fish bite; it outranks the flee from players so the bite plays. */
@@ -1374,7 +1352,6 @@ class ShilleagkDeerEntity(type: EntityType<out ShilleagkDeerEntity>, level: Leve
         private const val MOUTH_FORWARD_PX = 5.5
         private const val MOUTH_UP_PX = 1.0
 
-        private val LOG = LogUtils.getLogger()
         private const val LEVEL_EVENT_BLOCK_BREAK = 2001
 
         fun createAttributes(): AttributeSupplier.Builder = Mob.createMobAttributes()

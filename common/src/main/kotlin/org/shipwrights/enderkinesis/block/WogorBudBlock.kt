@@ -14,6 +14,7 @@ import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.LevelReader
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.LeavesBlock
 import net.minecraft.world.level.block.RenderShape
 import net.minecraft.world.level.block.SimpleWaterloggedBlock
 import net.minecraft.world.level.block.state.BlockBehaviour
@@ -29,13 +30,19 @@ import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * Growth faces are not in the block state: every sturdy neighbour face grows, read from the world
  * ([supportMask]). AGE 0 is the root-strand stage. Uses scheduled ticks, NOT random ticks; the delay
  * comes from [growDelay] so that the client tracker can calculate the same schedule.
+ * A [leaf] bud has no root stage, also grows from wogor leaves, and matures into wogor leaves.
  */
-class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), SimpleWaterloggedBlock {
+class WogorBudBlock(
+    properties: BlockBehaviour.Properties,
+    val leaf: Boolean = false,
+) : Block(properties), SimpleWaterloggedBlock {
 
     init {
         registerDefaultState(stateDefinition.any().setValue(AGE, 0).setValue(WATERLOGGED, false))
@@ -58,7 +65,7 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
     ): VoxelShape {
         // Off the server thread, a neighbour read joins the server thread and deadlocks the light engine.
         if (level is ServerLevel && !level.server.isSameThread) return Shapes.empty()
-        return SHAPES[state.getValue(AGE)][supportMask(level, pos)]
+        return SHAPES[state.getValue(AGE)][supportMask(level, pos, leaf = leaf)]
     }
 
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes fluid state through this override.
@@ -71,7 +78,7 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
 
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Forced by vanilla 1.20.1.
     override fun canSurvive(state: BlockState, level: LevelReader, pos: BlockPos): Boolean =
-        supportMask(level, pos) != 0
+        supportMask(level, pos, leaf = leaf) != 0
 
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes canSurvive and updateShape through the deprecated overrides.
     override fun updateShape(
@@ -138,11 +145,21 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
             // The destroy hook filters only bud → wood; a bud → variant change must not enroll.
             HeartOfTheWildManager.withEnrollSuppressed { level.setBlock(pos, target, UPDATE_ALL) }
         } else {
-            val wogor = EKBlocks.WOGOR_WOOD.get().defaultBlockState()
-                .setValue(BlockStateProperties.AXIS, woodAxis(supportMask(level, pos)))
-            level.setBlock(pos, wogor, UPDATE_ALL)
+            level.setBlock(pos, matureState(state, level, pos), UPDATE_ALL)
         }
     }
+
+    // Persistent, as the ritual tree placed its leaves before leaf buds; distance comes from the neighbours.
+    private fun matureState(state: BlockState, level: ServerLevel, pos: BlockPos): BlockState =
+        if (leaf) {
+            val leaves = EKBlocks.WOGOR_LEAVES.get().defaultBlockState()
+                .setValue(LeavesBlock.PERSISTENT, true)
+                .setValue(LeavesBlock.WATERLOGGED, state.getValue(WATERLOGGED))
+            Block.updateFromNeighbourShapes(leaves, level, pos)
+        } else {
+            EKBlocks.WOGOR_WOOD.get().defaultBlockState()
+                .setValue(BlockStateProperties.AXIS, woodAxis(supportMask(level, pos)))
+        }
 
     /** AGE at which the bud matures into [target]: small shapes after AGE 1 (4 px), slab / wall after AGE 2. */
     private fun terminalAgeFor(target: BlockState): Int = when (target.block) {
@@ -169,21 +186,48 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
         const val GROW_DELAY_MAX_TICKS: Int = 7
 
         /** Ticks that AGE [age] lasts at [pos]. Deterministic, because the client tracker calculates it too. */
-        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; Mojang marks it internal only.
         fun growDelay(pos: BlockPos, age: Int): Int {
             val span = GROW_DELAY_MAX_TICKS - GROW_DELAY_MIN_TICKS + 1
-            val h = Mth.getSeed(pos.x, pos.y + age * AGE_SALT, pos.z) ushr HASH_SHIFT
-            return GROW_DELAY_MIN_TICKS + Math.floorMod(h, span.toLong()).toInt()
+            val base = GROW_DELAY_MIN_TICKS + hashMod(pos.x, pos.y + age * AGE_SALT, pos.z, span)
+            return max(1, (base * speedFactor(pos)).roundToInt())
         }
 
-        /** Bit `1 shl direction.ordinal` is set for each neighbour whose face toward [pos] is sturdy. */
-        fun supportMask(level: BlockGetter, pos: BlockPos, n: BlockPos.MutableBlockPos = BlockPos.MutableBlockPos()): Int {
+        // One factor for all AGEs of a bud: equal speeds make the growth front a Manhattan diamond.
+        private fun speedFactor(pos: BlockPos): Double {
+            val u = hashMod(pos.x + SPEED_SALT, pos.y, pos.z - SPEED_SALT, SPEED_STEPS) / (SPEED_STEPS - 1.0)
+            return 1.0 - SPEED_SPREAD + 2.0 * SPEED_SPREAD * u
+        }
+
+        /** AGE (1..3) a leaf bud must reach before a new leaf bud at [pos] can grow from it. */
+        fun leafSpreadAge(pos: BlockPos): Int = 1 + hashMod(pos.x - LEAF_SALT, pos.y, pos.z + LEAF_SALT, MAX_AGE)
+
+        @Suppress("DEPRECATION") // Mth.getSeed is the vanilla position hash; Mojang marks it internal only.
+        private fun hashMod(x: Int, y: Int, z: Int, mod: Int): Int =
+            Math.floorMod(Mth.getSeed(x, y, z) ushr HASH_SHIFT, mod.toLong()).toInt()
+
+        /** Bit `1 shl direction.ordinal` is set for each neighbour whose face toward [pos] is sturdy.
+         *  For a [leaf] bud, any leaves and leaf buds also count: vanilla leaves have an empty support shape. */
+        fun supportMask(
+            level: BlockGetter,
+            pos: BlockPos,
+            n: BlockPos.MutableBlockPos = BlockPos.MutableBlockPos(),
+            leaf: Boolean = false,
+        ): Int {
             var mask = 0
             for (dir in DIRECTIONS) {
                 n.setWithOffset(pos, dir)
-                if (level.getBlockState(n).isFaceSturdy(level, n, dir.opposite)) mask = mask or (1 shl dir.ordinal)
+                val neighbour = level.getBlockState(n)
+                if (neighbour.isFaceSturdy(level, n, dir.opposite) || leaf && isLeafSupport(neighbour)) {
+                    mask = mask or (1 shl dir.ordinal)
+                }
             }
             return mask
+        }
+
+        /** A leaf bud on a leaf bud lives on when that bud matures, because the leaves it becomes also count. */
+        fun isLeafSupport(state: BlockState): Boolean {
+            val block = state.block
+            return block is LeavesBlock || block is WogorBudBlock && block.leaf
         }
 
         /** The block state for a new bud at [pos], waterlogged if a water source is there. */
@@ -207,6 +251,11 @@ class WogorBudBlock(properties: BlockBehaviour.Properties) : Block(properties), 
 
         private val DIRECTIONS: Array<Direction> = Direction.values()
         private const val AGE_SALT = 7919
+        private const val SPEED_SALT = 104_729
+        private const val LEAF_SALT = 15_485_863
+        /** ±50 %: whole-bud delay factor 0.5..1.5, so one bud takes 12..42 ticks to mature. */
+        private const val SPEED_SPREAD = 0.5
+        private const val SPEED_STEPS = 64
         private const val HASH_SHIFT = 16
 
         /** Outline size (px) of each AGE; AGE 0 is the root stage with a seedling-sized outline. */

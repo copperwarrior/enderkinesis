@@ -110,7 +110,7 @@ class WohlonnogondoniaChunkGenerator(
         val featureCache = scratchFeatureCache(span)
 
         // Mother Tree at origin (touches only chunks within its footprint). Rivers, child trees
-        // and surface roots paint in [applyBiomeDecoration], before the vanilla features run.
+        // and surface roots paint in [buildSurface], before any features run.
         paintMotherTreeInto(featureCache, chunkX0, chunkZ0, minY, span)
 
         // Root cave sites, hoisted once per chunk: a 16-wide chunk against
@@ -128,7 +128,7 @@ class WohlonnogondoniaChunkGenerator(
         //    feature blocks; the moat is folded into `effectiveSurfaceYAt`
         //    (so it just looks like a lowered surface to the rest of the
         //    pipeline) and the heart tunnel is now a walked path painted
-        //    in [applyBiomeDecoration] alongside the rivers + roots.
+        //    in [buildSurface] alongside the rivers + roots.
         for (localX in 0..15) {
             val worldX = chunkX0 + localX
             val xPlane = featureCache[localX]
@@ -580,53 +580,18 @@ class WohlonnogondoniaChunkGenerator(
     }
 
     /**
-     * Paint our procedural features into this chunk, then let
-     * vanilla's biome decoration run on top of them. The pipeline:
-     *
-     *   1. [fillFromNoise] paints the mud hill + Mother Tree.
-     *   2. *This method* (before `super`) paints Rivers, Heart
-     *      Tunnel, Surface Roots, and Child Trees into a
-     *      `featureCache`, then flushes the cache into the chunk
-     *      via `level.setBlock`.
-     *   3. `super.applyBiomeDecoration` runs the vanilla feature
-     *      list — only `wogor_forest` / `wogor_forest_water`
-     *      configured on this biome. Their placement filter
-     *      requires `minecraft:mud` at `pos − 1`, so they REJECT
-     *      every column where step 1 or step 2 painted wood /
-     *      leaves / water — Mother Tree, Child Trees, Surface
-     *      Roots, painted rivers all become exclusion zones
-     *      automatically. Vanilla trees only spawn on virgin mud
-     *      between our painted features.
-     *
-     * Why this order matters (changed v8): if `super` ran first,
-     * vanilla would do the full `TreeFeature.place()` work inside
-     * Child Tree / Surface Root footprints, only to have it
-     * overwritten by our paint flush moments later. By flushing
-     * our paints *before* `super`, the same `mud-at-pos-1` filter
-     * that already protects the Mother Tree now also protects
-     * Child Trees, Surface Roots, and painted rivers — vanilla
-     * never starts the doomed placement at all.
-     *
-     * Each chunk paints only its own 16 × 16 slice, so cross-chunk
-     * writes never happen. Flush uses flag = 2 (UPDATE_CLIENTS
-     * only) — the same flag vanilla tree features use after
-     * `force` writes — so neighbour updates don't fire during
-     * worldgen.
-     *
-     * Internal paint-cache write order (same as before): rivers →
-     * heart tunnel → surface roots → child trees, so later
-     * paints overwrite earlier ones at conflicting voxels.
+     * Paints rivers, heart tunnel, child trees and surface roots into this chunk. They must land before
+     * FEATURES: a neighbour's features write into this chunk once it is at LIQUID_CARVERS, and a later
+     * paint flush cut the leaves and wood under their vines, which left the vines floating.
      */
-    override fun applyBiomeDecoration(
-        level: net.minecraft.world.level.WorldGenLevel,
-        chunk: ChunkAccess,
-        structureManager: StructureManager,
+    override fun buildSurface(
+        level: WorldGenRegion, structureManager: StructureManager,
+        randomState: RandomState, chunk: ChunkAccess,
     ) {
         val chunkX0 = chunk.pos.minBlockX
         val chunkZ0 = chunk.pos.minBlockZ
         val minY = chunk.minBuildHeight
-        val maxY = chunk.maxBuildHeight
-        val span = maxY - minY
+        val span = chunk.maxBuildHeight - minY
 
         val featureCache = scratchFeatureCache(span)
         // Order matters when two paints want to write the same
@@ -652,15 +617,16 @@ class WohlonnogondoniaChunkGenerator(
         paintSurfaceRootsInto(featureCache, chunkX0, chunkZ0, minY, span)
         clearChildChambers(featureCache, chunkX0, chunkZ0, minY, span)
 
-        // Flush BEFORE vanilla decoration runs so the wogor_forest
-        // placement filter sees our painted features as occupied.
-        flushFeatureCache(level, chunk, structureManager, featureCache)
+        flushFeatureCache(chunk, structureManager, featureCache)
+    }
 
-        // Now vanilla runs — sees our painted blocks via
-        // `level.getBlockState`, and the placement filter rejects
-        // every column where our paints occupy `pos − 1`.
+    /** The wogor_forest filter needs mud at `pos − 1`, so vanilla trees skip every column our paints took. */
+    override fun applyBiomeDecoration(
+        level: net.minecraft.world.level.WorldGenLevel,
+        chunk: ChunkAccess,
+        structureManager: StructureManager,
+    ) {
         super.applyBiomeDecoration(level, chunk, structureManager)
-
         // Last, so a strand stops on whatever the paints and features put under it.
         writeWorldgenVines(chunk)
     }
@@ -745,7 +711,6 @@ class WohlonnogondoniaChunkGenerator(
 
     /** The paints follow the unbearded surface, so each column moves with the ground a structure beard raised or cut. */
     private fun flushFeatureCache(
-        level: net.minecraft.world.level.WorldGenLevel,
         chunk: ChunkAccess,
         structureManager: StructureManager,
         featureCache: Array<Array<Array<BlockState?>>>,
@@ -768,17 +733,24 @@ class WohlonnogondoniaChunkGenerator(
                 for (i in 0 until span) {
                     val block = col[i] ?: continue
                     if (shift == 0) {
-                        level.setBlock(mutable.set(worldX, minY + i, worldZ), block, 2)
+                        setPainted(chunk, mutable.set(worldX, minY + i, worldZ), block)
                         continue
                     }
                     // A moved cell never lands on the bedrock floor, and moved water stays under sea level.
                     val y = minY + i + shift
                     if (y <= MIN_Y || y >= maxY) continue
                     val placed = if (block === WATER && y >= SEA_LEVEL_Y) AIR else block
-                    level.setBlock(mutable.set(worldX, y, worldZ), placed, 2)
+                    setPainted(chunk, mutable.set(worldX, y, worldZ), placed)
                 }
             }
         }
+    }
+
+    /** Keeps the block-entity bookkeeping that WorldGenRegion.setBlock did for a proto chunk. */
+    private fun setPainted(chunk: ChunkAccess, pos: BlockPos, state: BlockState) {
+        val old = chunk.setBlockState(pos, state, false)
+        if (state.hasBlockEntity()) markBlockEntity(chunk, pos)
+        else if (old != null && old.hasBlockEntity()) chunk.removeBlockEntity(pos)
     }
 
     /** One 16×16×span cache for each worker thread, emptied for each use. A new one for each
@@ -2645,15 +2617,7 @@ class WohlonnogondoniaChunkGenerator(
      * sphere at every path point that falls within an AABB of this
      * chunk. Points outside the AABB are O(1) rejected.
      *
-     * ## Pipeline placement
-     *
-     * Runs in [applyBiomeDecoration] after the vanilla forest features
-     * have placed, so a tube passing through a vanilla canopy
-     * overwrites the canopy's leaves with wood — the cave-tunnel
-     * "carves through everything" semantics the user asked for. The
-     * Mother Tree exclusion below stops tunnels from gouging up the
-     * central trunk; a soft fade-in mask near the exclusion edge keeps
-     * the boundary from being a hard cliff.
+     * Runs in [buildSurface] before any feature, so neighbour trees grow around the tubes, not through them.
      *
      * Finally [paintRootVines] hangs short vine curtains off the
      * topmost airborne sphere caps.
@@ -3624,11 +3588,6 @@ class WohlonnogondoniaChunkGenerator(
         level: WorldGenRegion, seed: Long, randomState: RandomState,
         biomeManager: BiomeManager, structureManager: StructureManager,
         chunk: ChunkAccess, step: GenerationStep.Carving,
-    ) {}
-
-    override fun buildSurface(
-        level: WorldGenRegion, structureManager: StructureManager,
-        randomState: RandomState, chunk: ChunkAccess,
     ) {}
 
     override fun spawnOriginalMobs(level: WorldGenRegion) {}

@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
@@ -42,8 +41,6 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
-
-private val LOG = LogUtils.getLogger()
 
 /**
  * Wohlon predator fish. When hungry it hunts anything edible in the water: small fish go down in one bite,
@@ -330,7 +327,6 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
                 latch(target)
             } else if (target.eatWhole(this@EauhorranaEntity)) {
                 sate()
-                LOG.info("[FishDebug] Eauhorrana {} swallowed {} at {}", id, target.type.toShortString(), target.blockPosition())
             }
         }
     }

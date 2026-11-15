@@ -1,5 +1,9 @@
 package org.shipwrights.enderkinesis.dimension
 
+import java.util.function.Predicate
+import net.minecraft.core.Holder
+import net.minecraft.world.level.biome.Biome
+
 /**
  * True while a loaded client chunk near the player holds a Wohlon biome cell. The ambient light
  * mixins read it first, so a world with no Wohlon pays one field read for each light query.
@@ -9,4 +13,6 @@ package org.shipwrights.enderkinesis.dimension
  */
 object WohlonBiomePresence {
     @JvmField @Volatile var nearby: Boolean = false
+
+    @JvmField val IS_WOHLON: Predicate<Holder<Biome>> = Predicate { it.`is`(Wohlonnogondonia.BIOME_KEY) }
 }

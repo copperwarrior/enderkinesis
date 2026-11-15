@@ -14,6 +14,8 @@ object WogorVineNoise {
     fun rawNoise(x: Int, y: Int, z: Int): Double =
         valueNoise3d(x * FREQ, y * FREQ, z * FREQ)
 
+    fun cellHash01(x: Int, y: Int, z: Int): Double = hash01(x, y, z)
+
     private fun valueNoise3d(x: Double, y: Double, z: Double): Double {
         val xi = Math.floor(x).toInt()
         val yi = Math.floor(y).toInt()

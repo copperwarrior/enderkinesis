@@ -15,6 +15,7 @@ import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.levelgen.feature.Feature
 import net.minecraft.world.level.levelgen.feature.FeaturePlaceContext
 import net.minecraft.world.level.levelgen.feature.configurations.NoneFeatureConfiguration
+import org.shipwrights.enderkinesis.block.placeWohlonMossCarpet
 import org.shipwrights.enderkinesis.registry.EKBlocks
 
 /**
@@ -165,7 +166,7 @@ class WohlonTrunkBaseFeature(codec: Codec<NoneFeatureConfiguration>) : Feature<N
             }
             if (y <= tip) continue
             if (random.nextFloat() < KNEE_MOSS_CHANCE && level.isEmptyBlock(pos.set(kx, tip + 1, kz))) {
-                level.setBlock(pos, EKBlocks.WOHLON_MOSS_CARPET.get().defaultBlockState(), Block.UPDATE_CLIENTS)
+                level.placeWohlonMossCarpet(pos, Block.UPDATE_CLIENTS)
             }
             if (random.nextFloat() < KNEE_VINE_CHANCE) vineDome(level, pos, kx, tip, kz, waterTopY)
         }

@@ -13,7 +13,7 @@
       "sound": "enderkinesis:music.wohlonnogondonia",
       "min_delay": 12000,
       "max_delay": 24000,
-      "replace_current_music": false
+      "replace_current_music": true
     },
     "ambient_sound": "enderkinesis:ambient.wohlonnogondonia.loop",
     "mood_sound": {
@@ -31,9 +31,9 @@
     "monster": [
       {
         "type": "enderkinesis:moskuo",
-        "weight": 8,
+        "weight": 5,
         "minCount": 1,
-        "maxCount": 3
+        "maxCount": 2
       }
     ],
     "creature": [

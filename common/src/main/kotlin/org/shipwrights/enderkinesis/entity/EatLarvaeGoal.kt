@@ -1,14 +1,11 @@
 package org.shipwrights.enderkinesis.entity
 
-import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.PathfinderMob
 import net.minecraft.world.entity.ai.goal.Goal
 import org.shipwrights.enderkinesis.block.MoskuoLarvaeBlock
-
-private val LOG = LogUtils.getLogger()
 
 /** Swims a fish under the nearest [MoskuoLarvaeBlock] and eats one larva. */
 class EatLarvaeGoal(
@@ -50,7 +47,6 @@ class EatLarvaeGoal(
         if (fish.distanceToSqr(at.x + HALF, at.y - HALF, at.z + HALF) < EAT_DISTANCE * EAT_DISTANCE) {
             if (MoskuoLarvaeBlock.eatOne(level, at)) {
                 onEat()
-                LOG.info("[FishDebug] {} ate a Moskuo larva at {}", fish.type.toShortString(), at)
             }
             patch = null
             return
