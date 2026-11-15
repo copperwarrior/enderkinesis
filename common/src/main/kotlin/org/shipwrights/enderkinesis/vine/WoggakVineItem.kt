@@ -24,10 +24,6 @@ import org.valkyrienskies.mod.common.getShipManagingPos
 class WoggakVineItem(properties: Properties) : Item(properties) {
 
     override fun useOn(context: UseOnContext): InteractionResult {
-        LOG.info(
-            "[VineReelDebug] item useOn client={} shift={} block={}", context.level.isClientSide, context.player?.isShiftKeyDown,
-            context.clickedPos,
-        )
         val level = context.level as? ServerLevel ?: return InteractionResult.SUCCESS
         val player = context.player
         if (player is ServerPlayer && player.isShiftKeyDown && player.extendVine(context.itemInHand)) return InteractionResult.CONSUME
@@ -48,7 +44,6 @@ class WoggakVineItem(properties: Properties) : Item(properties) {
     /** A vine under the look takes the use; with no target the use draws a throw, as a bow. */
     override fun use(level: Level, player: Player, hand: InteractionHand): InteractionResultHolder<ItemStack> {
         val stack = player.getItemInHand(hand)
-        LOG.info("[VineReelDebug] item use client={} shift={} hand={}", level.isClientSide, player.isShiftKeyDown, hand)
         if (player is ServerPlayer && player.isShiftKeyDown && player.extendVine(stack)) return InteractionResultHolder.consume(stack)
         if (level is ServerLevel) {
             val point = level.vinePointAtLook(player)

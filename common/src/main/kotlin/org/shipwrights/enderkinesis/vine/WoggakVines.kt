@@ -125,6 +125,8 @@ class WoggakVine(
     internal var seedRest = 0.0
     /** A worldgen vine that no one used yet; only such a vine sleeps. Any use clears it for good. */
     internal var natural = false
+    /** Fire fronts on this vine; a save keeps them as ticks left, so a fire goes on after a reload. */
+    internal var burns: List<VineBurnFront> = emptyList()
 
     /** Bit 0: the start is joined to another vine; bit 1: the end is. */
     val joinedEnds: Int
@@ -185,6 +187,8 @@ class WoggakVineData : SavedData() {
     /** Next vine of the round-robin save-copy refresh, and the chunks it did this tick; not saved. */
     internal var snapshotCursor = 0
     internal val snapshotDone = LongOpenHashSet()
+    /** Game time of the last tick, so a save can store burn fronts as ticks left; not saved. */
+    internal var clock = 0L
     /** Server-thread scratch for node positions; not saved. */
     internal var scratch = DoubleArray(0)
     /** Set when a vine, anchor or joint changes, so the next tick checks which vines still reach an anchor. */
@@ -204,6 +208,10 @@ class WoggakVineData : SavedData() {
     internal val reels = Long2ObjectOpenHashMap<VineReel>()
     /** Each player's vine hold; not saved, because a hold ends with the session. */
     internal val holds = HashMap<UUID, VineHold>()
+    /** Mantle pulls in progress by player; not saved. */
+    internal val mantles = HashMap<UUID, VineMantle>()
+    /** Each player's last drawn-rope pick from its client; not saved. */
+    internal val aims = HashMap<UUID, VineAim>()
     /** Thrown vines in flight, by vine id; they count as anchored. Not saved, so a reload ends the flight in a fade. */
     internal val throws = Long2ObjectOpenHashMap<VineThrow>()
     /** Ritual of Capturing runs; not saved, so a reload leaves the vines as they are. */
@@ -215,6 +223,7 @@ class WoggakVineData : SavedData() {
     internal val sleep = VineSleep()
     /** Game time of the last pin of each vine tip that an animal chews, by vine id; not saved. */
     internal val chewedTips = Long2LongOpenHashMap()
+    internal val burns = VineBurns()
 
     fun vine(id: Long): WoggakVine? = byId[id]
 
@@ -299,6 +308,7 @@ class WoggakVineData : SavedData() {
                 putDouble("width", vine.width)
                 putBoolean("natural", vine.natural)
                 putLong("home", vine.home)
+                putIntArray("burns", vine.burns.saveBurns(clock))
             })
         }
         if (strayCount < strays.size) strays = strays.copyOf(strayCount)
@@ -309,7 +319,7 @@ class WoggakVineData : SavedData() {
     }
 
     companion object {
-        fun load(tag: CompoundTag): WoggakVineData {
+        fun load(tag: CompoundTag, now: Long): WoggakVineData {
             val data = WoggakVineData()
             val list = tag.getList("vines", Tag.TAG_COMPOUND.toInt())
             for (i in 0 until list.size) {
@@ -326,6 +336,7 @@ class WoggakVineData : SavedData() {
                 vine.reelCredit = validReelCredit(t.getDouble("reelCredit"))
                 vine.home = t.getLong("home")
                 data.add(vine)
+                data.restoreBurns(vine, t.getIntArray("burns"), now, null)
             }
             data.strayChains = tag.getLongArray("chunkChains")
             val captures = tag.getList("captures", Tag.TAG_COMPOUND.toInt())
@@ -349,7 +360,7 @@ internal fun CompoundTag.getAnchor(key: String): WoggakVineAnchor {
 private val loadedVines = ConcurrentHashMap<ServerLevel, WoggakVineData>()
 
 val ServerLevel.woggakVines: WoggakVineData
-    get() = dataStorage.computeIfAbsent({ WoggakVineData.load(it) }, ::WoggakVineData, DATA_NAME)
+    get() = dataStorage.computeIfAbsent({ WoggakVineData.load(it, gameTime) }, ::WoggakVineData, DATA_NAME)
         .also { loadedVines.putIfAbsent(this, it) }
 
 /** The vine data once the level ticked at least once; null before, when no vine can exist. */
@@ -364,6 +375,7 @@ fun registerWoggakVineEvents() {
     registerVineThrows()
     registerVineTipHolds()
     registerWohlonWind()
+    registerVineBurns()
     LifecycleEvent.SERVER_LEVEL_UNLOAD.register { level ->
         // The hold particles go with the level save; the next load deletes them by tag.
         loadedVines.remove(level)?.holds?.clear()
@@ -474,18 +486,18 @@ internal fun ServerLevel.attachment(point: VinePoint): Pair<Vector3d, ChainEndpo
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.tickWoggakVines() {
     val data = loadedWoggakVines ?: woggakVines
+    data.clock = gameTime
     deleteStrayVineChains(data)
     data.sleep.collectObservers(this)
     data.sleep.scanVines(data)
     rebuildLoadedVines(data)
-    // [VineSleepDebug] temporary
-    logVineSleepDebug(data)
     data.collider.clear()
     tickVineThrows(data)
     tickVineCaptures(data)
     tickVineHolds(data)
     tickVineReels(data)
     tickVineRiders(data)
+    tickVineBurns(data)
     publishWohlonWind(data)
     if (data.vines.isEmpty()) {
         publishJointPairs(data)
@@ -504,8 +516,6 @@ private fun ServerLevel.tickWoggakVines() {
         val status = chain?.status
         if (chain == null || status == null || status.lifecycle == ChainLifecycle.REMOVED || status.lifecycle == ChainLifecycle.FAILED) {
             if (status?.lifecycle == ChainLifecycle.FAILED) LOG.warn("Woggak Vine {} failed: {}", vine.chain.value, status.failure)
-            // [VineReloadDebug] temporary
-            vineReloadDebug("removed, chain gone", this, 1)
             data.removeAt(i); count--; topology = true
             continue
         }
@@ -528,7 +538,7 @@ private fun ServerLevel.tickWoggakVines() {
             continue
         }
         if (vine.fadeStart >= 0 && gameTime - vine.fadeStart >= WOGGAK_VINE_FADE_TICKS) {
-            if (vine.dropsOnFade) dropFadedVine(chain, vine.reelCredit)
+            if (vine.dropsOnFade && vine.burns.isEmpty()) dropFadedVine(chain, vine.reelCredit)
             puffVine(chain)
             if (!world.deleteChain(vine.chain)) LOG.warn("Woggak Vine {} was already removed", vine.chain.value)
             data.removeAt(i); count--; topology = true

@@ -9,27 +9,12 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 
-/** [VineFrameDebug] counts since the last log line. */
-internal class VineFrameStats {
-    var gapSum = 0.0
-    var gapCount = 0
-    var gapMax = 0.0
-    var drawFrames = 0
-    var underruns = 0
-    var remaps = 0
-    var resets = 0
-
-    fun clear() {
-        gapSum = 0.0; gapCount = 0; gapMax = 0.0; drawFrames = 0; underruns = 0; remaps = 0; resets = 0
-    }
-}
-
 /**
  * Maps client wall time (System.nanoTime) to the VS physics tick that the vines show. The physics tick of each frame
  * is the server's own time stamp; VS sends a chain frame over one or more game ticks, so arrival times are uneven but
  * the stamps are not.
  */
-internal class VineFrameClock(private val stats: VineFrameStats) {
+internal class VineFrameClock {
     private var ticksPerNano = NOMINAL_TICKS_PER_NANO
     private var epoch = 0L
     // Smoothed (physics tick - wall since epoch * rate) at frame arrival.
@@ -46,9 +31,6 @@ internal class VineFrameClock(private val stats: VineFrameStats) {
     private var playWall = 0L
 
     val isStarted get() = newestTick >= 0
-    val newest: Long get() = newestTick
-    val delayTicks: Double get() = delay
-    val ticksPerSecond: Double get() = ticksPerNano * 1e9
 
     /** The largest recent frame gap in physics ticks: how far a sample may run on past the newest frame. */
     val horizon: Double get() = max(recentMaxGap(), 1.0)
@@ -110,9 +92,6 @@ internal class VineFrameClock(private val stats: VineFrameStats) {
         gaps[gapNext] = gap
         gapNext = (gapNext + 1) % GAP_HISTORY
         if (gapCount < GAP_HISTORY) gapCount++
-        stats.gapSum += gap
-        stats.gapCount++
-        stats.gapMax = max(stats.gapMax, gap)
     }
 
     private fun recentMaxGap(): Double {
@@ -144,7 +123,6 @@ internal class VineFrameClock(private val stats: VineFrameStats) {
     }
 
     private fun resync(tick: Long, wall: Long) {
-        stats.resets++
         epoch = wall
         offset = tick.toDouble()
         jitter = 0.0
@@ -208,7 +186,7 @@ internal class VineFrames {
     val newestTick: Long get() = if (size == 0 || frozen) -1L else ticks[head]
 
     /** Keeps [chain]'s current frame when it is newer than the newest kept; returns its tick, or -1 when not new. */
-    fun push(chain: ClientChain, particles: QueryableParticleData<ClientVsParticle>?, stats: VineFrameStats): Long {
+    fun push(chain: ClientChain, particles: QueryableParticleData<ClientVsParticle>?): Long {
         val status = chain.status
         val tick = status.physicsTick
         if (size > 0 && tick <= ticks[head]) return -1L
@@ -216,7 +194,7 @@ internal class VineFrames {
         val count = ids.size
         if (count == 0) return -1L
         if (size == 0 || frozen || count != nodeCount || status.topologyRevision != revision) {
-            if (size > 0 && !frozen && remap(ids, count)) stats.remaps++ else size = 0
+            if (size == 0 || frozen || !remap(ids, count)) size = 0
             revision = status.topologyRevision
             nodeCount = count
             ensureCapacity(count)

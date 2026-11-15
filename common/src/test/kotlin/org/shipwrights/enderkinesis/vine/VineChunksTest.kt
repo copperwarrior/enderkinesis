@@ -125,7 +125,7 @@ class VineChunksTest {
         val data = WoggakVineData()
         data.add(WoggakVine(1L, ChainId(10L), shipAnchor(0, 0), blockAnchor(3, 64, 3)))
         data.add(WoggakVine(2L, ChainId(20L), blockAnchor(0, 64, 0), free()))
-        val loaded = WoggakVineData.load(data.save(CompoundTag()))
+        val loaded = WoggakVineData.load(data.save(CompoundTag()), now = 1000L)
         loaded.vines.map { it.id } shouldBe listOf(1L)
         loaded.vines[0].chain shouldBe ChainId(10L)
         loaded.strayChains.toList() shouldBe listOf(20L)

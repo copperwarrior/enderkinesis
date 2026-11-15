@@ -106,6 +106,12 @@ private const val MIN_WISH = 1e-6
 /** A mantle sweep that ends short by more than this, in blocks, is blocked. */
 private const val MANTLE_SWEEP_SLACK = 1e-3
 private const val MANTLE_PROBE_DEFLATE = 1e-5
+/** Ticks of the mantle pull-up from the hang place onto the vine top. */
+internal const val MANTLE_TICKS = 6
+/** Ticks after the pull that the server waits for the client's arrival before it puts the player there itself. */
+private const val MANTLE_LATE_TICKS = 20
+/** A client body this near the mantle place, in blocks, after the pull has arrived. */
+private const val MANTLE_ARRIVE = 0.5
 /** A walk-key wish that the held vine does not take moves the grip to a knot this near, in blocks, when a way out of it does. */
 private const val KNOT_REACH = 0.6
 /** Jump and sneak climbs take any way out of a knot: the up or down wish decides it. */
@@ -138,6 +144,9 @@ internal class VineHold(
     var syncedTick = 0L
 }
 
+/** A mantle pull in progress: the client eases the body to [feet]; the server enforces [feet] if it does not arrive. */
+internal class VineMantle(val feet: Vector3d, val startTick: Long)
+
 /** Player ticks that a vine stays passable after the player leaves it: 0.5 s, so a climb back and forth does not snag. */
 internal const val VINE_PASS_GRACE_TICKS = 10
 /** Vines in grace at one time; a full list drops the oldest. */
@@ -166,6 +175,8 @@ class ClientVineHold : VinePass {
     private val nextPosition = Vector3d()
     private val nextVelocity = Vector3d()
     internal val hang = VineHangPlacer()
+    val mantle = MantlePull()
+    internal val mantlePlace = Vector3d()
     /** False until the first hang of a grab: that one puts the body on its hang place at once. */
     internal var hangEased = false
 
@@ -289,6 +300,34 @@ class ClientVineHold : VinePass {
 
 val clientVineHold = ClientVineHold()
 
+/** The local player's mantle pull: a smoothstep from the hang place up to the server's feet place. Client thread only. */
+class MantlePull {
+    private val from = Vector3d()
+    private val to = Vector3d()
+    var chainId = 0L
+        private set
+    private var tick = 0
+    val active: Boolean get() = tick in 1..MANTLE_TICKS
+
+    fun start(chain: Long, fromX: Double, fromY: Double, fromZ: Double, feet: Vector3dc) {
+        chainId = chain
+        from.set(fromX, fromY, fromZ)
+        to.set(feet)
+        tick = 1
+    }
+
+    fun cancel() {
+        tick = 0
+    }
+
+    /** The pull place of this tick into [out]; returns true on its last tick. */
+    fun step(out: Vector3d): Boolean {
+        val u = tick.toDouble() / MANTLE_TICKS
+        from.lerp(to, u * u * (3.0 - 2.0 * u), out)
+        return tick++ == MANTLE_TICKS
+    }
+}
+
 /** C2S hold packet from the client's current hold and the player's [motion] in blocks per tick. */
 fun ClientVineHold.toPacket(grab: Boolean, motion: Vec3): FriendlyByteBuf = FriendlyByteBuf(Unpooled.buffer()).apply {
     writeBoolean(grab)
@@ -302,11 +341,15 @@ fun ClientVineHold.toPacket(grab: Boolean, motion: Vec3): FriendlyByteBuf = Frie
 
 /**
  * Instead of the local player's own move while it holds a vine: moves it to hang from the grip point, and gives it
- * the point's velocity. Returns false when it holds nothing, so the vanilla move runs.
+ * the point's velocity. During a mantle it pulls the body up instead. Returns false otherwise, so the vanilla move runs.
  */
 fun Entity.hangFromVine(): Boolean {
     if (this !is Player || !isLocalPlayer || !level().isClientSide) return false
     val hold = clientVineHold
+    if (hold.mantle.active) {
+        pullMantle(hold)
+        return true
+    }
     if (!hold.isHeld || hold.lost) return false
     if (!hold.gripState()) {
         hold.lost = true
@@ -317,8 +360,6 @@ fun Entity.hangFromVine(): Boolean {
         hold.lost = true
         return false
     }
-    val level = level()
-    val box = boundingBox
     val feet = hold.hang.feet
     val velocity = hold.velocity
     // The filter state is the collided body place, so a blocked body does not wind up a push into the wall.
@@ -328,16 +369,32 @@ fun Entity.hangFromVine(): Boolean {
     val gapSq = (feet.x - px) * (feet.x - px) + (feet.y - py) * (feet.y - py) + (feet.z - pz) * (feet.z - pz)
     val ease = if (hold.hangEased && gapSq <= HANG_SMOOTH_SNAP * HANG_SMOOTH_SNAP) HANG_SMOOTH_SHARE else 1.0
     hold.hangEased = true
-    // No vine shapes in this sweep, so the held vine cannot push the body off its hang place.
-    val delta = Vec3(px + (feet.x - px) * ease - x, py + (feet.y - py) * ease - y, pz + (feet.z - pz) * ease - z)
-    // VS2 adds ship collision only in its Entity.move wrap, and the hang skips that move.
-    val shipDelta = EntityShipCollisionUtils.adjustEntityMovementForShipCollisions(this, delta, box, level)
-    val moved = Entity.collideBoundingBox(this, shipDelta, box, level, level.getEntityCollisions(this, box.expandTowards(shipDelta)))
-    setPos(x + moved.x, y + moved.y, z + moved.z)
+    moveWithoutVines(Vec3(px + (feet.x - px) * ease - x, py + (feet.y - py) * ease - y, pz + (feet.z - pz) * ease - z))
     takeNodeVelocity(hold.velocity)
     resetFallDistance()
     setOnGround(false)
     return true
+}
+
+/** One tick of the mantle pull; on its last tick the vine is solid again, so the player stands on it. */
+private fun Entity.pullMantle(hold: ClientVineHold) {
+    val place = hold.mantlePlace
+    val last = hold.mantle.step(place)
+    moveWithoutVines(Vec3(place.x - x, place.y - y, place.z - z))
+    setDeltaMovement(0.0, 0.0, 0.0)
+    resetFallDistance()
+    setOnGround(false)
+    if (last) hold.endGrace(hold.mantle.chainId)
+}
+
+/** Moves by [delta] against blocks and ships, but with no vine shapes, so the held vine cannot push the body. */
+private fun Entity.moveWithoutVines(delta: Vec3) {
+    val level = level()
+    val box = boundingBox
+    // VS2 adds ship collision only in its Entity.move wrap, and the hang skips that move.
+    val shipDelta = EntityShipCollisionUtils.adjustEntityMovementForShipCollisions(this, delta, box, level)
+    val moved = Entity.collideBoundingBox(this, shipDelta, box, level, level.getEntityCollisions(this, box.expandTowards(shipDelta)))
+    setPos(x + moved.x, y + moved.y, z + moved.z)
 }
 
 /** Sets the move of this tick from a node velocity in blocks per second. */
@@ -368,7 +425,6 @@ internal fun registerVineHolds() {
     }
     NetworkManager.registerReceiver(NetworkManager.Side.C2S, WOGGAK_VINE_SHORTEN) { buf, ctx ->
         val start = buf.readBoolean()
-        LOG.info("[VineReelDebug] server got WOGGAK_VINE_SHORTEN start={} player={}", start, ctx.player)
         ctx.queue { (ctx.player as? ServerPlayer)?.reelVine(start) }
     }
 }
@@ -388,7 +444,6 @@ internal fun ServerPlayer.letGoOfVine(tellClient: Boolean) {
     val level = serverLevel()
     val data = level.loadedWoggakVines ?: return
     val hold = data.holds.remove(uuid) ?: return
-    level.debugReleaseVelocity(hold, "client let go")
     level.deleteHold(data, hold)
     broadcastHolder(null)
     if (tellClient) sendLetGo(hold.chain)
@@ -415,24 +470,18 @@ private fun ServerPlayer.syncHolder(hold: VineHold) {
 
 /**
  * The client ignores a let-go for a chain that it does not hold, so a stale one cannot end a newer hold. A [mantle]
- * let-go keeps the vine solid under the player, as it then stands on the vine.
+ * let-go carries the feet place that the client pulls the body up to.
  */
-private fun ServerPlayer.sendLetGo(chain: ChainId, mantle: Boolean = false) =
+private fun ServerPlayer.sendLetGo(chain: ChainId, mantle: Vector3dc? = null) =
     NetworkManager.sendToPlayer(this, WOGGAK_VINE_LET_GO, FriendlyByteBuf(Unpooled.buffer()).apply {
         writeLong(chain.value)
-        writeBoolean(mantle)
+        writeBoolean(mantle != null)
+        if (mantle != null) {
+            writeDouble(mantle.x())
+            writeDouble(mantle.y())
+            writeDouble(mantle.z())
+        }
     })
-
-// TODO [VineHoldDebug] temporary
-@OptIn(GameTickOnly::class)
-private fun ServerLevel.debugReleaseVelocity(hold: VineHold, why: String) {
-    val particles = shipObjectWorld.allParticles
-    val node = shipObjectWorld.allChains.getById(hold.chain)?.nodeIds?.getOrNull(floor(hold.grip).toInt())
-    LOG.info(
-        "[VineHoldDebug] server release ({}): grip={} node velocity={} m/s, hold particle velocity={} m/s",
-        why, hold.grip, node?.let { particles.getById(it)?.velocity }, particles.getById(hold.particle)?.velocity,
-    )
-}
 
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.deleteHold(data: WoggakVineData, hold: VineHold) {
@@ -456,6 +505,7 @@ private fun ServerPlayer.holdVine(grab: Boolean, chainId: ChainId, node: Int, in
         return
     }
     if (held != null) letGoOfVine(false)
+    data.mantles.remove(uuid)
     val hold = level.grab(this, data, chainId, node, input, velocity)
     if (hold == null) {
         sendLetGo(chainId)
@@ -560,6 +610,7 @@ internal fun ServerLevel.tickVineHolds(data: WoggakVineData) {
         data.strayHoldsDeleted = true
         deleteStrayHoldParticles()
     }
+    tickMantles(data)
     if (data.holds.isEmpty()) return
     val iterator = data.holds.entries.iterator()
     while (iterator.hasNext()) {
@@ -581,11 +632,15 @@ internal fun ServerLevel.tickVineHolds(data: WoggakVineData) {
         val step = steerHold(data, player, hold, nodes)
         if (step != HoldStep.KEEP) {
             iterator.remove()
-            debugReleaseVelocity(hold, "server $step")
             deleteHold(data, hold)
             player.broadcastHolder(null)
-            player.sendLetGo(hold.chain, step == HoldStep.MANTLE)
-            if (step == HoldStep.MANTLE) player.mantleTo(hold.mantle)
+            if (step == HoldStep.MANTLE) {
+                val feet = Vector3d(hold.mantle)
+                player.sendLetGo(hold.chain, feet)
+                data.mantles[player.uuid] = VineMantle(feet, gameTime)
+            } else {
+                player.sendLetGo(hold.chain)
+            }
             continue
         }
         if (gameTime - hold.syncedTick >= HOLDER_RESEND_TICKS) player.syncHolder(hold)
@@ -692,11 +747,7 @@ private fun ServerLevel.climb(
     val wishX = wx * CLIMB_STEER_SHARE
     val wishY = if (up) 1.0 else -1.0
     val wishZ = wz * CLIMB_STEER_SHARE
-    if (way != 0 && hold.climbDir != way) {
-        // TODO [VineHoldDebug] temporary
-        LOG.info("[VineHoldDebug] free-vine climb: way {} -> {} up={}, grip={}", hold.climbDir, way, up, hold.grip)
-        hold.climbDir = way
-    }
+    if (way != 0 && hold.climbDir != way) hold.climbDir = way
     if (hold.climbDir == 0) hold.climbDir = climbDirection(data.scratch, nodes, hold.grip, wishX, wishY, wishZ)
     return moveGrip(data, player, hold, nodes, if (up) CLIMB_UP_SPEED else CLIMB_DOWN_SPEED, wishX, wishY, wishZ, CLIMB_MIN_COS)
 }
@@ -833,6 +884,30 @@ private fun ServerPlayer.mantleSpaceFree(target: AABB): Boolean {
     if (blocks.distanceToSqr(move) > slackSq) return false
     // level.noCollision does not see VS2 ships.
     return EntityShipCollisionUtils.adjustEntityMovementForShipCollisions(this, move, from, level).distanceToSqr(move) <= slackSq
+}
+
+/**
+ * Ends the mantle pulls whose client arrived. A client that is still away after [MANTLE_LATE_TICKS] more ticks is
+ * put on the mantle place, so the result does not depend on the client.
+ */
+private fun ServerLevel.tickMantles(data: WoggakVineData) {
+    if (data.mantles.isEmpty()) return
+    val iterator = data.mantles.entries.iterator()
+    while (iterator.hasNext()) {
+        val entry = iterator.next()
+        val mantle = entry.value
+        val player = getPlayerByUUID(entry.key) as? ServerPlayer
+        if (player == null || !player.isAlive) { iterator.remove(); continue }
+        val age = gameTime - mantle.startTick
+        if (age < MANTLE_TICKS) continue
+        val feet = mantle.feet
+        if (player.distanceToSqr(feet.x, feet.y, feet.z) <= MANTLE_ARRIVE * MANTLE_ARRIVE) {
+            iterator.remove()
+        } else if (age >= MANTLE_TICKS + MANTLE_LATE_TICKS) {
+            player.mantleTo(feet)
+            iterator.remove()
+        }
+    }
 }
 
 /** Puts the player on top of the vine; the client's let-go came first, so its hang does not move it back. */

@@ -86,7 +86,6 @@ private const val PAYOUT_REEL_FORCE = 1000.0
 private const val SEED_SPACING_MARGIN = 1.0 + 1e-6
 /** Rule 2 backstop: a landed throw whose physics release never comes ends from the server after this. */
 private const val MAX_SETTLE_TICKS = 100
-private const val DEBUG_PERIOD_TICKS = 20
 private const val HAND_FORWARD = 0.5
 private const val HAND_SIDE = 0.3
 private const val HAND_DROP = 0.25
@@ -365,8 +364,6 @@ internal fun ServerLevel.throwWoggakVine(player: ServerPlayer, hand: Interaction
     throwDrives[chain.id] = drive
     woggakVines.throws.put(thrown.id, thrown)
     sendThrowStart(thrown, player.id, side)
-    LOG.info("[VineThrowDebug] start id={} chain={} power={} start={} velocity={} b/t items={} spacing={} maxRest={} rate={}",
-        thrown.id, chain.id.value, power, start, velocity, items, seed.spacing, drive.maxLinks * seed.spacing, drive.rate)
     if (!creative) stack.shrink(items)
     return true
 }
@@ -418,8 +415,6 @@ private fun ServerLevel.stepThrow(data: WoggakVineData, thrown: VineThrow): Bool
     val chain = shipObjectWorld.allChains.getById(thrown.chain)
     val lifecycle = chain?.status?.lifecycle
     if (chain == null || lifecycle == ChainLifecycle.REMOVED || lifecycle == ChainLifecycle.FAILED) {
-        LOG.info("[VineThrowDebug] chain lost id={} lifecycle={} wasActive={} failure={}", thrown.id, lifecycle, thrown.wasActive,
-            chain?.status?.failure)
         if (!thrown.creative && !thrown.wasActive) giveBack(thrown, thrown.items)
         sendThrowEnd(thrown, 0L)
         return false
@@ -427,7 +422,6 @@ private fun ServerLevel.stepThrow(data: WoggakVineData, thrown: VineThrow): Bool
     if (lifecycle == ChainLifecycle.ACTIVE) thrown.wasActive = true
     if (!thrown.flight.ended) {
         fly(thrown)
-        debugFlight(data, thrown, chain)
         return true
     }
     val rest = thrown.drive.releasedRest
@@ -436,7 +430,7 @@ private fun ServerLevel.stepThrow(data: WoggakVineData, thrown: VineThrow): Bool
         return false
     }
     if (thrown.drive.failure == null && ++thrown.settleTicks <= MAX_SETTLE_TICKS) return true
-    LOG.warn("[VineThrowDebug] no physics release id={} failure={}; the server lets go", thrown.id, thrown.drive.failure)
+    LOG.warn("Woggak Vine throw {} had no physics release, failure {}; the server lets go", thrown.id, thrown.drive.failure)
     thrown.drive.done = true
     throwDrives.remove(thrown.chain)
     val paid = chain.status.currentRestLength
@@ -465,12 +459,8 @@ private fun ServerLevel.fly(thrown: VineThrow) {
     val anchor = contact?.let { attachment(it) }
     if (contact != null && anchor != null) {
         thrown.contact = contact
-        LOG.info("[VineThrowDebug] hit id={} step={} at={} block={} frame={} flown={} handDistance={}", thrown.id, flight.steps,
-            contact.local, contact.block, contact.shipId?.let { "ship $it" } ?: "world", flight.flown, thrown.hand.distance(anchor.first))
         thrown.publish(anchor.first, velocity, true, anchor.second)
     } else {
-        LOG.info("[VineThrowDebug] miss id={} step={} at={} flown={} length={} clipHit={} velocity={}", thrown.id, flight.steps,
-            flight.tip, flight.flown, flight.length, hit?.blockPos, velocity)
         thrown.publish(flight.tip, velocity, true, null)
     }
 }
@@ -491,8 +481,6 @@ private fun ServerLevel.settle(data: WoggakVineData, thrown: VineThrow, chain: S
     data.setDirty()
     val back = if (thrown.creative) 0 else thrown.items - spent
     giveBack(thrown, back)
-    LOG.info("[VineThrowDebug] released id={} {} rest={} nodes={} spent={} givenBack={} failure={}", thrown.id,
-        if (contact != null) "fixed" else "free", paid, chain.status.nodeCount, spent, back, chain.status.failure)
     sendThrowEnd(thrown, chain.id.value)
 }
 
@@ -515,25 +503,6 @@ private fun ServerLevel.giveBack(thrown: VineThrow, count: Int) {
     }
 }
 
-/** [VineThrowDebug] once a second: tip error against the virtual tip, rest against the hand distance. */
-@OptIn(GameTickOnly::class)
-private fun debugFlight(data: WoggakVineData, thrown: VineThrow, chain: ServerChain) {
-    if (thrown.flight.steps % DEBUG_PERIOD_TICKS != 0) return
-    val status = chain.status
-    val nodes = status.nodeCount
-    var tipError = Double.NaN
-    if (nodes > 0) {
-        if (data.scratch.size < nodes * 3) data.scratch = DoubleArray(nodes * 3)
-        if (chain.copyNodePositions(data.scratch) == nodes) {
-            val k = (nodes - 1) * 3
-            tipError = thrown.flight.tip.distance(data.scratch[k], data.scratch[k + 1], data.scratch[k + 2])
-        }
-    }
-    LOG.info("[VineThrowDebug] flight id={} step={} tipError={} rest={} handDistance={} nodes={} lifecycle={} ends={}/{} failure={}",
-        thrown.id, thrown.flight.steps, tipError, status.currentRestLength, thrown.hand.distance(thrown.flight.tip), nodes,
-        status.lifecycle, status.startAttachment, status.endAttachment, status.failure ?: thrown.drive.failure)
-}
-
 /** An anchor on the hit block face, snapped as a placed vine end is; VS2's clip gives a shipyard block and a world point. */
 private fun ServerLevel.blockContact(hit: BlockHitResult): VinePoint? {
     val pos = hit.blockPos
@@ -552,7 +521,7 @@ private fun PhysLevel.driveThrows(dt: Double) {
         if (drive.dimension != dimension) continue
         val settle = drive.settle
         if (settle != null) {
-            if (!settleThrow(drive, settle, dt)) throwDrives.remove(drive.chain, drive)
+            if (!settleThrow(settle, dt)) throwDrives.remove(drive.chain, drive)
             continue
         }
         if (drive.done) continue
@@ -627,10 +596,7 @@ private fun PhysLevel.releaseThrow(chain: PhysChain, drive: ThrowDrive, step: Th
         val unstretched = max(path * (1.0 + LANDING_SLACK), settle.longestLink * (nodes.size - 1))
         rest = max(paid, minOf(unstretched, path * (1.0 + MAX_LANDING_SLACK), drive.maxLinks * drive.spacing))
         if (!energy.isNaN() && settle.still) settle.damp(this, 1.0 - LANDING_KEEP) else settle.calmPending = settle.anchored
-        settle.landingEnergy = energy
         drive.settle = settle
-        LOG.info("[VineThrowDebug] landing chain={} {} energy={}J maxSpeed={} path={} longestLink={} paid={} rest={}",
-            drive.chain.value, if (settle.anchored) "fixed" else "free", energy, settle.maxSpeed, path, settle.longestLink, paid, rest)
     }
     chain.setTargetLength(rest)
     // The let-go acts in the next step, so frames from the one after the last published tick show it.
@@ -641,13 +607,10 @@ private fun PhysLevel.releaseThrow(chain: PhysChain, drive: ThrowDrive, step: Th
 
 /** One physics tick of a landed vine's calm-down; false once it is over. */
 @OptIn(PhysTickOnly::class)
-private fun PhysLevel.settleThrow(drive: ThrowDrive, settle: ThrowSettle, dt: Double): Boolean {
+private fun PhysLevel.settleThrow(settle: ThrowSettle, dt: Double): Boolean {
     settle.elapsed += dt
     val energy = settle.read(this)
-    if (energy.isNaN()) {
-        LOG.info("[VineThrowDebug] settle lost chain={} after={}s", drive.chain.value, settle.elapsed)
-        return false
-    }
+    if (energy.isNaN()) return false
     if (settle.settledAt.isNaN() && settle.maxSpeed < SETTLED_SPEED) settle.settledAt = settle.elapsed
     val left = 1.0 - settle.elapsed / SETTLE_DAMP_SECONDS
     if (settle.calmPending) {
@@ -657,10 +620,6 @@ private fun PhysLevel.settleThrow(drive: ThrowDrive, settle: ThrowSettle, dt: Do
         settle.damp(this, 1.0 - exp(-SETTLE_DAMPING * left * dt))
     }
     val over = settle.elapsed >= SETTLE_WATCH_SECONDS || (left <= 0.0 && !settle.settledAt.isNaN())
-    if (over) {
-        LOG.info("[VineThrowDebug] settle chain={} landingEnergy={}J settledAt={}s after={}s energy={}J maxSpeed={}",
-            drive.chain.value, settle.landingEnergy, settle.settledAt, settle.elapsed, energy, settle.maxSpeed)
-    }
     return !over
 }
 
@@ -680,7 +639,6 @@ internal class ThrowSettle(nodes: List<ParticleId>, anchor: ChainEndpoint?) {
     private val inputs: List<ParticleVectorInput> = List(ids.size) { ParticleVectorInput(ids[it], impulses[it]) }
     private val reference = Vector3d()
     var elapsed = 0.0
-    var landingEnergy = Double.NaN
     var settledAt = Double.NaN
     var maxSpeed = 0.0
         private set

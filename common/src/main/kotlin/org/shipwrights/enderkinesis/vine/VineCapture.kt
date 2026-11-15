@@ -566,10 +566,7 @@ private fun ServerLevel.readyStrands(ship: ServerShip, candles: List<Pair<VinePo
             val reach = min(ANCHOR_OUT, BLOCK_HALF - vineParticleRadius(strand.width) - ANCHOR_EDGE_GAP)
             val anchor = VinePoint(candle.block, besideCandle(candle.local, toward, away, turn, reach), candle.shipId)
             val attached = attachment(anchor)
-            if (attached == null) {
-                LOG.info("[CaptureDebug] a strand of candle {} is not made: its start has no attachment", candle.block.toShortString())
-                continue
-            }
+            if (attached == null) continue
             ready += ReadyStrand(anchor, attached.first, attached.second, strand)
         }
     }
@@ -596,11 +593,7 @@ private fun ServerLevel.sproutStrand(ship: ServerShip, here: ReadyStrand, random
     val vine = chain?.let {
         WoggakVine(newVineId(), it.id, WoggakVineAnchor(here.anchor), WoggakVineAnchor(null), spacing = spacing, width = width)
     }
-    if (vine != null) {
-        addVine(vine, seed.path)
-    } else {
-        LOG.info("[CaptureDebug] the strand to block {} is lost: its chain was not made", hull.block.toShortString())
-    }
+    if (vine != null) addVine(vine, seed.path)
     // A failed chain keeps its place, so the launch order stays as planned.
     return CaptureStrand(vine?.id ?: 0L, here.anchor, hull, seed.spacing, writhe, width, aim).also {
         it.lost = vine == null
@@ -640,18 +633,18 @@ private fun ServerLevel.aimStrands(ship: ServerShip, count: Int, random: Random)
     val out = ArrayList<Aimed>(count)
     for ((j, dir) in captureDirections(count, random).withIndex()) {
         val width = captureStrandWidth(random)
-        aimStrand(ship, box, dir, random, out, j)?.let { out += Aimed(j / STRANDS_PER_ANCHOR, it.first, it.second, width) }
+        aimStrand(ship, box, dir, random, out)?.let { out += Aimed(j / STRANDS_PER_ANCHOR, it.first, it.second, width) }
     }
     return out
 }
 
 /**
- * The aim and hull point of strand [index] along [dir]: the first free hull block on the line in from its target, then
+ * The aim and hull point of a strand along [dir]: the first free hull block on the line in from its target, then
  * on lines turned a little, then the free hull block nearest its target. Null only when the ship has no free block.
  */
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.aimStrand(
-    ship: ServerShip, box: AABBic, dir: Vector3dc, random: Random, taken: List<Aimed>, index: Int,
+    ship: ServerShip, box: AABBic, dir: Vector3dc, random: Random, taken: List<Aimed>,
 ): Pair<CaptureAim, VinePoint>? {
     val half = Vector3d((box.maxX() - box.minX() + 1) * 0.5, (box.maxY() - box.minY() + 1) * 0.5, (box.maxZ() - box.minZ() + 1) * 0.5)
     val centre = Vector3d(box.minX() + half.x, box.minY() + half.y, box.minZ() + half.z)
@@ -665,7 +658,6 @@ private fun ServerLevel.aimStrand(
         inwardLine(aim, from, to)
         val hull = traceHull(ship, box, from, to) ?: continue
         if (!freeOf(takenHulls, hull)) continue
-        debugAim(ship, index, aim, hull, if (attempt == 0) "inward ray" else "inward ray, turned %.0f deg".format(Math.toDegrees(angle)))
         return aim to hull
     }
     val aim = captureAim(centre, half, dir)
@@ -675,7 +667,6 @@ private fun ServerLevel.aimStrand(
         BlockPos(box.minX(), box.minY(), box.minZ()), BlockPos(box.maxX(), box.maxY(), box.maxZ()), target, solid,
     ) { pos -> freeOf(takenHulls, faceLatch(ship, pos, target, solid)) }
     val hull = cell?.let { faceLatch(ship, it, target, solid) }
-    debugAim(ship, index, aim, hull, if (hull == null) "no free hull block; the strand is not made" else "nearest block to T")
     return hull?.let { aim to it }
 }
 
@@ -705,17 +696,6 @@ private fun ServerLevel.faceLatch(ship: ServerShip, pos: BlockPos, target: Vecto
     val snapped = snapToShapeAnchor(pos, face, Vec3(cx + face.stepX * 0.5, cy + face.stepY * 0.5, cz + face.stepZ * 0.5))
     return VinePoint(pos, Vector3d(snapped.x, snapped.y, snapped.z), ship.id)
 }
-
-@OptIn(GameTickOnly::class)
-private fun debugAim(ship: ServerShip, index: Int, aim: CaptureAim, hull: VinePoint?, how: String) {
-    val t = ship.shipToWorld.transformPosition(aim.target(Vector3d()))
-    LOG.info(
-        "[CaptureDebug] strand {}: d ({}) T world ({}) latch block {}: {}",
-        index, aim.dir.debugText(), t.debugText(), hull?.block?.toShortString() ?: "none", how,
-    )
-}
-
-private fun Vector3dc.debugText() = "%.2f, %.2f, %.2f".format(x(), y(), z())
 
 /** Half size of the box of [half] sizes along the unit [axis]. */
 private fun extent(axis: Vector3dc, half: Vector3dc): Double =
@@ -875,7 +855,6 @@ private fun VineCapture.next(go: Boolean) {
     if (!go) return
     phase = phase.following
     phaseTicks = 0
-    LOG.info("[CaptureDebug] ship {}: phase {} starts", shipId, phase)
 }
 
 /** The live chain of [strand], or null when it is gone; a gone vine marks the strand lost. */
@@ -942,14 +921,14 @@ private fun ServerLevel.payStrand(
     return when {
         strand.capped || strand.payTicks >= captureGrowTicks(full, strand.spacing, rate) -> {
             if (!toHull) {
-                parkStrand(chain, strand, true, paid, full)
-            } else if (!capLatch(data, capture, strand, chain, ship, paid, full)) {
+                parkStrand(chain, strand, true, paid)
+            } else if (!capLatch(data, capture, strand, chain, ship, paid)) {
                 stopStrand(data, strand, "it paid out %.1f of %.1f blocks in %d ticks and the ship has no free block".format(paid, full, strand.payTicks))
             }
             false
         }
         paid >= full - strand.spacing * 1e-6 -> {
-            if (toHull) latch(data, strand, chain) else parkStrand(chain, strand, false, paid, full)
+            if (toHull) latch(data, strand, chain) else parkStrand(chain, strand, false, paid)
             false
         }
         !launches -> true
@@ -1010,14 +989,10 @@ private fun reelOut(chain: ServerChain, strand: CaptureStrand, full: Double, rat
 
 /** Ends the pay-out of [strand]; its tip hangs at its target, or where it is when [capped], until LATCH. */
 @OptIn(GameTickOnly::class)
-private fun parkStrand(chain: ServerChain, strand: CaptureStrand, capped: Boolean, paid: Double, full: Double) {
+private fun parkStrand(chain: ServerChain, strand: CaptureStrand, capped: Boolean, paid: Double) {
     strand.park(capped)
     // setTargetLength ends the reel, so the weave plan does not wait for it.
     if (paid.isFinite() && paid > 0) chain.setTargetLength(paid)
-    LOG.info(
-        "[CaptureDebug] strand {} {} at {} of {} blocks; it hangs at shipyard ({}) until LATCH",
-        strand.vineId, if (capped) "hit the grow cap" else "is at its target", "%.1f".format(paid), "%.1f".format(full), strand.hold.debugText(),
-    )
 }
 
 /** Pins the tip of a hanging [strand] at its hold point, which moves with the ship. */
@@ -1111,7 +1086,7 @@ private fun ServerLevel.growStop(strand: CaptureStrand): String? =
 @OptIn(GameTickOnly::class)
 @Suppress("LongParameterList") // The strand's chain, ship and pay-out state, all read here.
 private fun ServerLevel.capLatch(
-    data: WoggakVineData, capture: VineCapture, strand: CaptureStrand, chain: ServerChain, ship: ServerShip, paid: Double, full: Double,
+    data: WoggakVineData, capture: VineCapture, strand: CaptureStrand, chain: ServerChain, ship: ServerShip, paid: Double,
 ): Boolean {
     val box = ship.shipAABB ?: return false
     val nodes = chain.status.nodeCount
@@ -1125,19 +1100,10 @@ private fun ServerLevel.capLatch(
     val cell = nearestSolidCell(
         BlockPos(box.minX(), box.minY(), box.minZ()), BlockPos(box.maxX(), box.maxY(), box.maxZ()), tip, solid,
     ) { pos -> freeOf(taken, faceLatch(ship, pos, tip, solid)) }
-    if (cell == null) {
-        LOG.info("[CaptureDebug] strand {} hit a time cap; the ship has no free block, so it goes free", strand.vineId)
-        return false
-    }
+    if (cell == null) return false
     strand.hull = faceLatch(ship, cell, tip, solid)
     ship.shipToWorld.transformPosition(strand.hull.local, strand.hullWorld)
     val reel = capLatchReelTarget(strand.anchorWorld.distance(strand.hullWorld), paid, strand.spacing)
-    LOG.info(
-        "[CaptureDebug] strand {} hit {} at {} of {} blocks: latch on nearest hull block {}, {} blocks from the tip{}",
-        strand.vineId, if (strand.capped) "the grow cap" else "the latch cap", "%.1f".format(paid), "%.1f".format(full),
-        cell.toShortString(), "%.1f".format(tip.distance(strand.hull.local)),
-        if (reel == null) "" else ", the reel pays out to %.1f".format(reel),
-    )
     if (reel != null) {
         chain.setReelTarget(ChainReelControl(
             ChainEnd.START, reel, throwReelRate(0.0, strand.spacing), capturePayoutForce(strand.width, strand.spacing),
@@ -1222,7 +1188,6 @@ private fun ServerLevel.latch(data: WoggakVineData, strand: CaptureStrand, chain
     chain.setEndpoint(ChainEnd.END, endpoint)
     vine.end = WoggakVineAnchor(strand.hull)
     strand.latched = true
-    LOG.info("[CaptureDebug] strand {} latched on block {}, after the weave", strand.vineId, strand.hull.block.toShortString())
     data.touch(vine)
     data.anchorsDirty = true
     data.jointsDirty = true
@@ -1262,10 +1227,6 @@ private fun ServerLevel.planWeave(data: WoggakVineData, capture: VineCapture): B
         if (status == null || links[i] < 1) 0.0 else status.currentRestLength / links[i]
     }
     capture.plan = weavePlan(links, spacings, weavePairs(capture.strands.map { it.aim.dir }))
-    LOG.info(
-        "[CaptureDebug] ship {}: the weave plans {} cross-links over {} strands that hang at their targets, before any latch",
-        capture.shipId, capture.plan.size, links.count { it >= 0 },
-    )
     capture.planCursor = 0
     capture.planned = true
     capture.phaseTicks = 0

@@ -43,7 +43,6 @@ internal const val REEL_SPEED = 2.5
 internal const val MIN_REEL_SPACING = 2 * PARTICLE_RADIUS * 1.25
 /** Reeled length paid at one time, so the reel sound plays about once for each link, not each tick. */
 private const val PAY_STEP = VINE_TARGET_SPACING
-private const val DEBUG_LOG_TICKS = 20L
 private const val LENGTH_EPS = 1e-6
 
 /** The end of a vine of [links] links that is nearest to node [node]; the start on a tie. */
@@ -84,36 +83,21 @@ internal class VineReel(val player: UUID, var chain: ChainId, var paidRest: Doub
 @OptIn(GameTickOnly::class)
 internal fun ServerPlayer.reelVine(start: Boolean) {
     val level = serverLevel()
-    val data = level.loadedWoggakVines ?: return LOG.info("[VineReelDebug] server reel: refused, no loaded vine data")
+    val data = level.loadedWoggakVines ?: return
     data.heldReelOf(uuid)?.let { level.stopReel(data, it, this, false) }
     if (!start) return
-    if (!canReelVine(data)) {
-        LOG.info(
-            "[VineReelDebug] server reel: refused canReelVine shift={} mainHand={} alive={} passenger={} holding={}",
-            isShiftKeyDown, mainHandItem, isAlive, isPassenger, data.holds.containsKey(uuid),
-        )
-        return sendReelEnd()
-    }
+    if (!canReelVine(data)) return sendReelEnd()
     val last = data.lastPlayerShorten[uuid]
-    if (last != null && level.gameTime - last < SHORTEN_COOLDOWN_TICKS) return sendReelEnd().also { LOG.info("[VineReelDebug] server reel: refused cooldown") }
-    val pick = level.pickWoggakVine(this) ?: return sendReelEnd().also {
-        LOG.info("[VineReelDebug] server reel: refused, no server pick eye={} look={}", eyePosition, getViewVector(1f))
-    }
+    if (last != null && level.gameTime - last < SHORTEN_COOLDOWN_TICKS) return sendReelEnd()
+    val pick = level.pickWoggakVine(this) ?: return sendReelEnd()
     val id = pick.vine.id
     val status = pick.chain.status
     val other = data.reels.get(id)
-    if ((other != null && other.held) || !status.isReelable() || status.reelBusy()) {
-        LOG.info("[VineReelDebug] server reel: refused otherHeld={} status={}", other?.held, status)
-        return sendReelEnd()
-    }
-    LOG.info("[VineReelDebug] server reel: accepted vine={} link={} status={}", id, pick.link, status)
+    if ((other != null && other.held) || !status.isReelable() || status.reelBusy()) return sendReelEnd()
     data.lastPlayerShorten[uuid] = level.gameTime
     val reel = VineReel(uuid, pick.vine.chain, status.currentRestLength)
     data.reels.put(id, reel)
-    if (!level.stepReel(data, id, reel, pick.chain, this)) {
-        LOG.info("[VineReelDebug] server reel: first step failed, stop")
-        level.stopReel(data, reel, this, true)
-    }
+    if (!level.stepReel(data, id, reel, pick.chain, this)) level.stopReel(data, reel, this, true)
 }
 
 /** Pays the reels' links as they come in, steps the held ones and ends those that can no longer reel. */
@@ -168,14 +152,7 @@ private fun ServerLevel.tickReel(data: WoggakVineData, id: Long, reel: VineReel)
         return false
     }
     player.payReelArrival(data, vine, reel, status, PAY_STEP)
-    if (gameTime % DEBUG_LOG_TICKS == 0L) {
-        LOG.info(
-            "[VineReelDebug] server tickReel: rest={} path={} target={} nodes={} physicsTick={}",
-            status.currentRestLength, status.pathLength, status.targetLength, status.nodeCount, status.physicsTick,
-        )
-    }
     if (!player.canReelVine(data) || !looksAtVine(data, player, chain, reel) || !stepReel(data, id, reel, chain, player)) {
-        LOG.info("[VineReelDebug] server tickReel: stop canReel={} looks={}", player.canReelVine(data), looksAtVine(data, player, chain, reel))
         stopReel(data, reel, player, true)
         return false
     }
@@ -194,18 +171,14 @@ private fun ServerLevel.stepReel(data: WoggakVineData, id: Long, reel: VineReel,
     if (links < 1 || !rest.isFinite() || rest <= 0.0) return false
     val vine = data.vine(id) ?: return false
     if (atReelFloor(rest, links, vine.width)) {
-        if (respacedLinks(rest, vine.spacing) >= links) {
-            return false.also { LOG.info("[VineReelDebug] server stepReel: at the shortest, rest={} links={}", rest, links) }
-        }
+        if (respacedLinks(rest, vine.spacing) >= links) return false
         val piece = rebuildRespaced(data, vine, chain) ?: return false
-        LOG.info("[VineReelDebug] server stepReel: respaced rest={} links={} -> {}", rest, links, respacedLinks(rest, vine.spacing))
         reel.chain = piece.chain
         reel.target = Double.NaN
         return true
     }
     val floor = reelFloor(links, vine.width)
     if (reel.target != floor) {
-        LOG.info("[VineReelDebug] server stepReel: setTargetLength target={} rest={} links={}", floor, rest, links)
         chain.setTargetLength(floor, REEL_SPEED)
         reel.target = floor
     }

@@ -37,6 +37,10 @@ private const val MAX_REBUILD_SPEED = 50.0
 private const val REBUILD_SPEED_LENGTH = 32.0
 /** Half the drawn vine width plus a small margin, so the shears hit what the player sees. */
 internal const val SHEAR_RADIUS = 0.2
+/** A client aim older than this is not for the action that the server handles now; the aim packet comes just before it. */
+private const val AIM_MAX_AGE_TICKS = 2L
+/** Blocks of give in the aim checks: the server rope leads the drawn one by the client's frame delay. */
+private const val AIM_SLACK = 1.0
 private const val MAX_PUFFS = 64
 private const val PUFF_STEP = 2
 
@@ -45,15 +49,18 @@ private const val PUFF_STEP = 2
  * The chain API has no call to cut a link, so this deletes the chain and makes new ones.
  * Each piece is laid along its deformed shape but at its rest length, so a stretched vine never makes a bigger one.
  * ChainCreateData takes one initial velocity, so a piece keeps the mean velocity of its nodes, not their spin.
- * Joints on a node move to the piece that holds that node; see [repointSplit].
+ * Joints on a node move to the piece that holds that node; see [repointSplit]. Burn fronts move as [passBurns] says.
  * Returns true when the caller must drop [vine] from the list.
  */
 @OptIn(GameTickOnly::class)
-internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, fromBreak: Boolean, cutLink: Int = -1): Boolean {
+internal fun ServerLevel.splitWoggakVine(
+    vine: WoggakVine, chain: ServerChain, fromBreak: Boolean, cutLink: Int = -1, moreCuts: IntArray? = null,
+): Boolean {
     val status = chain.status
     val nodes = status.nodeCount
     if (nodes < 2) return false
-    val broken = if (cutLink in 0 until nodes - 1) status.brokenLinks + cutLink else status.brokenLinks
+    var broken = if (cutLink in 0 until nodes - 1) status.brokenLinks + cutLink else status.brokenLinks
+    moreCuts?.forEach { if (it in 0 until nodes - 1) broken = broken + it }
     val runs = unbrokenRuns(nodes, broken)
     if (runs.size == 1 && runs[0].first == 0 && runs[0].last == nodes - 1) return false
     val positions = DoubleArray(nodes * 3)
@@ -75,6 +82,7 @@ internal fun ServerLevel.splitWoggakVine(vine: WoggakVine, chain: ServerChain, f
             ?.let { pieces += SplitPiece(run, it) }
     }
     woggakVines.noteSplit(vine, pieces)
+    if (vine.burns.isNotEmpty()) passBurns(vine, pieces, broken, positions)
     for (pair in woggakVines.repointSplit(vine.id, vine, pieces)) pair.restoreContacts(this)
     return true
 }
@@ -262,11 +270,35 @@ internal fun ServerLevel.puffVine(chain: ServerChain) {
 
 class VinePick(val vine: WoggakVine, val chain: ServerChain, val link: Int, val hit: Vector3d)
 
-/** The unfaded vine link nearest along the player's look, closer than any block and [PICK_REACH]. */
+/** A client's pick on the drawn rope: [along] is the share of chain link [link] at the hit; no vine when not [hit]. */
+internal class VineAim {
+    var hit = false
+    var chain = 0L
+    var link = 0
+    var along = 0.0
+    var tick = 0L
+}
+
+internal fun ServerPlayer.takeVineAim(hit: Boolean, chain: Long, link: Int, along: Double) {
+    val level = serverLevel()
+    val aim = level.woggakVines.aims.getOrPut(uuid) { VineAim() }
+    aim.hit = hit && link >= 0 && along.isFinite()
+    aim.chain = chain
+    aim.link = link
+    aim.along = if (along.isFinite()) along.coerceIn(0.0, 1.0) else 0.0
+    aim.tick = level.gameTime
+}
+
+/**
+ * The unfaded vine link nearest along the player's look, closer than any block and [PICK_REACH]. A fresh client aim
+ * decides it, as the client picks the rope where it draws it; the server rope plays ahead of that by the frame delay.
+ */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.pickWoggakVine(player: Player): VinePick? {
     val data = woggakVines
     if (data.vines.isEmpty()) return null
+    val aim = data.aims[player.uuid]
+    if (aim != null && gameTime - aim.tick <= AIM_MAX_AGE_TICKS) return if (aim.hit) aimedPick(data, player, aim) else null
     val eye = player.eyePosition
     val look = player.getViewVector(1f)
     val reachEnd = eye.add(look.scale(PICK_REACH))
@@ -284,13 +316,39 @@ internal fun ServerLevel.pickWoggakVine(player: Player): VinePick? {
         if (data.scratch.size < nodes * 3) data.scratch = DoubleArray(nodes * 3)
         if (chain.copyNodePositions(data.scratch) != nodes) continue
         for (link in 0 until nodes - 1) {
-            val t = data.scratch.rayHitsSegment(origin, dir, link * 3, bestT)
+            val t = data.scratch.rayHitsSegment(origin, dir, link * 3, bestT, vine.width * 0.5)
             if (t < 0) continue
             bestT = t
             best = VinePick(vine, chain, link, Vector3d(dir).mul(t).add(origin))
         }
     }
     return best
+}
+
+/** The client's [aim] when its link is near the player's look, in reach, and no block is well in front of it. */
+@OptIn(GameTickOnly::class)
+private fun ServerLevel.aimedPick(data: WoggakVineData, player: Player, aim: VineAim): VinePick? {
+    val vine = data.vines.firstOrNull { it.chain.value == aim.chain && it.fadeStart < 0 } ?: return null
+    val chain = shipObjectWorld.allChains.getById(vine.chain) ?: return null
+    val nodes = chain.status.nodeCount
+    if (aim.link !in 0 until nodes - 1) return null
+    if (data.scratch.size < nodes * 3) data.scratch = DoubleArray(nodes * 3)
+    if (chain.copyNodePositions(data.scratch) != nodes) return null
+    val p = data.scratch
+    val k = aim.link * 3
+    val u = aim.along
+    val hit = Vector3d(p[k] + (p[k + 3] - p[k]) * u, p[k + 1] + (p[k + 4] - p[k + 1]) * u, p[k + 2] + (p[k + 5] - p[k + 2]) * u)
+    val eye = player.eyePosition
+    val look = player.getViewVector(1f)
+    val ox = hit.x - eye.x; val oy = hit.y - eye.y; val oz = hit.z - eye.z
+    val ahead = ox * look.x + oy * look.y + oz * look.z
+    val distSq = ox * ox + oy * oy + oz * oz
+    if (ahead < 0 || distSq > (PICK_REACH + AIM_SLACK) * (PICK_REACH + AIM_SLACK)) return null
+    if (distSq - ahead * ahead > AIM_SLACK * AIM_SLACK) return null
+    val end = eye.add(look.scale(ahead))
+    val block = clip(ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player))
+    if (block.location.distanceTo(eye) + AIM_SLACK < ahead) return null
+    return VinePick(vine, chain, aim.link, hit)
 }
 
 /** The node of [pick]'s link nearest to the hit point. */
@@ -342,9 +400,9 @@ internal fun cutWoggakVine(player: Player, hand: InteractionHand): CompoundEvent
 
 /**
  * Ray distance to the closest approach of the ray and the segment at [k], or -1 when that approach is
- * farther than [SHEAR_RADIUS] from the segment or past [maxT].
+ * farther than [radius] from the segment or past [maxT].
  */
-internal fun DoubleArray.rayHitsSegment(origin: Vector3d, dir: Vector3d, k: Int, maxT: Double): Double {
+internal fun DoubleArray.rayHitsSegment(origin: Vector3d, dir: Vector3d, k: Int, maxT: Double, radius: Double = SHEAR_RADIUS): Double {
     val ax = this[k]; val ay = this[k + 1]; val az = this[k + 2]
     val ux = this[k + 3] - ax; val uy = this[k + 4] - ay; val uz = this[k + 5] - az
     val wx = origin.x - ax; val wy = origin.y - ay; val wz = origin.z - az
@@ -362,5 +420,5 @@ internal fun DoubleArray.rayHitsSegment(origin: Vector3d, dir: Vector3d, k: Int,
     val dx = origin.x + dir.x * s - (ax + ux * u)
     val dy = origin.y + dir.y * s - (ay + uy * u)
     val dz = origin.z + dir.z * s - (az + uz * u)
-    return if (dx * dx + dy * dy + dz * dz <= SHEAR_RADIUS * SHEAR_RADIUS) s else -1.0
+    return if (dx * dx + dy * dy + dz * dz <= radius * radius) s else -1.0
 }

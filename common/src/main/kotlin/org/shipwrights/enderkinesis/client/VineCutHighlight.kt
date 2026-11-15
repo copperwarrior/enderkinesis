@@ -23,9 +23,7 @@ import org.joml.Matrix4f
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.vine.PICK_REACH
 import org.shipwrights.enderkinesis.vine.VineCutNetwork
-import org.shipwrights.enderkinesis.vine.VineNodeRef
 import org.shipwrights.enderkinesis.vine.clientVineCollider
-import org.shipwrights.enderkinesis.vine.rayHitsSegment
 import org.valkyrienskies.mod.common.getShipManagingPos
 import kotlin.math.cos
 import kotlin.math.sin
@@ -35,38 +33,36 @@ import kotlin.math.sqrt
 private const val OUTLINE_MARGIN = 0.01
 private const val OUTLINE_ALPHA = 0.4f
 private const val MIN_EDGE = 1e-4
-/** A fading vine in front is stepped through, as the server skips it; this caps the steps. */
-private const val MAX_FADING_SKIPS = 8
-private const val SKIP_STEP = 1e-3
+
+/** A pick on the drawn rope: [along] is the share of chain link [link] at the hit, [distance] the ray distance to it. */
+class DrawnVinePick {
+    var chainId = 0L
+    var link = 0
+    var along = 0.0
+    var distance = 0.0
+    /** The chain node nearer to the hit. */
+    val nearNode: Int get() = if (along < 0.5) link else link + 1
+}
 
 /**
- * Outlines the vine link that shears, or a sword swing, would cut, as pickWoggakVine on the server finds it. The pick runs each frame,
- * as vanilla's crosshair pick does, on the collider's nodes; the outline sits on the drawn rope.
+ * The crosshair pick on the drawn rope, for the cut outline, sword cuts, holds and reels; the server acts on the same
+ * pick through the aim packet. The pick runs each frame, as vanilla's crosshair pick does.
  */
 object VineCutHighlight {
     private val origin = Vector3d()
     private val rayDir = Vector3d()
-    private val ref = VineNodeRef()
-    private val links = DoubleArray(9)
     private val box = DoubleArray(24)
-    private val a = Vector3d(); private val b = Vector3d(); private val node = Vector3d()
     private val hitPoint = Vector3d()
-    private var hitT = 0.0
     private var cutHeld = false
-
-    private var pickChain = 0L
-    private var pickLinkIndex = -1
-    private var pickDistance = 0.0
+    private val pick = DrawnVinePick()
 
     /** Mixin hook for `startAttack`: true when a sword click cut a vine, so vanilla must skip the attack. */
     @JvmStatic
     fun trySwordCut(mc: Minecraft): Boolean {
         val player = mc.player ?: return false
-        val level = mc.level ?: return false
-        if (clientVineCollider.isEmpty || player.mainHandItem.item !is SwordItem) return false
-        if (!pickLink(player, mc, level, 1f)) return false
-        val entity = mc.hitResult as? EntityHitResult
-        if (entity != null && entity.location.distanceTo(player.getEyePosition(1f)) < pickDistance) return false
+        if (player.mainHandItem.item !is SwordItem) return false
+        val hit = pickAtCrosshair(mc) ?: return false
+        VineCutNetwork.sendAim(hit.chainId, hit.link, hit.along)
         VineCutNetwork.sendCut()
         player.swing(InteractionHand.MAIN_HAND)
         cutHeld = true
@@ -82,27 +78,28 @@ object VineCutHighlight {
         return false
     }
 
-    /** Finds the vine link under the crosshair into [pickChain], [pickLinkIndex] and [pickDistance]. */
-    private fun pickLink(player: LocalPlayer, mc: Minecraft, level: ClientLevel, partialTicks: Float): Boolean {
-        var left = player.aim(mc, level, partialTicks)
-        var traveled = 0.0
-        for (skip in 0 until MAX_FADING_SKIPS) {
-            if (!clientVineCollider.pick(origin, rayDir, left, ref)) return false
-            val hit = hitLink(ref.chainId, ref.node, left)
-            if (hit < 0) return false
-            if (!WoggakVineRenderer.isFading(ref.chainId)) {
-                pickChain = ref.chainId
-                pickLinkIndex = hit
-                pickDistance = traveled + hitT
-                return true
-            }
-            val step = hitT + SKIP_STEP
-            origin.fma(step, rayDir)
-            left -= step
-            traveled += step
-            if (left <= 0) return false
-        }
-        return false
+    /** Finds the drawn vine under the crosshair into [pick]. */
+    private fun pickLink(player: LocalPlayer, mc: Minecraft, level: ClientLevel, partialTicks: Float): Boolean =
+        WoggakVineRenderer.pickDrawn(origin, rayDir, player.aim(mc, level, partialTicks), pick)
+
+    /**
+     * The drawn vine under the crosshair at the tick look, or null when none is there or an entity is nearer. The result
+     * is reused by the next call.
+     */
+    fun pickAtCrosshair(mc: Minecraft): DrawnVinePick? {
+        val player = mc.player ?: return null
+        val level = mc.level ?: return null
+        if (clientVineCollider.isEmpty || !pickLink(player, mc, level, 1f)) return null
+        val entity = mc.hitResult as? EntityHitResult
+        return if (entity != null && entity.location.distanceTo(player.getEyePosition(1f)) < pick.distance) null else pick
+    }
+
+    /** Mixin hook for `startUseItem`, and before a reel: tells the server which drawn vine the action is at. */
+    @JvmStatic
+    fun sendAim(mc: Minecraft) {
+        if (clientVineCollider.isEmpty) return
+        val hit = pickAtCrosshair(mc)
+        if (hit == null) VineCutNetwork.sendAim(null) else VineCutNetwork.sendAim(hit.chainId, hit.link, hit.along)
     }
 
     fun renderAll(
@@ -114,9 +111,7 @@ object VineCutHighlight {
         val level = mc.level ?: return
         if (clientVineCollider.isEmpty || !(player.shearsGetTheUse() || player.mainHandItem.item is SwordItem)) return
         if (!pickLink(player, mc, level, partialTicks)) return
-        val chainId = pickChain
-        val link = pickLinkIndex
-        if (!WoggakVineRenderer.drawnLinkBox(chainId, link, OUTLINE_MARGIN, box)) return
+        if (!WoggakVineRenderer.drawnLinkBox(pick.chainId, pick.link, OUTLINE_MARGIN, box)) return
         val out = buffers.getBuffer(RenderType.lines())
         val matrix = poseStack.last().pose()
         val normal = poseStack.last().normal()
@@ -167,27 +162,6 @@ object VineCutHighlight {
         val end = eye.add(rayDir.x * PICK_REACH, rayDir.y * PICK_REACH, rayDir.z * PICK_REACH)
         // The VS2 clip mixin gives a world-frame location, ships included, as on the server.
         return level.clip(ClipContext(eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, this)).location.distanceTo(eye)
-    }
-
-    /** The pick gives the nearer node only; of the two links at [nearNode], the one the ray meets first is the cut. */
-    private fun hitLink(chain: Long, nearNode: Int, reach: Double): Int {
-        val before = nearNode > 0 && clientVineCollider.nodePosition(chain, nearNode - 1, a)
-        val after = clientVineCollider.nodePosition(chain, nearNode + 1, b)
-        if (!clientVineCollider.nodePosition(chain, nearNode, node)) return -1
-        links[3] = node.x; links[4] = node.y; links[5] = node.z
-        var best = -1
-        hitT = Double.MAX_VALUE
-        if (before) {
-            links[0] = a.x; links[1] = a.y; links[2] = a.z
-            val t = links.rayHitsSegment(origin, rayDir, 0, reach)
-            if (t >= 0) { best = nearNode - 1; hitT = t }
-        }
-        if (after) {
-            links[6] = b.x; links[7] = b.y; links[8] = b.z
-            val t = links.rayHitsSegment(origin, rayDir, 3, reach)
-            if (t >= 0 && t < hitT) { best = nearNode; hitT = t }
-        }
-        return best
     }
 
     @Suppress("LongParameterList") // Buffer, pose, two corner indices into the box and the camera.

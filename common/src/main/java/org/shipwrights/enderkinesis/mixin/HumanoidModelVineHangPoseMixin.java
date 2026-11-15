@@ -13,6 +13,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(HumanoidModel.class)
 public abstract class HumanoidModelVineHangPoseMixin {
 
+    // The pose stays STANDING while hanging (PlayerVineHangPoseMixin), so the renderer never sets crouching itself.
+    @Inject(method = "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V", at = @At("HEAD"))
+    private void enderkinesis$vineSlideCrouch(
+        LivingEntity entity, float limbSwing, float limbSwingAmount,
+        float ageInTicks, float netHeadYaw, float headPitch,
+        CallbackInfo ci
+    ) {
+        if (!(entity instanceof Player player)) return;
+        float partialTick = ageInTicks - player.tickCount;
+        if (partialTick < 0f || partialTick > 1f) return;
+        VineHangPoseKt.applyVineSlideCrouch((HumanoidModel<?>) (Object) this, player, partialTick);
+    }
+
     @Inject(method = "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V", at = @At("TAIL"))
     private void enderkinesis$vineHangPose(
         LivingEntity entity, float limbSwing, float limbSwingAmount,

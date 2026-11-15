@@ -22,7 +22,6 @@ internal const val VINE_WAKE_NODES_PER_TICK = 256
 /** A ship wakes the vines on the path of its next seconds of travel. */
 private const val SHIP_LEAD_SECONDS = 2.0
 private const val OBSERVER_STRIDE = 6
-private const val SLEEP_DEBUG_TICKS = 100L
 
 /** A world-frame box round a vine's nodes or an observer. */
 internal class VineBounds(
@@ -99,8 +98,6 @@ internal class VineSleep {
     val budget = VineBuildBudget(VINE_WAKE_NODES_PER_TICK)
     /** The box of the live vine that the sleep check reads. */
     val bounds = VineBounds()
-    var sleeps = 0
-    var wakes = 0
 
     fun clearObservers() {
         observerCount = 0
@@ -201,7 +198,7 @@ internal fun ServerLevel.sleepFarVines(data: WoggakVineData) {
         val vine = data.vines[sleep.cursor]
         // A parked vine leaves the list, so the cursor already points at the next one.
         val parked = sleep.canSleep(data, vine) && sleep.isFar(data, chains.getById(vine.chain)) && parkVine(data, sleep.cursor)
-        if (parked) sleep.sleeps++ else sleep.cursor++
+        if (!parked) sleep.cursor++
     }
 }
 
@@ -211,21 +208,4 @@ private fun VineSleep.isFar(data: WoggakVineData, chain: ServerChain?): Boolean 
     if (data.scratch.size < nodes * 3) data.scratch = DoubleArray(nodes * 3)
     if (chain.copyNodePositions(data.scratch) != nodes) return false
     return nearestSquared(bounds.set(data.scratch, nodes)) > VINE_SLEEP_DISTANCE * VINE_SLEEP_DISTANCE
-}
-
-// [VineSleepDebug] temporary
-@OptIn(GameTickOnly::class)
-internal fun ServerLevel.logVineSleepDebug(data: WoggakVineData) {
-    if (gameTime % SLEEP_DEBUG_TICKS != 0L) return
-    val asleep = parkedVineCount()
-    val chains = shipObjectWorld.allChains
-    var particles = 0
-    for (vine in data.vines) particles += chains.getById(vine.chain)?.status?.nodeCount ?: 0
-    val sleep = data.sleep
-    LOG.info(
-        "[VineSleepDebug] {}: {} awake, {} asleep, {} vine particles, {} woke, {} slept in the last {} ticks",
-        dimension().location(), data.vines.size, asleep, particles, sleep.wakes, sleep.sleeps, SLEEP_DEBUG_TICKS,
-    )
-    sleep.wakes = 0
-    sleep.sleeps = 0
 }

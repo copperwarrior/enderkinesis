@@ -564,16 +564,22 @@ class VineCollider {
         return velocityState[node] == VELOCITY_READ
     }
 
-    /** Slab test of the ray for t in 0..[maxT] against vine [v]'s bounds, widened to the pick radius. */
-    private fun rayHitsVine(v: Int, origin: Vector3d, dir: Vector3d, maxT: Double): Boolean {
+    /** True when the ray for t in 0..[maxT] passes within [margin] of vine [chainId]'s bounds; false when it is not here. */
+    fun rayNearVine(chainId: Long, origin: Vector3d, dir: Vector3d, maxT: Double, margin: Double): Boolean {
+        val v = indexOf(chainId)
+        return v >= 0 && rayHitsVine(v, origin, dir, maxT, margin)
+    }
+
+    /** Slab test of the ray for t in 0..[maxT] against vine [v]'s bounds, widened by [inflate]. */
+    private fun rayHitsVine(v: Int, origin: Vector3d, dir: Vector3d, maxT: Double, inflate: Double = PICK_BOUNDS_INFLATE): Boolean {
         val b = v * 6
         var near = 0.0
         var far = maxT
         for (axis in 0..2) {
             val o = origin[axis]
             val d = dir[axis]
-            val lo = bounds[b + axis] - PICK_BOUNDS_INFLATE
-            val hi = bounds[b + 3 + axis] + PICK_BOUNDS_INFLATE
+            val lo = bounds[b + axis] - inflate
+            val hi = bounds[b + 3 + axis] + inflate
             if (d > -DIRECTION_EPS && d < DIRECTION_EPS) {
                 if (o < lo || o > hi) return false
                 continue

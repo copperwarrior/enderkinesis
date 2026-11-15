@@ -60,19 +60,14 @@ internal fun extendedNode(
 internal fun ServerPlayer.extendVine(stack: ItemStack): Boolean {
     if (!stack.`is`(EKItems.WOGGAK_VINE.get())) return false
     val level = serverLevel()
-    val data = level.loadedWoggakVines ?: return false.also { LOG.info("[VineReelDebug] server extend: no loaded vine data") }
-    val pick = level.pickWoggakVine(this) ?: return false.also {
-        LOG.info("[VineReelDebug] server extend: no server pick eye={} look={}", eyePosition, getViewVector(1f))
-    }
+    val data = level.loadedWoggakVines ?: return false
+    val pick = level.pickWoggakVine(this) ?: return false
     val vine = pick.vine
     val chain = pick.chain
     val status = chain.status
     level.endReelOf(data, vine)
     // A pay-out in progress blocks an extend.
-    if (!status.isReelable() || status.reelBusy()) {
-        LOG.info("[VineReelDebug] server extend: refused reelable={} busy={} status={}", status.isReelable(), status.reelBusy(), status)
-        return true
-    }
+    if (!status.isReelable() || status.reelBusy()) return true
     val end = nearestEnd(level.nearestNode(pick), status.nodeCount - 1)
     val creative = abilities.instabuild
     val attached = if (end == ChainEnd.START) status.startAttachment else status.endAttachment
@@ -83,7 +78,6 @@ internal fun ServerPlayer.extendVine(stack: ItemStack): Boolean {
     } else {
         level.rebuildLonger(data, vine, chain, end)
     }
-    LOG.info("[VineReelDebug] server extend: end={} attached={} joined={} grew={}", end, attached, anchor.isJoined, grew)
     if (!grew) return true
     data.setDirty()
     if (!creative) stack.shrink(1)
@@ -118,14 +112,10 @@ internal fun ServerPlayer.dropVineAt(stack: ItemStack, point: VinePoint): Boolea
     level.endReelOf(data, vine)
     val status = chain.status
     val attached = if (end == ChainEnd.START) status.startAttachment else status.endAttachment
-    if (!status.isReelable() || status.reelBusy() || attached != ChainAttachmentState.ATTACHED) {
-        LOG.info("[VineReelDebug] server drop: refused vine={} end={} attached={} status={}", vine.id, end, attached, status)
-        return true
-    }
+    if (!status.isReelable() || status.reelBusy() || attached != ChainAttachmentState.ATTACHED) return true
     val creative = abilities.instabuild
     val items = if (creative) DROP_BLOCKS else min(DROP_BLOCKS, stack.count)
     if (items <= 0 || !payOutBlocks(vine, chain, end, creative, items)) return true
-    LOG.info("[VineReelDebug] server drop: vine={} end={} items={}", vine.id, end, items)
     data.setDirty()
     if (!creative) stack.shrink(items)
     level.playSound(null, x, y, z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
@@ -165,7 +155,6 @@ private fun payOutBlocks(vine: WoggakVine, chain: ServerChain, end: ChainEnd, cr
         }
         count
     }
-    LOG.info("[VineReelDebug] server VS pay-out end={} links={} spacing={} rest={}", end, links, spacing, status.currentRestLength)
     chain.setReel(status, ChainReelControl(end, status.currentRestLength + links * spacing, REEL_RATE, REEL_FORCE))
     return true
 }

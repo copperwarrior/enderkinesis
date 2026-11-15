@@ -25,6 +25,11 @@ private object HangPoseScratch {
     val grip = Vector3d()
 }
 
+/** For HumanoidModelVineHangPoseMixin: a sneak slide shows the vanilla crouch; shift is a synced flag, so others see it. */
+fun HumanoidModel<*>.applyVineSlideCrouch(player: Player, partialTick: Float) {
+    if (player.isShiftKeyDown && VineHoldClient.gripPoint(player, partialTick.toDouble(), HangPoseScratch.grip)) crouching = true
+}
+
 /**
  * For HumanoidModelVineHangPoseMixin: both arms up on the held rope, at [partialTick] like the drawn body. Returns
  * false when [player] holds no vine.

@@ -11,6 +11,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.LevelRenderer
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.texture.DynamicTexture
@@ -35,6 +36,7 @@ import org.shipwrights.enderkinesis.vine.BLOCK_END
 import org.shipwrights.enderkinesis.vine.BLOCK_START
 import org.shipwrights.enderkinesis.vine.JOINED_END
 import org.shipwrights.enderkinesis.vine.JOINED_START
+import org.shipwrights.enderkinesis.vine.MAX_VINE_BURN_FRONTS
 import org.shipwrights.enderkinesis.vine.SHIP_END
 import org.shipwrights.enderkinesis.vine.SHIP_START
 import org.shipwrights.enderkinesis.vine.VINE_HALF_WIDTH
@@ -47,6 +49,7 @@ import org.shipwrights.enderkinesis.vine.VINE_SHAPE_SEED
 import org.shipwrights.enderkinesis.vine.VINE_TARGET_SPACING
 import org.shipwrights.enderkinesis.vine.VineSplit
 import org.shipwrights.enderkinesis.vine.clientVineCollider
+import org.shipwrights.enderkinesis.vine.rayHitsSegment
 import org.shipwrights.enderkinesis.vine.clientVinePushOutbox
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_FADE_TICKS
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_FORGET
@@ -74,6 +77,8 @@ object WoggakVineRenderer {
     private val KNOT = ResourceLocation("enderkinesis", "block/woggak_knot")
     private val KNOT_FILE = ResourceLocation("enderkinesis", "textures/block/woggak_knot.png")
     private val ROPE_FILE = ResourceLocation("enderkinesis", "textures/block/woggak_vine_rope.png")
+    private val BURN = ResourceLocation("enderkinesis", "block/woggak_vine_burn")
+    private val NO_BURNING = IntArray(0)
     private val SOLID: RenderType = RenderType.entityCutout(InventoryMenu.BLOCK_ATLAS)
     private val LEAVES = Array(LEAF_VARIANTS) { ResourceLocation("enderkinesis", "block/woggak_vine_leaf_$it") }
     private val LEAF_FILES = Array(LEAF_VARIANTS) { ResourceLocation("enderkinesis", "textures/block/woggak_vine_leaf_$it.png") }
@@ -123,6 +128,8 @@ object WoggakVineRenderer {
         /** Over zero on a vine whose chain the server took out of physics; it draws frozen at this rest length. */
         val parkedRest: Double = 0.0,
         val width: Double = VINE_WIDTH,
+        /** The chain links that burn now; the server sends the vine again at each burn step. */
+        val burning: IntArray = NO_BURNING,
     ) {
         val halfWidth: Double get() = width * 0.5
         val parked: Boolean get() = parkedRest > 0.0
@@ -207,6 +214,9 @@ object WoggakVineRenderer {
     private val hangDir = Vector3d()
     private val sideDir = Vector3d()
     private var padSprite: TextureAtlasSprite? = null
+    private var fireSprite: TextureAtlasSprite? = null
+    // The burning links of the vine that drawRope draws.
+    private var burning = NO_BURNING
     private var knotSprite: TextureAtlasSprite? = null
     private var greyPass = false
     // Game time in seconds for the sway.
@@ -248,8 +258,7 @@ object WoggakVineRenderer {
     private var ropeHalf = VINE_HALF_WIDTH
     private var light = 0
     private var camX = 0.0; private var camY = 0.0; private var camZ = 0.0
-    private val frameStats = VineFrameStats()
-    private val clock = VineFrameClock(frameStats)
+    private val clock = VineFrameClock()
     // The last draw's physics tick, so drawnLinkBox samples the chain frames exactly as that draw did.
     private var drawAt = 0.0
     // Game time in ticks of this draw, for the sway of sleeping vines.
@@ -399,17 +408,25 @@ object WoggakVineRenderer {
         require(spacing.isFinite() && spacing > 0) { "Bad Woggak Vine spacing $spacing" }
         val width = readDouble()
         require(validVineWidth(width)) { "Bad Woggak Vine width $width" }
+        val burnCount = readVarInt()
+        require(burnCount in 0..MAX_VINE_BURN_FRONTS) { "Bad Woggak Vine burn count $burnCount" }
+        val burning = if (burnCount == 0) NO_BURNING else IntArray(burnCount) { readVarInt() }
         return when (val shape = readByte().toInt()) {
             VINE_SHAPE_NONE ->
-                ClientVine(key, id, chunk, fadeStart, joined, startTarget, startNode, startAnchor, endTarget, endNode, endAnchor, spacing, width = width)
+                ClientVine(
+                    key, id, chunk, fadeStart, joined, startTarget, startNode, startAnchor, endTarget, endNode, endAnchor, spacing,
+                    width = width, burning = burning,
+                )
             VINE_SHAPE_SEED -> ClientVine(
-                key, id, chunk, fadeStart, joined, startTarget, startNode, startAnchor, endTarget, endNode, endAnchor, spacing, width = width,
+                key, id, chunk, fadeStart, joined, startTarget, startNode, startAnchor, endTarget, endNode, endAnchor, spacing,
+                width = width, burning = burning,
             ).also { readFrozenNodes(it.frames) }
             VINE_SHAPE_PARKED -> {
                 val rest = readDouble()
                 require(rest.isFinite() && rest > 0) { "Bad parked Woggak Vine rest length $rest" }
                 ClientVine(
                     key, id, chunk, fadeStart, joined, startTarget, startNode, startAnchor, endTarget, endNode, endAnchor, spacing, rest, width,
+                    burning,
                 ).also { readFrozenNodes(it.frames) }
             }
             else -> throw IllegalArgumentException("Bad Woggak Vine shape $shape")
@@ -466,8 +483,6 @@ object WoggakVineRenderer {
         }
         clientVineCollider.clear()
         expireRetiring()
-        // [VineReloadDebug] temporary
-        if (vines.isEmpty() && clientTicks % 100L == 0L) org.shipwrights.enderkinesis.vine.LOG.info("[VineReloadDebug] client: 0 vines synced")
         if (vines.isEmpty()) return
         val world = level.shipObjectWorld
         val chains = world.allChains
@@ -476,26 +491,16 @@ object WoggakVineRenderer {
         val now = System.nanoTime()
         captureFrames(chains, world.allParticles, now)
         clock.advance(now)
-        logFrameDebug()
         // The stamp is the wall time at which the sample is drawn, so the hang's lead adds nothing before then.
         val shownAt = now + COLLIDER_LEAD_NANOS
         val at = clock.at(shownAt)
-        // [VineReloadDebug] temporary
-        var withChain = 0
-        var drawable = 0
+        VineBurnClient.beginTick()
         for (vine in vines) {
             val chain = chains.getById(vine.id) ?: continue
-            withChain++
             val count = level.shapeNodes(vine, chains, at, clock.horizon, drawn = false)
-            if (count >= 2) drawable++
             if (count >= 2) clientVineCollider.add(chain, positions, count, vine.joinedEnds, shownAt, vine.halfWidth)
             if (count >= 3) level.maybeDrip(vine, chain, count)
-        }
-        // [VineReloadDebug] temporary
-        if (clientTicks % 100L == 0L) {
-            org.shipwrights.enderkinesis.vine.LOG.info(
-                "[VineReloadDebug] client: {} vines synced, {} with a VS chain, {} drawable", vines.size, withChain, drawable,
-            )
+            if (count >= 2 && vine.burning.isNotEmpty()) VineBurnClient.effects(level, positions, count, vine.burning)
         }
     }
 
@@ -519,12 +524,12 @@ object WoggakVineRenderer {
         var newest = -1L
         for (i in vines.indices) {
             val chain = chains.getById(vines[i].id) ?: continue
-            newest = maxOf(newest, vines[i].frames.push(chain, particles, frameStats))
+            newest = maxOf(newest, vines[i].frames.push(chain, particles))
         }
         for (i in retiring.indices) {
             val vine = retiring[i].vine
             val chain = chains.getById(vine.id) ?: continue
-            newest = maxOf(newest, vine.frames.push(chain, particles, frameStats))
+            newest = maxOf(newest, vine.frames.push(chain, particles))
         }
         if (newest >= 0) clock.observe(newest, now)
     }
@@ -556,6 +561,7 @@ object WoggakVineRenderer {
         val rope = atlas.apply(ROPE)
         padSprite = atlas.apply(MOSS_PAD)
         knotSprite = atlas.apply(KNOT)
+        fireSprite = atlas.apply(BURN)
         for (i in LEAVES.indices) leafSprites[i] = atlas.apply(LEAVES[i])
         val time = level.gameTime + partialTicks.toDouble()
         seconds = time / TICKS_PER_SECOND
@@ -566,8 +572,6 @@ object WoggakVineRenderer {
         settleRetiring(chains)
         val at = clock.advance(now)
         drawAt = at
-        frameStats.drawFrames++
-        if (clock.isStarted && at > clock.newest) frameStats.underruns++
         val matrix = poseStack.last().pose()
         loadPose(matrix, poseStack.last().normal())
         camX = cameraX; camY = cameraY; camZ = cameraZ
@@ -660,7 +664,9 @@ object WoggakVineRenderer {
         out = buffers.getBuffer(SOLID)
         u0 = rope.u0; u1 = rope.u1; v0 = rope.v0; v1 = rope.v1
         alpha = 1f; half = vine.halfWidth; ropeHalf = vine.halfWidth
+        burning = vine.burning
         drawVine(this, drawn, count, hasBroken, vine.joinedEnds, sampleLight)
+        burning = NO_BURNING
         drawLeaves(vine, drawn, count, hasBroken, grey = false)
         return drawn
     }
@@ -858,12 +864,6 @@ object WoggakVineRenderer {
     /** Never throws, unlike coerceIn, when rounding puts [lo] a hair over [hi]. */
     private fun clamp(x: Double, lo: Double, hi: Double): Double = maxOf(lo, minOf(hi, x))
 
-    /** True when vine [chainId] fades out; the server's shear pick skips it. */
-    fun isFading(chainId: Long): Boolean {
-        for (i in vines.indices) if (vines[i].id.value == chainId) return vines[i].fadeStart >= 0
-        return false
-    }
-
     /**
      * The 8 world corners of link [link] of vine [chainId] as the last draw placed it, [margin] out from the rope
      * faces in the rotation-minimizing frame: 4 around the start node, then 4 around the end node. False when not here.
@@ -896,6 +896,52 @@ object WoggakVineRenderer {
         }
         half = drawnHalf
         return true
+    }
+
+    /**
+     * The nearest vine along the ray, closer than [maxT], as the last frame drew it: the smoothed rope curve at its drawn
+     * half width. Skips fading, retiring and hidden vines, as the server pick does. False on a miss.
+     */
+    fun pickDrawn(origin: Vector3d, dir: Vector3d, maxT: Double, out: DrawnVinePick): Boolean {
+        val level = Minecraft.getInstance().level ?: return false
+        val chains = level.shipObjectWorld.allChains
+        var best = maxT
+        var found = false
+        for (i in vines.indices) {
+            val vine = vines[i]
+            if (vine.fadeStart >= 0 || heldBack.contains(vine.key) || VineThrowClient.hides(vine.id.value)) continue
+            // The collider holds the tick sample; the margin covers the move from it to the drawn frame.
+            if (!clientVineCollider.rayNearVine(vine.id.value, origin, dir, best, vine.halfWidth + PICK_MOVE_MARGIN)) continue
+            val chain = chains.getById(vine.id) ?: continue
+            val count = level.shapeNodes(vine, chains, drawAt, clock.horizon, drawn = true)
+            if (count < 2) continue
+            VineThrowClient.blendInto(vine.id.value, positions, count)
+            val hasBroken = chain.status.brokenLinks.copyBroken(count)
+            val drawn = smooth(count, hasBroken)
+            for (r in 0 until drawn - 1) {
+                val link = segLink[r]
+                if (hasBroken && brokenFlags[link]) continue
+                val t = positions.rayHitsSegment(origin, dir, r * 3, best, vine.halfWidth)
+                if (t < 0) continue
+                best = t
+                val pieces = linkFirst[link + 1] - linkFirst[link]
+                out.chainId = vine.id.value
+                out.link = link
+                out.along = ((r - linkFirst[link]) + pieceShare(r * 3, origin, dir, t)) / pieces
+                out.distance = t
+                found = true
+            }
+        }
+        return found
+    }
+
+    /** The share along the curve piece at [k] of the point nearest to the ray point at [t]. */
+    private fun pieceShare(k: Int, origin: Vector3d, dir: Vector3d, t: Double): Double {
+        val ux = positions[k + 3] - positions[k]; val uy = positions[k + 4] - positions[k + 1]; val uz = positions[k + 5] - positions[k + 2]
+        val lengthSq = ux * ux + uy * uy + uz * uz
+        if (lengthSq < MIN_LINK * MIN_LINK) return 0.0
+        val wx = origin.x + dir.x * t - positions[k]; val wy = origin.y + dir.y * t - positions[k + 1]; val wz = origin.z + dir.z * t - positions[k + 2]
+        return ((wx * ux + wy * uy + wz * uz) / lengthSq).coerceIn(0.0, 1.0)
     }
 
     /** True when the box around the first [count] nodes in [positions] is in the view; a margin covers the vine's width. */
@@ -1036,20 +1082,6 @@ object WoggakVineRenderer {
         }
     }
 
-    private fun logFrameDebug() {
-        if (clientTicks % FRAME_DEBUG_TICKS != 0L) return
-        val s = frameStats
-        if (s.gapCount > 0 || s.drawFrames > 0) {
-            org.shipwrights.enderkinesis.vine.LOG.info(
-                "[VineFrameDebug] frames {} gap avg {} max {} ticks; underrun {}/{} draws; remaps {}; resyncs {}; delay {} ticks; rate {}/s; horizon {}",
-                s.gapCount, "%.1f".format(if (s.gapCount > 0) s.gapSum / s.gapCount else 0.0), "%.0f".format(s.gapMax),
-                s.underruns, s.drawFrames, s.remaps, s.resets, "%.1f".format(clock.delayTicks), "%.1f".format(clock.ticksPerSecond),
-                "%.0f".format(clock.horizon),
-            )
-        }
-        s.clear()
-    }
-
     private fun ClientVine.sampleNodes(at: Double, extrapolate: Double): Int {
         if (positions.size < frames.nodeCount * 3) positions = DoubleArray(frames.nodeCount * 3)
         val count = frames.sample(at, extrapolate, positions)
@@ -1086,7 +1118,10 @@ object WoggakVineRenderer {
                     (positions[k + 1] + positions[k + 4]) * 0.5, (positions[k + 2] + positions[k + 5]) * 0.5,
                 )
                 val capEnd = i == count - 2 || (hasBroken && segLink[i + 1] != link && brokenFlags[segLink[i + 1]])
-                if (linkVisible(k, CULL_MARGIN)) drawLink(i, along, length, capStart, capEnd)
+                if (linkVisible(k, CULL_MARGIN)) {
+                    drawLink(i, along, length, capStart, capEnd)
+                    if (!greyPass && link in burning) drawFireBand(i, along, length)
+                }
                 capStart = false
             } else {
                 capStart = true
@@ -1173,6 +1208,28 @@ object WoggakVineRenderer {
 
     /** A box from render node [i] to the next node, [along] blocks down the vine; 16 texels to the block along and across. */
     private fun drawLink(i: Int, along: Double, length: Double, capStart: Boolean, capEnd: Boolean) {
+        drawSides(i, along, length)
+        if (capStart) cap(i * 3, sideA0, sideB0, -1.0)
+        if (capEnd) cap(i * 3 + 3, sideA1, sideB1, 1.0)
+    }
+
+    /** A full-bright band of the burn texture just outside the rope box of render node [i]. */
+    private fun drawFireBand(i: Int, along: Double, length: Double) {
+        val sprite = fireSprite ?: return
+        val ropeU0 = u0; val ropeU1 = u1; val ropeV0 = v0; val ropeV1 = v1
+        val ropeLight = light
+        val ropeBoxHalf = half
+        u0 = sprite.u0; u1 = sprite.u1; v0 = sprite.v0; v1 = sprite.v1
+        light = LightTexture.FULL_BRIGHT
+        half = ropeHalf + FIRE_BAND_GAP
+        drawSides(i, along, length)
+        u0 = ropeU0; u1 = ropeU1; v0 = ropeV0; v1 = ropeV1
+        light = ropeLight
+        half = ropeBoxHalf
+    }
+
+    /** The four long faces of render link [i]. */
+    private fun drawSides(i: Int, along: Double, length: Double) {
         val k = i * 3
         val n = k + 3
         val dotA = frameAs[k] * frameAs[n] + frameAs[k + 1] * frameAs[n + 1] + frameAs[k + 2] * frameAs[n + 2]
@@ -1183,8 +1240,6 @@ object WoggakVineRenderer {
         side(i, 2, 3, normalBs, dotB, 1.0, 3, along, length)
         side(i, 3, 0, normalAs, dotA, -1.0, 2, along, length)
         side(i, 0, 1, normalBs, dotB, -1.0, 1, along, length)
-        if (capStart) cap(k, sideA0, sideB0, -1.0)
-        if (capEnd) cap(n, sideA1, sideB1, 1.0)
     }
 
     /**
@@ -1990,12 +2045,14 @@ object WoggakVineRenderer {
     }
 
     private const val COLLIDER_LEAD_NANOS = 100_000_000L
+    /** Blocks that a vine can move between the collider's tick sample and the drawn frame. */
+    private const val PICK_MOVE_MARGIN = 1.0
     /** Both ends. */
     private const val MAX_PINS = 2
-    /** [VineFrameDebug] temporary: one line each 5 s. */
-    private const val FRAME_DEBUG_TICKS = 100L
     /** Keeps the grey shell in front of the rope box, so the two do not z-fight. */
     private const val GREY_INFLATE = 0.25 / 16
+    /** Keeps the fire band off the rope box, so the two do not z-fight. */
+    private const val FIRE_BAND_GAP = 0.5 / 16
     private val KNOT_SIGNS = doubleArrayOf(1.0, -1.0)
     private const val PX = 16.0
     private const val CENTRE_PX = 8.0

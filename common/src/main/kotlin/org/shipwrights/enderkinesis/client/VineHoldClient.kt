@@ -9,18 +9,16 @@ import net.minecraft.client.player.LocalPlayer
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.phys.HitResult
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.vine.CLIMB_DOWN
 import org.shipwrights.enderkinesis.vine.CLIMB_MASK
 import org.shipwrights.enderkinesis.vine.CLIMB_UP
-import org.shipwrights.enderkinesis.vine.LOG
 import org.shipwrights.enderkinesis.vine.MOVE_BACK
 import org.shipwrights.enderkinesis.vine.MOVE_FORWARD
 import org.shipwrights.enderkinesis.vine.MOVE_LEFT
 import org.shipwrights.enderkinesis.vine.MOVE_MASK
 import org.shipwrights.enderkinesis.vine.MOVE_RIGHT
-import org.shipwrights.enderkinesis.vine.PICK_REACH
 import org.shipwrights.enderkinesis.vine.VineNodeRef
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_GRIP
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_HOLD
@@ -34,7 +32,6 @@ import org.shipwrights.enderkinesis.vine.clientVineHold
 import org.shipwrights.enderkinesis.vine.takeNodeVelocity
 import org.shipwrights.enderkinesis.vine.toPacket
 import kotlin.math.abs
-import kotlin.math.min
 
 /** Remote shown grip step in node units per tick; a larger gap than [REMOTE_GRIP_SNAP] jumps. */
 private const val REMOTE_GRIP_STEP = 0.15
@@ -49,8 +46,6 @@ private const val RELEASE_LIFT = 0.15
 private const val RELEASE_MIN_SPEED = 1.0
 /** A node that falls slower than this, in m/s, counts as level for the lift. */
 private const val RELEASE_LEVEL_FALL = 0.5
-// TODO [VineHoldDebug] temporary
-private const val DEBUG_RELEASE_TICKS = 3
 
 /** The grip point of the last two ticks, so the arm pose can take it at the partial tick, as vanilla draws the body. */
 private class GripTrack {
@@ -83,8 +78,6 @@ private class RemoteVineHold(var chainId: Long, var grip: Double, var lastPacket
 
 /** Grabs, climbs and lets go of vines for the local player; the move hook does the hanging. Client thread only. */
 object VineHoldClient {
-    private val origin = Vector3d()
-    private val direction = Vector3d()
     private val grab = VineNodeRef()
     // After the server ends or refuses a hold, a new grab waits for a new press of the use key.
     private var waitForRelease = false
@@ -93,10 +86,6 @@ object VineHoldClient {
     private val remoteHolds = Int2ObjectOpenHashMap<RemoteVineHold>()
     private val localTrack = GripTrack()
     private val trackScratch = Vector3d()
-    // TODO [VineReelDebug] temporary
-    private var debugUseDown = false
-    // TODO [VineHoldDebug] temporary
-    private var debugReleaseTicks = 0
 
     fun init() {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_HOLDER) { buf, ctx ->
@@ -108,18 +97,15 @@ object VineHoldClient {
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_LET_GO) { buf, ctx ->
             val chainId = buf.readLong()
-            val mantle = buf.readBoolean()
+            val mantle = if (buf.readBoolean()) Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble()) else null
             ctx.queue {
                 if (chainId != clientVineHold.chainId) return@queue
                 waitForRelease = true
-                Minecraft.getInstance().player?.let { letGo(it, false, mantle) }
+                Minecraft.getInstance().player?.let { letGo(it, false, mantle?.takeIf { m -> m.isFinite }) }
             }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_REEL_END) { _, ctx ->
-            ctx.queue {
-            LOG.info("[VineReelDebug] client got REEL_END")
-            reeling = false
-        }
+            ctx.queue { reeling = false }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_GRIP) { buf, ctx ->
             val chainId = buf.readLong()
@@ -139,6 +125,7 @@ object VineHoldClient {
     fun clear() {
         reeling = false
         clientVineHold.clear()
+        clientVineHold.mantle.cancel()
         clientVineHold.clearGrace()
         localTrack.invalidate()
         remoteHolds.clear()
@@ -204,19 +191,6 @@ object VineHoldClient {
         if (!mc.options.keyUse.isDown) waitForRelease = false
         hold.tickGrace(clientVineCollider, player.boundingBox)
         if (reeling) tickReel(mc, player)
-        val useDown = mc.options.keyUse.isDown
-        if (useDown && !debugUseDown) {
-            LOG.info(
-                "[VineReelDebug] client press: held={} wantsHold={} waitForRelease={} shift={} canHold={} mainHand={} collider={} pick={} reeling={}",
-                hold.isHeld, wantsHold, waitForRelease, player.isShiftKeyDown, player.canHoldVine(), player.mainHandItem,
-                !clientVineCollider.isEmpty, pickVine(mc, player), reeling,
-            )
-        }
-        debugUseDown = useDown
-        if (debugReleaseTicks > 0) {
-            LOG.info("[VineHoldDebug] client after let go ({} left): motion={} b/t pos={}", debugReleaseTicks, player.deltaMovement, player.position())
-            debugReleaseTicks--
-        }
         when {
             hold.isHeld && (!wantsHold || hold.lost) -> letGo(player, true)
             hold.isHeld -> steer(player)
@@ -239,38 +213,30 @@ object VineHoldClient {
         val player = mc.player ?: return false
         // A held sneak-use press that reels still takes the key, so its repeats do not use the block behind.
         val shortening = waitForRelease && player.isShiftKeyDown
-        return (!waitForRelease || shortening) && player.canHoldVine() && pickVine(mc, player)
+        return (!waitForRelease || shortening) && player.canHoldVine() && pickVine(mc)
     }
 
-    /** The vine node under the crosshair into [grab]; a block or entity nearer than the vine takes the use key. */
-    private fun pickVine(mc: Minecraft, player: LocalPlayer): Boolean {
-        if (clientVineCollider.isEmpty) return false
-        val eye = player.eyePosition
-        val look = player.getViewVector(1f)
-        origin.set(eye.x, eye.y, eye.z)
-        direction.set(look.x, look.y, look.z)
-        val hit = mc.hitResult
-        val reach = if (hit != null && hit.type != HitResult.Type.MISS) min(PICK_REACH, hit.location.distanceTo(eye)) else PICK_REACH
-        return clientVineCollider.pick(origin, direction, reach, grab)
+    /** The drawn vine node under the crosshair into [grab]; a block or entity nearer than the vine takes the use key. */
+    private fun pickVine(mc: Minecraft): Boolean {
+        val hit = VineCutHighlight.pickAtCrosshair(mc) ?: return false
+        grab.chainId = hit.chainId
+        grab.node = hit.nearNode
+        return true
     }
 
     /** A sneak-use press at a vine starts a reel on the server; the server picks the vine. */
     private fun tryReel(mc: Minecraft, player: LocalPlayer) {
-        if (!pickVine(mc, player)) {
-            LOG.info("[VineReelDebug] client tryReel: no client vine pick")
-            return
-        }
-        LOG.info("[VineReelDebug] client tryReel: pick chain={} node={}", grab.chainId, grab.node)
+        if (!pickVine(mc)) return
         waitForRelease = true
         reeling = true
         player.swing(InteractionHand.MAIN_HAND)
+        VineCutHighlight.sendAim(mc)
         sendReel(true)
     }
 
     /** Stops the reel when either key goes up or the hand fills; else swings again, as a fishing reel does. */
     private fun tickReel(mc: Minecraft, player: LocalPlayer) {
         if (!mc.options.keyUse.isDown || !player.isShiftKeyDown || mc.screen != null || !player.canHoldVine()) {
-            LOG.info("[VineReelDebug] client tickReel: stop use={} shift={}", mc.options.keyUse.isDown, player.isShiftKeyDown)
             reeling = false
             sendReel(false)
             return
@@ -279,12 +245,11 @@ object VineHoldClient {
     }
 
     private fun sendReel(start: Boolean) {
-        LOG.info("[VineReelDebug] client send WOGGAK_VINE_SHORTEN start={}", start)
         NetworkManager.sendToServer(WOGGAK_VINE_SHORTEN, FriendlyByteBuf(Unpooled.buffer()).apply { writeBoolean(start) })
     }
 
     private fun tryGrab(mc: Minecraft, player: LocalPlayer) {
-        if (!pickVine(mc, player)) return
+        if (clientVineHold.mantle.active || !pickVine(mc)) return
         val hold = clientVineHold
         hold.isHeld = true
         hold.lost = false
@@ -309,23 +274,18 @@ object VineHoldClient {
     }
 
     /**
-     * Lets go and keeps the hold point's velocity, so a swing can fling the player. After a [mantle] the server puts the
-     * player on top of the vine, so the vine stays solid for it.
+     * Lets go and keeps the hold point's velocity, so a swing can fling the player. A [mantle] let-go pulls the body up
+     * to that feet place instead; the vine stays passable until the pull ends.
      */
-    private fun letGo(player: LocalPlayer, tellServer: Boolean, mantle: Boolean = false) {
+    private fun letGo(player: LocalPlayer, tellServer: Boolean, mantle: Vector3dc? = null) {
         val hold = clientVineHold
         if (!hold.isHeld) return
-        if (!mantle && !hold.lost && hold.gripState()) {
+        if (mantle == null && !hold.lost && hold.gripState()) {
             player.takeNodeVelocity(hold.velocity)
             if (hold.velocity.lengthSquared() >= RELEASE_MIN_SPEED * RELEASE_MIN_SPEED) player.boostRelease(hold.velocity.y)
         }
-        LOG.info(
-            "[VineHoldDebug] client let go: tellServer={} mantle={} lost={} grip={} node velocity={} m/s, motion={} b/t",
-            tellServer, mantle, hold.lost, hold.grip, hold.velocity, player.deltaMovement,
-        )
-        debugReleaseTicks = DEBUG_RELEASE_TICKS
-        // A mantle stands on the vine at once; any other let-go passes through it for a grace time.
-        if (mantle) hold.endGrace(hold.chainId) else hold.startGrace(hold.chainId)
+        hold.startGrace(hold.chainId)
+        if (mantle != null) hold.mantle.start(hold.chainId, player.x, player.y, player.z, mantle)
         hold.clear()
         if (tellServer) NetworkManager.sendToServer(WOGGAK_VINE_LET_GO, FriendlyByteBuf(Unpooled.buffer()))
     }

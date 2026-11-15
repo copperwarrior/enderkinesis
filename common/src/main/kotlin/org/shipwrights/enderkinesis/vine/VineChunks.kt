@@ -53,9 +53,12 @@ class VineRecord(
     /** A worldgen vine that no one used yet; only such a vine sleeps. */
     val natural: Boolean = false,
     val width: Double = VINE_WIDTH,
+    /** Fire fronts as (link, direction, ticks to the next step) triples; see [saveBurns]. */
+    val burns: IntArray = NO_SAVED_BURNS,
 ) {
     init {
         require(positions.size % 3 == 0 && positions.size >= 6) { "Woggak Vine record $id has ${positions.size} coordinates" }
+        require(validSavedBurns(burns)) { "Woggak Vine record $id has ${burns.size} burn values" }
         require(restLength.isFinite() && restLength > 0) { "Woggak Vine record $id has rest length $restLength" }
         require(spacing.isFinite() && spacing > 0) { "Woggak Vine record $id has spacing $spacing" }
         require(validVineWidth(width)) { "Woggak Vine record $id has width $width" }
@@ -80,6 +83,7 @@ class VineRecord(
         putDouble("spacing", spacing)
         putBoolean("natural", natural)
         putDouble("width", width)
+        putIntArray("burns", burns)
     }
 
     companion object {
@@ -92,11 +96,13 @@ class VineRecord(
             val width = tag.getDouble("width")
             if (positions.size % 3 != 0 || positions.size < 6 || positions.any { !it.isFinite() }) return null
             if (!rest.isFinite() || rest <= 0 || !spacing.isFinite() || spacing <= 0 || !validVineWidth(width)) return null
+            val burns = tag.getIntArray("burns")
+            if (!validSavedBurns(burns)) return null
             return VineRecord(
                 tag.getLong("id"), tag.getAnchor("a"), tag.getAnchor("b"), tag.getLong("fade"),
                 tag.getBoolean("fromBreak"), !tag.getBoolean("noDrops"), rest, positions, tag.getIntArray("broken"),
                 tag.getLong("chain"), validReelCredit(tag.getDouble("reelCredit")), spacing,
-                tag.getBoolean("natural"), width,
+                tag.getBoolean("natural"), width, burns,
             )
         }
     }
@@ -169,8 +175,6 @@ internal fun registerVineChunks() {
         val pending = pendingVines.computeIfAbsent(level.dimension()) { ConcurrentHashMap() }
         val records = readVineRecords(chunk.pos, tag)
         if (records.isEmpty()) pending.remove(key) else pending[key] = records
-        // [VineReloadDebug] temporary
-        if (records.isNotEmpty()) vineReloadDebug("load from disk", level, records.size)
     })
     ChunkEvent.SAVE_DATA.register(ChunkEvent.SaveData { chunk, level, tag ->
         if (chunk.isWorldgenChunk) {
@@ -182,8 +186,6 @@ internal fun registerVineChunks() {
         val list = level.chunkVineTags(chunk.pos.toLong())
         if (list.isEmpty()) return@SaveData
         tag.put(CHUNK_TAG, list)
-        // [VineReloadDebug] temporary
-        vineReloadDebug("save", level, list.size)
         // Never mark the chunk unsaved here: the flush save (stop, save-all flush) repeats while a save writes, so it never ends.
     })
     LifecycleEvent.SERVER_LEVEL_UNLOAD.register { level ->
@@ -213,9 +215,6 @@ internal fun readVineRecords(pos: ChunkPos, tag: CompoundTag): List<VineRecord> 
 fun ServerLevel.adoptWorldgenVines(proto: ProtoChunk) {
     val records = (proto as WorldgenVineHolder).`enderkinesis$getWorldgenVines`()
     if (records.isEmpty()) return
-    // [VineReloadDebug] temporary
-    vineReloadDebug("worldgen adopted", this, records.size)
-    records.forEach { vineReloadWorldgenIds.add(it.id) }
     pendingVines.computeIfAbsent(dimension()) { ConcurrentHashMap() }.merge(proto.pos.toLong(), records) { old, new -> old + new }
 }
 
@@ -281,6 +280,7 @@ private fun ServerLevel.vineRecord(vine: WoggakVine): VineRecord? {
             return VineRecord(
                 vine.id, vine.start, vine.end, vine.fadeStart, vine.fromBreak, vine.dropsOnFade, rest, positions,
                 status.brokenLinks.toIntArray(), vine.chain.value, vine.reelCredit, vine.spacing, vine.natural, vine.width,
+                vine.burns.saveBurns(gameTime),
             )
         }
     }
@@ -288,7 +288,7 @@ private fun ServerLevel.vineRecord(vine: WoggakVine): VineRecord? {
     if (seed.size < 6 || !vine.seedRest.isFinite() || vine.seedRest <= 0) return null
     return VineRecord(
         vine.id, vine.start, vine.end, vine.fadeStart, vine.fromBreak, vine.dropsOnFade, vine.seedRest, seed,
-        IntArray(0), vine.chain.value, vine.reelCredit, vine.spacing, vine.natural, vine.width,
+        IntArray(0), vine.chain.value, vine.reelCredit, vine.spacing, vine.natural, vine.width, vine.burns.saveBurns(gameTime),
     )
 }
 
@@ -369,19 +369,12 @@ internal fun ServerLevel.rebuildLoadedVines(data: WoggakVineData) {
         if (!sleep.budget.take(nodes)) break
         // The joints move after the whole chunk is back, so a vine of this chunk joined to a split one moves too.
         val splits = records.mapNotNull { record -> rebuildVine(data, record, chunk)?.let { record to it } }
-        // [VineReloadDebug] temporary
-        for (record in records) {
-            val source = if (vineReloadWorldgenIds.remove(record.id)) "worldgen" else "disk"
-            vineReloadDebug("rebuild $source records", this, 1)
-            if (data.vine(record.id) != null) vineReloadDebug("rebuild $source vines made", this, 1)
-        }
         for ((record, pieces) in splits) {
             for (pair in data.repointSplit(record.id, null, pieces)) pair.restoreContacts(this)
         }
         // The snapshot takes the records before the pending entry goes, so an async save always sees them.
         refreshSnapshot(data, chunk)
         pending.remove(chunk, records)
-        sleep.wakes += records.size
         data.anchorsDirty = true
         data.jointsDirty = true
     }
@@ -450,13 +443,6 @@ private fun ServerLevel.addParked(home: Long, record: VineRecord) {
 /** The sleeping and not yet made vines of [chunk]. */
 private fun ServerLevel.parkedIn(chunk: Long): List<VineRecord> = pendingVines[dimension()]?.get(chunk).orEmpty()
 
-/** Sleeping and not yet made vines of the loaded chunks of this level. */
-internal fun ServerLevel.parkedVineCount(): Int {
-    var count = 0
-    pendingVines[dimension()]?.let { pending -> for (chunk in pending.keys) if (hasChunk(chunk)) count += pending[chunk]?.size ?: 0 }
-    return count
-}
-
 /**
  * Makes [record]'s chain again from its saved nodes; each unbroken run is one vine, and the first keeps the id.
  * Returns the pieces when the record split, else null.
@@ -482,6 +468,7 @@ private fun ServerLevel.rebuildVine(data: WoggakVineData, record: VineRecord, ch
             vine.fadeStart = record.fadeStart
             // The credit stays with the first piece, which keeps the id; a later piece starts with none.
             if (id == record.id) vine.reelCredit = record.reelCredit
+            data.restoreBurns(vine, record.burns, gameTime, run)
             pieces += SplitPiece(run, vine)
         }
         id = newVineId()
@@ -535,8 +522,6 @@ internal fun ServerLevel.chooseHome(vine: WoggakVine, path: List<Vector3dc>, fal
 /** Sends each changed chunk's vines to the players that track it, and marks the chunk for the next save. */
 @OptIn(GameTickOnly::class)
 internal fun ServerLevel.flushVineSync(data: WoggakVineData) {
-    // [VineReloadDebug] temporary
-    logVineReloadDebug()
     refreshSnapshotsInTurn(data)
     if (data.dirtyChunks.isEmpty()) {
         data.splits.clear()
@@ -550,8 +535,6 @@ internal fun ServerLevel.flushVineSync(data: WoggakVineData) {
         chunkSource.getChunkNow(pos.x, pos.z)?.isUnsaved = true
         val players = chunkSource.chunkMap.getPlayers(pos, false)
         if (players.isNotEmpty()) sendVinePages(players, chunk, data.inChunk(chunk), parkedIn(chunk), data.splits.get(chunk))
-        // [VineReloadDebug] temporary
-        if (players.isNotEmpty()) vineReloadDebug("sync sent", this, data.inChunk(chunk).size)
     }
     data.dirtyChunks.clear()
     data.splits.clear()
@@ -563,26 +546,6 @@ fun ServerPlayer.sendVineChunk(chunk: Long) {
     val vines = level.loadedWoggakVines?.inChunk(chunk) ?: return
     val parked = level.parkedIn(chunk)
     if (vines.isNotEmpty() || parked.isNotEmpty()) sendVinePages(listOf(this), chunk, vines, parked)
-    // [VineReloadDebug] temporary
-    if (vines.isNotEmpty()) vineReloadDebug("track sent", serverLevel(), vines.size)
-}
-
-// [VineReloadDebug] temporary: counts per level and step, logged once each 100 game ticks. Remove after the reload test.
-private val vineReloadCounts = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
-private val vineReloadWorldgenIds: MutableSet<Long> = ConcurrentHashMap.newKeySet()
-
-internal fun vineReloadDebug(step: String, level: ServerLevel, count: Int) {
-    vineReloadCounts.computeIfAbsent("${level.dimension().location()} $step") { java.util.concurrent.atomic.AtomicInteger() }.addAndGet(count)
-}
-
-private fun ServerLevel.logVineReloadDebug() {
-    if (gameTime % 100L != 0L || vineReloadCounts.isEmpty()) return
-    val prefix = "${dimension().location()} "
-    for ((key, value) in vineReloadCounts) {
-        if (!key.startsWith(prefix)) continue
-        val count = value.getAndSet(0)
-        if (count != 0) LOG.info("[VineReloadDebug] {}: {}", key, count)
-    }
 }
 
 /** Called when this player stops tracking [chunk]. */
@@ -631,7 +594,7 @@ private fun sendVinePages(
 
 /** A new vine before VS has its nodes also sends the path it was made along, so the client draws it at once. */
 private fun FriendlyByteBuf.writeVine(vine: WoggakVine) {
-    writeVineHead(vine.id, vine.chain.value, vine.fadeStart, vine.start, vine.end, vine.spacing, vine.width)
+    writeVineHead(vine.id, vine.chain.value, vine.fadeStart, vine.start, vine.end, vine.spacing, vine.width, vine.burns)
     val seed = vine.seedNodes
     if (seed == null || seed.size < 6) {
         writeByte(VINE_SHAPE_NONE)
@@ -643,7 +606,7 @@ private fun FriendlyByteBuf.writeVine(vine: WoggakVine) {
 
 /** A sleeping vine has no chain, so its nodes go along. */
 private fun FriendlyByteBuf.writeParked(record: VineRecord) {
-    writeVineHead(record.id, 0L, record.fadeStart, record.start, record.end, record.spacing, record.width)
+    writeVineHead(record.id, 0L, record.fadeStart, record.start, record.end, record.spacing, record.width, emptyList())
     writeByte(VINE_SHAPE_PARKED)
     writeDouble(record.restLength)
     writeNodes(record.positions, record.nodeCount)
@@ -659,6 +622,7 @@ private fun FriendlyByteBuf.writeNodes(p: DoubleArray, nodes: Int) {
 @Suppress("LongParameterList") // The synced fields of one vine, live or parked.
 private fun FriendlyByteBuf.writeVineHead(
     id: Long, chain: Long, fadeStart: Long, start: WoggakVineAnchor, end: WoggakVineAnchor, spacing: Double, width: Double,
+    burns: List<VineBurnFront>,
 ) {
     writeLong(id)
     writeLong(chain)
@@ -670,6 +634,9 @@ private fun FriendlyByteBuf.writeVineHead(
     writeHold(end)
     writeDouble(spacing)
     writeDouble(width)
+    // Each burn step is a split, and a split sends the chunk again, so the burning links need no packet of their own.
+    writeVarInt(burns.size)
+    for (front in burns) writeVarInt(front.link)
 }
 
 /** The target vine id and node of a joined end, so the client draws the end on the target node. */

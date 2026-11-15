@@ -90,7 +90,7 @@ class VineSleepTest {
         held.natural = true
         data.add(vine)
         data.add(held)
-        val loaded = WoggakVineData.load(data.save(CompoundTag()))
+        val loaded = WoggakVineData.load(data.save(CompoundTag()), now = 1000L)
         loaded.vine(1L) shouldBe null
         loaded.vine(3L).shouldNotBeNull().natural shouldBe true
         loaded.vine(3L)!!.spacing shouldBe WORLDGEN_VINE_SPACING
