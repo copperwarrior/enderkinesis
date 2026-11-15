@@ -229,7 +229,7 @@ object EKCreativeTab {
             output.accept(EKItems.KEKHEKH_BUCKET.get())
             // One stack for each cave instrument. The instruments are datapack-loaded, so the NBT is a plain id string.
             for (idx in 1..19) {
-                val stack = ItemStack(EKItems.PRISMATIC_GOAT_HORN.get())
+                val stack = ItemStack(EKItems.BLESSED_GOAT_HORN.get())
                 stack.orCreateTag.putString("instrument", "enderkinesis:cave_$idx")
                 output.accept(stack)
             }
@@ -266,6 +266,7 @@ object EKCreativeTab {
             output.accept(EKItems.CONSTRILIAR_SPAWN_EGG.get())
             output.accept(EKItems.SHULKONAUT_SPAWN_EGG.get())
             output.accept(EKItems.SHILLEAGK_DEER_SPAWN_EGG.get())
+            output.accept(EKItems.BLESSED_GOAT_SPAWN_EGG.get())
             output.accept(EKItems.KEKHEKH_SPAWN_EGG.get())
             output.accept(EKItems.EAUHORRANA_SPAWN_EGG.get())
             output.accept(EKItems.MOSKUO_SPAWN_EGG.get())

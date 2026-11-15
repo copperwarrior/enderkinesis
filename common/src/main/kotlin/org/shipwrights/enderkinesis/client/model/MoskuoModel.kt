@@ -20,11 +20,23 @@ class MoskuoModel(private val bakedRoot: ModelPart) : CachedHierarchicalModel<Mo
 
     override fun root(): ModelPart = bakedRoot
 
+    private val bodySkinny = bakedRoot.getChild("bone3").getChild("BODYSkinny")
+    private val bodyFat = bakedRoot.getChild("bone3").getChild("BODYFat")
+
     override fun setupAnim(
         entity: MoskuoEntity, limbSwing: Float, limbSwingAmount: Float,
         ageInTicks: Float, netHeadYaw: Float, headPitch: Float,
     ) {
         resetAllParts()
+        applyAnimation(entity, ageInTicks)
+        // Vanilla still draws zero-scale parts; skip them.
+        bodySkinny.visible = !bodySkinny.isScaledToZero()
+        bodyFat.visible = !bodyFat.isScaledToZero()
+    }
+
+    private fun ModelPart.isScaledToZero(): Boolean = xScale == 0f && yScale == 0f && zScale == 0f
+
+    private fun applyAnimation(entity: MoskuoEntity, ageInTicks: Float) {
         if (play(entity.stingAnimationState, MoskuoAnimations.sting, ageInTicks) ||
             play(entity.digestAnimationState, MoskuoAnimations.digest, ageInTicks)
         ) {

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import com.mojang.blaze3d.vertex.PoseStack
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.entity.EntityRendererProvider
 import net.minecraft.client.renderer.entity.MobRenderer
@@ -22,6 +23,11 @@ class ShilleagkDeerRenderer(
     }
 
     override fun getTextureLocation(entity: ShilleagkDeerEntity): ResourceLocation = SKIN
+
+    // Half size like a vanilla baby; ShilleagkDeerModel scales the fawn head back up.
+    override fun scale(entity: ShilleagkDeerEntity, poseStack: PoseStack, partialTick: Float) {
+        if (entity.isBaby) poseStack.scale(entity.scale, entity.scale, entity.scale)
+    }
 
     private class EyeGlowLayer(renderer: ShilleagkDeerRenderer) :
         EyesLayer<ShilleagkDeerEntity, ShilleagkDeerModel>(renderer) {

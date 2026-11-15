@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.entity
 
+import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
@@ -16,6 +17,7 @@ import net.minecraft.util.RandomSource
 import net.minecraft.world.Difficulty
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.entity.AnimationState
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntityEvent
 import net.minecraft.world.entity.EntitySelector
 import net.minecraft.world.entity.EntityType
@@ -41,6 +43,8 @@ import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
 
+private val LOG = LogUtils.getLogger()
+
 /**
  * Wohlon predator fish. When hungry it hunts anything edible in the water: small fish go down in one bite,
  * larger prey gets a latched bite that chews until the fish is hit off or stays dry too long.
@@ -53,10 +57,15 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
     private var biteCooldown = 0
     private var latchTicks = 0
     private var dryTicks = 0
+    private var huntedPrey: LivingEntity? = null
+    private val scratch = BlockPos.MutableBlockPos()
 
     val isLatched: Boolean get() = entityData.get(DATA_LATCH_ID) != NO_LATCH
 
     private val isHungry: Boolean get() = hungerTicks <= 0
+
+    /** True while the hunt goal chases [prey]; a Kekhekh reads this to flee to a refuge. */
+    fun isHunting(prey: Entity): Boolean = huntedPrey === prey && !isLatched
 
     init {
         moveControl = SmoothSwimmingMoveControl(this, MAX_TURN_X, MAX_TURN_Y, WATER_SPEED, LAND_SPEED, true)
@@ -75,7 +84,10 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
     override fun registerGoals() {
         goalSelector.addGoal(0, TryFindWaterGoal(this))
         goalSelector.addGoal(1, HuntGoal())
-        goalSelector.addGoal(2, DeepSwimGoal())
+        goalSelector.addGoal(
+            2, EatLarvaeGoal(this, LARVAE_RANGE, 1.0, { isHungry && !isLatched }, { hungerTicks = LARVA_MEAL_TICKS }),
+        )
+        goalSelector.addGoal(3, DeepSwimGoal())
     }
 
     fun latchedTarget(): LivingEntity? {
@@ -158,10 +170,14 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
     }
 
     private fun isEdible(other: LivingEntity, latched: Boolean = false): Boolean =
-        other !== this && other.isAlive && (latched || other.isInWater) &&
+        other !== this && other.isAlive && (latched || other.isInWater || isDippingNear(other)) &&
             (other is Mob || other is Player) && other !is EauhorranaEntity && !other.type.`is`(INEDIBLE) &&
             EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(other) &&
-            !(other is Player && level().difficulty == Difficulty.PEACEFUL)
+            !(other is Player && level().difficulty == Difficulty.PEACEFUL) &&
+            !(other is KekhekhEntity && KekhekhEntity.isRefuge(level(), other.blockPosition(), scratch))
+
+    private fun isDippingNear(other: LivingEntity): Boolean =
+        other is MoskuoEntity && other.isDipping && other.distanceToSqr(this) < DIP_SPOT_RANGE * DIP_SPOT_RANGE
 
     override fun hurt(source: DamageSource, amount: Float): Boolean {
         val hurt = super.hurt(source, amount)
@@ -238,6 +254,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
             prey = level().getEntitiesOfClass(LivingEntity::class.java, boundingBox.inflate(HUNT_RANGE)) {
                 isEdible(it) && hasLineOfSight(it)
             }.minByOrNull { it.distanceToSqr(this@EauhorranaEntity) }
+            huntedPrey = prey
             return prey != null
         }
 
@@ -256,6 +273,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
 
         override fun stop() {
             prey = null
+            huntedPrey = null
             navigation.stop()
         }
 
@@ -274,18 +292,36 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
                 return
             }
             chaseTicks++
-            if (biteCooldown == 0 && inReach(target)) {
+            val airborne = isAirborneMoskuo(target)
+            if (biteCooldown == 0 && (inReach(target) || airborne && distanceToSqr(target) < LUNGE_RANGE * LUNGE_RANGE)) {
                 navigation.stop()
+                if (airborne) lungeAt(target)
                 biteTicks = 0
                 level().broadcastEntityEvent(this@EauhorranaEntity, EntityEvent.START_ATTACKING)
             } else if (--repathTicks <= 0) {
                 repathTicks = REPATH_TICKS
-                navigation.moveTo(target, CHASE_SPEED)
+                // Water-bound paths cannot end in air, so aim under the Moskuo.
+                if (airborne) {
+                    navigation.moveTo(target.x, target.y - AIR_PREY_DROP, target.z, CHASE_SPEED)
+                } else {
+                    navigation.moveTo(target, CHASE_SPEED)
+                }
             }
         }
 
+        private fun lungeAt(target: LivingEntity) {
+            val dx = target.x - x
+            val dy = target.getY(HALF_HEIGHT) - getY(HALF_HEIGHT)
+            val dz = target.z - z
+            val length = Mth.sqrt((dx * dx + dy * dy + dz * dz).toFloat()).coerceAtLeast(MIN_LUNGE_LENGTH)
+            deltaMovement = Vec3(dx / length * LUNGE_SPEED, dy / length * LUNGE_SPEED, dz / length * LUNGE_SPEED)
+            hasImpulse = true
+        }
+
+        private fun isAirborneMoskuo(target: LivingEntity): Boolean = target is MoskuoEntity && !target.isInWater
+
         private fun inReach(target: LivingEntity): Boolean =
-            boundingBox.inflate(BITE_REACH).intersects(target.boundingBox)
+            boundingBox.inflate(if (isAirborneMoskuo(target)) LUNGE_REACH else BITE_REACH).intersects(target.boundingBox)
 
         private fun bite(target: LivingEntity) {
             if (!target.isAlive || !inReach(target)) return
@@ -294,6 +330,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
                 latch(target)
             } else if (target.eatWhole(this@EauhorranaEntity)) {
                 sate()
+                LOG.info("[FishDebug] Eauhorrana {} swallowed {} at {}", id, target.type.toShortString(), target.blockPosition())
             }
         }
     }
@@ -362,6 +399,15 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
         private const val BITE_TICKS = 8
         private const val NOT_BITING = -1
         private const val RELATCH_COOLDOWN_TICKS = 60
+        private const val DIP_SPOT_RANGE = 8.0
+        private const val LUNGE_RANGE = 2.5
+        private const val LUNGE_SPEED = 0.7
+        private const val LUNGE_REACH = 0.5
+        private const val MIN_LUNGE_LENGTH = 0.01f
+        private const val HALF_HEIGHT = 0.5
+        private const val AIR_PREY_DROP = 1.0
+        private const val LARVAE_RANGE = 8.0
+        private const val LARVA_MEAL_TICKS = 400
 
         // Body centre to the jaws, in blocks.
         private const val MOUTH_REACH = 0.6f

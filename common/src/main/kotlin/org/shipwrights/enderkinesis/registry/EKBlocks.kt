@@ -1024,6 +1024,9 @@ object EKBlocks {
     val WOHLON_DUCKWEED: RegistrySupplier<Block> = BLOCKS.register("wohlon_duckweed") {
         net.minecraft.world.level.block.WaterlilyBlock(BlockBehaviour.Properties.copy(Blocks.LILY_PAD).noCollission())
     }
+    val MOSKUO_LARVAE: RegistrySupplier<Block> = BLOCKS.register("moskuo_larvae") {
+        org.shipwrights.enderkinesis.block.MoskuoLarvaeBlock(BlockBehaviour.Properties.copy(Blocks.FROGSPAWN))
+    }
     // noOcclusion: a carpet culls the top face of the block under it, which shows through the leaf gaps.
     val WOHLON_LEAF_LITTER: RegistrySupplier<Block> = BLOCKS.register("wohlon_leaf_litter") {
         CarpetBlock(

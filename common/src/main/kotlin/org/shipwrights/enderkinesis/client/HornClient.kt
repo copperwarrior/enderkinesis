@@ -10,7 +10,7 @@ object HornClient {
     private val TOOTING = ResourceLocation("tooting")
 
     fun init() {
-        for (horn in listOf(EKItems.PRISMATIC_GOAT_HORN, EKItems.SHELL_OF_TIDES)) {
+        for (horn in listOf(EKItems.BLESSED_GOAT_HORN, EKItems.SHELL_OF_TIDES)) {
             ItemPropertiesRegistry.register(horn.get(), TOOTING) { stack, _, entity, _ ->
                 if (entity != null && entity.isUsingItem && entity.useItem === stack) 1f else 0f
             }

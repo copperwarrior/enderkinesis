@@ -88,12 +88,7 @@ object EnderkinesisModClient {
             SselithMothRenderer(ctx)
         }
 
-        // Prismatic Goat — plain quadruped renderer; the model owns
-        // its walk + idle animation, the renderer just supplies the
-        // texture and a small shadow.
-        EntityRendererRegistry.register(EKEntities.PRISMATIC_GOAT) { ctx ->
-            PrismaticGoatRenderer(ctx)
-        }
+        EntityRendererRegistry.register(EKEntities.BLESSED_GOAT) { ctx -> BlessedGoatRenderer(ctx) }
 
         // Constriliar — IK-legged walking platform; the renderer drives the
         // gait solve and body tilt, the model just applies the solved angles.
@@ -341,6 +336,8 @@ object EnderkinesisModClient {
             EKBlocks.POTTED_WOHLON_CUP_MUSHROOM.get(),
             EKBlocks.POTTED_WOHLON_LUMPY_MUSHROOM.get(),
         )
+        // Vanilla frogspawn, our placeholder art, is translucent.
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.MOSKUO_LARVAE.get())
 
         // Binding Roots: custom hand-rolled model (we abandoned the `minecraft:block/cross`
         // parent to add the wogor-wood slab base), so we lose the implicit cutout layer the

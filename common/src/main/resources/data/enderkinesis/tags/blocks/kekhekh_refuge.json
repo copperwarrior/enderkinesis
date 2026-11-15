@@ -1,0 +1,20 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:leaves",
+    "enderkinesis:wogor_log",
+    "enderkinesis:wogor_wood",
+    "enderkinesis:binding_roots",
+    "enderkinesis:wohlon_root",
+    "enderkinesis:wohlon_hanging_roots",
+    "enderkinesis:wohlon_reed",
+    "enderkinesis:wohlon_lily_pad",
+    "enderkinesis:wohlon_duckweed",
+    "minecraft:mangrove_roots",
+    "minecraft:seagrass",
+    "minecraft:tall_seagrass",
+    "minecraft:kelp",
+    "minecraft:kelp_plant",
+    "minecraft:lily_pad"
+  ]
+}

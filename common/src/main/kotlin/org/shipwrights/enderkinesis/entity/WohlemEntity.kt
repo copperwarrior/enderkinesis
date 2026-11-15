@@ -29,7 +29,7 @@ import org.shipwrights.enderkinesis.item.RobeArmorMaterial
  * that isn't part of the Wohlon ecosystem:
  *
  *  - **Exempt**: entity types in the `enderkinesis:wohlon_mobs` tag (other
- *    wohlems, prismatic goats — extend the tag to grow the ecosystem), and
+ *    wohlems, blessed goats — extend the tag to grow the ecosystem), and
  *    any [LivingEntity] wearing at least one piece of Blue Witch armour.
  *  - **Attack**: a 1.25 s wind-up swing ([WohlemAnimations.attack]); the
  *    damage frame lands 0.58–0.67 s into the animation, so the hurt fires

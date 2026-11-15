@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.entity
 
+import com.mojang.logging.LogUtils
 import java.util.EnumSet
 import java.util.UUID
 import net.minecraft.core.BlockPos
@@ -9,8 +10,11 @@ import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
+import net.minecraft.server.level.ServerLevel
+import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.util.RandomSource
+import net.minecraft.world.DifficultyInstance
 import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.entity.AnimationState
@@ -22,6 +26,7 @@ import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.MobSpawnType
 import net.minecraft.world.entity.PathfinderMob
 import net.minecraft.world.entity.Pose
+import net.minecraft.world.entity.SpawnGroupData
 import net.minecraft.world.entity.ai.attributes.AttributeModifier
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier
 import net.minecraft.world.entity.ai.attributes.Attributes
@@ -39,7 +44,10 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.CollisionContext
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.block.MoskuoLarvaeBlock
 import org.shipwrights.enderkinesis.registry.EKEffects
+
+private val LOG = LogUtils.getLogger()
 
 /**
  * Wohlon mosquito. It waits inside leaves and plants, bursts out to sting anything alive, and spreads Trypoemia.
@@ -56,6 +64,8 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
     private var digestTicks = 0
     private var stingCooldown = 0
     private var settledInCover = false
+    private var hasEggs = false
+    private var eggTicks = 0
 
     val action: Action
         get() = Action.entries.getOrElse(entityData.get(DATA_ACTION).toInt()) { Action.NONE }
@@ -63,6 +73,10 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
     val isFed: Boolean get() = entityData.get(DATA_FED)
 
     val isPerched: Boolean get() = entityData.get(DATA_PERCHED)
+
+    /** Low over or in water, where an Eauhorrana can lunge at it. The planned horned frog should hunt here too. */
+    val isDipping: Boolean
+        get() = isInWater || level().getFluidState(BlockPos.containing(x, y - DIP_HEIGHT, z)).`is`(FluidTags.WATER)
 
     init {
         moveControl = FlyingMoveControl(this, MAX_TURN, true)
@@ -118,6 +132,7 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
     override fun registerGoals() {
         goalSelector.addGoal(1, StingGoal())
         goalSelector.addGoal(2, CoverGoal(fed = true))
+        goalSelector.addGoal(2, LayEggsGoal())
         goalSelector.addGoal(3, CoverGoal(fed = false))
         goalSelector.addGoal(4, WaterAvoidingRandomFlyingGoal(this, 1.0))
     }
@@ -131,6 +146,14 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
             setFed(false)
             heal(maxHealth)
             setAction(Action.NONE)
+            if (random.nextFloat() < LAY_CHANCE) {
+                hasEggs = true
+                eggTicks = 0
+            }
+        }
+        if (hasEggs && ++eggTicks > EGG_HOLD_TICKS) {
+            hasEggs = false
+            LOG.info("[MoskuoDebug] Moskuo {} found no still water and dropped its eggs", id)
         }
         entityData.set(DATA_PERCHED, onGround() || settledInCover)
     }
@@ -139,12 +162,30 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
         super.addAdditionalSaveData(tag)
         tag.putBoolean(FED_KEY, isFed)
         tag.putInt(DIGEST_KEY, digestTicks)
+        tag.putBoolean(EGGS_KEY, hasEggs)
+        tag.putInt(EGG_TICKS_KEY, eggTicks)
     }
 
     override fun readAdditionalSaveData(tag: CompoundTag) {
         super.readAdditionalSaveData(tag)
         setFed(tag.getBoolean(FED_KEY))
         digestTicks = tag.getInt(DIGEST_KEY)
+        hasEggs = tag.getBoolean(EGGS_KEY)
+        eggTicks = tag.getInt(EGG_TICKS_KEY)
+    }
+
+    override fun finalizeSpawn(
+        level: ServerLevelAccessor,
+        difficulty: DifficultyInstance,
+        spawnType: MobSpawnType,
+        spawnGroupData: SpawnGroupData?,
+        tag: CompoundTag?,
+    ): SpawnGroupData? {
+        if (random.nextBoolean()) {
+            setFed(true)
+            digestTicks = 1 + random.nextInt(DIGEST_DELAY_TICKS)
+        }
+        return super.finalizeSpawn(level, difficulty, spawnType, spawnGroupData, tag)
     }
 
     private fun isPrey(entity: LivingEntity): Boolean =
@@ -171,7 +212,7 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
         }
 
         override fun canUse(): Boolean {
-            if (isFed || action != Action.NONE || stingCooldown > 0) return false
+            if (isFed || hasEggs || action != Action.NONE || stingCooldown > 0) return false
             target = level().getEntitiesOfClass(LivingEntity::class.java, boundingBox.inflate(TRIGGER_RANGE)) {
                 isPrey(it) && hasLineOfSight(it)
             }.minByOrNull { it.distanceToSqr(this@MoskuoEntity) }
@@ -328,6 +369,92 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
         }
     }
 
+    /** Flies low over the nearest still Wohlon water, hangs there for [LAY_TICKS] and lays a [MoskuoLarvaeBlock]. */
+    private inner class LayEggsGoal : Goal() {
+        private var water: BlockPos? = null
+        private var hoverY = 0.0
+        private var searchCooldown = 0
+        private var flightTicks = 0
+        private var layTicks = 0
+
+        init {
+            flags = EnumSet.of(Flag.MOVE)
+        }
+
+        override fun canUse(): Boolean {
+            if (!hasEggs || isFed || action != Action.NONE || --searchCooldown > 0) return false
+            searchCooldown = LAY_SEARCH_INTERVAL_TICKS
+            water = findWater()
+            return water != null
+        }
+
+        override fun canContinueToUse(): Boolean = hasEggs && water != null && flightTicks < LAY_FLIGHT_TICKS
+
+        override fun requiresUpdateEveryTick(): Boolean = true
+
+        override fun start() {
+            val at = water ?: return
+            flightTicks = 0
+            layTicks = 0
+            settledInCover = false
+            hoverY = at.y + level().getFluidState(at).getHeight(level(), at) + LAY_HOVER
+        }
+
+        override fun tick() {
+            val at = water ?: return
+            val centerX = at.x + HALF
+            val centerZ = at.z + HALF
+            if (layTicks == 0 && distanceToSqr(centerX, hoverY, centerZ) > LAY_ARRIVE_DISTANCE * LAY_ARRIVE_DISTANCE) {
+                flightTicks++
+                moveControl.setWantedPosition(centerX, hoverY, centerZ, 1.0)
+                return
+            }
+            navigation.stop()
+            isNoGravity = true
+            deltaMovement = Vec3.ZERO
+            if (++layTicks < LAY_TICKS) return
+            val level = level() as? ServerLevel ?: return
+            if (MoskuoLarvaeBlock.isLayingWater(level, at, BlockPos.MutableBlockPos()) &&
+                MoskuoLarvaeBlock.lay(level, at, MoskuoLarvaeBlock.MAX_LARVAE)
+            ) {
+                LOG.info("[MoskuoDebug] Moskuo {} laid {} larvae above {}", id, MoskuoLarvaeBlock.MAX_LARVAE, at)
+            } else {
+                LOG.info("[MoskuoDebug] Moskuo {} found no room for larvae above {} and dropped its eggs", id, at)
+            }
+            hasEggs = false
+            water = null
+        }
+
+        override fun stop() {
+            water = null
+        }
+
+        // Each column is read top-down to its first water block only, so the cost is one short walk per column.
+        private fun findWater(): BlockPos? {
+            val level = level() as? ServerLevel ?: return null
+            val origin = blockPosition()
+            val cursor = BlockPos.MutableBlockPos()
+            val scratch = BlockPos.MutableBlockPos()
+            var best: BlockPos? = null
+            var bestScore = Int.MAX_VALUE
+            for (dx in -LAY_REACH..LAY_REACH) {
+                for (dz in -LAY_REACH..LAY_REACH) {
+                    for (dy in LAY_REACH_Y downTo -LAY_REACH_Y) {
+                        cursor.setWithOffset(origin, dx, dy, dz)
+                        if (!level.getFluidState(cursor).`is`(FluidTags.WATER)) continue
+                        val score = dx * dx + dy * dy + dz * dz
+                        if (score < bestScore && MoskuoLarvaeBlock.isLayingWater(level, cursor, scratch)) {
+                            bestScore = score
+                            best = cursor.immutable()
+                        }
+                        break
+                    }
+                }
+            }
+            return best
+        }
+    }
+
     companion object {
         const val ID_PATH = "moskuo"
         const val WIDTH = 0.35f
@@ -377,7 +504,20 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
         private const val HOVER_PENALTY = 64.0
         private const val ARRIVE_DISTANCE = 0.35
         private const val HALF = 0.5
+        private const val DIP_HEIGHT = 0.5
+        private const val LAY_CHANCE = 0.35f
+        private const val EGG_HOLD_TICKS = 2400
+        private const val LAY_SEARCH_INTERVAL_TICKS = 60
+        private const val LAY_REACH = 10
+        private const val LAY_REACH_Y = 6
+        private const val LAY_FLIGHT_TICKS = 300
+        private const val LAY_HOVER = 0.1
+        private const val LAY_ARRIVE_DISTANCE = 0.4
+        // Long enough for a nearby Eauhorrana to reach the surface and lunge.
+        private const val LAY_TICKS = 60
         private const val FED_KEY = "Fed"
+        private const val EGGS_KEY = "HasEggs"
+        private const val EGG_TICKS_KEY = "EggTicks"
         private const val DIGEST_KEY = "DigestTicks"
 
         /** Spawns only in or just above cover, so a new Moskuo starts hidden. */

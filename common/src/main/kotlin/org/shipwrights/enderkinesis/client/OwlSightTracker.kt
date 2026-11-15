@@ -163,7 +163,7 @@ object OwlSightTracker {
     private fun reveal() {
         Minecraft.getInstance().soundManager.play(
             SimpleSoundInstance(
-                EKSounds.PRISMATIC_HORN_CAVES[DRONING_HORN_INDEX].get().location, SoundSource.AMBIENT,
+                EKSounds.BLESSED_HORN_CAVES[DRONING_HORN_INDEX].get().location, SoundSource.AMBIENT,
                 REVEAL_VOLUME, 1f, SoundInstance.createUnseededRandom(),
                 false, 0, SoundInstance.Attenuation.NONE, 0.0, 0.0, 0.0, true,
             ),

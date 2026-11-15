@@ -15,6 +15,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.entity.ArchiveEntity
+import org.shipwrights.enderkinesis.entity.BlessedGoatEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.EauhorranaEntity
 import org.shipwrights.enderkinesis.entity.KekhekhEntity
@@ -26,7 +27,6 @@ import org.shipwrights.enderkinesis.entity.SignatureEntity
 import org.shipwrights.enderkinesis.entity.SingularityEntity
 import org.shipwrights.enderkinesis.entity.SpellBoltEntity
 import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
-import org.shipwrights.enderkinesis.entity.PrismaticGoat
 import org.shipwrights.enderkinesis.entity.SselithMothEntity
 import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
 import org.shipwrights.enderkinesis.entity.ShilleagkDeerEntity
@@ -211,15 +211,12 @@ object EKEntities {
                 .build(ConstriliarEntity.ID_PATH)
         }
 
-    /** Prismatic Goat — passive quadruped that spawns in Wohlon
-     *  biomes. Vanilla-goat-sized bbox so existing pathfinder budgets
-     *  and collision math fit without tuning. */
-    val PRISMATIC_GOAT: RegistrySupplier<EntityType<PrismaticGoat>> =
-        ENTITIES.register(PrismaticGoat.ID_PATH) {
-            EntityType.Builder.of(::PrismaticGoat, MobCategory.CREATURE)
-                .sized(0.9f, 1.3f)        // vanilla goat dims
+    val BLESSED_GOAT: RegistrySupplier<EntityType<BlessedGoatEntity>> =
+        ENTITIES.register(BlessedGoatEntity.ID_PATH) {
+            EntityType.Builder.of(::BlessedGoatEntity, MobCategory.CREATURE)
+                .sized(BlessedGoatEntity.WIDTH, BlessedGoatEntity.HEIGHT)
                 .clientTrackingRange(10)
-                .build(PrismaticGoat.ID.toString())
+                .build(BlessedGoatEntity.ID_PATH)
         }
 
     /** Sselith Moth — small flocking mob that drifts through the extreme
@@ -326,11 +323,7 @@ object EKEntities {
         EntityAttributeRegistry.register(MOSKUO) { MoskuoEntity.createAttributes() }
         EntityAttributeRegistry.register(WILL_O_THE_WISP) { WillOTheWispEntity.createAttributes() }
         EntityAttributeRegistry.register(WEHELO_STONE_CREATURE) { WeheloStoneCreature.createAttributes() }
-        // Vanilla goat attributes verbatim — `PrismaticGoat`
-        // extends `Goat` directly, so its base stats match.
-        EntityAttributeRegistry.register(PRISMATIC_GOAT) {
-            net.minecraft.world.entity.animal.goat.Goat.createAttributes()
-        }
+        EntityAttributeRegistry.register(BLESSED_GOAT) { BlessedGoatEntity.createAttributes() }
         // Spawn placement — only spawns on top of solid ground. Light-independent
         // (Sselith's dim ambient would otherwise suppress every spawn), and not
         // tied to Animal because the cataloger isn't one.
@@ -353,16 +346,12 @@ object EKEntities {
             Mob.checkMobSpawnRules(type, level, spawnType, pos, random)
         }
 
-        // Prismatic Goat spawn placement — vanilla-passive-mob rules
-        // (sufficient light + spawnable-on tag), with the tag
-        // ([PRISMATIC_GOAT_SPAWNABLE_ON]) unioning the vanilla
-        // `#minecraft:animals_spawnable_on` with the wogor / mud surface
-        // family so spawns work on BOTH the Wohlon dimension's mud
-        // floors AND the overworld's grass under spread biome cells.
-        // Biome gating lives in the biome JSON's `spawners.creature`
-        // entry — placement just has to agree this is "ground a
-        // passive mob can stand on."
-        placeOnGround(PRISMATIC_GOAT, ::isWohlonAnimalGround)
+        // Biome gating lives in the biome JSON's `spawners.creature` entry.
+        placeOnGround(BLESSED_GOAT) { type, level, spawnType, pos, random ->
+            isWohlonAnimalGround(type, level, spawnType, pos, random) &&
+                // Deer may not be placed yet during chunk generation, so only later spawns check the deer count.
+                BlessedGoatEntity.hasRoomToSpawn(level, pos, checkDeer = spawnType != net.minecraft.world.entity.MobSpawnType.CHUNK_GENERATION)
+        }
         placeOnGround(SHILLEAGK_DEER, ::isWohlonAnimalGround)
         place(KEKHEKH, SpawnPlacements.Type.IN_WATER) { _, level, spawnType, pos, random ->
             WaterAnimal.checkSurfaceWaterAnimalSpawnRules(KEKHEKH.get(), level, spawnType, pos, random)
@@ -381,7 +370,7 @@ object EKEntities {
         random: net.minecraft.util.RandomSource,
     ): Boolean =
         // Replicates `Animal.isBrightEnoughToSpawn` (protected): vanilla passive mobs need raw brightness > 8.
-        level.getBlockState(pos.below()).`is`(PRISMATIC_GOAT_SPAWNABLE_ON) &&
+        level.getBlockState(pos.below()).`is`(WOHLON_ANIMALS_SPAWNABLE_ON) &&
             level.getRawBrightness(pos, 0) > 8
 
     /** `listen`, not `get`: on Forge the entry does not exist until the registry event, and
@@ -407,13 +396,10 @@ object EKEntities {
         }
     }
 
-    /** Surface-block tag — block must match for a Prismatic Goat to
-     *  spawn here. Union of vanilla `#minecraft:animals_spawnable_on`
-     *  plus the wogor / mud family so the natural spawner works on
-     *  every Wohlon surface palette. */
-    val PRISMATIC_GOAT_SPAWNABLE_ON: net.minecraft.tags.TagKey<net.minecraft.world.level.block.Block> =
+    /** Vanilla `#minecraft:animals_spawnable_on` plus the wogor / mud family, so Wohlon fauna spawn on every Wohlon surface. */
+    val WOHLON_ANIMALS_SPAWNABLE_ON: net.minecraft.tags.TagKey<net.minecraft.world.level.block.Block> =
         net.minecraft.tags.TagKey.create(
             net.minecraft.core.registries.Registries.BLOCK,
-            net.minecraft.resources.ResourceLocation("enderkinesis", "prismatic_goat_spawnable_on"),
+            EnderkinesisMod.id("wohlon_animals_spawnable_on"),
         )
 }

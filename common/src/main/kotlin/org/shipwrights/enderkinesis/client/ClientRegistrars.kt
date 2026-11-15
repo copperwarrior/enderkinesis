@@ -9,13 +9,13 @@ import net.minecraft.client.renderer.ShaderInstance
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.resources.ResourceLocation
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.client.model.BlessedGoatModel
 import org.shipwrights.enderkinesis.client.model.CatalogerModel
 import org.shipwrights.enderkinesis.client.model.ConstriliarModel
 import org.shipwrights.enderkinesis.client.model.EauhorranaModel
 import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
 import org.shipwrights.enderkinesis.client.model.KekhekhModel
 import org.shipwrights.enderkinesis.client.model.MoskuoModel
-import org.shipwrights.enderkinesis.client.model.PrismaticGoatModel
 import org.shipwrights.enderkinesis.client.model.ShilleagkDeerModel
 import org.shipwrights.enderkinesis.client.model.ShulkonautModel
 import org.shipwrights.enderkinesis.client.model.SselithMothModel
@@ -38,7 +38,7 @@ fun registerModelLayers(register: (ModelLayerLocation, () -> LayerDefinition) ->
     register(WohlemModel.LAYER_LOCATION, WohlemModel::createBodyLayer)
     register(ConstriliarModel.LAYER_LOCATION, ConstriliarModel::createBodyLayer)
     register(HeartOfTheWildModel.LAYER_LOCATION, HeartOfTheWildModel::createBodyLayer)
-    register(PrismaticGoatModel.LAYER_LOCATION, PrismaticGoatModel::createBodyLayer)
+    register(BlessedGoatModel.LAYER_LOCATION, BlessedGoatModel::createBodyLayer)
     register(ShilleagkDeerModel.LAYER_LOCATION, ShilleagkDeerModel::createBodyLayer)
     register(KekhekhModel.LAYER_LOCATION, KekhekhModel::createBodyLayer)
     register(WeheloStoneCreatureModel.LAYER_LOCATION, WeheloStoneCreatureModel::createBodyLayer)

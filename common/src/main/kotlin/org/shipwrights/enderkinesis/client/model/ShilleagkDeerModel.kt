@@ -21,6 +21,7 @@ class ShilleagkDeerModel(private val bakedRoot: ModelPart) : CachedHierarchicalM
 
     private val neck: ModelPart = bakedRoot.getChild("bone").getChild("HEAD")
     private val head: ModelPart = neck.getChild("JustHead")
+    private val jaw: ModelPart = head.getChild("JAW")
 
     init {
         FaceUvCube.attach(bakedRoot.getChild("bone").getChild("HEAD").getChild("JustHead"), FaceUvCube(-3.0f, -1.0f, -2.0f, 4.0f, 1.0f, 5.0f, 0.0f, floatArrayOf(6.0f, 38.0f, 10.0f, 39.0f, 0.0f, 38.0f, 5.0f, 39.0f, 16.0f, 38.0f, 20.0f, 39.0f, 11.0f, 38.0f, 16.0f, 39.0f, 2.0f, 28.0f, 2.0f, 28.0f, 14.0f, 28.0f, 10.0f, 33.0f), TEXTURE_SIZE, TEXTURE_SIZE))
@@ -66,6 +67,25 @@ class ShilleagkDeerModel(private val bakedRoot: ModelPart) : CachedHierarchicalM
             neck.yRot += netHeadYaw * Mth.DEG_TO_RAD
             head.xRot += headPitch * Mth.DEG_TO_RAD
         }
+        if (entity.action == ShilleagkDeerEntity.Action.VINE_CHEW) chewJaw(ageInTicks - entity.clientChewStartTick)
+        // Vanilla baby look: the renderer halves the whole deer, and the head is scaled back up against the body.
+        if (entity.isBaby) {
+            head.xScale *= FAWN_HEAD_SCALE
+            head.yScale *= FAWN_HEAD_SCALE
+            head.zScale *= FAWN_HEAD_SCALE
+        }
+    }
+
+    /** Opens the jaw to take the vine, then chews it; [ticks] count from the VINE_CHEW start, with the partial tick. */
+    private fun chewJaw(ticks: Float) {
+        if (ticks < JAW_OPEN_TICKS) {
+            jaw.xRot += JAW_OPEN * smootherstep((ticks / JAW_OPEN_TICKS).coerceIn(0f, 1f))
+            return
+        }
+        // Each chew starts open, so the cycle joins the opening without a jump.
+        val phase = (ticks - JAW_OPEN_TICKS) * CHEWS_PER_TICK * Mth.TWO_PI
+        jaw.xRot += JAW_CHEW_CLOSED + (JAW_OPEN - JAW_CHEW_CLOSED) * 0.5f * (1f + Mth.cos(phase))
+        jaw.yRot += JAW_GRIND * Mth.sin(phase)
     }
 
     private fun play(state: AnimationState, clip: AnimationDefinition, ageInTicks: Float): Boolean {
@@ -77,7 +97,15 @@ class ShilleagkDeerModel(private val bakedRoot: ModelPart) : CachedHierarchicalM
 
     companion object {
         private val ANIMATION_VECTOR_CACHE = Vector3f()
+        private const val JAW_OPEN = 28f * Mth.DEG_TO_RAD
+        // The vine lies across the mouth, so a chew never shuts the jaw.
+        private const val JAW_CHEW_CLOSED = 6f * Mth.DEG_TO_RAD
+        private const val JAW_GRIND = 5f * Mth.DEG_TO_RAD
+        private const val JAW_OPEN_TICKS = 4f
+        private const val CHEWS_PER_TICK = 3f / 20f
         private const val TEXTURE_SIZE = 64f
+        // Vanilla pig baby: head at 0.75 against a 0.5 body.
+        private const val FAWN_HEAD_SCALE = 1.5f
         private const val WALK_SWING_SPEED = ShilleagkDeerEntity.WALK_GROUND_SPEED * ShilleagkDeerEntity.LIMB_SWING_PER_BLOCK
         private const val RUN_SWING_SPEED = ShilleagkDeerEntity.RUN_GROUND_SPEED * ShilleagkDeerEntity.LIMB_SWING_PER_BLOCK
 

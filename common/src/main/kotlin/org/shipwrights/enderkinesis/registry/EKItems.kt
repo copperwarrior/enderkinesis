@@ -645,28 +645,25 @@ object EKItems {
     val BINDING_ROOTS_ITEM = blockItem("binding_roots", EKBlocks.BINDING_ROOTS)
 
     /** Tag of [Instrument] records — the 19 cave-ambience variants
-     *  that the prismatic-goat horn picks from. Wired to
-     *  `data/enderkinesis/tags/instrument/prismatic_goat_horns.json`,
-     *  which lists `enderkinesis:cave_1` through `cave_19`. Used by
-     *  both [PRISMATIC_GOAT_HORN]'s tag-based creative variant
-     *  enumeration and [org.shipwrights.enderkinesis.entity.PrismaticGoat.createHorn]'s
-     *  UUID-seeded random pick. */
-    val PRISMATIC_GOAT_HORNS_TAG: TagKey<Instrument> = TagKey.create(
+     *  that the Blessed Goat Horn picks from. Wired to
+     *  `data/enderkinesis/tags/instrument/blessed_goat_horns.json`,
+     *  which lists `enderkinesis:cave_1` through `cave_19`. */
+    val BLESSED_GOAT_HORNS_TAG: TagKey<Instrument> = TagKey.create(
         Registries.INSTRUMENT,
-        ResourceLocation(EnderkinesisMod.MOD_ID, "prismatic_goat_horns"),
+        ResourceLocation(EnderkinesisMod.MOD_ID, "blessed_goat_horns"),
     )
 
-    /** Prismatic goat horn — single [InstrumentItem] whose specific
+    /** Blessed Goat Horn — single [InstrumentItem] whose specific
      *  cave-ambience variant is keyed by the `instrument` NBT tag
      *  (just like vanilla `goat_horn`: one item, 8 NBT-distinguished
      *  variants → one item, 19 NBT-distinguished variants here).
-     *  Dropped by prismatic goats on ram impact; right-click to
+     *  A Blessed Goat drops it when it rams a horn-snapping block; right-click to
      *  broadcast the cave noise across [Instrument.range] blocks
      *  for [Instrument.useDuration] ticks. Stacks to 1 to match
      *  vanilla horn behaviour. */
-    val PRISMATIC_GOAT_HORN: RegistrySupplier<Item> =
-        ITEMS.register("prismatic_goat_horn") {
-            InstrumentItem(props().stacksTo(1).rarity(Rarity.UNCOMMON), PRISMATIC_GOAT_HORNS_TAG)
+    val BLESSED_GOAT_HORN: RegistrySupplier<Item> =
+        ITEMS.register("blessed_goat_horn") {
+            InstrumentItem(props().stacksTo(1).rarity(Rarity.UNCOMMON), BLESSED_GOAT_HORNS_TAG)
         }
 
     /** Music Disc — Mystery. "Enter the Mystery" by Tomato. 120 s
@@ -757,6 +754,12 @@ object EKItems {
                 0x35484C,
                 props(),
             )
+        }
+
+    /** Dark olive fur over teal growths, sampled from the Blessed Goat texture. */
+    val BLESSED_GOAT_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("blessed_goat_spawn_egg") {
+            ArchitecturySpawnEggItem(EKEntities.BLESSED_GOAT, 0x2E2D14, 0x0A2420, props())
         }
 
     /** Dark teal body with blood-red spots, sampled from the Moskuo texture. */

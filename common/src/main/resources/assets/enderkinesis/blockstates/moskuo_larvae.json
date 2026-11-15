@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "": [
+      { "model": "enderkinesis:block/moskuo_larvae" },
+      { "model": "enderkinesis:block/moskuo_larvae", "y": 90 },
+      { "model": "enderkinesis:block/moskuo_larvae", "y": 180 },
+      { "model": "enderkinesis:block/moskuo_larvae", "y": 270 }
+    ]
+  }
+}

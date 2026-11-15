@@ -42,6 +42,12 @@
         "weight": 4,
         "minCount": 1,
         "maxCount": 2
+      },
+      {
+        "type": "enderkinesis:blessed_goat",
+        "weight": 1,
+        "minCount": 1,
+        "maxCount": 2
       }
     ],
     "ambient": [

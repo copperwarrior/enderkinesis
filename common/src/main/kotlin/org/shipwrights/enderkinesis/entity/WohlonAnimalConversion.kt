@@ -20,18 +20,21 @@ import org.shipwrights.enderkinesis.mixin.LivingEntityDropEquipmentInvoker
 import org.shipwrights.enderkinesis.registry.EKEntities
 
 /**
- * Passive-mob → Prismatic Goat conversion driver. Any vanilla / modded
+ * Passive-mob → Blessed Goat conversion driver. Any vanilla / modded
  * [Animal] that wanders into a Wohlonnogondonia biome cell starts a
  * conversion timer; while the timer runs the mob visibly twitches (yaw
  * jolts, hurt-flash, soul-particle puffs); when the timer expires the
- * mob is discarded and a [PrismaticGoat] takes its place.
+ * mob is discarded and a [BlessedGoatEntity] takes its place.
  *
- * Named mobs and the Prismatic Goat itself are exempt — the named-mob
+ * Named mobs and the Blessed Goat itself are exempt — the named-mob
  * exemption matches vanilla "this is the player's pet, don't break it"
  * convention used by zombie-villager curing, lightning-cow-mooshroom,
  * etc.
  */
 object WohlonAnimalConversion {
+
+    // Off until the user revisits the conversion design.
+    private const val ENABLED = false
 
     /** How often (game ticks) we sweep every loaded level for animals
      *  to enroll into / drop out of the conversion pool. 20 ticks = 1 s,
@@ -45,7 +48,7 @@ object WohlonAnimalConversion {
      *  once-per-second pulse. */
     private const val ANIMATE_INTERVAL_TICKS: Long = 5L
 
-    /** Total ticks from "entered Wohlon" to "becomes a Prismatic Goat".
+    /** Total ticks from "entered Wohlon" to "becomes a Blessed Goat".
      *  100 ticks = 5 s — long enough to read as a deliberate
      *  transformation, short enough that it's not waiting around. */
     private const val CONVERSION_TICKS: Long = 100L
@@ -62,6 +65,7 @@ object WohlonAnimalConversion {
     private val converting: ConcurrentHashMap<UUID, Long> = ConcurrentHashMap()
 
     fun init() {
+        if (!ENABLED) return
         TickEvent.SERVER_LEVEL_POST.register(::tickLevel)
         LifecycleEvent.SERVER_STOPPED.register { _ -> converting.clear() }
     }
@@ -130,7 +134,7 @@ object WohlonAnimalConversion {
      *  not player-named (matches vanilla pet convention). */
     private fun isConvertable(animal: Animal): Boolean {
         if (!animal.isAlive || animal.isRemoved) return false
-        if (animal is PrismaticGoat) return false
+        if (animal is BlessedGoatEntity) return false
         if (animal.hasCustomName()) return false
         return true
     }
@@ -161,7 +165,7 @@ object WohlonAnimalConversion {
             }
             val elapsed = gameTime - entry.value
             if (elapsed >= CONVERSION_TICKS) {
-                convertToPrismaticGoat(level, animal)
+                convertToBlessedGoat(level, animal)
                 iter.remove()
             } else {
                 applyTwitch(level, animal, elapsed.toFloat() / CONVERSION_TICKS.toFloat())
@@ -215,12 +219,12 @@ object WohlonAnimalConversion {
         }
     }
 
-    /** Replace [source] with a fresh [PrismaticGoat] at the same pose.
+    /** Replace [source] with a fresh [BlessedGoatEntity] at the same pose.
      *  Inherits persistence + invulnerability + baby flag so the
      *  resulting goat keeps the relevant attributes that the original
      *  animal had. */
-    private fun convertToPrismaticGoat(level: ServerLevel, source: Animal) {
-        val goat = EKEntities.PRISMATIC_GOAT.get().create(level) ?: return
+    private fun convertToBlessedGoat(level: ServerLevel, source: Animal) {
+        val goat = EKEntities.BLESSED_GOAT.get().create(level) ?: return
         goat.moveTo(source.x, source.y, source.z, source.yRot, source.xRot)
         if (source.isPersistenceRequired) goat.setPersistenceRequired()
         if (source.isBaby) goat.setBaby(true)
