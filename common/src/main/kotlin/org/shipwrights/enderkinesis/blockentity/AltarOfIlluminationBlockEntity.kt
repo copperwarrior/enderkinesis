@@ -17,6 +17,7 @@ import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Inscription
 import org.shipwrights.enderkinesis.spell.Spell
+import org.shipwrights.enderkinesis.registry.shardItem
 
 /**
  * Only a plain glyph comes back out as its shard; a fusion stays until an opposite undoes it. The finish takes its ink bottle
@@ -149,7 +150,7 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
     fun takeBackShard(): ItemStack {
         val i = takeableIndex()
         if (i < 0) return ItemStack.EMPTY
-        val shard = ItemStack(checkNotNull(EKItems.shardOf(glyphs[i])))
+        val shard = ItemStack(checkNotNull(glyphs[i].shardItem()))
         glyphs = glyphs.filterIndexed { j, _ -> j != i }
         events = events.mapNotNull { e ->
             when {
@@ -162,7 +163,7 @@ class AltarOfIlluminationBlockEntity(pos: BlockPos, state: BlockState) :
         return shard
     }
 
-    private fun takeableIndex(): Int = glyphs.indexOfLast { !it.isFusion && EKItems.shardOf(it) != null }
+    private fun takeableIndex(): Int = glyphs.indexOfLast { !it.isFusion && it.shardItem() != null }
 
     fun takeReady(): ItemStack {
         val out = ready

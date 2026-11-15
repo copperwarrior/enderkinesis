@@ -11,8 +11,11 @@ import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.ChestBlock
+import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.block.OrbOfLinkingSounds
+import org.shipwrights.enderkinesis.blockentity.AnchoredBeamPath
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
+import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
@@ -58,6 +61,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
     open class MoverState {
         var cursor: Int = 0
         val pending: MutableList<PendingDelivery> = mutableListOf()
+        internal val route = AnchoredBeamPath()
 
         /** Saved with the block entity, or a chunk unload or a server stop deletes the
          *  stacks that are in flight. */
@@ -270,8 +274,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             dropAt(level, d.receiverPos, d.stack)
             return
         }
-        val dist = sendCentre.distanceTo(recvCentre)
-        val travelTicks = Math.max(minTravelTicks, Math.ceil(dist * ticksPerBlock).toInt())
+        val travelTicks = pathTravelTicks(level, state, d.sendPos, sendCentre, d.receiverPos, recvCentre)
         state.pending.add(d.copy(
             returning = true,
             deliveryTick = level.gameTime + travelTicks,
@@ -284,6 +287,19 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             stack = d.stack,
             totalTicks = travelTicks,
         )
+    }
+
+    /** Measured along the anchored beam path that the client flies the item on. */
+    private fun pathTravelTicks(
+        level: ServerLevel, state: MoverState,
+        sendPos: BlockPos, sendCentre: Vec3, recvPos: BlockPos, recvCentre: Vec3,
+    ): Int {
+        state.route.build(
+            level, sendCentre, recvCentre,
+            OrbOfLinkingBlockEntity.loadedAt(level, sendPos), OrbOfLinkingBlockEntity.loadedAt(level, recvPos),
+            UlderBeamAnchorBlockEntity.LoadedAnchorPoints,
+        )
+        return Math.max(minTravelTicks, Math.ceil(state.route.length() * ticksPerBlock).toInt())
     }
 
     /** True when a stack left the source. Round-robin dispatch with destination filtering: scan receivers starting from the
@@ -345,8 +361,7 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         val pulled = pullSourceStack(level, sendBe) ?: return false       // raced — source emptied
         state.cursor = (chosenIdx + 1) % receivers.size
 
-        val dist = sendCentre.distanceTo(chosenRecvCentre)
-        val travelTicks = Math.max(minTravelTicks, Math.ceil(dist * ticksPerBlock).toInt())
+        val travelTicks = pathTravelTicks(level, state, sendBe.blockPos, sendCentre, chosenPos, chosenRecvCentre)
 
         state.pending.add(PendingDelivery(
             stack = pulled,

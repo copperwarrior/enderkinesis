@@ -30,14 +30,14 @@ object VolumeTextures {
      * to the same place in [tex]. Leaves the unpack state at the GL defaults.
      */
     @Suppress("LongParameterList") // Mirrors glTexSubImage2D.
-    fun uploadR8Region(tex: Int, x: Int, y: Int, width: Int, height: Int, rowLength: Int, data: ByteBuffer) {
+    fun uploadRegion(tex: Int, x: Int, y: Int, width: Int, height: Int, rowLength: Int, format: Int, data: ByteBuffer) {
         GlStateManager._bindTexture(tex)
         resetUnpack()
         GlStateManager._pixelStore(GL11.GL_UNPACK_ROW_LENGTH, rowLength)
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_PIXELS, x)
         GlStateManager._pixelStore(GL11.GL_UNPACK_SKIP_ROWS, y)
         data.rewind()
-        GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, x, y, width, height, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, data)
+        GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, x, y, width, height, format, GL11.GL_UNSIGNED_BYTE, data)
         restoreUnpackDefaults()
     }
 

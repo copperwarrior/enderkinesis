@@ -16,13 +16,13 @@ import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.effect.MobEffects
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.monster.Enemy
-import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.block.BaseFireBlock
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.VineBlock
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
+import org.joml.Vector3d
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.dimension.EKDamageSources
 import org.shipwrights.enderkinesis.entity.SignatureEntity
@@ -33,11 +33,13 @@ import org.shipwrights.enderkinesis.spell.BloodPacts
 import org.shipwrights.enderkinesis.spell.DarkZones
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Signature
+import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import org.shipwrights.enderkinesis.spell.SpellContext
 import org.valkyrienskies.mod.common.world.clipIncludeShips
 import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.sees
 import org.valkyrienskies.mod.common.shipAwareCanSeeSky
 
 object LinkSignatures {
@@ -85,19 +87,32 @@ object LinkSignatures {
         return e.setBlock(pos, BaseFireBlock.getState(level, pos))
     }
 
-    /** Keep [fireChance] low, so that fire stays scattered and does not cover the area. */
-    private fun searAround(e: SignatureEntity, centre: Vec3, radius: Double, down: Int, up: Int, fireChance: Float = 0f) {
+    // A ground point can sit in the floor; this lifts the sight origin into the open space above it.
+    private const val GROUND_SIGHT_LIFT = 0.5
+
+    /** A beam end can be on a block face; back toward the caster is open space. */
+    private fun strikeSight(origin: Vec3, point: Vec3): Vec3 {
+        val back = origin.subtract(point)
+        return if (back.lengthSqr() > 1.0e-6) point.add(back.normalize().scale(SpellCasting.FACE_SIGHT_OFFSET)) else point
+    }
+
+    /** Keep [fireChance] low, so that fire stays scattered and does not cover the area. [sightFrom] is WORLD, in open space. */
+    @Suppress("LongParameterList") // Each sear shape gives its own depth, height and sight origin.
+    private fun searAround(
+        e: SignatureEntity, centre: Vec3, radius: Double, down: Int, up: Int, sightFrom: Vec3, fireChance: Float = 0f,
+    ) {
         val level = e.level() as ServerLevel
         val reach = Math.hypot(radius, maxOf(down, up) + 0.5)
         val blocks = CrossFrameBlocks(level, centre, reach)
         // Offsets from the middle of the centre cell: whole blocks for world cells, so the world cylinder is as before.
         val ox = blocks.origin.x + 0.5; val oy = blocks.origin.y + 0.5; val oz = blocks.origin.z + 0.5
         val m = blocks.visitedMiddle
-        blocks.forEachWithin(reach) { pos, _ ->
+        val near = Vector3d()
+        blocks.forEachWithin(reach) { pos, ship ->
             val dx = m.x - ox; val dy = m.y - oy; val dz = m.z - oz
             if (dx * dx + dz * dz > radius * radius || dy < -down - 0.5 || dy >= up + 0.5) return@forEachWithin
             val state = level.getBlockState(pos)
-            if (state.isAir) return@forEachWithin
+            if (state.isAir || !level.sees(sightFrom, pos, ship, near)) return@forEachWithin
             sear(e, level, pos)
             if (fireChance > 0f && level.random.nextFloat() < fireChance && state.ignitedByLava()) {
                 placeFire(e, level, pos.above(), Direction.UP)
@@ -438,11 +453,14 @@ object LinkSignatures {
             val searSound = !impact && e.tickCount % (EVERY * 4) == IMPACT
             val daylight = if (e.data == 1) DAYLIGHT else 1f
             val r = radius(e.power)
-            searAround(e, foot, r, BURN_DOWN, BURN_UP, FIRE_CHANCE)
+            searAround(e, foot, r, BURN_DOWN, BURN_UP, foot.add(0.0, GROUND_SIGHT_LIFT, 0.0), FIRE_CHANCE)
             val box = AABB(foot.x - r, foot.y - 1.0, foot.z - r, foot.x + r, foot.y + HEIGHT, foot.z + r)
             for (target in level.getEntitiesOfClass(LivingEntity::class.java, box)) {
                 if (target === e.caster || !target.isAlive || target.isSpectator) continue
                 if (Math.hypot(target.x - foot.x, target.z - foot.z) > r + target.bbWidth * 0.5) continue
+                // Sight from the pillar axis at the target's height, so a wall between the axis and the target blocks.
+                val axisY = target.boundingBox.center.y.coerceIn(foot.y + GROUND_SIGHT_LIFT, foot.y + HEIGHT)
+                if (!level.sees(Vec3(foot.x, axisY, foot.z), target)) continue
                 val undead = SpellContext.isUndead(target)
                 val against = daylight * (if (undead) UNDEAD else 1f)
                 if (impact) {
@@ -520,8 +538,10 @@ object LinkSignatures {
                 lightHurt(e, target, DAMAGE)
                 if (held % (EVERY * 4) == 0) level.sound(target.middle(), EKSounds.SIGNATURE_SUPPLICATION_OF_SSELITH_BURN.get())
             }
-            if (held % 10 == 0) for (player in level.getEntitiesOfClass(ServerPlayer::class.java, AABB(e.point, e.point).inflate(DARK_RADIUS))) {
-                if (player !== cast.caster && player.distanceToSqr(e.point) <= DARK_RADIUS * DARK_RADIUS) {
+            if (held % 10 == 0) {
+                val sightFrom = strikeSight(origin, e.point)
+                for (player in level.getEntitiesOfClass(ServerPlayer::class.java, AABB(e.point, e.point).inflate(DARK_RADIUS))) {
+                    if (player === cast.caster || player.distanceToSqr(e.point) > DARK_RADIUS * DARK_RADIUS || !level.sees(sightFrom, player)) continue
                     player.addEffect(MobEffectInstance(MobEffects.DARKNESS, 60, 0), cast.caster)
                 }
             }
@@ -530,7 +550,7 @@ object LinkSignatures {
             e.data = if (block != null) STRIKING else 0
             if (block != null) {
                 if (held % IGNITE_EVERY == IGNITE_EVERY - 1) ignite(e, level, origin)
-                if (held % SEAR_EVERY == 0) searAround(e, e.point, SEAR_RADIUS, 2, 2)
+                if (held % SEAR_EVERY == 0) searAround(e, e.point, SEAR_RADIUS, 2, 2, strikeSight(origin, e.point))
                 if (held % POOL_EVERY == 0) leavePool(e, cast, e.point, state)
             }
             if (held % 3 == 0) level.particles(ParticleTypes.LARGE_SMOKE, e.point, 3, 0.5, 0.02)
@@ -614,7 +634,7 @@ object LinkSignatures {
                 val centre = e.position()
                 val radius = radiusOf(e.data)
                 holdDark(e)
-                if (e.tickCount % SEAR_EVERY == 1) searAround(e, centre, radius, SEAR_DOWN, SEAR_UP)
+                if (e.tickCount % SEAR_EVERY == 1) searAround(e, centre, radius, SEAR_DOWN, SEAR_UP, centre.add(0.0, GROUND_SIGHT_LIFT, 0.0))
                 if (e.tickCount == e.life - END_BEFORE) end(e)
                 if (e.tickCount % EVERY != 0) return
                 val shared = e.state as? Held

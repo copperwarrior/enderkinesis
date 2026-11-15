@@ -3,10 +3,12 @@ package org.shipwrights.enderkinesis.client
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.block.UlderBeamAnchorBlock
 import org.shipwrights.enderkinesis.block.OrbOfLinkingBlock
+import org.shipwrights.enderkinesis.blockentity.BeamAnchorPoints
 import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -32,32 +34,48 @@ object OrbClientGeometry {
     private const val ACTIVE_FACE_OFFSET: Double = 1.0 / 16.0
 
     fun worldCenter(level: ClientLevel, pos: BlockPos): Vec3? {
+        val v = worldCenter(level, pos, Vector3d()) ?: return null
+        return Vec3(v.x, v.y, v.z)
+    }
+
+    fun worldCenter(level: ClientLevel, pos: BlockPos, out: Vector3d): Vector3d? {
         val state = level.getBlockState(pos)
         if (!state.hasProperty(OrbOfLinkingBlock.FACING)) return null
-        return faceOffsetPoint(level, pos, state.getValue(OrbOfLinkingBlock.FACING), ACTIVE_FACE_OFFSET)
+        return faceOffsetPoint(level, pos, state.getValue(OrbOfLinkingBlock.FACING), ACTIVE_FACE_OFFSET, out)
     }
 
     /** The anchor cube centre of the Ulder Beam Anchor at [pos], or null when there is none. */
     fun anchorPoint(level: ClientLevel, pos: BlockPos): Vec3? {
+        val v = anchorPoint(level, pos, Vector3d()) ?: return null
+        return Vec3(v.x, v.y, v.z)
+    }
+
+    fun anchorPoint(level: ClientLevel, pos: BlockPos, out: Vector3d): Vector3d? {
         val state = level.getBlockState(pos)
         if (state.block !is UlderBeamAnchorBlock) return null
         return faceOffsetPoint(
-            level, pos, state.getValue(UlderBeamAnchorBlock.FACING), UlderBeamAnchorBlockEntity.ANCHOR_FACE_OFFSET,
+            level, pos, state.getValue(UlderBeamAnchorBlock.FACING), UlderBeamAnchorBlockEntity.ANCHOR_FACE_OFFSET, out,
         )
     }
 
-    private fun faceOffsetPoint(level: ClientLevel, pos: BlockPos, facing: Direction, offset: Double): Vec3 {
+    private fun faceOffsetPoint(level: ClientLevel, pos: BlockPos, facing: Direction, offset: Double, out: Vector3d): Vector3d {
         val ship = level.getShipManagingPos(pos)
-        val v = Vector3d(
+        out.set(
             pos.x + 0.5 + facing.stepX * offset,
             pos.y + 0.5 + facing.stepY * offset,
             pos.z + 0.5 + facing.stepZ * offset,
         )
         when (ship) {
-            is ClientShip -> ship.renderTransform.shipToWorld.transformPosition(v)
+            is ClientShip -> ship.renderTransform.shipToWorld.transformPosition(out)
             null -> {}
-            else -> ship.shipToWorld.transformPosition(v)
+            else -> ship.shipToWorld.transformPosition(out)
         }
-        return Vec3(v.x, v.y, v.z)
+        return out
+    }
+
+    /** Render transform, so carried items stay on the drawn beam. */
+    object RenderAnchorPoints : BeamAnchorPoints {
+        override fun anchorPoint(level: Level, pos: BlockPos, out: Vector3d): Boolean =
+            level is ClientLevel && anchorPoint(level, pos, out) != null
     }
 }

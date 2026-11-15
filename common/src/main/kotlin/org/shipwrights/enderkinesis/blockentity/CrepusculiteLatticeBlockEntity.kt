@@ -602,6 +602,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
             // fluid probe already skips non-LivingEntity, so the only remaining contact
             // surface is this float loop — exclude here.
             if (entity is org.shipwrights.enderkinesis.entity.LodestarDartEntity) continue
+            if (entity.type.`is`(IMMUNE_TO_BUOYANCY)) continue
 
             val living = entity as? LivingEntity
             // Intentional flight/riding hard-stops floating at once (never fight creative flight);
@@ -1125,6 +1126,12 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         ClientboundBlockEntityDataPacket.create(this)
 
     companion object {
+
+        private val IMMUNE_TO_BUOYANCY: net.minecraft.tags.TagKey<net.minecraft.world.entity.EntityType<*>> =
+            net.minecraft.tags.TagKey.create(
+                net.minecraft.core.registries.Registries.ENTITY_TYPE,
+                org.shipwrights.enderkinesis.EnderkinesisMod.id("immune_to_lattice_buoyancy"),
+            )
 
         private const val NBT_SEA_LEVEL = "EkSeaLevel"
         private const val NBT_SEA_LEVEL_DIM = "EkSeaLevelDim"

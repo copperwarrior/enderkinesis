@@ -16,9 +16,13 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.blockentity.AnchoredBeamPath
 import org.shipwrights.enderkinesis.blockentity.OrbOfLinkingBlockEntity
+import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.mod.common.getShipManagingPos
 import org.valkyrienskies.mod.common.dimensionId
@@ -127,6 +131,12 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         var minedThisTick: Boolean = false
         /** The last grind state sent to the clients. */
         var grinding: Boolean = false
+        internal val beamPath = AnchoredBeamPath()
+        internal val cornerScratch = Vector3d()
+        internal val ships = ArrayList<Ship>()
+        internal val candidates = ArrayList<CylinderCandidate>()
+        internal val seen = HashSet<BlockPos>()
+        internal val visited = LongOpenHashSet()
     }
 
     override fun createState(): Any = DisintegrationState()
@@ -184,42 +194,12 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
             val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, receiverPos) ?: continue
             val recvShip = level.getShipManagingPos(receiverPos)
             val recvFilter = recvBe.orbFilter()
-            // Same-ship case: both orbs on the same body. Iterating the cylinder in WORLD
-            // coords would re-rasterise the beam every tick as the ship rotates, drifting
-            // which ship-local blocks get hit. Iterating in the ship's local frame keeps
-            // the beam's path through ship blocks rotation-invariant — the local beam
-            // endpoints are fixed (orb blockPos centres in shipyard coords) regardless of
-            // how the ship is oriented in the world. Damage and vacuum still run in world
-            // frame because entities and item entities live there.
-            val coShip = if (sendShip != null && recvShip != null && sendShip.id == recvShip.id) sendShip else null
-            val worldBeamEnd: Vec3
-            if (coShip != null) {
-                val localFrom = worldToLocal(coShip, sendCentre)
-                val localTo = worldToLocal(coShip, recvCentre)
-                val localBeamEnd = findBeamEnd(level, localFrom, localTo, sendPos, receiverPos, emptyList())
-                mineCylinder(level, state, localFrom, localBeamEnd, sendPos, receiverPos, book, emptyList(),
-                    sendFilter, recvFilter)
-                worldBeamEnd = localToWorld(coShip, localBeamEnd)
-                // Same-ship beams still need to chew through any OTHER ship (or world block)
-                // physically between the two orbs — without this second world-frame pass the
-                // beam was invisible to anything outside coShip's shipyard frame. Excluding
-                // coShip from `shipsInRange` keeps the local pass canonical for coShip's own
-                // blocks; the world fallback inside [resolveBlockAt] returns air at world
-                // cells where coShip occupies space (its blocks live in shipyard chunks, not
-                // at the world cell), so the only candidates this pass produces are other-
-                // ship blocks and any real world terrain the beam crosses.
-                val otherShipsInRange = shipsOverlappingBeam(level, sendCentre, worldBeamEnd)
-                    .filter { it.id != coShip.id }
-                mineCylinder(level, state, sendCentre, worldBeamEnd, sendPos, receiverPos, book,
-                    otherShipsInRange, sendFilter, recvFilter)
-            } else {
-                val shipsInRange = shipsOverlappingBeam(level, sendCentre, recvCentre)
-                worldBeamEnd = findBeamEnd(level, sendCentre, recvCentre, sendPos, receiverPos, shipsInRange)
-                mineCylinder(level, state, sendCentre, worldBeamEnd, sendPos, receiverPos, book, shipsInRange,
-                    sendFilter, recvFilter)
-            }
-            damageEntitiesAlong(level, sendCentre, worldBeamEnd, state, book, sendFilter, recvFilter)
-            vacuumDropsInBeam(level, sendCentre, worldBeamEnd, state)
+            state.beamPath.build(level, sendCentre, recvCentre, sendBe, recvBe, UlderBeamAnchorBlockEntity.LoadedAnchorPoints)
+            // Same-ship sag beam: mine the ship's own blocks in its local frame, so the cells the beam hits do not
+            // drift as the ship turns. Anchors can be off the ship, so anchored beams stay in the world frame.
+            val coShip = if (state.beamPath.anchorCount == 0 && sendShip != null && recvShip != null &&
+                sendShip.id == recvShip.id) sendShip else null
+            runPathBeam(level, state, coShip, sendPos, receiverPos, book, sendFilter, recvFilter)
         }
 
         // Prune mining state for blocks that have been destroyed externally (another beam
@@ -232,6 +212,86 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
             }
         }
     }
+
+    /** Runs each segment of the drawn beam path in order, up to the first unbreakable block. Only the first
+     *  segment with a candidate mines, so the path shape does not change the mining rate. With [coShip], each
+     *  segment also mines that ship's blocks in its local frame, and the world pass skips that ship. */
+    private fun runPathBeam(
+        level: ServerLevel, state: DisintegrationState, coShip: Ship?,
+        sendPos: BlockPos, receiverPos: BlockPos, book: ItemStack,
+        sendFilter: OrbFilter, recvFilter: OrbFilter,
+    ) {
+        val path = state.beamPath
+        val ships = collectShipsNearPath(level, state, coShip)
+        // A sag beam tapers only at the orbs; an anchored beam tapers at each anchor too, which spares its support block.
+        val sag = path.anchorCount == 0
+        val pathLen = path.length()
+        var walked = 0.0
+        var from = path.corner(0, state.cornerScratch).toVec3()
+        var fromSkip = sendPos
+        var mined = false
+        for (i in 1 until path.cornerCount) {
+            val to = path.corner(i, state.cornerScratch).toVec3()
+            val toSkip = path.cornerPos(i) ?: receiverPos
+            val segLen = from.distanceTo(to)
+            val taperStart = if (sag) walked else 0.0
+            val taperLen = if (sag) pathLen else segLen
+            val end: Vec3
+            var minedHere = false
+            if (coShip != null) {
+                val localFrom = worldToLocal(coShip, from)
+                val localTo = worldToLocal(coShip, to)
+                val localEnd = findBeamEnd(level, localFrom, localTo, fromSkip, toSkip, emptyList())
+                if (!mined) minedHere = mineCylinder(level, state, localFrom, localEnd, fromSkip, toSkip, book,
+                    emptyList(), sendFilter, recvFilter, taperStart, taperLen)
+                end = if (localEnd === localTo) to else localToWorld(coShip, localEnd)
+            } else {
+                end = findBeamEnd(level, from, to, fromSkip, toSkip, ships)
+            }
+            if (!mined && mineCylinder(level, state, from, end, fromSkip, toSkip, book, ships,
+                    sendFilter, recvFilter, taperStart, taperLen)) minedHere = true
+            mined = mined || minedHere
+            damageEntitiesAlong(level, from, end, state, book, sendFilter, recvFilter)
+            vacuumDropsInBeam(level, from, end, state)
+            if (end !== to) return
+            walked += segLen
+            from = to
+            fromSkip = path.cornerPos(i) ?: sendPos
+        }
+    }
+
+    /** Ships whose world AABB overlaps the box around all path corners, except [exclude]. Reuses [DisintegrationState.ships]. */
+    private fun collectShipsNearPath(level: ServerLevel, state: DisintegrationState, exclude: Ship?): List<Ship> {
+        val path = state.beamPath
+        val c = state.cornerScratch
+        path.corner(0, c)
+        var minX = c.x; var maxX = c.x
+        var minY = c.y; var maxY = c.y
+        var minZ = c.z; var maxZ = c.z
+        for (i in 1 until path.cornerCount) {
+            path.corner(i, c)
+            minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x)
+            minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y)
+            minZ = Math.min(minZ, c.z); maxZ = Math.max(maxZ, c.z)
+        }
+        val pad = BLOCK_BEAM_RADIUS + 0.5
+        val out = state.ships
+        out.clear()
+        // `loadedShips` with the dimension test: `allShips` has unloaded ships and the ships
+        // of each dimension, and a read at their shipyard coordinates hits the wrong level.
+        val dimId = level.dimensionId
+        for (ship in level.shipObjectWorld.loadedShips) {
+            if (ship.chunkClaimDimension != dimId || ship.id == exclude?.id) continue
+            val sa = ship.worldAABB
+            if (sa.maxX() < minX - pad || sa.minX() > maxX + pad) continue
+            if (sa.maxY() < minY - pad || sa.minY() > maxY + pad) continue
+            if (sa.maxZ() < minZ - pad || sa.minZ() > maxZ + pad) continue
+            out.add(ship)
+        }
+        return out
+    }
+
+    private fun Vector3dc.toVec3(): Vec3 = Vec3(x(), y(), z())
 
     /** Walk the centre line from [from] to [to] (world coords) looking for the first
      *  unbreakable (hardness < 0) block — the beam is opaque to bedrock-class blocks on
@@ -299,12 +359,14 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         shipsInRange: List<Ship>,
         sendFilter: OrbFilter,
         recvFilter: OrbFilter,
-    ) {
+        taperStart: Double,
+        taperLength: Double,
+    ): Boolean {
         val abx = to.x - from.x
         val aby = to.y - from.y
         val abz = to.z - from.z
         val abLenSq = abx * abx + aby * aby + abz * abz
-        if (abLenSq < 1e-12) return                            // degenerate beam
+        if (abLenSq < 1e-12) return false                      // degenerate beam
         val abLen = Math.sqrt(abLenSq)
         val radius = BLOCK_BEAM_RADIUS
         val radiusSq = radius * radius
@@ -342,9 +404,12 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         // The scan walks the beam axis in one-block steps and reads only the cells around
         // each axis point. It stops when the leading slice is complete. The full bounding
         // box of a 64-block diagonal beam is about 70,000 cells for each tick.
-        val candidates = ArrayList<CylinderCandidate>()
-        val seen = HashSet<BlockPos>()
-        val visited = it.unimi.dsi.fastutil.longs.LongOpenHashSet()
+        val candidates = state.candidates
+        val seen = state.seen
+        val visited = state.visited
+        candidates.clear()
+        seen.clear()
+        visited.clear()
         val reach = radius + 1.5
         var minDepthSoFar = Double.MAX_VALUE
         val lastStep = Math.ceil(abLen).toInt()
@@ -380,7 +445,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
                         // radius; blocks in the middle use the full radius. radiusSq is the
                         // broad-phase cap; the tapered check is the narrow-phase.
                         val depthAlongBeam = tClamped * abLen
-                        val localRadius = beamRadiusAt(depthAlongBeam, abLen, radius)
+                        val localRadius = beamRadiusAt(taperStart + depthAlongBeam, taperLength, radius)
                         val localRadiusSq = localRadius * localRadius
                         if (distSq > localRadiusSq) continue       // outside tapered cylinder
                         if (distSq > radiusSq) continue            // belt-and-braces (≤ above)
@@ -410,23 +475,25 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
                 }
             }
         }
-        if (candidates.isEmpty()) return
+        if (candidates.isEmpty()) return false
 
         // Pass 2: leading slice = blocks at min depth ± SLICE_THICKNESS.
         var minDepth = Double.MAX_VALUE
-        for (c in candidates) if (c.depth < minDepth) minDepth = c.depth
+        for (i in candidates.indices) if (candidates[i].depth < minDepth) minDepth = candidates[i].depth
         val sliceCutoff = minDepth + SLICE_THICKNESS
 
         // Pass 3: reverse-spiral sort the leading slice, take the first (outermost-CCW)
         // block as this tick's target. The drill chews this one block; once it's gone,
         // next tick the second-outermost in the spiral becomes first.
-        val target = candidates
-            .filter { it.depth <= sliceCutoff }
-            .sortedWith(
-                compareByDescending<CylinderCandidate> { it.distFromLine }
-                    .thenBy { it.angle }
-            )
-            .firstOrNull() ?: return
+        var target: CylinderCandidate? = null
+        for (i in candidates.indices) {
+            val c = candidates[i]
+            if (c.depth > sliceCutoff) continue
+            val best = target
+            if (best == null || c.distFromLine > best.distFromLine ||
+                (c.distFromLine == best.distFromLine && c.angle < best.angle)) target = c
+        }
+        if (target == null) return false
 
         // Pass 4: mine the target — one tick of progress, destroy when its counter trips.
         // Efficiency speeds up mining: vanilla per-player formula is `level² + 1` added to
@@ -455,6 +522,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         } else {
             state.mining[target.pos] = progressed
         }
+        return true
     }
 
     /** Effective beam radius at a given depth along the SEND→beamEnd line — full
@@ -476,7 +544,7 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
      *  [pos] is the block's *storage* coord — shipyard pos for ship blocks (via VS2's
      *  shipyard chunks), world pos for world blocks. Same coord is what
      *  [Block.getDrops] / [Level.destroyBlock] / [state.mining] all key on. */
-    private data class CylinderCandidate(
+    internal data class CylinderCandidate(
         val pos: BlockPos,
         val blockState: BlockState,
         val hardness: Float,
@@ -499,34 +567,6 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
         val v = Vector3d(local.x, local.y, local.z)
         ship.transform.shipToWorld.transformPosition(v)
         return Vec3(v.x, v.y, v.z)
-    }
-
-    /** Ships whose render volume overlaps the beam's world AABB. The beam's mining /
-     *  beam-end logic walks world cells, so any ship-rendered block in the beam needs
-     *  to be looked up through the ship's `worldToShip` transform — which means we need
-     *  the candidate ship list up front. World AABB is inflated by [BLOCK_BEAM_RADIUS]
-     *  + 0.5 to match the broad-phase cell scan. */
-    private fun shipsOverlappingBeam(level: ServerLevel, from: Vec3, to: Vec3): List<Ship> {
-        val pad = BLOCK_BEAM_RADIUS + 0.5
-        val minX = Math.min(from.x, to.x) - pad
-        val maxX = Math.max(from.x, to.x) + pad
-        val minY = Math.min(from.y, to.y) - pad
-        val maxY = Math.max(from.y, to.y) + pad
-        val minZ = Math.min(from.z, to.z) - pad
-        val maxZ = Math.max(from.z, to.z) + pad
-        val result = ArrayList<Ship>()
-        // `loadedShips` with the dimension test: `allShips` has unloaded ships and the ships
-        // of each dimension, and a read at their shipyard coordinates hits the wrong level.
-        val dimId = level.dimensionId
-        for (ship in level.shipObjectWorld.loadedShips) {
-            if (ship.chunkClaimDimension != dimId) continue
-            val sa = ship.worldAABB
-            if (sa.maxX() < minX || sa.minX() > maxX) continue
-            if (sa.maxY() < minY || sa.minY() > maxY) continue
-            if (sa.maxZ() < minZ || sa.minZ() > maxZ) continue
-            result.add(ship)
-        }
-        return result
     }
 
     /** Find the block effectively rendered at world cell [worldX,worldY,worldZ] —

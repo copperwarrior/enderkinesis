@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.core.BlockPos
@@ -427,7 +428,7 @@ object AreaWaves {
         for (c in circles) circleGlyphs(light, m, c, time - c.start.toDouble(), time)
         for (w in waves) if (w.element == Element.SUNFIRE) {
             val s = time - w.start.toDouble()
-            SpellShapes.sprite(light, m, view, centre(w), 4.0, SpellArt.particle("flash"), 0xFFE2A0, max(0f, 1f - (s / 6.0).toFloat()), SpellShapes.FULL_BRIGHT)
+            SpellShapes.sprite(light, m, view, centre(w), 4.0, SpellArt.particle("flash"), 0xFFE2A0, max(0f, 1f - (s / 6.0).toFloat()), LightTexture.FULL_BRIGHT)
         }
     }
 
@@ -460,7 +461,7 @@ object AreaWaves {
         for ((n, rad, spin, size) in arrayOf(Glyphs(14, 1.45, 0.03, 0.34), Glyphs(9, 0.85, -0.05, 0.28))) {
             for (k in 0 until n) {
                 val an = k * 2 * Math.PI / n + time * spin
-                flat(c, m, at.add(cos(an) * rad, 0.0, sin(an) * rad), size, an + Math.PI / 2, SpellArt.glyph(k * 3 + n), rgb, a, SpellShapes.FULL_BRIGHT)
+                flat(c, m, at.add(cos(an) * rad, 0.0, sin(an) * rad), size, an + Math.PI / 2, SpellArt.glyph(k * 3 + n), rgb, a, LightTexture.FULL_BRIGHT)
             }
         }
     }

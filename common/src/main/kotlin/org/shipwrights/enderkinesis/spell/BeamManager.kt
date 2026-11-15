@@ -14,6 +14,7 @@ import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.item.BeamSegment
 import org.shipwrights.enderkinesis.item.BeamTrace
 import org.shipwrights.enderkinesis.item.SunderingBeamTrace
+import org.shipwrights.enderkinesis.util.sees
 import java.util.UUID
 
 /** Resolve at SERVER_POST, after all casters tick. Test for opposites before head-on, so that head-on opposites still explode. */
@@ -175,7 +176,7 @@ object BeamManager {
         when {
             !staff && opposed(a.glyphs, b.glyphs) -> {
                 if (r.clash(a, b, crossing, EXPLODE_CHARGE_TICKS) { charge(a, b, crossing) }) {
-                    explode(a, b, crossing.point)
+                    explode(a, b, crossing.point, crossing.dirA)
                     r.cancelled += a; r.cancelled += b
                 }
             }
@@ -345,33 +346,35 @@ object BeamManager {
     private const val MAX_EXPLOSION_RADIUS = 6.0
     private const val EXPLOSION_PUSH = 1.2
 
-    private fun explode(a: Beam, b: Beam, point: Vec3) {
+    private fun explode(a: Beam, b: Beam, point: Vec3, dirA: Vec3) {
         val level = a.level
         val (strong, weak) = if (a.magnitude >= b.magnitude) a to b else b to a
         val (survivors, annihilated) = combine(strong.glyphs, weak.glyphs)
         val damage = (DAMAGE_PER_ANNIHILATED * annihilated).coerceAtMost(MAX_EXPLOSION_DAMAGE)
         val radius = (2.0 + annihilated / 3).coerceAtMost(MAX_EXPLOSION_RADIUS)
         val ctx = SpellContext(level, strong.owner, point, strong.owner?.uuid)
+        // The crossing can be on a block face; back along the beam is open space.
+        val sightFrom = point.subtract(dirA.scale(SpellCasting.FACE_SIGHT_OFFSET))
         for (entity in level.getEntities(null as Entity?, AABB(point, point).inflate(radius)) { it.isAlive && !it.isSpectator }) {
-            if (entity.position().distanceToSqr(point) > radius * radius) continue
+            if (entity.position().distanceToSqr(point) > radius * radius || !level.sees(sightFrom, entity)) continue
             entity.hurt(ctx.damage(DamageTypes.EXPLOSION), damage)
         }
-        push(level, point, radius, EXPLOSION_PUSH)
+        push(level, point, radius, EXPLOSION_PUSH, sightFrom)
         val magnitudes = Spell(survivors).magnitudes.toMutableMap()
         val sundering = maxOf(a.sundering, b.sundering)
         if (sundering > 0f) magnitudes[Element.SUNDERING] = sundering
         SpellVfx.beamExplosion(level, point, radius)
         ctx.elements = magnitudes.keys
         for ((element, magnitude) in magnitudes) {
-            ElementEffects.of(element).apply(ctx, Delivery.Sphere(point, radius, waves = true), magnitude)
+            ElementEffects.of(element).apply(ctx, Delivery.Sphere(point, radius, waves = true, sightFrom = sightFrom), magnitude)
         }
     }
 
-    private fun push(level: ServerLevel, point: Vec3, radius: Double, strength: Double) {
+    private fun push(level: ServerLevel, point: Vec3, radius: Double, strength: Double, sightFrom: Vec3 = point) {
         for (entity in level.getEntities(null as Entity?, AABB(point, point).inflate(radius)) { it.isAlive && !it.isSpectator }) {
             val away = entity.position().add(0.0, entity.bbHeight * 0.5, 0.0).subtract(point)
             val dist = away.length()
-            if (dist > radius) continue
+            if (dist > radius || !level.sees(sightFrom, entity)) continue
             val dir = if (dist < 1.0e-3) Vec3(0.0, 1.0, 0.0) else away.scale(1.0 / dist)
             entity.deltaMovement = entity.deltaMovement.add(dir.scale(strength * (1.0 - dist / radius) + 0.2))
             entity.hurtMarked = true

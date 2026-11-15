@@ -6,6 +6,7 @@ import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.blaze3d.vertex.VertexFormat
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
@@ -296,7 +297,7 @@ object DeathStyles {
         val particles = buffers.getBuffer(SpellVfxRenderTypes.glow(PARTICLE_ATLAS))
         for (death in deaths.values) if (death.element == Element.SUNFIRE) {
             val e = (time - death.start) / 20f - 0.2f
-            if (e >= 0f && e < 0.25f) SpellShapes.sprite(particles, m, view, death.feet.add(0.0, 1.0, 0.0), 5 * (0.6 + 0.4 * minOf(1f, e * 12f)), SpellArt.particle("flash"), 0xFFE2A0, 1f - e * 4f, SpellShapes.FULL_BRIGHT)
+            if (e >= 0f && e < 0.25f) SpellShapes.sprite(particles, m, view, death.feet.add(0.0, 1.0, 0.0), 5 * (0.6 + 0.4 * minOf(1f, e * 12f)), SpellArt.particle("flash"), 0xFFE2A0, 1f - e * 4f, LightTexture.FULL_BRIGHT)
         }
     }
 

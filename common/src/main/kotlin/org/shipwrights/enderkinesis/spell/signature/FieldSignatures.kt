@@ -50,7 +50,7 @@ import org.shipwrights.enderkinesis.spell.SpellCurves
 import org.shipwrights.enderkinesis.spell.SpellVfx
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList
 import org.joml.Matrix4d
-import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.sees
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.CompatUtil
 import org.valkyrienskies.mod.common.dimensionId
@@ -108,9 +108,22 @@ object FieldSignatures {
 
     private fun beneath(e: SignatureEntity, cloud: Vec3, radius: Double, drop: Double): List<LivingEntity> {
         val box = AABB(cloud, cloud).inflate(radius, 0.0, radius).expandTowards(0.0, -drop, 0.0)
-        return (e.level() as ServerLevel).getEntitiesOfClass(LivingEntity::class.java, box) {
-            it !== e.caster && !it.isSpectator && it.isAlive && horizontal(it.position(), cloud) <= radius
+        val level = e.level() as ServerLevel
+        return level.getEntitiesOfClass(LivingEntity::class.java, box) {
+            it !== e.caster && !it.isSpectator && it.isAlive && horizontal(it.position(), cloud) <= radius && rainReaches(level, cloud.y, it)
         }.sortedBy { horizontal(it.position(), cloud) }
+    }
+
+    /** Rain falls straight down, so sight is from the cloud height straight above the target. */
+    private fun rainReaches(level: Level, cloudY: Double, target: Entity): Boolean =
+        level.sees(Vec3(target.boundingBox.center.x, cloudY, target.boundingBox.center.z), target)
+
+    /** Sight from the point of a vertical sheet (veil, rift face) across from [target], at its height, inside the sheet. */
+    @Suppress("LongParameterList") // A sheet needs its foot, axis, half width and height.
+    private fun sheetSees(level: Level, foot: Vec3, across: Vec3, halfWidth: Double, height: Double, target: Entity): Boolean {
+        val c = target.boundingBox.center
+        val along = ((c.x - foot.x) * across.x + (c.z - foot.z) * across.z).coerceIn(-halfWidth, halfWidth)
+        return level.sees(Vec3(foot.x + across.x * along, c.y.coerceIn(foot.y, foot.y + height), foot.z + across.z * along), target)
     }
 
     // Read loadedShips: SignatureShips.ships uses getShipsIntersecting, which casts saved ship data and can find nothing.
@@ -299,7 +312,7 @@ object FieldSignatures {
                 seen += ship.id
                 val last = state.lastPose[ship.id]
                 blocks.clear()
-                SignatureShips.forEachBlockNear(level, centre, r, ship) { _, at, pos, _ ->
+                SignatureShips.forEachBlockNear(level, centre, r, ship, throughWalls = true) { _, at, pos, _ ->
                     blocks.add(at.x); blocks.add(at.y); blocks.add(at.z)
                     blocks.add(pos.x + 0.5); blocks.add(pos.y + 0.5); blocks.add(pos.z + 0.5)
                 }
@@ -361,6 +374,8 @@ object FieldSignatures {
         }
 
         // Client and server use this test with cleansed(), so the client shimmer matches the server cleanse.
+        private fun veilAcross(e: SignatureEntity): Vec3 = facing(e).let { Vec3(-it.z, 0.0, it.x) }
+
         fun inVeil(e: SignatureEntity, target: Entity, foot: Vec3 = e.position()): Boolean {
             val n = facing(e)
             val across = Vec3(-n.z, 0.0, n.x)
@@ -392,8 +407,10 @@ object FieldSignatures {
             val foot = e.position()
             val w = width(e.power)
             val box = AABB(foot, foot.add(0.0, HEIGHT, 0.0)).inflate(w / 2 + 2.0, 0.5, w / 2 + 2.0)
+            val across = veilAcross(e)
             for (target in level.getEntitiesOfClass(LivingEntity::class.java, box)) {
                 if (target.isSpectator || !target.isAlive || !inVeil(e, target, foot)) continue
+                if (!sheetSees(level, foot, across, w / 2, HEIGHT, target)) continue
                 val clean = cleansed(touched, target, e.tickCount)
                 if (clean) cleanse(e, level, target)
                 else if (target !== e.caster && e.tickCount % PULSE_EVERY == 0) e.hurtTargetThrough(target, EKDamageSources.WINTER_KEY, pulse(e.power))
@@ -640,7 +657,9 @@ object FieldSignatures {
             }
             if (doused > 0) level.sound(cloud.subtract(0.0, height, 0.0), EKSounds.SIGNATURE_STORM_CLOUD_DOUSE.get(), 1.5f)
             val box = AABB(cloud, cloud).inflate(reach, 0.0, reach).expandTowards(0.0, -fall, 0.0)
-            for (target in level.getEntitiesOfClass(LivingEntity::class.java, box) { it.isAlive && !it.isSpectator && horizontal(it.position(), cloud) <= reach }) {
+            for (target in level.getEntitiesOfClass(LivingEntity::class.java, box) {
+                it.isAlive && !it.isSpectator && horizontal(it.position(), cloud) <= reach && rainReaches(level, cloud.y, it)
+            }) {
                 if (target.isOnFire) {
                     target.clearFire()
                     level.sendParticles(ParticleTypes.CLOUD, target.x, target.y + target.bbHeight * 0.5, target.z, 6, 0.3, 0.3, 0.3, 0.02)
@@ -650,8 +669,7 @@ object FieldSignatures {
         }
 
         /** Fire has no collider, so any hit above [fire] is a deck or roof. */
-        private fun rainReaches(level: ServerLevel, cloudY: Double, fire: Vec3): Boolean =
-            level.clip(colliderClip(Vec3(fire.x, cloudY, fire.z), fire)).type == HitResult.Type.MISS
+        private fun rainReaches(level: ServerLevel, cloudY: Double, fire: Vec3): Boolean = level.sees(Vec3(fire.x, cloudY, fire.z), fire)
 
         private fun douse(e: SignatureEntity, level: ServerLevel, pos: BlockPos): Boolean {
             if (!e.setBlock(pos.immutable(), Blocks.AIR.defaultBlockState())) return false
@@ -892,7 +910,8 @@ object FieldSignatures {
                 if (!(it is LivingEntity || it is ItemEntity) || it is Projectile || !it.isAlive || it.isSpectator || it.isPassenger) return@getEntities false
                 if (it.isOnPortalCooldown || !it.canChangeDimensions()) return@getEntities false
                 val rel = it.position().subtract(foot)
-                Math.abs(rel.dot(n)) <= FACE_DEPTH + it.bbWidth / 2 && Math.abs(rel.dot(across)) <= HALF_WIDTH * 0.8
+                Math.abs(rel.dot(n)) <= FACE_DEPTH + it.bbWidth / 2 && Math.abs(rel.dot(across)) <= HALF_WIDTH * 0.8 &&
+                    sheetSees(level, foot, across, HALF_WIDTH * 0.8, HEIGHT, it)
             }
             for (entity in touching) {
                 val last = state.failed[entity.id]

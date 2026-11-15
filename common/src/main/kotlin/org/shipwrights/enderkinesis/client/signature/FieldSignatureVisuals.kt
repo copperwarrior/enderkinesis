@@ -1031,7 +1031,7 @@ object FieldSignatureVisuals {
                     val xl = rift.left[i] * open; val xr = rift.right[i] * open
                     if (xr - xl < 1.0e-3) continue
                     SpellShapes.texFace(
-                        c, d.m, at(xl, y0), at(xr, y0), at(xr, y1), at(xl, y1), portal, 0xFFFFFF, 0.95f, SpellShapes.FULL_BRIGHT,
+                        c, d.m, at(xl, y0), at(xr, y0), at(xr, y1), at(xl, y1), portal, 0xFFFFFF, 0.95f, LightTexture.FULL_BRIGHT,
                         xl - floor(xl), y0 - floor(y0),
                     )
                 }
@@ -1050,7 +1050,7 @@ object FieldSignatureVisuals {
                 val lava = SpellArt.block("lava_still")
                 for (lip in listOf(left, right)) {
                     val edges = List(lip.size) { i -> inPlane(lip, i, n).scale(0.1) }
-                    SpellShapes.stripPx(c, d.m, lip, edges, lava, 0xFFFFFF, FloatArray(lip.size) { 0.9f * o }, 0.5, SpellShapes.FULL_BRIGHT)
+                    SpellShapes.stripPx(c, d.m, lip, edges, lava, 0xFFFFFF, FloatArray(lip.size) { 0.9f * o }, 0.5, LightTexture.FULL_BRIGHT)
                 }
             }
             if (o < 0.2f) return

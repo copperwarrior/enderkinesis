@@ -30,7 +30,6 @@ object SpellShapes {
     private val SPHERE = UnitSphere(LAT, LON)
     private val PUFF = UnitSphere(PUFF_LAT, PUFF_LON)
     private val SPRITE_UV = floatArrayOf(0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f)
-    const val FULL_BRIGHT = 0xF000F0
 
     fun quad(c: VertexConsumer, m: Matrix4f, p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, rgb: Int, a0: Float, a1: Float, a2: Float, a3: Float) {
         val r = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val b = rgb and 0xFF
@@ -128,26 +127,46 @@ object SpellShapes {
     fun ring(c: VertexConsumer, m: Matrix4f, centre: Vec3, radius: Double, width: Double, rgb: Int, alpha: Float, tilt: Double) {
         if (alpha <= 0.004f || radius <= 0.01) return
         val ct = cos(tilt); val st = sin(tilt)
-        fun at(angle: Double, rr: Double): Vec3 {
-            val x = rr * cos(angle); val z = rr * sin(angle)
-            return centre.add(x, -z * st, z * ct)
-        }
+        val r = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val b = rgb and 0xFF
+        val inner = radius - width; val outer = radius + width
+        var c0 = cos(0.0); var s0 = sin(0.0)
         for (k in 0 until RING_SEGMENTS) {
-            val a0 = 2 * Math.PI * k / RING_SEGMENTS
             val a1 = 2 * Math.PI * (k + 1) / RING_SEGMENTS
-            quad(c, m, at(a0, radius - width), at(a1, radius - width), at(a1, radius), at(a0, radius), rgb, 0f, 0f, alpha, alpha)
-            quad(c, m, at(a0, radius), at(a1, radius), at(a1, radius + width), at(a0, radius + width), rgb, alpha, alpha, 0f, 0f)
+            val c1 = cos(a1); val s1 = sin(a1)
+            ringVertex(c, m, centre, inner, c0, s0, ct, st, r, g, b, 0f)
+            ringVertex(c, m, centre, inner, c1, s1, ct, st, r, g, b, 0f)
+            ringVertex(c, m, centre, radius, c1, s1, ct, st, r, g, b, alpha)
+            ringVertex(c, m, centre, radius, c0, s0, ct, st, r, g, b, alpha)
+            ringVertex(c, m, centre, radius, c0, s0, ct, st, r, g, b, alpha)
+            ringVertex(c, m, centre, radius, c1, s1, ct, st, r, g, b, alpha)
+            ringVertex(c, m, centre, outer, c1, s1, ct, st, r, g, b, 0f)
+            ringVertex(c, m, centre, outer, c0, s0, ct, st, r, g, b, 0f)
+            c0 = c1; s0 = s1
         }
+    }
+
+    @Suppress("LongParameterList") // Primitive inputs keep the ring free of per-vertex Vec3 allocation.
+    private fun ringVertex(
+        c: VertexConsumer, m: Matrix4f, centre: Vec3, rr: Double, cosA: Double, sinA: Double, ct: Double, st: Double,
+        r: Int, g: Int, b: Int, a: Float,
+    ) {
+        val x = rr * cosA; val z = rr * sinA
+        vertex(c, m, centre.x + x, centre.y + -z * st, centre.z + z * ct, r, g, b, a)
     }
 
     fun disc(c: VertexConsumer, m: Matrix4f, view: SpellView, centre: Vec3, r: Double, rgb: Int, alpha: Float) {
         if (alpha <= 0.004f) return
+        val red = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val b = rgb and 0xFF
+        val l = view.left; val up = view.up
+        var kc0 = cos(0.0) * r; var ks0 = sin(0.0) * r
         for (k in 0 until DISC_SECTORS) {
-            val a0 = 2 * Math.PI * k / DISC_SECTORS
             val a1 = 2 * Math.PI * (k + 1) / DISC_SECTORS
-            val e0 = centre.add(view.left.scale(cos(a0) * r)).add(view.up.scale(sin(a0) * r))
-            val e1 = centre.add(view.left.scale(cos(a1) * r)).add(view.up.scale(sin(a1) * r))
-            quad(c, m, centre, centre, e1, e0, rgb, alpha, alpha, 0f, 0f)
+            val kc1 = cos(a1) * r; val ks1 = sin(a1) * r
+            vertex(c, m, centre, red, g, b, alpha)
+            vertex(c, m, centre, red, g, b, alpha)
+            vertex(c, m, centre.x + l.x * kc1 + up.x * ks1, centre.y + l.y * kc1 + up.y * ks1, centre.z + l.z * kc1 + up.z * ks1, red, g, b, 0f)
+            vertex(c, m, centre.x + l.x * kc0 + up.x * ks0, centre.y + l.y * kc0 + up.y * ks0, centre.z + l.z * kc0 + up.z * ks0, red, g, b, 0f)
+            kc0 = kc1; ks0 = ks1
         }
     }
 
@@ -165,29 +184,59 @@ object SpellShapes {
     ) {
         val n = points.size
         if (n < 2 || alpha <= 0.004f) return
-        val sides = Array(n) { i ->
+        val cam = view.cam
+        val sides = DoubleArray(3 * n)
+        for (i in 0 until n) {
             val next = if (closed) points[(i + 1) % n] else points[minOf(n - 1, i + 1)]
             val prev = if (closed) points[(i - 1 + n) % n] else points[maxOf(0, i - 1)]
-            val side = next.subtract(prev).cross(points[i].subtract(view.cam))
-            if (side.lengthSqr() < 1.0e-12) Vec3.ZERO else side.normalize().scale(width.at(i) * 0.5)
+            val p = points[i]
+            val dx = next.x - prev.x; val dy = next.y - prev.y; val dz = next.z - prev.z
+            val vx = p.x - cam.x; val vy = p.y - cam.y; val vz = p.z - cam.z
+            val sx = dy * vz - dz * vy; val sy = dz * vx - dx * vz; val sz = dx * vy - dy * vx
+            val lenSqr = sx * sx + sy * sy + sz * sz
+            if (lenSqr < 1.0e-12) continue
+            val len = Math.sqrt(lenSqr)
+            val h = width.at(i) * 0.5
+            sides[3 * i] = unitComponent(sx, len) * h
+            sides[3 * i + 1] = unitComponent(sy, len) * h
+            sides[3 * i + 2] = unitComponent(sz, len) * h
         }
+        val red = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val b = rgb and 0xFF
         for (i in 0 until if (closed) n else n - 1) {
             val j = (i + 1) % n
             val p0 = points[i]; val p1 = points[j]
             val a0 = alpha * (if (alphas != null) alphas[i] else 1f); val a1 = alpha * (if (alphas != null) alphas[j] else 1f)
             val e0 = if (soft) 0f else a0; val e1 = if (soft) 0f else a1
-            quad(c, m, p0, p1, p1.add(sides[j]), p0.add(sides[i]), rgb, a0, a1, e1, e0)
-            quad(c, m, p0.subtract(sides[i]), p1.subtract(sides[j]), p1, p0, rgb, e0, e1, a1, a0)
+            val ix = sides[3 * i]; val iy = sides[3 * i + 1]; val iz = sides[3 * i + 2]
+            val jx = sides[3 * j]; val jy = sides[3 * j + 1]; val jz = sides[3 * j + 2]
+            vertex(c, m, p0, red, g, b, a0)
+            vertex(c, m, p1, red, g, b, a1)
+            vertex(c, m, p1.x + jx, p1.y + jy, p1.z + jz, red, g, b, e1)
+            vertex(c, m, p0.x + ix, p0.y + iy, p0.z + iz, red, g, b, e0)
+            vertex(c, m, p0.x - ix, p0.y - iy, p0.z - iz, red, g, b, e0)
+            vertex(c, m, p1.x - jx, p1.y - jy, p1.z - jz, red, g, b, e1)
+            vertex(c, m, p1, red, g, b, a1)
+            vertex(c, m, p0, red, g, b, a0)
         }
     }
 
+    // Same cut-off as Vec3.normalize, so the output matches it bit for bit.
+    private fun unitComponent(v: Double, len: Double): Double = if (len < NORMALIZE_EPS) 0.0 else v / len
+
     fun glowCubeFaces(c: VertexConsumer, m: Matrix4f, p: Array<Vec3>, rgb: Int, edgeAlpha: Float, inset: Double = 0.35) {
         if (edgeAlpha <= 0.004f) return
+        val r = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val b = rgb and 0xFF
         for (face in SpellGeom.FACES) {
-            val centre = face.fold(Vec3.ZERO) { acc, i -> acc.add(p[i]) }.scale(0.25)
+            val f0 = p[face[0]]; val f1 = p[face[1]]; val f2 = p[face[2]]; val f3 = p[face[3]]
+            val cx = (0.0 + f0.x + f1.x + f2.x + f3.x) * 0.25
+            val cy = (0.0 + f0.y + f1.y + f2.y + f3.y) * 0.25
+            val cz = (0.0 + f0.z + f1.z + f2.z + f3.z) * 0.25
             for (k in 0 until 4) {
                 val e0 = p[face[k]]; val e1 = p[face[(k + 1) % 4]]
-                quad(c, m, e0, e1, e1.lerp(centre, inset), e0.lerp(centre, inset), rgb, edgeAlpha, edgeAlpha, 0f, 0f)
+                vertex(c, m, e0, r, g, b, edgeAlpha)
+                vertex(c, m, e1, r, g, b, edgeAlpha)
+                vertex(c, m, e1.x + inset * (cx - e1.x), e1.y + inset * (cy - e1.y), e1.z + inset * (cz - e1.z), r, g, b, 0f)
+                vertex(c, m, e0.x + inset * (cx - e0.x), e0.y + inset * (cy - e0.y), e0.z + inset * (cz - e0.z), r, g, b, 0f)
             }
         }
     }
@@ -201,9 +250,11 @@ object SpellShapes {
     fun line(c: VertexConsumer, pose: PoseStack.Pose, a: Vec3, b: Vec3, rgb: Int, alpha: Float) {
         val r = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val bl = rgb and 0xFF
         val al = (alpha * 255).toInt().coerceIn(0, 255)
-        val d = b.subtract(a).normalize()
-        c.vertex(pose.pose(), a.x.toFloat(), a.y.toFloat(), a.z.toFloat()).color(r, g, bl, al).normal(pose.normal(), d.x.toFloat(), d.y.toFloat(), d.z.toFloat()).endVertex()
-        c.vertex(pose.pose(), b.x.toFloat(), b.y.toFloat(), b.z.toFloat()).color(r, g, bl, al).normal(pose.normal(), d.x.toFloat(), d.y.toFloat(), d.z.toFloat()).endVertex()
+        val dx = b.x - a.x; val dy = b.y - a.y; val dz = b.z - a.z
+        val len = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        val nx = unitComponent(dx, len).toFloat(); val ny = unitComponent(dy, len).toFloat(); val nz = unitComponent(dz, len).toFloat()
+        c.vertex(pose.pose(), a.x.toFloat(), a.y.toFloat(), a.z.toFloat()).color(r, g, bl, al).normal(pose.normal(), nx, ny, nz).endVertex()
+        c.vertex(pose.pose(), b.x.toFloat(), b.y.toFloat(), b.z.toFloat()).color(r, g, bl, al).normal(pose.normal(), nx, ny, nz).endVertex()
     }
 
     fun lightAt(level: ClientLevel, p: Vec3): Int = LevelRenderer.getLightColor(level, BlockPos.containing(p))
@@ -308,24 +359,25 @@ object SpellShapes {
         val r = (rgb shr 16) and 0xFF; val g = (rgb shr 8) and 0xFF; val bl = rgb and 0xFF
         for (i in 0 until points.size - 1) {
             val p0 = points[i]; val p1 = points[i + 1]
+            val q0 = edges[i]; val q1 = edges[i + 1]
             val seg = p1.distanceTo(p0)
             if (seg < 1.0e-6) continue
             forTexCuts(s, seg) { from, to, tex0, tex1 ->
                 val fa = from / seg; val fb = to / seg
-                val a = p0.lerp(p1, fa); val b = p0.lerp(p1, fb)
-                val ea = edges[i].lerp(edges[i + 1], fa); val eb = edges[i].lerp(edges[i + 1], fb)
-                val wa = minOf(0.5, ea.length()); val wb = minOf(0.5, eb.length())
-                val aa = alphas[i] + (alphas[i + 1] - alphas[i]) * fa.toFloat()
-                val ab = alphas[i] + (alphas[i + 1] - alphas[i]) * fb.toFloat()
+                val ax = p0.x + fa * (p1.x - p0.x); val ay = p0.y + fa * (p1.y - p0.y); val az = p0.z + fa * (p1.z - p0.z)
+                val bx = p0.x + fb * (p1.x - p0.x); val by = p0.y + fb * (p1.y - p0.y); val bz = p0.z + fb * (p1.z - p0.z)
+                val eax = q0.x + fa * (q1.x - q0.x); val eay = q0.y + fa * (q1.y - q0.y); val eaz = q0.z + fa * (q1.z - q0.z)
+                val ebx = q0.x + fb * (q1.x - q0.x); val eby = q0.y + fb * (q1.y - q0.y); val ebz = q0.z + fb * (q1.z - q0.z)
+                val wa = minOf(0.5, Math.sqrt(eax * eax + eay * eay + eaz * eaz))
+                val wb = minOf(0.5, Math.sqrt(ebx * ebx + eby * eby + ebz * ebz))
+                val aa = (alphas[i] + (alphas[i + 1] - alphas[i]) * fa.toFloat()).let { (it * 255).toInt().coerceIn(0, 255) }
+                val ab = (alphas[i] + (alphas[i + 1] - alphas[i]) * fb.toFloat()).let { (it * 255).toInt().coerceIn(0, 255) }
                 val ca = uc.coerceIn(wa, 1 - wa); val cb = uc.coerceIn(wb, 1 - wb)
-                fun put(p: Vec3, u: Double, v: Double, al: Float) {
-                    c.vertex(m, p.x.toFloat(), p.y.toFloat(), p.z.toFloat()).uv(sprite.u(u.toFloat()), sprite.v(v.toFloat()))
-                        .color(r, g, bl, (al * 255).toInt().coerceIn(0, 255)).uv2(light).endVertex()
-                }
-                put(a.subtract(ea), ca - wa, 1 - tex0, aa)
-                put(a.add(ea), ca + wa, 1 - tex0, aa)
-                put(b.add(eb), cb + wb, 1 - tex1, ab)
-                put(b.subtract(eb), cb - wb, 1 - tex1, ab)
+                val va = (1 - tex0).toFloat(); val vb = (1 - tex1).toFloat()
+                tvertex(c, m, ax - eax, ay - eay, az - eaz, sprite, (ca - wa).toFloat(), va, r, g, bl, aa, light)
+                tvertex(c, m, ax + eax, ay + eay, az + eaz, sprite, (ca + wa).toFloat(), va, r, g, bl, aa, light)
+                tvertex(c, m, bx + ebx, by + eby, bz + ebz, sprite, (cb + wb).toFloat(), vb, r, g, bl, ab, light)
+                tvertex(c, m, bx - ebx, by - eby, bz - ebz, sprite, (cb - wb).toFloat(), vb, r, g, bl, ab, light)
             }
             s += seg
         }
@@ -340,19 +392,29 @@ object SpellShapes {
         val cr = cos(roll); val sr = sin(roll)
         val right = view.left.scale(-cr).add(view.up.scale(sr)); val up = view.up.scale(cr).add(view.left.scale(sr))
         val px = size / 5
+        val a = (alpha * 255).toInt().coerceIn(0, 255)
         for (row in 0 until 5) for (col in 0 until 5) {
             val ch = mask[row][col]
             if (ch == '.') continue
             val tint = if (ch == 's') darken(rgb, 0.65f) else rgb
+            val r = (tint shr 16) and 0xFF; val g = (tint shr 8) and 0xFF; val b = tint and 0xFF
             val u0 = (ox + col) / 16f; val v0 = (oy + row) / 16f
+            val u1 = u0 + 1 / 16f; val v1 = v0 + 1 / 16f
             val l = (col - 2.5) * px; val t = (2.5 - row) * px
-            fun at(x: Double, y: Double) = centre.add(right.scale(x)).add(up.scale(y))
-            tquad(
-                c, m, at(l, t - px), at(l + px, t - px), at(l + px, t), at(l, t), leaves,
-                floatArrayOf(u0, v0 + 1 / 16f, u0 + 1 / 16f, v0 + 1 / 16f, u0 + 1 / 16f, v0, u0, v0), tint, alpha, light,
-            )
+            chipVertex(c, m, centre, right, up, l, t - px, leaves, u0, v1, r, g, b, a, light)
+            chipVertex(c, m, centre, right, up, l + px, t - px, leaves, u1, v1, r, g, b, a, light)
+            chipVertex(c, m, centre, right, up, l + px, t, leaves, u1, v0, r, g, b, a, light)
+            chipVertex(c, m, centre, right, up, l, t, leaves, u0, v0, r, g, b, a, light)
         }
     }
+
+    private fun chipVertex(
+        c: VertexConsumer, m: Matrix4f, centre: Vec3, right: Vec3, up: Vec3, x: Double, y: Double, sprite: Sprite,
+        u: Float, v: Float, r: Int, g: Int, b: Int, a: Int, light: Int,
+    ) = tvertex(
+        c, m, centre.x + right.x * x + up.x * y, centre.y + right.y * x + up.y * y, centre.z + right.z * x + up.z * y,
+        sprite, u, v, r, g, b, a, light,
+    )
 
     private fun darken(rgb: Int, f: Float): Int = SpellGeom.darken(rgb, f)
 }

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client.signature
 
+import net.minecraft.client.renderer.LightTexture
 import org.valkyrienskies.core.api.util.GameTickOnly
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.animation.KeyframeAnimations
@@ -365,7 +366,7 @@ object WaveSignatureVisuals {
                 // Entity model framing: flip, then move down by the model's 24-pixel ground offset.
                 d.pose.scale(-1f, -1f, 1f)
                 d.pose.translate(0f, -1.501f, 0f)
-                if (tips) model.renderTip(d.pose, c, SpellShapes.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, t.alpha)
+                if (tips) model.renderTip(d.pose, c, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, t.alpha)
                 else model.renderToBuffer(d.pose, c, d.lightAt(t.base.add(t.span.scale(0.5)).add(0.0, 0.5, 0.0)), OverlayTexture.NO_OVERLAY, 1f, 1f, 1f, t.alpha)
                 d.pose.popPose()
             }
@@ -652,7 +653,7 @@ object WaveSignatureVisuals {
                 val behind = front - vine.dists[i]
                 if (behind < 0 || behind > Fireweed.FIRE_TAIL) continue
                 val h = FLAME_HEIGHT * (1 - behind / Fireweed.FIRE_TAIL) * minOf(1.0, (behind + 0.2) / 0.6)
-                plant(c, d.m, pts[i], fire, h, 0xFFFFFF, out, SpellShapes.FULL_BRIGHT, i * 0.7, 0.6)
+                plant(c, d.m, pts[i], fire, h, 0xFFFFFF, out, LightTexture.FULL_BRIGHT, i * 0.7, 0.6)
             }
             if (b in 1 until n && front - vine.dists[b] < Fireweed.FIRE_TAIL) embers += vine.points[b] to 1.0
         }

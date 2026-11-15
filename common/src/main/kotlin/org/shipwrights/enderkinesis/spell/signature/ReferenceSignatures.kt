@@ -37,6 +37,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.sees
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 @OptIn(GameTickOnly::class)
@@ -143,7 +144,7 @@ object ReferenceSignatures {
                     level.sound(target.middle(), EKSounds.SIGNATURE_BLACK_HOLE_SUN_BEAM.get())
                 }
             }
-            if (e.tickCount % 5 == 0) for (block in SignatureShips.nearestBlocks(level, core, SHIP_REACH)) {
+            if (e.tickCount % 5 == 0) for (block in SignatureShips.nearestBlocks(level, core, SHIP_REACH, throughWalls = true)) {
                 val toCore = core.subtract(block.world)
                 val d = toCore.length()
                 if (d > 1.0e-3) SignatureShips.push(block.ship, block.world, toCore.scale(SHIP_PULL * (0.4 + 0.6 * (1 - d / SHIP_REACH)) / d))
@@ -312,6 +313,9 @@ object ReferenceSignatures {
                 }
                 for (target in level.getEntitiesOfClass(LivingEntity::class.java, AABB(base, base).inflate(0.9, 1.4, 0.9))) {
                     if (target === e.caster || target.isSpectator || !target.isAlive) continue
+                    // Sight from the root axis at the target's height, kept above the ground.
+                    val axisY = target.boundingBox.center.y.coerceIn(c.ground + 0.25, c.ground + maxOf(0.25, c.height))
+                    if (!level.sees(Vec3(c.x, axisY, c.z), target)) continue
                     e.hurtTarget(target, EKDamageSources.GENESIS_KEY, damage * full.toFloat())
                     target.spellPush(Vec3(out.x * 0.3, THROW * full, out.z * 0.3))
                 }
@@ -513,7 +517,7 @@ object ReferenceSignatures {
                 val dist = to.length()
                 if (dist < 1.0e-3 || dist > reach) continue
                 val angle = Math.acos((to.dot(d) / dist).coerceIn(-1.0, 1.0))
-                if (angle < bestAngle) { bestAngle = angle; best = to.scale(1 / dist) }
+                if (angle < bestAngle && level.sees(from, enemy)) { bestAngle = angle; best = to.scale(1 / dist) }
             }
             val target = best ?: return d
             val perp = target.subtract(d.scale(d.dot(target)))

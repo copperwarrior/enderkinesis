@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.world.entity.LivingEntity
@@ -145,7 +146,7 @@ object CrystalLayer {
             val gray = buffers.getBuffer(SpellVfxRenderTypes.gray(BLOCK_ATLAS))
             for (b in plan.buds) bud(gray, m, quads, b, age, 0xF6F2FF, 1f, light)
             val glow = buffers.getBuffer(SpellVfxRenderTypes.glow(BLOCK_ATLAS))
-            for (b in plan.buds) bud(glow, m, quads, b, age, 0xFFFFFF, 0.2f, SpellShapes.FULL_BRIGHT)
+            for (b in plan.buds) bud(glow, m, quads, b, age, 0xFFFFFF, 0.2f, LightTexture.FULL_BRIGHT)
         }
 
         val seedGlow = buffers.getBuffer(AegisRenderType.FACE_GLOW)

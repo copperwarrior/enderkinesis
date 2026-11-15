@@ -245,7 +245,7 @@ object NamedEffects {
 
     fun gravity(ctx: SpellContext, delivery: Delivery, magnitude: Float) {
         val weighted = EKEffects.WEIGHTED.get()
-        for (target in delivery.living(ctx)) {
+        for (target in delivery.living(ctx, throughWalls = true)) {
             if (target is Player && target.isFallFlying) target.stopFallFlying()
             target.removeEffect(MobEffects.LEVITATION)
             if (target is Phantom || target is Ghast) {

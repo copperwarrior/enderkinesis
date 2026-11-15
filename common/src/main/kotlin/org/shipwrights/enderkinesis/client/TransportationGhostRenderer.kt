@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft
 import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.world.item.ItemDisplayContext
+import org.joml.Vector3d
 
 /**
  * In-world renderer for the Tome of Transportation's ghost-item visual. Called from
@@ -32,6 +33,8 @@ object TransportationGhostRenderer {
     private const val YAW_DEG_PER_SEC: Double = 113.0
     private const val ROLL_DEG_PER_SEC: Double = 47.0
 
+    private val flightPos = Vector3d()
+
     fun render(poseStack: PoseStack, camera: Camera, partialTick: Float) {
         // HOISTED gate. Spark v8 attributed ~32 ms self to this
         // function despite the user reporting zero active
@@ -56,13 +59,13 @@ object TransportationGhostRenderer {
         val tSec = (gameTime.toDouble() + partialTick) / 20.0
 
         for (flight in flights) {
-            val world = TransportationClient.renderPos(level, flight, partialTick) ?: continue
+            if (!TransportationClient.renderPos(level, flight, partialTick, flightPos)) continue
 
             poseStack.pushPose()
             poseStack.translate(
-                world.x - cameraPos.x,
-                world.y - cameraPos.y,
-                world.z - cameraPos.z,
+                flightPos.x - cameraPos.x,
+                flightPos.y - cameraPos.y,
+                flightPos.z - cameraPos.z,
             )
             // Per-item tumble. The seed scales each axis's rate (range 0.7×–1.3×) and
             // injects a per-axis phase offset (different primes per axis), so two flights

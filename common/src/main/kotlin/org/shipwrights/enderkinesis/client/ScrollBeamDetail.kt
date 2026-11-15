@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
@@ -169,7 +170,7 @@ object ScrollBeamDetail {
             for (i in 0 until 8) {
                 val an = time * 0.12 + i * Math.PI / 4
                 val p = at.add(0.0, sin(an) * 0.7, 0.0).add(view.left.scale(cos(an) * 0.7))
-                SpellShapes.sprite(glyphs, m, view, p, 0.14, SpellArt.glyph(i * 3), whiten(rgb, 0.3f), 0.8f, SpellShapes.FULL_BRIGHT)
+                SpellShapes.sprite(glyphs, m, view, p, 0.14, SpellArt.glyph(i * 3), whiten(rgb, 0.3f), 0.8f, LightTexture.FULL_BRIGHT)
             }
         }
         pose.popPose()

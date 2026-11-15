@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import org.shipwrights.enderkinesis.blockentity.AnchoredBeamPath
 import org.valkyrienskies.mod.common.isBlockInShipyard
 import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
@@ -202,7 +203,7 @@ object OrbOfLinkingClient {
     private val SIGNAL_TOME_KIND: ResourceLocation =
         ResourceLocation("enderkinesis", "tome_of_signal")
 
-    internal const val BEAM_SAG = 0.25
+    internal const val BEAM_SAG = AnchoredBeamPath.BEAM_SAG
     private const val BEAM_RADIUS = 0.35
     private const val BEAM_FLOW_RATE = 0.08
     private const val IDLE_PARTICLES_PER_TICK = 1

@@ -61,8 +61,12 @@ object AbyssalPockets {
     @JvmStatic
     fun isPhasedClient(key: Long): Boolean {
         val snapshot = clientPhased
-        return !snapshot.isEmpty() && snapshot.contains(key)
+        return snapshot !== LongSets.EMPTY_SET && snapshot.contains(key)
     }
+
+    // Every write publishes EMPTY_SET for an empty set, so a reference compare is the empty check.
+    @JvmStatic
+    fun anyClientPhased(): Boolean = clientPhased !== LongSets.EMPTY_SET
 
     fun clientPhased(): LongSet = clientPhased
 

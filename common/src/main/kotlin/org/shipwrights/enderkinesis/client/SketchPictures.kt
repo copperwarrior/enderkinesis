@@ -8,6 +8,7 @@ import org.shipwrights.enderkinesis.item.PictureReadout
 import org.shipwrights.enderkinesis.item.SilverpointNetwork
 import org.shipwrights.enderkinesis.item.SilverpointPicture
 import org.shipwrights.enderkinesis.item.StrikeReadout
+import org.shipwrights.enderkinesis.util.joinChunksOrNull
 
 /**
  * View sketches by key, so a `[sketch:picture=...]` tag can find the picture its paper holds. A picture this client
@@ -57,9 +58,9 @@ object SketchPictures {
             if (partial.size > MAX_PARTIAL) partial.remove(partial.keys.first())
         }
         parts[part.index] = part.bytes
-        if (parts.any { it == null }) return
+        val joined = parts.joinChunksOrNull() ?: return
         partial.remove(part.id)
-        put(part.id, SilverpointNetwork.join(parts))
+        put(part.id, joined)
     }
 
     /** Holds [picture] under [key], replacing any texture made before it came. */
@@ -102,10 +103,12 @@ object SketchPictures {
         val picture = packedFor(key)?.let(SilverpointPicture::unpack) ?: return null
         val side = picture.side
         val image = NativeImage(side, side, false)
+        val abgr = picture.abgr
+        val alpha = picture.alpha
         for (y in 0 until side) {
             for (x in 0 until side) {
                 val i = y * side + x
-                image.setPixelRGBA(x, y, picture.abgr?.get(i) ?: (((picture.alpha[i].toInt() and 0xFF) shl 24) or INK_ABGR))
+                image.setPixelRGBA(x, y, if (abgr != null) abgr[i] else ((alpha[i].toInt() and 0xFF) shl 24) or INK_ABGR)
             }
         }
         return image

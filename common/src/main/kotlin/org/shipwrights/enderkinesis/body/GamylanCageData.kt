@@ -148,6 +148,10 @@ data class GamylanCageData(
      *  path would have run (keepInventory OFF, no totem, no wik'lak
      *  save). Empty otherwise. Server-only — clients don't need this. */
     @Volatile var droppedItems: MutableList<ItemStack> = java.util.ArrayList(),
+    /** Ship that carried the target at capture, or null. The fade lock follows it, not the world point [hoverPos]. */
+    val carrierShipId: Long? = null,
+    /** The capture hover point in [carrierShipId]'s shipyard frame. */
+    val hoverInShip: Vector3d? = null,
 ) {
 
     val hull: GamylanCageShape.Hull by lazy { GamylanCageShape.newHull(shapeDims) }

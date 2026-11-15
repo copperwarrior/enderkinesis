@@ -29,6 +29,8 @@ import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.ElementalEnvironment
 import java.util.UUID
+import org.shipwrights.enderkinesis.registry.gemItem
+import org.shipwrights.enderkinesis.registry.shardItem
 
 object MundaneIncubation {
     val S2C_STATE: ResourceLocation = EnderkinesisMod.id("mundane_incubation")
@@ -218,11 +220,11 @@ object MundaneIncubation {
             .maxByOrNull { points[it.ordinal] } ?: Element.QUINTESSENCE
 
     private fun hatchItems(player: ServerPlayer, element: Element): List<ItemStack> {
-        if (!element.isFusion) return listOf(ItemStack(checkNotNull(EKItems.gemOf(element))))
+        if (!element.isFusion) return listOf(ItemStack(checkNotNull(element.gemItem())))
         val random = player.random
         return List(FUSION_SHARDS) {
             val component = element.components[random.nextInt(element.components.size)]
-            ItemStack(checkNotNull(EKItems.shardOf(component)))
+            ItemStack(checkNotNull(component.shardItem()))
         }
     }
 

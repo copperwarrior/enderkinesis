@@ -52,6 +52,9 @@ object BlockShifts {
     private val falls = ArrayList<Fall>()
     // Blocks drawn here instead of by the world. Chunk mesher threads read it.
     private val hidden: MutableSet<Long> = ConcurrentHashMap.newKeySet()
+    // ConcurrentHashMap.isEmpty sums its counter cells; mesher threads read this flag instead. Render thread writes it.
+    @Volatile
+    private var anyHidden = false
 
     private const val SINK_TICKS = 7f
     private const val STEAM_TICKS = 18
@@ -117,10 +120,14 @@ object BlockShifts {
     }
 
     @JvmStatic
-    fun isHidden(pos: BlockPos): Boolean = hidden.isNotEmpty() && pos.asLong() in hidden
+    fun isHidden(pos: BlockPos): Boolean = anyHidden && pos.asLong() in hidden
+
+    @JvmStatic
+    fun anyHidden(): Boolean = anyHidden
 
     private fun hide(pos: BlockPos, hide: Boolean) {
         if (hide) hidden += pos.asLong() else hidden -= pos.asLong()
+        anyHidden = hidden.isNotEmpty()
         Minecraft.getInstance().levelRenderer.setBlocksDirty(pos.x - 1, pos.y - 1, pos.z - 1, pos.x + 1, pos.y + 1, pos.z + 1)
     }
 
@@ -132,6 +139,7 @@ object BlockShifts {
         swaps.clear()
         falls.clear()
         hidden.clear()
+        anyHidden = false
     }
 
     /** For a fluid, the cells are its surface and sides. */

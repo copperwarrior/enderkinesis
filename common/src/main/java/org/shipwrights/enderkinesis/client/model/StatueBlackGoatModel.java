@@ -11,11 +11,11 @@ import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.Entity;
 import org.shipwrights.enderkinesis.EnderkinesisMod;
 
-/** Statue: Black Goat. Blockbench export. 128x128 atlas. */
+/** Statue: Black Goat. Blockbench export. */
 public class StatueBlackGoatModel extends EntityModel<Entity> {
     public static final ModelLayerLocation LAYER_LOCATION =
         new ModelLayerLocation(new ResourceLocation(EnderkinesisMod.MOD_ID, "statue_black_goat"), "main");

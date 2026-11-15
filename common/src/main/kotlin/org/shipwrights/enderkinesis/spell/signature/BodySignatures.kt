@@ -48,7 +48,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 import org.shipwrights.enderkinesis.util.CrossFrameBlocks
-import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.sees
 import org.shipwrights.enderkinesis.util.smoothstep
 import org.valkyrienskies.core.api.util.GameTickOnly
 
@@ -91,8 +91,11 @@ object BodySignatures {
         if (count <= 0) return
         val level = e.level() as ServerLevel
         val spots = ArrayList<BlockPos>()
-        CrossFrameBlocks(level, centre, r).forEachWithin(r) { pos, _ ->
-            if (level.getBlockState(pos).isAir && BaseFireBlock.canBePlacedAt(level, pos, Direction.UP)) spots += pos.immutable()
+        val near = Vector3d()
+        CrossFrameBlocks(level, centre, r).forEachWithin(r) { pos, ship ->
+            if (level.getBlockState(pos).isAir && BaseFireBlock.canBePlacedAt(level, pos, Direction.UP) && level.sees(centre, pos, ship, near)) {
+                spots += pos.immutable()
+            }
         }
         spots.shuffle(java.util.Random(level.random.nextLong()))
         var lit = 0
@@ -414,8 +417,10 @@ object BodySignatures {
         private fun freezeWater(e: SignatureEntity, o: Orbit, core: Vec3) {
             val level = e.level() as ServerLevel
             var froze = false
-            CrossFrameBlocks(level, core, WATER_REACH).forEachWithin(WATER_REACH) { pos, _ ->
-                FluidFreezing.frozen(level.getBlockState(pos))?.let { if (e.setBlock(pos.immutable(), it)) froze = true }
+            val near = Vector3d()
+            CrossFrameBlocks(level, core, WATER_REACH).forEachWithin(WATER_REACH) { pos, ship ->
+                val frozen = FluidFreezing.frozen(level.getBlockState(pos)) ?: return@forEachWithin
+                if (level.sees(core, pos, ship, near) && e.setBlock(pos.immutable(), frozen)) froze = true
             }
             if (froze && (o.freezeSound == NEVER || e.tickCount - o.freezeSound >= SOUND_EVERY)) {
                 o.freezeSound = e.tickCount
@@ -507,7 +512,7 @@ object BodySignatures {
                     is ItemEntity, is Projectile -> if (d <= SWALLOW) swallow(e, h, entity) else entity.pull(core, ITEM_PULL + ITEM_PULL_NEAR * (1 - d / REACH))
                 }
             }
-            if (n % SHIP_EVERY == 0) for (block in SignatureShips.nearestBlocks(level, core, REACH)) {
+            if (n % SHIP_EVERY == 0) for (block in SignatureShips.nearestBlocks(level, core, REACH, throughWalls = true)) {
                 val to = core.subtract(block.world)
                 if (to.lengthSqr() > 1.0e-6) SignatureShips.push(block.ship, block.world, to.normalize().scale(SHIP_PULL))
             }
@@ -901,8 +906,7 @@ object BodySignatures {
             return best
         }
 
-        private fun seen(level: ServerLevel, at: Vec3, top: Vec3): Boolean =
-            level.clip(colliderClip(at, top.add(0.0, 0.05, 0.0))).type == HitResult.Type.MISS
+        private fun seen(level: ServerLevel, at: Vec3, top: Vec3): Boolean = level.sees(at, top.add(0.0, 0.05, 0.0))
 
         private fun metal(state: BlockState): Boolean {
             if (state.isAir) return false

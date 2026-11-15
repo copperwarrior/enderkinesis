@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
@@ -199,13 +200,13 @@ object RuneVfx {
                 val flash = exp(-e / 2.5f)
                 val size = 1.0 + 0.25 * flash
                 decal(buffers.getBuffer(SpellVfxRenderTypes.sprite(BLOCK_ATLAS)), m, f, sprite, whiten(tint, flash), 1f, light, size)
-                decal(buffers.getBuffer(SpellVfxRenderTypes.glow(BLOCK_ATLAS)), m, f, sprite, tint, (pulse + flash).coerceAtMost(1f), SpellShapes.FULL_BRIGHT, size)
+                decal(buffers.getBuffer(SpellVfxRenderTypes.glow(BLOCK_ATLAS)), m, f, sprite, tint, (pulse + flash).coerceAtMost(1f), LightTexture.FULL_BRIGHT, size)
                 return
             }
             val flick = flicker(time + phase(rune.blockPos))
             val colour = whiten(tint, 0.3f * flick)
             decal(buffers.getBuffer(SpellVfxRenderTypes.sprite(BLOCK_ATLAS)), m, f, sprite, colour, 1f, light)
-            decal(buffers.getBuffer(SpellVfxRenderTypes.glow(BLOCK_ATLAS)), m, f, sprite, colour, (pulse + 0.7f * flick).coerceAtMost(1f), SpellShapes.FULL_BRIGHT)
+            decal(buffers.getBuffer(SpellVfxRenderTypes.glow(BLOCK_ATLAS)), m, f, sprite, colour, (pulse + 0.7f * flick).coerceAtMost(1f), LightTexture.FULL_BRIGHT)
         }
 
         /** The full render distance, not the vanilla 64 blocks for block entities. */
@@ -220,7 +221,7 @@ object RuneVfx {
         val body = buffers.getBuffer(SpellVfxRenderTypes.sprite(BLOCK_ATLAS))
         for (b in bursts) burst(body, m, b, sprite, time, glow = false, light = SpellShapes.lightAt(level, Vec3.atCenterOf(b.pos)))
         val glow = buffers.getBuffer(SpellVfxRenderTypes.glow(BLOCK_ATLAS))
-        for (b in bursts) burst(glow, m, b, sprite, time, glow = true, light = SpellShapes.FULL_BRIGHT)
+        for (b in bursts) burst(glow, m, b, sprite, time, glow = true, light = LightTexture.FULL_BRIGHT)
     }
 
     private fun burst(c: VertexConsumer, m: Matrix4f, b: Burst, sprite: Sprite, time: Float, glow: Boolean, light: Int) {

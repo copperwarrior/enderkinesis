@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerPlayer
 import net.minecraft.sounds.SoundSource
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKSounds
+import org.shipwrights.enderkinesis.util.joinChunksOrNull
 import java.util.UUID
 
 /**
@@ -90,7 +91,12 @@ object SilverpointNetwork {
             outboxes.remove(player.uuid)
         }
         TickEvent.SERVER_POST.register { server -> drain(server) }
-        LifecycleEvent.SERVER_STOPPED.register { outboxes.clear() }
+        LifecycleEvent.SERVER_STOPPED.register {
+            allowances.clear()
+            uploads.clear()
+            waiting.clear()
+            outboxes.clear()
+        }
     }
 
     /** A viewfinder release on the server: the paper it begins may come in the next [ALLOW_TICKS]. */
@@ -146,9 +152,8 @@ object SilverpointNetwork {
         }
         val chunks = upload.chunks?.takeIf { it.size == total } ?: arrayOfNulls<ByteArray>(total).also { upload.chunks = it }
         chunks[index] = bytes
-        if (chunks.any { it == null }) return
+        val packed = chunks.joinChunksOrNull() ?: return
         uploads.remove(id)
-        val packed = join(chunks)
         if (SilverpointPicture.sideOf(packed) == null) return
         SilverpointPictureStore.put(id, packed)
         val players = player.server.playerList
@@ -210,16 +215,5 @@ object SilverpointNetwork {
         val total = buf.readVarInt()
         val bytes = buf.readByteArray(CHUNK)
         return if (total in 1..MAX_CHUNKS && index in 0 until total) DataPart(id, index, total, bytes) else null
-    }
-
-    /** Joins the parts of one picture, in index order. */
-    fun join(parts: Array<ByteArray?>): ByteArray {
-        val out = ByteArray(parts.sumOf { checkNotNull(it).size })
-        var at = 0
-        for (part in parts) {
-            checkNotNull(part).copyInto(out, at)
-            at += part.size
-        }
-        return out
     }
 }

@@ -1,5 +1,6 @@
 package org.shipwrights.enderkinesis.client
 
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import org.joml.Matrix4f
 import org.joml.Vector3f
@@ -52,7 +53,7 @@ object AltarGlows {
                     floatArrayOf(s, s, sprite.u1, sprite.v0), floatArrayOf(s, -s, sprite.u1, sprite.v1),
                 )
                 for (p in corners) {
-                    c.vertex(m, g.at.x + p[0], g.at.y + p[1], g.at.z).uv(p[2], p[3]).color(r, gr, b, a).uv2(SpellShapes.FULL_BRIGHT).endVertex()
+                    c.vertex(m, g.at.x + p[0], g.at.y + p[1], g.at.z).uv(p[2], p[3]).color(r, gr, b, a).uv2(LightTexture.FULL_BRIGHT).endVertex()
                 }
             }
         }

@@ -12,6 +12,7 @@ import net.minecraft.world.level.ClipContext
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.util.offFace
 import org.shipwrights.enderkinesis.util.pickStandaloneBody
 import org.valkyrienskies.mod.common.toWorldCoordinates
 import org.shipwrights.enderkinesis.item.AegisBox
@@ -64,18 +65,26 @@ object SpellCasting {
     /** A full Bolt needs 1.5 s of draw and aim, and spends a full use, so it hits harder. */
     const val BOLT_DAMAGE = 2.5f
 
+    /** A burst on a block face sees from this far off the face, so the struck face never blocks its own burst. */
+    const val FACE_SIGHT_OFFSET = 0.05
+
     /** Eased in as a bow draw, so a quick tap never does more damage than a full draw. */
     fun boltPower(charge: Float): Float = BOLT_DAMAGE * (charge * charge + 2f * charge) / 3f
 
-    /** [area] marks a cast centred on the caster. */
-    fun burst(ctx: SpellContext, spell: Spell, hit: Vec3, area: Boolean, scale: Float = 1f, waves: Boolean = area) {
+    /** [area] marks a cast centred on the caster. Give [sightFrom] in open space when [hit] is on a block face. */
+    fun burst(
+        ctx: SpellContext, spell: Spell, hit: Vec3, area: Boolean, scale: Float = 1f, waves: Boolean = area, sightFrom: Vec3? = null,
+    ) {
         // VS2 moves a projectile that strikes a ship into the shipyard, so its hit point can be in either frame.
         val centre = ctx.level.toWorldCoordinates(hit)
         if (area) SpellVfx.runeCircle(ctx.level, centre, spell.markColour())
         ctx.elements = spell.magnitudes.keys
         for ((element, magnitude) in spell.magnitudes) {
             val m = magnitude * scale
-            ElementEffects.of(element).apply(ctx, Delivery.Sphere(centre, SpellCurves.areaRadius(m), area, waves), m)
+            val sphere = if (sightFrom != null) {
+                Delivery.Sphere(centre, SpellCurves.areaRadius(m), area, waves, ctx.level.toWorldCoordinates(sightFrom))
+            } else Delivery.Sphere(centre, SpellCurves.areaRadius(m), area, waves)
+            ElementEffects.of(element).apply(ctx, sphere, m)
         }
     }
 
@@ -104,7 +113,7 @@ object SpellCasting {
         if (!struck.isAir) ctx.level.sendParticles(BlockParticleOption(ParticleTypes.BLOCK, struck), location.x, location.y, location.z, 10, 0.1, 0.1, 0.1, 0.15)
         when (spell.shape ?: return) {
             Shape.BOLT -> {
-                burst(ctx, spell, location, area = false, scale)
+                burst(ctx, spell, location, area = false, scale, sightFrom = ctx.level.offFace(location, pos, face, FACE_SIGHT_OFFSET))
                 ElementEffects.dropBlock(ctx, pos)
             }
             Shape.BEAM, Shape.SPRAY -> applyAll(ctx, spell, Delivery.SingleBlock(pos, face), scale)

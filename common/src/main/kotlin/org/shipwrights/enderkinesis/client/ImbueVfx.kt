@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.client
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.core.particles.ItemParticleOption
 import net.minecraft.core.particles.ParticleTypes
@@ -181,7 +182,7 @@ object ImbueVfx {
             val r = Random(i * 3 + 11)
             val d = SpellGeom.spread(r)
             val p = b.at.add(d.scale(b.spread * easeOut(e.toDouble()) * (0.5 + 0.5 * r.nextDouble())))
-            SpellShapes.sprite(c, m, view, p, 0.15, glyph(i * 7), rgb, 1f - e, SpellShapes.FULL_BRIGHT)
+            SpellShapes.sprite(c, m, view, p, 0.15, glyph(i * 7), rgb, 1f - e, LightTexture.FULL_BRIGHT)
         }
     }
 

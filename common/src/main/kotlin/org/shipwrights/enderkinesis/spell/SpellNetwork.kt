@@ -42,6 +42,8 @@ object SpellNetwork {
     val VFX: ResourceLocation = EnderkinesisMod.id("spell/vfx")
     val BLOCK_SHIFTS: ResourceLocation = EnderkinesisMod.id("spell/block_shifts")
     const val MAX_SHIFTS_PER_PACKET = 2048
+    /** Same layout as [BLOCK_SHIFTS]; the client starts a Wohlon mud creep at each block. */
+    val MUD_CREEP: ResourceLocation = EnderkinesisMod.id("wohlon/mud_creep")
     val FROZEN_POSE: ResourceLocation = EnderkinesisMod.id("spell/frozen_pose")
     val USED: ResourceLocation = EnderkinesisMod.id("spell/used")
     val RELEASED: ResourceLocation = EnderkinesisMod.id("spell/released")
@@ -57,7 +59,7 @@ object SpellNetwork {
     private const val MAX_POSITIONS_PER_PACKET = 4096
 
     /** [from] also picks the players that get the batch, so it is kept when the batch is not [directed]. */
-    private class ShiftBatch(val level: ServerLevel, val from: Vec3, val element: Int, val directed: Boolean) {
+    private class ShiftBatch(val id: ResourceLocation, val level: ServerLevel, val from: Vec3?, val element: Int, val directed: Boolean) {
         val positions = LongArrayList()
         val states = IntArrayList()
     }
@@ -282,11 +284,16 @@ object SpellNetwork {
             buf.writeInt(seed)
         }
 
-    fun queueBlockShift(level: ServerLevel, pos: BlockPos, old: BlockState, from: Vec3, element: Element?, directed: Boolean) {
-        val e = element?.ordinal ?: -1
+    fun queueBlockShift(level: ServerLevel, pos: BlockPos, old: BlockState, from: Vec3, element: Element?, directed: Boolean) =
+        queueShift(BLOCK_SHIFTS, level, pos, old, from, element?.ordinal ?: -1, directed)
+
+    /** Goes only to the players that track the block. */
+    fun queueMudCreep(level: ServerLevel, pos: BlockPos, old: BlockState) = queueShift(MUD_CREEP, level, pos, old, null, -1, false)
+
+    private fun queueShift(id: ResourceLocation, level: ServerLevel, pos: BlockPos, old: BlockState, from: Vec3?, e: Int, directed: Boolean) {
         val last = pendingShifts.lastOrNull()
-        val batch = if (last != null && last.level === level && last.element == e && last.from == from && last.directed == directed) last
-        else ShiftBatch(level, from, e, directed).also { pendingShifts += it }
+        val batch = if (last != null && last.id == id && last.level === level && last.element == e && last.from == from && last.directed == directed) last
+        else ShiftBatch(id, level, from, e, directed).also { pendingShifts += it }
         batch.positions.add(pos.asLong())
         batch.states.add(Block.getId(old))
     }
@@ -300,7 +307,8 @@ object SpellNetwork {
         for (batch in pendingShifts) {
             val level = batch.level
             if (only != null && level !== only) continue
-            val fromPlayers = trackingAny(level, listOf(batch.from))
+            val from = batch.from
+            val fromPlayers = if (from != null) trackingAny(level, listOf(from)) else emptyList()
             byChunk.clear()
             perPlayer.clear()
             for (n in 0 until batch.positions.size) {
@@ -328,9 +336,11 @@ object SpellNetwork {
         var start = 0
         while (start < shifts.size) {
             val end = minOf(start + MAX_SHIFTS_PER_PACKET, shifts.size)
-            sendTo(listOf(player), BLOCK_SHIFTS) { buf ->
-                buf.writeBoolean(batch.directed)
-                if (batch.directed) { buf.writeDouble(batch.from.x); buf.writeDouble(batch.from.y); buf.writeDouble(batch.from.z) }
+            val from = batch.from
+            val directed = batch.directed && from != null
+            sendTo(listOf(player), batch.id) { buf ->
+                buf.writeBoolean(directed)
+                if (directed && from != null) { buf.writeDouble(from.x); buf.writeDouble(from.y); buf.writeDouble(from.z) }
                 buf.writeVarInt(batch.element + 1)
                 buf.writeVarInt(end - start)
                 for (k in start until end) {

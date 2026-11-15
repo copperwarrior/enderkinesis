@@ -97,15 +97,31 @@ class UlderBeamAnchorBlockEntity(pos: BlockPos, state: BlockState) :
             level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4)?.getBlockEntity(pos) as? UlderBeamAnchorBlockEntity
 
         fun anchorWorldPoint(level: Level, pos: BlockPos, state: BlockState): Vec3 {
+            val v = anchorWorldPoint(level, pos, state, Vector3d())
+            return Vec3(v.x, v.y, v.z)
+        }
+
+        fun anchorWorldPoint(level: Level, pos: BlockPos, state: BlockState, out: Vector3d): Vector3d {
             val facing = if (state.hasProperty(UlderBeamAnchorBlock.FACING))
                 state.getValue(UlderBeamAnchorBlock.FACING) else Direction.DOWN
-            val v = Vector3d(
+            out.set(
                 pos.x + 0.5 + facing.stepX * ANCHOR_FACE_OFFSET,
                 pos.y + 0.5 + facing.stepY * ANCHOR_FACE_OFFSET,
                 pos.z + 0.5 + facing.stepZ * ANCHOR_FACE_OFFSET,
             )
-            level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(v)
-            return Vec3(v.x, v.y, v.z)
+            level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
+            return out
+        }
+    }
+
+    /** Physics transform of loaded anchors; the client reads the render transform instead. */
+    object LoadedAnchorPoints : BeamAnchorPoints {
+        override fun anchorPoint(level: Level, pos: BlockPos, out: Vector3d): Boolean {
+            val chunk = level.chunkSource.getChunkNow(pos.x shr 4, pos.z shr 4) ?: return false
+            val state = chunk.getBlockState(pos)
+            if (state.block !is UlderBeamAnchorBlock) return false
+            anchorWorldPoint(level, pos, state, out)
+            return true
         }
     }
 }

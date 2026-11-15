@@ -24,6 +24,8 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.exp
 
 /** Phys thread queues hits via [queueHit]; the game-thread [serverTick] drains them and calls Level.explode. */
 class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
@@ -34,7 +36,8 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
 
     val armed: Boolean get() = !crystal.isEmpty
 
-    @Volatile private var hitPending: Boolean = false
+    // Largest hit energy (J) since the last drain, as raw double bits; 0 means no hit.
+    private val pendingEnergy = AtomicLong(0L)
 
     private var registeredShipId: ShipId? = null
 
@@ -47,20 +50,25 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
 
     fun serverTick(level: ServerLevel, pos: BlockPos) {
         refreshRegistration(level)
-        if (!hitPending) return
-        hitPending = false
-        if (!armed) return
+        val energy = Double.fromBits(pendingEnergy.getAndSet(0L))
+        if (energy <= 0.0 || !armed) return
         // The crystal is spent, so the removal below must not drop it or start a chain.
         crystal = ItemStack.EMPTY
         // Before the removal: removing a ship's last block can drop the ship and its transform.
         val worldPos = worldCentre(level, pos)
         level.removeBlock(pos, false)
-        level.explode(null, worldPos.x, worldPos.y, worldPos.z, EXPLOSION_RADIUS, Level.ExplosionInteraction.TNT)
+        level.explode(null, worldPos.x, worldPos.y, worldPos.z, blastPower(energy), Level.ExplosionInteraction.TNT)
     }
 
-    /** Phys thread. */
-    fun queueHit() {
-        hitPending = true
+    /** Phys thread. Keeps the largest [energy] of the tick, so a many-contact hit goes off once at its peak. */
+    fun queueHit(energy: Double) {
+        require(energy > 0.0) { "Hit energy must be positive" }
+        val bits = energy.toRawBits()
+        while (true) {
+            val current = pendingEnergy.get()
+            if (energy <= Double.fromBits(current)) return
+            if (pendingEnergy.compareAndSet(current, bits)) return
+        }
     }
 
     /** Moves one crystal from [stack] into the empty slot. */
@@ -150,10 +158,20 @@ class CrystalExplosiveBlockEntity(pos: BlockPos, state: BlockState) :
     companion object {
         private const val NBT_CRYSTAL = "Crystal"
 
-        /** Vanilla end crystal explosion power. */
-        const val EXPLOSION_RADIUS: Float = 6.0f
+        /** TNT. */
+        private const val MIN_BLAST_POWER: Float = 4.0f
 
-        const val CHAIN_EXPLOSION_RADIUS: Float = 5.0f
+        /** Just above a wither spawn (7). */
+        private const val MAX_BLAST_POWER: Float = 8.0f
+
+        /** Hit energy (J) that gives 63% of the climb from min to max power. */
+        private const val BLAST_ENERGY_SCALE: Double = 500_000.0
+
+        /** Rises fast for small hits, then flattens toward [MAX_BLAST_POWER]. */
+        fun blastPower(energy: Double): Float =
+            MIN_BLAST_POWER + (MAX_BLAST_POWER - MIN_BLAST_POWER) * (1.0 - exp(-energy / BLAST_ENERGY_SCALE)).toFloat()
+
+        private const val CHAIN_EXPLOSION_RADIUS: Float = 5.0f
 
         /** Armed explosives removed this tick. An explosion calls `onRemove` before `wasExploded`, when the
          *  block entity is already gone, so `wasExploded` reads the armed state from here. */

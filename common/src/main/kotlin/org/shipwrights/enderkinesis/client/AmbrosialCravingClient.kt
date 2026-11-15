@@ -54,7 +54,7 @@ object AmbrosialCravingClient {
      *  select it (sending the carried-item packet so the server agrees).
      *  No-op if there isn't one. */
     private fun scrollToWeyyeFruit(player: LocalPlayer) {
-        val fruit = EKItems.weyyeFruit()
+        val fruit = EKItems.WEYYE_FRUIT.get()
         val inv = player.inventory
         for (slot in 0..8) {
             if (inv.getItem(slot).item === fruit) {
@@ -73,7 +73,7 @@ object AmbrosialCravingClient {
      *  own — no per-tick "keep using" logic needed. */
     private fun forceEatIfHoldingFruit(mc: Minecraft, player: LocalPlayer) {
         if (player.isUsingItem) return
-        if (player.mainHandItem.item !== EKItems.weyyeFruit()) return
+        if (player.mainHandItem.item !== EKItems.WEYYE_FRUIT.get()) return
         mc.gameMode?.useItem(player, InteractionHand.MAIN_HAND)
     }
 }

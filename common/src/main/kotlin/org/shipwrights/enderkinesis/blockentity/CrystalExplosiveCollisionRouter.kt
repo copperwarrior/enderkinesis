@@ -1,22 +1,18 @@
 package org.shipwrights.enderkinesis.blockentity
 
-import dev.architectury.event.events.common.TickEvent
 import net.minecraft.core.BlockPos
-import net.minecraft.server.MinecraftServer
 import net.minecraft.util.Mth
 import org.joml.Vector3d
-import org.joml.Vector3dc
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.physics.ContactPoint
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.properties.ShipId
-import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.util.UnavailableInKrunch
-import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.vsApi
-import org.valkyrienskies.mod.common.shipObjectWorld
+import org.shipwrights.enderkinesis.util.movableMass
+import org.shipwrights.enderkinesis.util.reducedMass
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -36,62 +32,27 @@ object CrystalExplosiveCollisionRouter {
 
     @Volatile private var registered: Boolean = false
 
-    // Scratch for [handle] only: VS2 emits collision events from its one physics thread. Never passed to VS2.
-    private val physProbe = Vector3d()
-    private val physProbePos = BlockPos.MutableBlockPos()
+    private class ProbeScratch {
+        val probe = Vector3d()
+        val pos = BlockPos.MutableBlockPos()
+    }
 
-    /** Loaded ship id → pre-step linear velocity, for every loaded ship, so an unarmed rammer reads true too.
-     *  In a drop test the START contact velocity read ~35% of the true speed; this pre-step velocity read true.
-     *  Stopgap until VS2 fixes the START contact velocity (confirmed upstream bug).
-     *  The game thread adds and drops entries; the physics thread fills them. */
-    private val preStep: ConcurrentHashMap<ShipId, Vector3d> = ConcurrentHashMap()
-
-    // Physics thread only: the level of the tick in progress, read by [record].
-    @OptIn(PhysTickOnly::class)
-    private var tickLevel: PhysLevel? = null
-    private val recordPreStep = java.util.function.BiConsumer<ShipId, Vector3d> { id, out -> record(id, out) }
-    private val newPreStep = java.util.function.Function<ShipId, Vector3d> { Vector3d() }
+    // Per thread: two dimensions can step physics at the same time. Never passed to VS2.
+    private val physScratch: ThreadLocal<ProbeScratch> = ThreadLocal.withInitial(::ProbeScratch)
 
     // Subscribes on the game thread; the callback runs on the physics thread. Konstant is the only target backend.
-    @OptIn(PhysTickOnly::class, UnavailableInKrunch::class)
+    @OptIn(UnavailableInKrunch::class)
     fun register() {
         if (registered) return
         registered = true
-        // Runs at the start of each physics tick, before the step that makes this tick's contacts.
-        vsApi.physTickEvent.on { event, _ ->
-            if (noExplosives()) return@on
-            tickLevel = event.world
-            preStep.forEach(recordPreStep)
-            tickLevel = null
-        }
-        TickEvent.SERVER_POST.register(::syncLoadedShips)
         vsApi.collisionStartEvent.on { event, _ ->
             handle(event)
         }
-    }
-
-    @OptIn(PhysTickOnly::class)
-    private fun record(id: ShipId, out: Vector3d) {
-        val ship = tickLevel?.getShipById(id) ?: return
-        out.set(ship.velocity)
-    }
-
-    // Server tick, on the game thread. One Vector3d per loaded ship; an unloaded or deleted ship loses its entry.
-    @OptIn(GameTickOnly::class)
-    private fun syncLoadedShips(server: MinecraftServer) {
-        if (noExplosives()) {
-            preStep.clear()
-            return
-        }
-        val loaded = server.shipObjectWorld.loadedShips
-        for (ship in loaded) preStep.computeIfAbsent(ship.id, newPreStep)
-        val ids = preStep.keys.iterator()
-        while (ids.hasNext()) {
-            if (loaded.getById(ids.next()) == null) ids.remove()
+        // Terrain is one body: a ship that already touches the ground hits a world explosive as a PERSIST contact.
+        vsApi.collisionPersistEvent.on { event, _ ->
+            handle(event)
         }
     }
-
-    private fun noExplosives(): Boolean = byShip.isEmpty() && byWorld.isEmpty()
 
     fun addShip(be: CrystalExplosiveBlockEntity, shipId: ShipId) {
         byShip.computeIfAbsent(shipId) { ConcurrentHashMap() }[be.blockPos] = be
@@ -124,12 +85,19 @@ object CrystalExplosiveCollisionRouter {
 
         val physA = event.physLevel.getShipById(event.shipIdA)
         val physB = event.physLevel.getShipById(event.shipIdB)
+        var effectiveMass = Double.NaN
 
-        val probe = physProbe
-        val probePos = physProbePos
+        val scratch = physScratch.get()
+        val probe = scratch.probe
+        val probePos = scratch.pos
         for (contact in event.contactPoints) {
             // Stale manifold restart: the bodies were already apart when the start event arrived.
             if (contact.separation > SEPARATION_EPSILON) continue
+            // Normal component only: sliding and pulling apart (a tome yank) are not hits.
+            // Magnitude: VS2 does not fix which body is A, so the sign is not reliable.
+            val speed = Math.abs(contact.velocity.dot(contact.normal))
+            // Resting PERSIST contacts arrive every step; skip the map probes when no fire can follow.
+            if (speed < DETONATION_SPEED) continue
             val hitA = if (shipBesA != null && physA != null) {
                 findShipSide(shipBesA, physA, contact, probe, probePos)
             } else {
@@ -142,23 +110,19 @@ object CrystalExplosiveCollisionRouter {
             }
             val hitWorld = if (worldBes != null) findWorldSide(worldBes, contact, probePos) else null
             if (hitA == null && hitB == null && hitWorld == null) continue
-            // Normal component only: sliding and pulling apart (a tome yank) are not hits.
-            // Magnitude: VS2 does not fix which body is A, so the sign is not reliable.
-            val n = contact.normal
-            val approach = normalSpeed(event.shipIdA, physA, n) - normalSpeed(event.shipIdB, physB, n)
-            if (Math.abs(approach) < DETONATION_SPEED) continue
-            hitA?.queueHit()
-            hitB?.queueHit()
-            hitWorld?.queueHit()
+            if (effectiveMass.isNaN()) {
+                // The share of kinetic energy a two-body hit can spend.
+                effectiveMass = reducedMass(
+                    event.physLevel.movableMass(event.shipIdA),
+                    event.physLevel.movableMass(event.shipIdB),
+                )
+            }
+            val energy = 0.5 * effectiveMass * speed * speed
+            if (energy <= 0.0) continue
+            hitA?.queueHit(energy)
+            hitB?.queueHit(energy)
+            hitWorld?.queueHit(energy)
         }
-    }
-
-    /** The body's velocity along [n]: pre-step for a loaded ship, else its current velocity (a VS body such
-     *  as a cage; part-solved). A static body or terrain gives 0. */
-    @OptIn(PhysTickOnly::class)
-    private fun normalSpeed(id: ShipId, ship: PhysShip?, n: Vector3dc): Double {
-        val v: Vector3dc = preStep[id] ?: ship?.takeUnless { it.isStatic }?.velocity ?: return 0.0
-        return v.dot(n)
     }
 
     // Called only from [handle], on the physics thread.
@@ -249,7 +213,6 @@ object CrystalExplosiveCollisionRouter {
     fun clearSession() {
         byShip.clear()
         byWorld.clear()
-        preStep.clear()
         CrystalExplosiveBlockEntity.clearSession()
     }
 }

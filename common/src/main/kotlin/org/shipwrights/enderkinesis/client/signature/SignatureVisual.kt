@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.culling.Frustum
 import net.minecraft.client.renderer.entity.EntityRenderer
@@ -142,7 +143,7 @@ private class Untextured : VertexConsumer {
     override fun overlayCoords(u: Int, v: Int): VertexConsumer = this
     override fun uv2(u: Int, v: Int): VertexConsumer = this
     override fun normal(x: Float, y: Float, z: Float): VertexConsumer = this
-    override fun endVertex() { inner.uv(u, v).color(r, g, b, a).uv2(SpellShapes.FULL_BRIGHT).endVertex() }
+    override fun endVertex() { inner.uv(u, v).color(r, g, b, a).uv2(LightTexture.FULL_BRIGHT).endVertex() }
     override fun defaultColor(r: Int, g: Int, b: Int, a: Int) {}
     override fun unsetDefaultColor() {}
 

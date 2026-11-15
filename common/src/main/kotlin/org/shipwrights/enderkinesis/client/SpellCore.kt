@@ -1,6 +1,7 @@
 package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix3f
@@ -113,7 +114,7 @@ object SpellCore {
             val loose = c.add(up.scale(r * 0.5 * sin(time * 0.025 + i * 2.1))).add(s1.scale(cos(an) * rad)).add(s2.scale(sin(an) * rad))
             val ringAn = time * 0.11 + i * 2 * Math.PI / n
             val ring = c.add(s1.scale(cos(ringAn) * r * 1.4)).add(s2.scale(sin(ringAn) * r * 1.4))
-            SpellShapes.sprite(buf, m, d.view, loose.lerp(ring, toRing.toDouble()), r * 0.45, glyph(i * 5 + 2), whiten(cols[i], 0.2f), alpha, SpellShapes.FULL_BRIGHT)
+            SpellShapes.sprite(buf, m, d.view, loose.lerp(ring, toRing.toDouble()), r * 0.45, glyph(i * 5 + 2), whiten(cols[i], 0.2f), alpha, LightTexture.FULL_BRIGHT)
         }
     }
 
@@ -124,7 +125,7 @@ object SpellCore {
         val (s1, s2) = SpellGeom.basis(axis.normalize())
         for (i in 0 until n) {
             val an = time * 0.11 + i * 2 * Math.PI / n
-            SpellShapes.sprite(buf, m, d.view, c.add(s1.scale(cos(an) * radius)).add(s2.scale(sin(an) * radius)), size, glyph(i * 5), whiten(rgb, 0.2f), 0.95f, SpellShapes.FULL_BRIGHT)
+            SpellShapes.sprite(buf, m, d.view, c.add(s1.scale(cos(an) * radius)).add(s2.scale(sin(an) * radius)), size, glyph(i * 5), whiten(rgb, 0.2f), 0.95f, LightTexture.FULL_BRIGHT)
         }
     }
 

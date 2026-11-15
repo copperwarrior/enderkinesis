@@ -59,15 +59,21 @@ object GamylanCageRegistry {
         return ArrayList(perDim.values)
     }
 
-    /** Iterate every cage whose [GamylanCageData.dimId] equals
-     *  [vsDimId]. Off-thread safe: callers are the VS2 phys-tick
-     *  listener which holds no MC locks. */
     /** True when no dimension has a cage. For the per-move fast exit; any thread. */
     fun hasNone(): Boolean {
         for (cages in byDimension.values) if (cages.isNotEmpty()) return false
         return true
     }
 
+    /** Off-thread safe: the VS2 physics thread calls it and holds no MC locks. */
+    fun isCageIn(vsDimId: String, bodyId: Long): Boolean {
+        for (map in byDimension.values) {
+            if (map[bodyId]?.dimId == vsDimId) return true
+        }
+        return false
+    }
+
+    /** Off-thread safe: the VS2 physics thread calls it and holds no MC locks. */
     fun forEachInVsDim(vsDimId: String, action: (GamylanCageData) -> Unit) {
         for (map in byDimension.values) {
             for (data in map.values) {

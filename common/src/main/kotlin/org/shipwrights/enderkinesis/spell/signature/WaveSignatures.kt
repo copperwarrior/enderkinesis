@@ -7,9 +7,9 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvents
 import net.minecraft.world.effect.MobEffectInstance
 import net.minecraft.world.effect.MobEffects
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.TamableAnimal
-import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.Block
@@ -39,6 +39,7 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 import org.shipwrights.enderkinesis.util.colliderClip
+import org.shipwrights.enderkinesis.util.sees
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 @OptIn(GameTickOnly::class)
@@ -126,6 +127,13 @@ object WaveSignatures {
 
     /** Maximum height change from the cast point that a wave follows. */
     const val BAND = 4.0
+
+    // A lane keeps its height through a wall, so sight from the wave's source decides who the wave reaches.
+    private const val GROUND_SIGHT_LIFT = 0.5
+
+    /** Sight from the source axis at the target's ground height, so a source in a dip is not inside the ground. */
+    private fun Level.waveSees(source: Vec3, groundY: Double, target: Entity): Boolean =
+        sees(Vec3(source.x, maxOf(source.y, groundY) + GROUND_SIGHT_LIFT, source.z), target)
 
     /** Heals [caster] by [share] of the health that [hurt] took from [target]. */
     private fun drain(caster: LivingEntity?, target: LivingEntity, share: Float, hurt: () -> Boolean): Boolean {
@@ -404,8 +412,9 @@ object WaveSignatures {
                 val p = target.position()
                 val flat = Vec3(p.x - from.x, 0.0, p.z - from.z)
                 if (abs(flat.length() - r) > DEPTH + target.bbWidth * 0.5 || !reachesAt(state.rays, p)) continue
-                val h = p.y - groundAt(state.rays, p)
-                if (h > HEIGHT || h < -2.0) continue
+                val ground = groundAt(state.rays, p)
+                val h = p.y - ground
+                if (h > HEIGHT || h < -2.0 || !level.waveSees(from, ground, target)) continue
                 touch(e, state, target, if (flat.lengthSqr() < 1.0e-4) Vec3(1.0, 0.0, 0.0) else flat.normalize())
             }
             if (t % 2 == 0 && SignatureShips.ships(level, from, r + 4).isNotEmpty()) {
@@ -508,7 +517,7 @@ object WaveSignatures {
                 val box = AABB(lane.at(d, -HALF_WIDTH), lane.at(d, HALF_WIDTH)).inflate(BAND + 0.5, 4.0, BAND + 0.5)
                 for (target in level.getEntitiesOfClass(LivingEntity::class.java, box)) {
                     if (target === e.caster || !target.isAlive || target.isSpectator || target.id in state.seized) continue
-                    if (!reaches(lane, target.position(), t)) continue
+                    if (!reaches(lane, target.position(), t) || !level.waveSees(lane.from, lane.centreY(d), target)) continue
                     state.seized[target.id] = t
                     e.hurtTarget(target, EKDamageSources.VOID_KEY, SEIZE_MIN + (SEIZE_MAX - SEIZE_MIN) * e.power)
                     target.spellPush(Vec3(0.0, -YANK, 0.0))
@@ -664,6 +673,7 @@ object WaveSignatures {
         private fun entangle(e: SignatureEntity, level: ServerLevel, state: Burning, box: AABB, t: Int) {
             for (target in level.getEntitiesOfClass(LivingEntity::class.java, box) { it.isAlive && !it.isSpectator && it !== e.caster }) {
                 if (target.id in state.held || !target.onGround() || ally(e.caster, target) || !target.movable()) continue
+                if (!level.waveSees(e.position(), target.y, target)) continue
                 val dist = tangles(state.vines, target.position(), t) ?: continue
                 state.held[target.id] = Tangle(target.position(), dist)
                 level.sound(target.position(), EKSounds.SIGNATURE_FIREWEED_TANGLE.get(), 1.6f)
@@ -706,7 +716,7 @@ object WaveSignatures {
                         d <= front && d > front - FIRE_TAIL && d > 0.8 && v.points[i].let { p -> abs(p.x - feet.x) < STAND && abs(p.z - feet.z) < STAND && abs(p.y - feet.y) < 0.7 }
                     }
                 }
-                if (!on) continue
+                if (!on || !level.waveSees(e.position(), feet.y, target)) continue
                 val held = target.id in state.held
                 val times = if (held) TANGLED_BURN else 1f
                 val last = state.burnt[target.id]

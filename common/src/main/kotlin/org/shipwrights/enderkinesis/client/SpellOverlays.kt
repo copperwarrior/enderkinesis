@@ -10,6 +10,7 @@ import dev.architectury.event.events.client.ClientGuiEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.renderer.GameRenderer
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.util.Mth
 import net.minecraft.world.effect.MobEffect
@@ -199,7 +200,7 @@ object SpellOverlays {
             for ((x, y, rot) in buds) {
                 val c = cos(rot); val sn = sin(rot)
                 fun put(dx: Double, dy: Double, u: Float, v: Float) =
-                    b.vertex(m, (x + dx * c - dy * sn).toFloat(), (y + dx * sn + dy * c).toFloat(), 0f).uv(bud.u(u), bud.v(v)).color(246, 242, 255, 242).uv2(SpellShapes.FULL_BRIGHT).endVertex()
+                    b.vertex(m, (x + dx * c - dy * sn).toFloat(), (y + dx * sn + dy * c).toFloat(), 0f).uv(bud.u(u), bud.v(v)).color(246, 242, 255, 242).uv2(LightTexture.FULL_BRIGHT).endVertex()
                 put(-s, -2 * s, 0f, 0f); put(-s, 0.0, 0f, 1f); put(s, 0.0, 1f, 1f); put(s, -2 * s, 1f, 0f)
             }
             BufferUploader.drawWithShader(b.end())

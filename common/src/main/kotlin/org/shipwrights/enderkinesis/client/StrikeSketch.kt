@@ -40,7 +40,6 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
     }
 
     private val size = spec.size
-    private val frame = if (spec.notes && size >= NOTES_MIN_SIZE) SketchFrame.WITH_NOTES else SketchFrame.PLAIN
 
     /** Built on the first bake; a subject that cannot draw here is not tried again each frame. */
     private var scene: SketchScene? = null
@@ -48,6 +47,10 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
 
     private var sketch: TextureTarget? = null
     private var sketchScale = 0
+
+    /** Set by [advance]: the sketch then bakes only in steps, and [render] shows nothing until it is done. */
+    private var incremental = false
+    private var staged: SlicedBake? = null
 
     override fun render(graphics: GuiGraphics, x: Int, y: Int) {
         val scale = guiPixelScale()
@@ -60,13 +63,50 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
             SketchPictures.textureId(subject.key)?.let { blit(graphics, x, y, size, size, it, glRows = false) }
             return
         }
-        val texture = sketch ?: bake(scale)?.also { sketch = it } ?: return
+        // A scene that waits for data keeps its finished batches in the staged bake, not redrawn each frame.
+        if (!incremental) stepBake(scale, Long.MAX_VALUE)
+        val texture = sketch ?: return
         blit(graphics, x, y, size, size, texture.colorTextureId, glRows = true)
     }
+
+    /**
+     * Bakes a part of the sketch until [deadline] (System.nanoTime), in targets that stay between calls. Returns true
+     * when the sketch is ready to [render]. Once called, [render] no longer bakes the whole sketch in one frame.
+     */
+    fun advance(deadline: Long): Boolean {
+        incremental = true
+        val scale = guiPixelScale()
+        if (scale != sketchScale) {
+            close()
+            sketchScale = scale
+        }
+        return stepBake(scale, deadline)
+    }
+
+    private fun stepBake(scale: Int, deadline: Long): Boolean {
+        if (sketch != null) return true
+        if (shader == null || unavailable) return false
+        val scene = scene() ?: return false
+        val bake = staged ?: SlicedBake(spec, scene, scale).also { staged = it }
+        bake.step(deadline)
+        if (!bake.done) return false
+        sketch = bake.shade()
+        bake.close()
+        staged = null
+        return sketch != null
+    }
+
+    /** True when the last [advance] stopped to wait for scene data, so it spent no bake time. */
+    val waiting: Boolean get() = staged?.waiting == true
+
+    /** True when the baked sketch is here for the current GUI scale. */
+    val ready: Boolean get() = sketch != null && sketchScale == guiPixelScale()
 
     override fun close() {
         sketch?.destroyBuffers()
         sketch = null
+        staged?.close()
+        staged = null
     }
 
     /** The sketch at [scale] pixels per GUI pixel, top row first, or null when the subject cannot draw. */
@@ -89,86 +129,22 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
         return true
     }
 
-    /** [into] receives the shaded sketch; without it, the sketch goes into a new target that the caller owns. */
-    private fun bake(scale: Int, into: TextureTarget? = null): TextureTarget? {
-        val shader = shader ?: return null
+    private fun scene(): SketchScene? {
         if (unavailable) return null
         val scene = scene ?: SketchScene.of(spec.subject)?.also { scene = it }
-        if (scene == null) {
-            unavailable = true
-            return null
-        }
-        val resolution = size * scale
-        val targets = scratch(resolution)
-        val camera = scene.camera
-        val projection = camera?.projection ?: orthographic(fitView(targets.colour, scene))
-        val orient: (PoseStack) -> Unit = if (camera != null) {
-            { it.mulPoseMatrix(camera.rotation) }
-        } else {
-            isometric(scene)
-        }
-        val colour = renderScene(targets.colour, normals = false, projection, orient, scene)
-        val normals = renderScene(targets.normals, normals = true, projection, orient, scene)
-        return shade(shader, colour, normals, scale, size, spec.seed, frame, rebuilt = camera != null, wash = spec.colour, into)
+        if (scene == null) unavailable = true
+        return scene
     }
 
-    /** The view centre and half-width, in pose units, that holds the whole render. */
-    private class View(val centreX: Float, val centreY: Float, val extent: Float)
-
-    /**
-     * Every subject fills the frame: widen until nothing touches the edge, then fit to the drawn outline. A fit that
-     * zooms in far is measured again, because a few pixels of outline give a poor fit.
-     */
-    private fun fitView(target: TextureTarget, scene: SketchScene): View {
-        val resolution = target.width
-        var view = View(0f, 0f, scene.extentHint)
-        var widenings = 0
-        var refines = 0
-        while (true) {
-            renderScene(target, normals = false, orthographic(view), isometric(scene), scene)
-            val bounds = readBack(target) { StrikeSketchMeasure.bounds(it, scene.fitAlpha) }
-            if (bounds == null) return view
-            val touches = bounds[0] == 0 || bounds[1] == 0 || bounds[2] == resolution - 1 || bounds[3] == resolution - 1
-            if (touches && widenings < FIT_WIDENINGS) {
-                view = View(view.centreX, view.centreY, view.extent * FIT_GROWTH)
-                widenings++
-                continue
-            }
-            val fit = fitted(view, bounds, resolution)
-            if (touches || fit.extent > view.extent / FIT_REFINE_ZOOM || refines == FIT_REFINES) return fit
-            view = fit
-            refines++
-        }
-    }
-
-    private fun fitted(view: View, bounds: IntArray, resolution: Int): View {
-        fun toPose(pixel: Int, centre: Float) = centre + ((pixel + 0.5f) / resolution * 2f - 1f) * view.extent
-        val left = toPose(bounds[0], view.centreX)
-        val right = toPose(bounds[2], view.centreX)
-        val bottom = toPose(bounds[1], view.centreY)
-        val top = toPose(bounds[3], view.centreY)
-        val half = (maxOf(right - left, top - bottom) / 2f + view.extent / resolution) * FIT_MARGIN
-        return View((left + right) / 2f, (bottom + top) / 2f, maxOf(half, view.extent * FIT_MIN_FRACTION))
-    }
-
-    /** Colour with item lighting, or view-space normals for the sketch's inner edges. */
-    private fun orthographic(view: View): Matrix4f {
-        val e = view.extent
-        val depth = maxOf(DEPTH, e * DEPTH_PER_EXTENT)
-        return Matrix4f().setOrtho(view.centreX - e, view.centreX + e, view.centreY - e, view.centreY + e, -depth, depth)
-    }
-
-    private fun isometric(scene: SketchScene): (PoseStack) -> Unit = {
-        it.mulPose(Axis.XP.rotationDegrees(scene.viewPitch))
-        it.mulPose(Axis.YP.rotationDegrees(scene.viewYaw))
-    }
-
-    private fun renderScene(
-        target: TextureTarget, normals: Boolean, projection: Matrix4f, orient: (PoseStack) -> Unit, scene: SketchScene,
-    ): TextureTarget {
-        target.clear(Minecraft.ON_OSX)
-        drawInto(target, normals, projection, orient, scene, 0, scene.parts)
-        return target
+    /** [into] receives the shaded sketch; without it, the sketch goes into a new target that the caller owns. */
+    private fun bake(scale: Int, into: TextureTarget? = null): TextureTarget? {
+        if (shader == null) return null
+        val scene = scene() ?: return null
+        val targets = scratch(size * scale)
+        val bake = SlicedBake(spec, scene, scale, targets.colour, targets.normals)
+        bake.step(Long.MAX_VALUE)
+        // A scene that waits for data does not bake in one call; it needs advance().
+        return if (bake.done) bake.shade(into) else null
     }
 
     /** The pass targets of one resolution. [shaded] is made only for atlas bakes, whose result is copied out at once. */
@@ -208,6 +184,34 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
         }
 
         private fun scratch(resolution: Int): Scratch = scratchPool.getOrPut(resolution) { Scratch(resolution) }
+
+        // Render thread only. Free colour and normals pairs of staged bakes, which each hold a pair over several frames.
+        private val stagedPool = ArrayList<StagedTargets>()
+
+        internal fun takeStaged(resolution: Int): StagedTargets {
+            val i = stagedPool.indexOfFirst { it.colour.width == resolution }
+            return if (i >= 0) stagedPool.removeAt(i) else StagedTargets(newTarget(resolution), newTarget(resolution))
+        }
+
+        internal fun giveBackStaged(targets: StagedTargets) {
+            stagedPool.add(targets)
+            if (stagedPool.size > STAGED_POOL) stagedPool.removeAt(0).destroy()
+        }
+
+        /** Colour with item lighting, or view-space normals for the sketch's inner edges. */
+        internal fun orthographic(view: SketchView): Matrix4f {
+            val e = view.extent
+            val depth = maxOf(DEPTH, e * DEPTH_PER_EXTENT)
+            return Matrix4f().setOrtho(view.centreX - e, view.centreX + e, view.centreY - e, view.centreY + e, -depth, depth)
+        }
+
+        internal fun isometric(scene: SketchScene): (PoseStack) -> Unit = {
+            it.mulPose(Axis.XP.rotationDegrees(scene.viewPitch))
+            it.mulPose(Axis.YP.rotationDegrees(scene.viewYaw))
+        }
+
+        internal fun frameOf(spec: SketchSpec): SketchFrame =
+            if (spec.notes && spec.size >= NOTES_MIN_SIZE) SketchFrame.WITH_NOTES else SketchFrame.PLAIN
 
         internal fun guiPixelScale(): Int = ceil(Minecraft.getInstance().window.guiScale).toInt().coerceAtLeast(1)
 
@@ -328,10 +332,13 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
             modelView.pushPose()
             modelView.setIdentity()
             RenderSystem.applyModelViewMatrix()
-            draw()
-            modelView.popPose()
-            RenderSystem.applyModelViewMatrix()
-            RenderSystem.setProjectionMatrix(savedProjection, savedSorting)
+            try {
+                draw()
+            } finally {
+                modelView.popPose()
+                RenderSystem.applyModelViewMatrix()
+                RenderSystem.setProjectionMatrix(savedProjection, savedSorting)
+            }
         }
 
         @Volatile
@@ -343,14 +350,10 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
 
         private const val DEPTH = 10f
         private const val DEPTH_PER_EXTENT = 4f
-        private const val FIT_WIDENINGS = 2
-        private const val FIT_GROWTH = 3f
-        private const val FIT_MARGIN = 1.08f
-        private const val FIT_REFINES = 2
-        private const val FIT_REFINE_ZOOM = 2f
-        private const val FIT_MIN_FRACTION = 0.02f
         // Inline pages, framed sketches and the viewfinder each bake at one resolution or a few.
         private const val SCRATCH_RESOLUTIONS = 3
+        // A sketchbook spread has one bake running and a few that wait for plan sections.
+        private const val STAGED_POOL = 4
         const val ISO_PITCH = 30f
 
         // Viewfinder rebuilds fade out over this part of the render at the left and right; chosen in the preview.
@@ -360,49 +363,102 @@ class StrikeSketch(private val spec: SketchSpec) : BakedSketch {
     }
 }
 
+/** The pass targets of one staged bake; a bake clears them before its first draw. */
+internal class StagedTargets(val colour: TextureTarget, val normals: TextureTarget) {
+    fun destroy() {
+        colour.destroyBuffers()
+        normals.destroyBuffers()
+    }
+}
+
 /**
- * Bakes a scene that has its own camera over several ticks: the colour pass, then the normals pass, a batch of parts at a
- * time, into targets that stay between ticks. Call [close] if it is dropped before [image].
+ * Bakes a scene in steps: the fit renders (a scene without a camera), then the colour and normals passes a batch of
+ * parts at a time, then the shade. A step waits while the scene's next parts are not ready. With its own targets the
+ * bake can run over several frames; call [close] if it is dropped before [image].
  */
-internal class SlicedBake(private val spec: SketchSpec, private val scene: SketchScene, private val scale: Int) {
-    private val camera = checkNotNull(scene.camera) { "a sliced bake needs a scene camera" }
-    private val orient: (PoseStack) -> Unit = { it.mulPoseMatrix(camera.rotation) }
-    private val colour = StrikeSketch.newTarget(spec.size * scale)
-    private val normals = StrikeSketch.newTarget(spec.size * scale)
-    private var pass = 0
-    private var next = 0
+internal class SlicedBake(
+    private val spec: SketchSpec,
+    private val scene: SketchScene,
+    private val scale: Int,
+    private val colour: TextureTarget,
+    private val normals: TextureTarget,
+    private val pooled: StagedTargets? = null,
+) {
+    constructor(spec: SketchSpec, scene: SketchScene, scale: Int) :
+        this(spec, scene, scale, StrikeSketch.takeStaged(spec.size * scale))
 
-    val done: Boolean get() = pass == PASSES
+    private constructor(spec: SketchSpec, scene: SketchScene, scale: Int, targets: StagedTargets) :
+        this(spec, scene, scale, targets.colour, targets.normals, targets)
 
-    fun step(deadline: Long) {
-        while (pass < PASSES && System.nanoTime() < deadline) {
-            val to = minOf(scene.parts, next + BATCH)
-            StrikeSketch.drawInto(if (pass == 0) colour else normals, pass == 1, camera.projection, orient, scene, next, to)
-            next = to
-            if (next == scene.parts) {
-                pass++
-                next = 0
-            }
+    private var closed = false
+
+    private val camera = scene.camera
+    private val fit = if (camera == null) SketchFit(scene.firstView ?: SketchView(0f, 0f, scene.extentHint), colour.width) else null
+    private val orient: (PoseStack) -> Unit =
+        if (camera != null) {
+            { pose -> pose.mulPoseMatrix(camera.rotation) }
+        } else {
+            StrikeSketch.isometric(scene)
         }
+    private var projection: Matrix4f = camera?.projection ?: StrikeSketch.orthographic(checkNotNull(fit).view)
+    private var fitting = fit != null
+    private var cursor = PassCursor(scene.parts, scene.partBatch)
+
+    val done: Boolean get() = !fitting && cursor.done
+
+    /** True when the last [step] stopped because the scene's next parts were not ready. */
+    var waiting: Boolean = false
+        private set
+
+    /** Draws batches until [deadline] (System.nanoTime) passes, at least one when the scene is ready. */
+    fun step(deadline: Long) {
+        waiting = false
+        while (!done) {
+            if (!scene.partsReady(cursor.from, cursor.to)) {
+                waiting = true
+                return
+            }
+            if (cursor.first) {
+                colour.clear(Minecraft.ON_OSX)
+                if (!fitting) normals.clear(Minecraft.ON_OSX)
+            }
+            StrikeSketch.drawInto(colour, false, projection, orient, scene, cursor.from, cursor.to)
+            if (!fitting) StrikeSketch.drawInto(normals, true, projection, orient, scene, cursor.from, cursor.to)
+            cursor.advance()
+            if (fitting && cursor.done) measureFit()
+            if (System.nanoTime() >= deadline) return
+        }
+    }
+
+    private fun measureFit() {
+        val fit = checkNotNull(fit)
+        fit.measured(StrikeSketch.readBack(colour) { StrikeSketchMeasure.bounds(it, scene.fitAlpha) })
+        fitting = !fit.done
+        projection = StrikeSketch.orthographic(fit.view)
+        cursor = PassCursor(scene.parts, scene.partBatch)
+    }
+
+    /** The shaded sketch in [into] or a new target, or null when the sketch shader is not loaded. The passes stay open. */
+    fun shade(into: TextureTarget? = null): TextureTarget? {
+        check(done) { "the bake has passes left" }
+        val shader = StrikeSketch.shader ?: return null
+        return StrikeSketch.shade(
+            shader, colour, normals, scale, spec.size, spec.seed, StrikeSketch.frameOf(spec), rebuilt = camera != null,
+            wash = spec.colour, into,
+        )
     }
 
     /** The finished sketch, top row first, or null when the sketch shader is not loaded. Frees the pass targets. */
     fun image(): NativeImage? {
-        check(done) { "the bake has passes left" }
-        val shader = StrikeSketch.shader
-        val frame = if (spec.notes && spec.size >= StrikeSketch.NOTES_MIN_SIZE) SketchFrame.WITH_NOTES else SketchFrame.PLAIN
-        val out = shader?.let { StrikeSketch.shade(it, colour, normals, scale, spec.size, spec.seed, frame, rebuilt = true, wash = spec.colour) }
+        val out = shade()
         close()
         return out?.let(StrikeSketch::topFirst)
     }
 
+    /** Gives pooled targets back once; targets the caller passed stay with the caller. */
     fun close() {
-        colour.destroyBuffers()
-        normals.destroyBuffers()
-    }
-
-    private companion object {
-        const val PASSES = 2
-        const val BATCH = 256
+        if (closed) return
+        closed = true
+        pooled?.let(StrikeSketch::giveBackStaged)
     }
 }

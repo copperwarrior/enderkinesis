@@ -19,11 +19,14 @@ public abstract class RenderChunkRegionPhasedMixin {
 
     @Inject(method = "getBlockState", at = @At("HEAD"), cancellable = true)
     private void enderkinesis$phased(BlockPos pos, CallbackInfoReturnable<BlockState> cir) {
+        // Mesher hot path: two flag reads end the hook while nothing is phased or hidden.
+        if (!AbyssalPockets.anyClientPhased() && !BlockShifts.anyHidden()) return;
         if (AbyssalPockets.isPhasedClient(pos) || BlockShifts.isHidden(pos)) cir.setReturnValue(Blocks.AIR.defaultBlockState());
     }
 
     @Inject(method = "getFluidState", at = @At("HEAD"), cancellable = true)
     private void enderkinesis$phasedFluid(BlockPos pos, CallbackInfoReturnable<FluidState> cir) {
+        if (!AbyssalPockets.anyClientPhased()) return;
         if (AbyssalPockets.isPhasedClient(pos)) cir.setReturnValue(Fluids.EMPTY.defaultFluidState());
     }
 }

@@ -283,7 +283,7 @@ object ElementEffects {
         val level = ctx.level
         // Pull all entities, not only living ones.
         val reach = (delivery as? Delivery.Sphere)?.radius ?: SpellCurves.BASE_RADIUS
-        for (entity in delivery.entities(ctx)) {
+        for (entity in delivery.entities(ctx, throughWalls = true)) {
             if (NamedEffects.anchored(entity)) continue
             val toCentre = pullCentre(ctx, delivery, entity.position()).subtract(entity.position())
             val dist = toCentre.length()
@@ -293,7 +293,7 @@ object ElementEffects {
             entity.hurtMarked = true
         }
         // Crush also the anchored targets that the pull ignores.
-        for (target in delivery.living(ctx)) ctx.hurt(target, ctx.damage(EKDamageSources.GRAVITY_KEY), ctx.damageAmount(GRAVITY_CRUSH_DAMAGE, magnitude))
+        for (target in delivery.living(ctx, throughWalls = true)) ctx.hurt(target, ctx.damage(EKDamageSources.GRAVITY_KEY), ctx.damageAmount(GRAVITY_CRUSH_DAMAGE, magnitude))
         if (delivery is Delivery.SingleBlock) dropBlock(ctx, delivery.pos)
         NamedEffects.gravity(ctx, delivery, magnitude)
     }

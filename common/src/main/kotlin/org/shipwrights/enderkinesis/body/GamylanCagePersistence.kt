@@ -79,6 +79,10 @@ class GamylanCagePersistence : SavedData() {
             if (!d.displayedItem.isEmpty) t.put("displayItem", d.displayedItem.save(CompoundTag()))
             d.homePedestalPos?.let { t.put("homePedestal", NbtUtils.writeBlockPos(it)) }
             d.homePedestalShipId?.let { t.putLong("homePedestalShip", it) }
+            if (d.carrierShipId != null && d.hoverInShip != null) {
+                t.putLong("carrierShip", d.carrierShipId)
+                putVec3d(t, "hoverInShip", d.hoverInShip)
+            }
             return t
         }
 
@@ -112,6 +116,8 @@ class GamylanCagePersistence : SavedData() {
                 homePedestalPos = readBlockPos(t, "homePedestal"),
                 homePedestalShipId = if (t.contains("homePedestalShip", Tag.TAG_LONG.toInt())) t.getLong("homePedestalShip") else null,
                 droppedItems = java.util.ArrayList(readItems(t.getList("drops", Tag.TAG_COMPOUND.toInt()))),
+                carrierShipId = if (t.contains("carrierShip", Tag.TAG_LONG.toInt())) t.getLong("carrierShip") else null,
+                hoverInShip = if (t.contains("carrierShip", Tag.TAG_LONG.toInt())) getVec3d(t, "hoverInShip") else null,
             )
         }
 

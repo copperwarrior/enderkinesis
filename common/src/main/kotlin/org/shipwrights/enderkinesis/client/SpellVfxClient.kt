@@ -6,6 +6,7 @@ import dev.architectury.event.events.client.ClientTickEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.animation.KeyframeAnimations
 import net.minecraft.client.multiplayer.ClientLevel
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.texture.OverlayTexture
@@ -18,7 +19,10 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix4f
 import org.joml.Quaternionf
+import org.joml.Vector3d
 import org.joml.Vector3f
+import org.valkyrienskies.core.api.ships.ClientShip
+import org.valkyrienskies.mod.common.shipObjectWorld
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.client.model.TentacleAnimation
 import org.shipwrights.enderkinesis.client.model.TentacleModel
@@ -48,13 +52,31 @@ import kotlin.random.Random
 object SpellVfxClient {
 
     private class Vfx(
-        val kind: SpellVfx.Kind, val a: Vec3, val b: Vec3, val size: Float,
-        val rgb: Int, val life: Int, val seed: Int, val start: Long,
+        val kind: SpellVfx.Kind, a: Vec3, b: Vec3, val size: Float,
+        val rgb: Int, val life: Int, val seed: Int, val start: Long, val ship: Long = NO_SHIP,
     ) {
+        /** The ends in [ship]'s shipyard; [a] and [b] are their world points for this frame. */
+        val shipA: Vec3 = a
+        val shipB: Vec3 = b
+        var a: Vec3 = a
+        var b: Vec3 = b
+
         /** Cache for one frame, so the three passes of a stream use the same strands. */
         var paths: List<List<Vec3>> = emptyList()
         var pathsAt = Float.NaN
+
+        var arc: ArcShape? = null
+
+        /** Set each frame by [followShips]; the arc draws through its render transform. */
+        var clientShip: ClientShip? = null
     }
+
+    /** One strike of an arc; it stays until the restrike or until an end moves. A ship arc's points are relative to its shipyard end [a]. */
+    private class ArcShape(
+        val strike: Int, val a: Vec3, val b: Vec3, val flicker: Float,
+        val main: List<Vec3>, val mainFade: FloatArray,
+        val branches: List<List<Vec3>>, val branchFades: List<FloatArray>, val branchAt: IntArray,
+    )
 
     // Render thread only.
     private val active = ArrayList<Vfx>()
@@ -63,6 +85,9 @@ object SpellVfxClient {
     private val TENTACLE_GLOW_TEX: ResourceLocation = EnderkinesisMod.id("textures/environment/ygann_abyss/writhing_tentacle_emissive.png")
     private var tentacleModel: TentacleModel? = null
     private val animVec = Vector3f()
+    private val shipPoint = Vector3d()
+    private val arcMatrix = Matrix4f()
+    private val arcLinear = Matrix4f()
 
     fun init() {
         ClientTickEvent.CLIENT_LEVEL_POST.register(ClientTickEvent.ClientLevel(::tick))
@@ -114,6 +139,36 @@ object SpellVfxClient {
     fun addLocal(kind: SpellVfx.Kind, a: Vec3, b: Vec3, size: Float, rgb: Int, life: Int, seed: Int) {
         val level = Minecraft.getInstance().level ?: return
         push(Vfx(kind, a, b, size, rgb, life.coerceIn(1, MAX_LIFE), seed, SpellClock.now(level)))
+    }
+
+    /** As [addLocal], with [a] and [b] in [ship]'s shipyard, so the visual moves with the ship. */
+    @Suppress("LongParameterList") // Same values as addLocal, plus the ship.
+    fun addOnShip(kind: SpellVfx.Kind, ship: Long, a: Vec3, b: Vec3, size: Float, rgb: Int, life: Int, seed: Int) {
+        val level = Minecraft.getInstance().level ?: return
+        push(Vfx(kind, a, b, size, rgb, life.coerceIn(1, MAX_LIFE), seed, SpellClock.now(level), ship))
+    }
+
+    /** Sets the world ends of ship-held visuals from each ship's render transform; drops those whose ship is gone. */
+    private fun followShips(level: ClientLevel) {
+        for (i in active.size - 1 downTo 0) {
+            val vfx = active[i]
+            if (vfx.ship == NO_SHIP) continue
+            val ship = level.shipObjectWorld.loadedShips.getById(vfx.ship) as? ClientShip
+            if (ship == null) {
+                active.removeAt(i)
+                continue
+            }
+            vfx.clientShip = ship
+            vfx.a = worldPoint(ship, vfx.shipA, vfx.a)
+            vfx.b = worldPoint(ship, vfx.shipB, vfx.b)
+        }
+    }
+
+    /** [shipPos] in the world now; [current] again when it has not moved, so a still ship allocates nothing. */
+    private fun worldPoint(ship: ClientShip, shipPos: Vec3, current: Vec3): Vec3 {
+        ship.renderTransform.shipToWorld.transformPosition(shipPoint.set(shipPos.x, shipPos.y, shipPos.z))
+        val same = shipPoint.x == current.x && shipPoint.y == current.y && shipPoint.z == current.z
+        return if (same) current else Vec3(shipPoint.x, shipPoint.y, shipPoint.z)
     }
 
     private fun push(vfx: Vfx) {
@@ -259,7 +314,7 @@ object SpellVfxClient {
 
     /** Uses the same zigzag that [arc] draws in this tick. */
     private fun chainPayload(level: ClientLevel, vfx: Vfx, time: Float, random: Random) {
-        val path = arcPath(vfx, time).second
+        val path = arcShape(vfx, time).main
         for (element in SpellVfx.elementsOf(vfx.rgb)) {
             if (element == Element.CHAOS) continue
             repeat(3) {
@@ -279,6 +334,7 @@ object SpellVfxClient {
         val view = SpellView(Vec3(camX, camY, camZ), Vec3(camera.leftVector), Vec3(camera.upVector))
         val time = SpellClock.time(level, partialTick)
         val pockets = AbyssalPockets.clientPhased()
+        followShips(level)
         if (active.isEmpty() && pockets.isEmpty() && othersIdle()) return
         pose.pushPose()
         pose.translate(-camX, -camY, -camZ)
@@ -545,7 +601,7 @@ object SpellVfxClient {
                     // Entity model frame: flip, then move down by the 24-pixel ground offset of the model.
                     pose.scale(-1f, -1f, 1f)
                     pose.translate(0f, -1.501f, 0f)
-                    if (tips) model.renderTip(pose, c, SpellShapes.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, gone)
+                    if (tips) model.renderTip(pose, c, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, gone)
                     else model.renderToBuffer(pose, c, light, OverlayTexture.NO_OVERLAY, 1f, 1f, 1f, gone)
                     pose.popPose()
                 }
@@ -634,7 +690,7 @@ object SpellVfxClient {
         pose.scale(minOf(s, LASH_THICKNESS), s, minOf(s, LASH_THICKNESS))
         pose.scale(-1f, -1f, 1f)
         pose.translate(0f, -1.501f, 0f)
-        if (tips) model.renderTip(pose, c, SpellShapes.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, alpha)
+        if (tips) model.renderTip(pose, c, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, alpha)
         else {
             val faded = RootFade(c, root, out, fadeFrom, fadeTo)
             model.renderToBuffer(pose, faded, SpellShapes.lightAt(level, base), OverlayTexture.NO_OVERLAY, LASH_TINT_R, LASH_TINT_G, LASH_TINT_B, alpha)
@@ -708,35 +764,63 @@ object SpellVfxClient {
     private fun sunFlash(c: VertexConsumer, m: Matrix4f, view: SpellView, vfx: Vfx, t: Float) =
         SpellShapes.sprite(
             c, m, view, vfx.a, vfx.size * 1.6 * sin(Math.PI * minOf(1f, t * 4f)), SpellArt.particle("flash"),
-            vfx.rgb, maxOf(0f, 0.9f - t * 4f), SpellShapes.FULL_BRIGHT,
+            vfx.rgb, maxOf(0f, 0.9f - t * 4f), LightTexture.FULL_BRIGHT,
         )
 
     /** [arc] and [chainPayload] both use this, so the payload follows the zigzag that shows. */
-    private fun arcPath(vfx: Vfx, time: Float): Pair<Random, List<Vec3>> {
-        val random = Random(vfx.seed * 31 + (time / ARC_RESTRIKE_TICKS).toInt())
-        // Skip the value that arc() uses for its flicker, so that the flicker and the zigzag do not agree.
-        random.nextFloat()
-        return random to SpellGeom.jagged(random, vfx.a, vfx.b, ARC_JAGGEDNESS)
+    private fun arcShape(vfx: Vfx, time: Float): ArcShape {
+        val strike = (time / ARC_RESTRIKE_TICKS).toInt()
+        val onShip = vfx.ship != NO_SHIP
+        val from = if (onShip) vfx.shipA else vfx.a
+        val to = if (onShip) vfx.shipB else vfx.b
+        vfx.arc?.let { if (it.strike == strike && it.a === from && it.b === to) return it }
+        // Shipyard coordinates are too large for float vertices, so a ship arc is built relative to its first end.
+        val start = if (onShip) Vec3.ZERO else from
+        val end = if (onShip) to.subtract(from) else to
+        val random = Random(vfx.seed * 31 + strike)
+        // The first value is the flicker; the zigzag starts after it, so the two do not agree.
+        val flicker = 0.55f + 0.45f * random.nextFloat()
+        val main = SpellGeom.jagged(random, start, end, ARC_JAGGEDNESS)
+        val span = end.subtract(start)
+        val branchAt = IntArray(ARC_BRANCHES)
+        val branches = List(ARC_BRANCHES) { k ->
+            val at = 1 + random.nextInt((main.size - 2).coerceAtLeast(1))
+            branchAt[k] = at
+            val dir = span.normalize().add(random.nextDouble() - 0.5, random.nextDouble() - 0.5, random.nextDouble() - 0.5).normalize()
+            SpellGeom.jagged(random, main[at], main[at].add(dir.scale(span.length() * (0.2 + 0.25 * random.nextDouble()))), ARC_JAGGEDNESS)
+        }
+        return ArcShape(strike, from, to, flicker, main, tipFade(main.size), branches, branches.map { tipFade(it.size) }, branchAt)
+            .also { vfx.arc = it }
     }
 
-    private fun arc(c: VertexConsumer, m: Matrix4f, view: SpellView, vfx: Vfx, t: Float, time: Float) {
-        val flicker = 0.55f + 0.45f * Random(vfx.seed * 31 + (time / ARC_RESTRIKE_TICKS).toInt()).nextFloat()
-        val (random, main) = arcPath(vfx, time)
+    private fun tipFade(n: Int) = FloatArray(n) { i -> 1f - 0.7f * (i.toFloat() / (n - 1)).pow(2) }
+
+    private fun arc(c: VertexConsumer, worldM: Matrix4f, worldView: SpellView, vfx: Vfx, t: Float, time: Float) {
+        val shape = arcShape(vfx, time)
+        var m = worldM
+        var view = worldView
+        val ship = vfx.clientShip
+        if (vfx.ship != NO_SHIP && ship != null) {
+            val transform = ship.renderTransform
+            // The matrix maps the ship-relative points to the world; the camera goes the other way.
+            arcLinear.set(transform.shipToWorld).m30(0f).m31(0f).m32(0f)
+            m = arcMatrix.set(worldM).translate(vfx.a.x.toFloat(), vfx.a.y.toFloat(), vfx.a.z.toFloat()).mul(arcLinear)
+            transform.worldToShip.transformPosition(shipPoint.set(worldView.cam.x, worldView.cam.y, worldView.cam.z))
+            val s = vfx.shipA
+            view = SpellView(Vec3(shipPoint.x - s.x, shipPoint.y - s.y, shipPoint.z - s.z), worldView.left, worldView.up)
+        }
+        val main = shape.main
         val rgb = if (vfx.kind == SpellVfx.Kind.CHAIN) Element.CHAOS.color else vfx.rgb
-        val fade = (1f - t) * flicker
+        val fade = (1f - t) * shape.flicker
         fun taper(n: Int, from: Double = 1.0): (Int) -> Double = { i -> from * (1 - 0.92 * (i.toDouble() / (n - 1)).pow(1.4)) }
-        fun tipFade(n: Int) = FloatArray(n) { i -> 1f - 0.7f * (i.toFloat() / (n - 1)).pow(2) }
         val mw = taper(main.size)
-        SpellShapes.strip(c, m, view, main, { ARC_HALO_WIDTH * mw(it) }, rgb, fade * 0.45f, true, tipFade(main.size))
-        SpellShapes.strip(c, m, view, main, { ARC_CORE_WIDTH * mw(it) }, whiten(rgb, 0.75f), fade, false, tipFade(main.size))
-        val span = vfx.b.subtract(vfx.a)
-        repeat(2) {
-            val at = 1 + random.nextInt((main.size - 2).coerceAtLeast(1))
-            val dir = span.normalize().add(random.nextDouble() - 0.5, random.nextDouble() - 0.5, random.nextDouble() - 0.5).normalize()
-            val branch = SpellGeom.jagged(random, main[at], main[at].add(dir.scale(span.length() * (0.2 + 0.25 * random.nextDouble()))), ARC_JAGGEDNESS)
-            val bw = taper(branch.size, 0.6 * mw(at))
-            SpellShapes.strip(c, m, view, branch, { ARC_HALO_WIDTH * bw(it) }, rgb, fade * 0.3f, true, tipFade(branch.size))
-            SpellShapes.strip(c, m, view, branch, { ARC_CORE_WIDTH * bw(it) }, whiten(rgb, 0.75f), fade * 0.7f, false, tipFade(branch.size))
+        SpellShapes.strip(c, m, view, main, { ARC_HALO_WIDTH * mw(it) }, rgb, fade * 0.45f, true, shape.mainFade)
+        SpellShapes.strip(c, m, view, main, { ARC_CORE_WIDTH * mw(it) }, whiten(rgb, 0.75f), fade, false, shape.mainFade)
+        for (k in 0 until ARC_BRANCHES) {
+            val branch = shape.branches[k]
+            val bw = taper(branch.size, 0.6 * mw(shape.branchAt[k]))
+            SpellShapes.strip(c, m, view, branch, { ARC_HALO_WIDTH * bw(it) }, rgb, fade * 0.3f, true, shape.branchFades[k])
+            SpellShapes.strip(c, m, view, branch, { ARC_CORE_WIDTH * bw(it) }, whiten(rgb, 0.75f), fade * 0.7f, false, shape.branchFades[k])
         }
     }
 
@@ -812,6 +896,7 @@ object SpellVfxClient {
 
     /** Far longer than any visual the server sends (the longest is 20 ticks). */
     private const val MAX_LIFE = 200
+    private const val NO_SHIP = Long.MIN_VALUE
     /** Far more than play makes at once. */
     private const val MAX_ACTIVE = 2048
     private const val CRUSH_CUBES = 3
@@ -847,6 +932,7 @@ object SpellVfxClient {
     /** In blocks, at scale 1. */
     private const val TENTACLE_HEIGHT = 90.0 / 16.0
     private const val ARC_RESTRIKE_TICKS = 2f
+    private const val ARC_BRANCHES = 2
     private const val ARC_JAGGEDNESS = 0.12
     private const val ARC_CORE_WIDTH = 0.045
     private const val ARC_HALO_WIDTH = 0.22

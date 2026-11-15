@@ -12,6 +12,7 @@ import net.minecraft.world.entity.projectile.ThrowableItemProjectile
 import net.minecraft.world.item.Item
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.BlockHitResult
+import net.minecraft.world.phys.EntityHitResult
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.item.UlderShardItem
@@ -24,6 +25,8 @@ import org.shipwrights.enderkinesis.spell.SpellCasting
 import org.shipwrights.enderkinesis.spell.SpellContext
 import java.util.UUID
 import org.shipwrights.enderkinesis.spell.SpellVfx
+import org.shipwrights.enderkinesis.util.offFace
+import org.shipwrights.enderkinesis.registry.glyphStack
 
 class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : ThrowableItemProjectile(type, level) {
 
@@ -45,7 +48,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         this.power = power
         ownerUuid = caster.uuid
         castPoint = position()
-        spell.shapeElement?.let { item = EKItems.glyphStack(it) }
+        spell.shapeElement?.let { item = it.glyphStack() }
         entityData.set(ELEMENTS, SpellVfx.elementBits(spell.magnitudes.keys))
     }
 
@@ -64,7 +67,7 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         if (level().isClientSide) return
         val level = level() as? ServerLevel ?: return
         if (tickCount >= MAX_LIFETIME_TICKS) {
-            detonate(level, position(), null)
+            detonate(level, position(), null, position())
             return
         }
         pullAlongPath(level)
@@ -92,14 +95,21 @@ class SpellBoltEntity(type: EntityType<out SpellBoltEntity>, level: Level) : Thr
         super.onHit(result)
         val level = level() as? ServerLevel ?: return
         if (isRemoved) return
-        detonate(level, result.location, (result as? BlockHitResult)?.takeIf { it.type == HitResult.Type.BLOCK }?.blockPos)
+        val block = (result as? BlockHitResult)?.takeIf { it.type == HitResult.Type.BLOCK }
+        // A feet or face point can sit in the floor or the struck face, which would block the whole burst.
+        val sightFrom = when {
+            block != null -> level.offFace(block.location, block.blockPos, block.direction, SpellCasting.FACE_SIGHT_OFFSET)
+            result is EntityHitResult -> result.entity.boundingBox.center
+            else -> result.location
+        }
+        detonate(level, result.location, block?.blockPos, sightFrom)
     }
 
-    private fun detonate(level: ServerLevel, at: Vec3, struck: net.minecraft.core.BlockPos?) {
+    private fun detonate(level: ServerLevel, at: Vec3, struck: net.minecraft.core.BlockPos?, sightFrom: Vec3) {
         // A Staff of Aegis reflection makes its holder the owner, also for claims.
         val caster = owner as? LivingEntity
         val ctx = SpellContext(level, caster, castPoint, caster?.uuid ?: ownerUuid, power = power, surfaceFire = surfaceFire)
-        SpellCasting.burst(ctx, spell, at, area = false)
+        SpellCasting.burst(ctx, spell, at, area = false, sightFrom = sightFrom)
         struck?.let { ElementEffects.dropBlock(ctx, it) }
         discard()
     }

@@ -17,16 +17,19 @@ import org.lwjgl.opengl.GL30
  * step over the largest such block. Unloaded chunks read as flag 0. Render thread only.
  *
  * With [raw], the texels are the bytes of [fill] as they are, and unloaded chunks read as
- * [unloadedValue].
+ * [unloadedValue]. With [rgba], each texel is four raw bytes and unloaded chunks read [unloadedValue] in each channel.
  */
 class ChunkColumnMask(
     private val windowChunks: Int,
     private val fill: ColumnFill,
     private val raw: Boolean = false,
     private val unloadedValue: Int = ALL_UNIFORM,
+    private val rgba: Boolean = false,
+    // Rebuilds per refresh; a lower value spreads a window crossing over more frames.
+    private val maxRebuilds: Int = DEFAULT_MAX_REBUILDS,
 ) {
 
-    /** Writes [FLAG_BIT] or 0 (any byte with [raw]) to `out[z * 16 + x]` for each column of the chunk. */
+    /** Writes [FLAG_BIT] or 0 (any byte with [raw]) to `out[z * 16 + x]`, or four bytes from `out[(z * 16 + x) * 4]` with [rgba]. */
     fun interface ColumnFill {
         fun fill(chunk: LevelChunk, out: ByteBuffer)
     }
@@ -36,7 +39,11 @@ class ChunkColumnMask(
         require(windowChunks > 0 && windowChunks and (windowChunks - 1) == 0) {
             "windowChunks must be a power of two, was $windowChunks"
         }
+        require(raw || !rgba) { "an rgba mask must be raw" }
+        require(maxRebuilds > 0) { "maxRebuilds must be positive, was $maxRebuilds" }
     }
+
+    private val texelBytes = if (rgba) 4 else 1
 
     val size = windowChunks * 16
     private val radius = windowChunks / 2 - 1
@@ -49,25 +56,29 @@ class ChunkColumnMask(
 
     private val slotKeys = LongArray(windowChunks * windowChunks) { UNSET }
     private val dirtyChunks = LongOpenHashSet()
-    private val scratch: ByteBuffer = BufferUtils.createByteBuffer(16 * 16)
-    // The texture's texels, so a refresh uploads all its rebuilt slots in one call.
-    private val mirror: ByteBuffer = BufferUtils.createByteBuffer(size * size)
+    private val scratch: ByteBuffer = BufferUtils.createByteBuffer(16 * 16 * texelBytes)
+    // The texture's texels, so a refresh uploads its rebuilt slots in few calls.
+    private val mirror: ByteBuffer = BufferUtils.createByteBuffer(size * size * texelBytes)
     private var boundLevel: ClientLevel? = null
     private var windowChunkX = Int.MIN_VALUE
     private var windowChunkZ = Int.MIN_VALUE
     private var windowPending = false
-    // Texel rectangle of the slots written since the last upload; empty when dirtyMinX >= dirtyMaxX.
-    private var dirtyMinX = 0
-    private var dirtyMinY = 0
-    private var dirtyMaxX = 0
-    private var dirtyMaxY = 0
+    // Per slot row: the slot columns written since the last upload; empty when min > max.
+    private val writtenMin = IntArray(windowChunks) { windowChunks }
+    private val writtenMax = IntArray(windowChunks) { -1 }
 
     /** Block coordinate in mask texels. Absolute coordinates lose block precision in a float past 2^24. */
     fun wrap(block: Int): Int = block and (size - 1)
 
+    // A chunk outside the window gets a new slot key when it comes in, so refreshWindow rebuilds it anyway.
     fun markDirty(chunkX: Int, chunkZ: Int) {
-        if (boundLevel != null) dirtyChunks.add(ChunkPos.asLong(chunkX, chunkZ))
+        if (boundLevel != null && inWindow(chunkX, chunkZ)) dirtyChunks.add(ChunkPos.asLong(chunkX, chunkZ))
     }
+
+    private fun inWindow(cx: Int, cz: Int): Boolean =
+        windowChunkX != Int.MIN_VALUE &&
+            cx - windowChunkX + radius in 0 until windowChunks &&
+            cz - windowChunkZ + radius in 0 until windowChunks
 
     fun refresh(level: ClientLevel, camChunkX: Int, camChunkZ: Int) {
         if (textureId == -1) allocate()
@@ -77,7 +88,7 @@ class ChunkColumnMask(
             windowChunkZ = camChunkZ
             windowPending = true
         }
-        var budget = MAX_REBUILDS
+        var budget = maxRebuilds
         if (windowPending) budget = refreshWindow(level, budget)
         if (!dirtyChunks.isEmpty()) rebuildDirty(level, budget)
         upload()
@@ -92,8 +103,7 @@ class ChunkColumnMask(
             keys.remove()
             val cx = ChunkPos.getX(key)
             val cz = ChunkPos.getZ(key)
-            if (cx - windowChunkX + radius !in 0 until windowChunks) continue
-            if (cz - windowChunkZ + radius !in 0 until windowChunks) continue
+            if (!inWindow(cx, cz)) continue
             rebuildSlot(level, cx, cz)
             left--
         }
@@ -140,10 +150,15 @@ class ChunkColumnMask(
 
     private fun allocate() {
         textureId = GlStateManager._genTexture()
-        VolumeTextures.allocate(textureId, GL30.GL_R8, size, size, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, GL11.GL_NEAREST)
+        if (rgba) {
+            VolumeTextures.allocate(textureId, GL11.GL_RGBA8, size, size, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, GL11.GL_NEAREST)
+        } else {
+            VolumeTextures.allocate(textureId, GL30.GL_R8, size, size, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, GL11.GL_NEAREST)
+        }
         val unloaded = unloadedValue.toByte()
-        for (i in 0 until size * size) mirror.put(i, unloaded)
-        markWritten(0, 0, size, size)
+        for (i in 0 until size * size * texelBytes) mirror.put(i, unloaded)
+        writtenMin.fill(0)
+        writtenMax.fill(windowChunks - 1)
     }
 
     private fun slotOf(cx: Int, cz: Int): Int =
@@ -161,39 +176,69 @@ class ChunkColumnMask(
         if (!raw) encodeUniformBlocks()
         val x0 = (slot % windowChunks) * 16
         val y0 = (slot / windowChunks) * 16
-        for (z in 0 until 16) mirror.put((y0 + z) * size + x0, scratch, z * 16, 16)
-        markWritten(x0, y0, x0 + 16, y0 + 16)
+        val row = 16 * texelBytes
+        for (z in 0 until 16) mirror.put(((y0 + z) * size + x0) * texelBytes, scratch, z * row, row)
+        markWritten(slot)
     }
 
     private fun writeUnloaded(slot: Int) {
         val x0 = (slot % windowChunks) * 16
         val y0 = (slot / windowChunks) * 16
         val unloaded = unloadedValue.toByte()
+        val row = 16 * texelBytes
         for (z in 0 until 16) {
-            for (x in 0 until 16) mirror.put((y0 + z) * size + x0 + x, unloaded)
+            val start = ((y0 + z) * size + x0) * texelBytes
+            for (b in 0 until row) mirror.put(start + b, unloaded)
         }
-        markWritten(x0, y0, x0 + 16, y0 + 16)
+        markWritten(slot)
     }
 
-    private fun markWritten(x0: Int, y0: Int, x1: Int, y1: Int) {
-        if (dirtyMinX >= dirtyMaxX) {
-            dirtyMinX = x0
-            dirtyMinY = y0
-            dirtyMaxX = x1
-            dirtyMaxY = y1
-            return
-        }
-        dirtyMinX = minOf(dirtyMinX, x0)
-        dirtyMinY = minOf(dirtyMinY, y0)
-        dirtyMaxX = maxOf(dirtyMaxX, x1)
-        dirtyMaxY = maxOf(dirtyMaxY, y1)
+    private fun markWritten(slot: Int) {
+        val sx = slot % windowChunks
+        val sz = slot / windowChunks
+        writtenMin[sz] = minOf(writtenMin[sz], sx)
+        writtenMax[sz] = maxOf(writtenMax[sz], sx)
     }
 
-    // One call for all slots: each texSubImage into a texture the GPU still reads can make the driver wait.
+    // Few calls, as each texSubImage into a texture the GPU still reads can make the driver wait. One
+    // bounding box of scattered slots (a window edge plus a far chunk load) can be the whole texture.
     private fun upload() {
-        if (dirtyMinX >= dirtyMaxX) return
-        VolumeTextures.uploadR8Region(textureId, dirtyMinX, dirtyMinY, dirtyMaxX - dirtyMinX, dirtyMaxY - dirtyMinY, size, mirror)
-        dirtyMaxX = dirtyMinX
+        var first = -1
+        var last = -1
+        var minX = 0
+        var maxX = 0
+        var written = 0
+        for (sz in 0 until windowChunks) {
+            if (writtenMin[sz] > writtenMax[sz]) continue
+            val span = writtenMax[sz] - writtenMin[sz] + 1
+            if (first >= 0) {
+                val mergedMin = minOf(minX, writtenMin[sz])
+                val mergedMax = maxOf(maxX, writtenMax[sz])
+                if ((mergedMax - mergedMin + 1) * (sz - first + 1) <= MAX_UPLOAD_WASTE * (written + span)) {
+                    minX = mergedMin
+                    maxX = mergedMax
+                    written += span
+                    last = sz
+                    continue
+                }
+                uploadSlots(minX, first, maxX, last)
+            }
+            first = sz
+            last = sz
+            minX = writtenMin[sz]
+            maxX = writtenMax[sz]
+            written = span
+        }
+        if (first >= 0) uploadSlots(minX, first, maxX, last)
+        writtenMin.fill(windowChunks)
+        writtenMax.fill(-1)
+    }
+
+    private fun uploadSlots(minSx: Int, minSz: Int, maxSx: Int, maxSz: Int) {
+        val format = if (rgba) GL11.GL_RGBA else GL11.GL_RED
+        VolumeTextures.uploadRegion(
+            textureId, minSx * 16, minSz * 16, (maxSx - minSx + 1) * 16, (maxSz - minSz + 1) * 16, size, format, mirror,
+        )
     }
 
     private fun encodeUniformBlocks() {
@@ -234,6 +279,8 @@ class ChunkColumnMask(
         // Not a real chunk key: the slot reads as unloaded and waits for a rebuild.
         private const val PENDING = Long.MIN_VALUE + 1
         // A diagonal chunk crossing rebuilds 2 * windowChunks - 1 slots (63 for 32); this leaves room for dirty chunks.
-        private const val MAX_REBUILDS = 96
+        private const val DEFAULT_MAX_REBUILDS = 96
+        // An upload rectangle may hold up to this many slots for each slot written in it.
+        private const val MAX_UPLOAD_WASTE = 2
     }
 }

@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.BlockPos
 import net.minecraft.world.item.ItemStack
+import org.joml.Vector3d
 import org.shipwrights.enderkinesis.item.TransportationNetwork
 import java.util.concurrent.atomic.AtomicLong
 
@@ -40,6 +41,8 @@ object TransportationClient {
 
     /** Currently-rendering flights, keyed by id so they can be expired in O(1). */
     private val flights: MutableMap<Long, GhostFlight> = LinkedHashMap()
+
+    private val tickScratch = Vector3d()
 
     /** Per-flight state. The two block positions are resolved each render frame via
      *  [OrbClientGeometry.worldCenter], so the visual tracks live ship motion on both ends.
@@ -104,19 +107,10 @@ object TransportationClient {
         return (elapsedTicks / flight.totalTicks).coerceIn(0.0, 1.0)
     }
 
-    /** Render-frame world position for [flight] — `lerp(send, recv, t)` with both endpoints
-     *  resolved live. Returns null if either endpoint can't be resolved (orb broken /
-     *  unloaded), in which case the renderer should skip the flight. */
-    fun renderPos(level: ClientLevel, flight: GhostFlight, partialTick: Float): net.minecraft.world.phys.Vec3? {
-        val sendCentre = OrbClientGeometry.worldCenter(level, flight.sendPos) ?: return null
-        val recvCentre = OrbClientGeometry.worldCenter(level, flight.recvPos) ?: return null
-        val t = progress(flight, level.gameTime, partialTick)
-        return net.minecraft.world.phys.Vec3(
-            sendCentre.x + (recvCentre.x - sendCentre.x) * t,
-            sendCentre.y + (recvCentre.y - sendCentre.y) * t,
-            sendCentre.z + (recvCentre.z - sendCentre.z) * t,
-        )
-    }
+    /** Writes the render-frame world position of [flight] on the anchored beam path into [out].
+     *  False when an endpoint is gone (orb broken / unloaded); the renderer then skips the flight. */
+    fun renderPos(level: ClientLevel, flight: GhostFlight, partialTick: Float, out: Vector3d): Boolean =
+        OrbBeamRoute.pointAt(level, flight.sendPos, flight.recvPos, progress(flight, level.gameTime, partialTick), out)
 
     /** Per-tick expiry sweep. The trail is drawn from the render path, so the tick handler
      *  has no per-frame visual work — it only removes flights whose duration has elapsed or
@@ -124,15 +118,16 @@ object TransportationClient {
     private fun tick(level: ClientLevel) {
         if (flights.isEmpty()) return
         val now = level.gameTime
-        val expired = ArrayList<Long>()
-        for ((id, flight) in flights) {
+        val it = flights.values.iterator()
+        while (it.hasNext()) {
+            val flight = it.next()
             val elapsed = (now - flight.startTick).toInt()
-            if (elapsed >= flight.totalTicks) { expired.add(id); continue }
-            if (OrbClientGeometry.worldCenter(level, flight.sendPos) == null ||
-                OrbClientGeometry.worldCenter(level, flight.recvPos) == null) {
-                expired.add(id)
+            if (elapsed >= flight.totalTicks ||
+                OrbClientGeometry.worldCenter(level, flight.sendPos, tickScratch) == null ||
+                OrbClientGeometry.worldCenter(level, flight.recvPos, tickScratch) == null
+            ) {
+                it.remove()
             }
         }
-        for (id in expired) flights.remove(id)
     }
 }

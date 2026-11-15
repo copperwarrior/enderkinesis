@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.client.signature
 import com.mojang.blaze3d.vertex.VertexConsumer
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import net.minecraft.client.Minecraft
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.core.BlockPos
 import net.minecraft.core.particles.DustParticleOptions
 import net.minecraft.core.particles.ParticleTypes
@@ -124,7 +125,7 @@ object BodySignatureVisuals {
             d.solidBlocks()?.let { c ->
                 for ((i, f) in falling.withIndex()) {
                     val spin = d.age * 0.3 + d.e.seed % 7 + i
-                    SpellShapes.texBox(c, d.m, SpellGeom.cubeCorners(f.first, ROCK, spin, spin * 1.3, spin * 0.7), SpellArt.block("magma"), 0xFFFFFF, 1f, SpellShapes.FULL_BRIGHT, d.e.seed + i)
+                    SpellShapes.texBox(c, d.m, SpellGeom.cubeCorners(f.first, ROCK, spin, spin * 1.3, spin * 0.7), SpellArt.block("magma"), 0xFFFFFF, 1f, LightTexture.FULL_BRIGHT, d.e.seed + i)
                 }
             }
             val glow = soft(d)
@@ -484,9 +485,9 @@ object BodySignatureVisuals {
                 val at = Vec3(cos(a) * cos(b) * r, sin(b) * r * 0.7, sin(a) * cos(b) * r)
                 if (i >= MOTES) {
                     if (((d.age.toInt() + i * 3) % 5) > 1) continue
-                    SpellShapes.sprite(c, d.m, d.view, at, 0.18, SpellArt.spark(i + d.age.toInt()), CHAOS, f, SpellShapes.FULL_BRIGHT)
+                    SpellShapes.sprite(c, d.m, d.view, at, 0.18, SpellArt.spark(i + d.age.toInt()), CHAOS, f, LightTexture.FULL_BRIGHT)
                 } else {
-                    SpellShapes.sprite(c, d.m, d.view, at, 0.13, SpellArt.glitter(i + d.age.toInt() / 2), if (i % 3 == 0) POISON else 0xD8F0B0, f, SpellShapes.FULL_BRIGHT)
+                    SpellShapes.sprite(c, d.m, d.view, at, 0.13, SpellArt.glitter(i + d.age.toInt() / 2), if (i % 3 == 0) POISON else 0xD8F0B0, f, LightTexture.FULL_BRIGHT)
                 }
             }
             SpellShapes.disc(soft(d), d.m, d.view, Vec3.ZERO, spread * 1.8, POISON, 0.3f * f)

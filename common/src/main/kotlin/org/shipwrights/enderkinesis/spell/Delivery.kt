@@ -4,15 +4,13 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
-import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.AABB
-import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.item.AegisBox
 import org.shipwrights.enderkinesis.util.CrossFrameBlocks
-import org.shipwrights.enderkinesis.util.colliderClip
 import org.shipwrights.enderkinesis.util.rayAabbEntry
+import org.shipwrights.enderkinesis.util.sees
 import org.shipwrights.enderkinesis.util.standaloneBodyBoxes
 import org.joml.Vector3d
 import org.joml.primitives.AABBdc
@@ -22,18 +20,24 @@ import org.valkyrienskies.mod.common.toWorldCoordinates
 sealed class Delivery {
     abstract val anchor: Vec3
 
-    fun entities(ctx: SpellContext, includeCaster: Boolean = false): List<Entity> =
-        (foundEntities ?: candidates(ctx).also { foundEntities = it })
-            .filter { it.isAlive && !it.isSpectator && (includeCaster || !ctx.isCaster(it)) }
+    /** [throughWalls] is for gravity-like pulls, which the user wants to reach through walls. */
+    fun entities(ctx: SpellContext, includeCaster: Boolean = false, throughWalls: Boolean = false): List<Entity> {
+        val all = foundEntities ?: candidates(ctx).also { foundEntities = it }
+        val pool = if (throughWalls) all else visibleEntities ?: all.filter { sees(ctx, it) }.also { visibleEntities = it }
+        return pool.filter { it.isAlive && !it.isSpectator && (includeCaster || !ctx.isCaster(it)) }
+    }
 
     // Each element of a cast and each named effect ask for the same entities and blocks, so find them once.
     private var foundEntities: List<Entity>? = null
+    private var visibleEntities: List<Entity>? = null
     private var foundBlocks: List<BlockPos>? = null
 
-    fun living(ctx: SpellContext, includeCaster: Boolean = false): List<LivingEntity> =
-        entities(ctx, includeCaster).filterIsInstance<LivingEntity>()
+    fun living(ctx: SpellContext, includeCaster: Boolean = false, throughWalls: Boolean = false): List<LivingEntity> =
+        entities(ctx, includeCaster, throughWalls).filterIsInstance<LivingEntity>()
 
     protected abstract fun candidates(ctx: SpellContext): List<Entity>
+
+    protected open fun sees(ctx: SpellContext, entity: Entity): Boolean = true
 
     fun bounds(): AABB = when (this) {
         is Sphere -> AABB(center, center).inflate(radius)
@@ -51,8 +55,11 @@ sealed class Delivery {
     open fun scatterRoll(ctx: SpellContext, denominator: Int): Boolean = ctx.chance(1f / denominator)
 
     /** [area] marks an Area cast at the caster's feet: visuals sit one block higher, and Chaos includes the caster.
-     *  [waves] draws waves that go out from the centre, not one burst. */
-    class Sphere(val center: Vec3, val radius: Double, val area: Boolean = false, val waves: Boolean = area) : Delivery() {
+     *  [waves] draws waves that go out from the centre, not one burst. [sightFrom] (WORLD) must be in open space. */
+    class Sphere(
+        val center: Vec3, val radius: Double, val area: Boolean = false, val waves: Boolean = area,
+        val sightFrom: Vec3 = if (area) center.add(0.0, AREA_SIGHT_LIFT, 0.0) else center,
+    ) : Delivery() {
         override val anchor: Vec3 = if (area) center.add(0.0, 1.0, 0.0) else center
 
         override fun candidates(ctx: SpellContext): List<Entity> {
@@ -61,6 +68,8 @@ sealed class Delivery {
                 it.position().distanceToSqr(center) <= r2
             }
         }
+
+        override fun sees(ctx: SpellContext, entity: Entity): Boolean = ctx.level.sees(sightFrom, entity)
 
         override fun findBlocks(level: Level): List<BlockPos> {
             // The test is on offsets from the middle of the centre cell, whole blocks for world cells, so the world sphere is as
@@ -71,11 +80,20 @@ sealed class Delivery {
             val ox = blocks.origin.x + 0.5; val oy = blocks.origin.y + 0.5; val oz = blocks.origin.z + 0.5
             val m = blocks.visitedMiddle
             val out = ArrayList<BlockPos>()
-            blocks.forEachWithin(reach) { pos, _ ->
+            val near = Vector3d()
+            var tests = 0
+            blocks.forEachWithin(reach) { pos, ship ->
                 val dx = m.x - ox; val dy = m.y - oy; val dz = m.z - oz
-                if (dx * dx + dy * dy + dz * dz <= r2) out += pos.immutable()
+                if (dx * dx + dy * dy + dz * dz > r2 || tests >= MAX_VISIBILITY_TESTS) return@forEachWithin
+                tests++
+                if (level.sees(sightFrom, pos, ship, near)) out += pos.immutable()
             }
             return out
+        }
+
+        private companion object {
+            // Inside the caster's box, also when it crawls or swims, so the floor it stands on does not block.
+            const val AREA_SIGHT_LIFT = 0.5
         }
     }
 
@@ -148,11 +166,8 @@ sealed class Delivery {
             level.standaloneBodyBoxes(AABB(origin, origin).inflate(length).toJOML())
 
         /** A standalone body is not a block, so it only casts a shadow. */
-        private fun visible(level: Level, point: Vec3, target: BlockPos?, bodies: List<AABBdc>): Boolean {
-            if (shadowed(origin, point, blockers) || bodyShadowed(point, bodies)) return false
-            val hit = level.clip(colliderClip(origin, point))
-            return hit.type == HitResult.Type.MISS || (target != null && hit.blockPos == target)
-        }
+        private fun visible(level: Level, point: Vec3, bodies: List<AABBdc>): Boolean =
+            !shadowed(origin, point, blockers) && !bodyShadowed(point, bodies) && level.sees(origin, point)
 
         private fun bodyShadowed(point: Vec3, bodies: List<AABBdc>): Boolean {
             if (bodies.isEmpty()) return false
@@ -165,7 +180,7 @@ sealed class Delivery {
             val bodies = bodies(ctx.level)
             return ctx.level.getEntities(null as Entity?, AABB(origin, origin).inflate(length)) {
                 val centre = it.boundingBox.center
-                contains(centre) && visible(ctx.level, centre, null, bodies)
+                contains(centre) && visible(ctx.level, centre, bodies)
             }
         }
 
@@ -186,11 +201,6 @@ sealed class Delivery {
             }
             return out
         }
-
-        private companion object {
-            // A full cone of 12 blocks at scale 1 is about 500 cells, so this binds only on much scaled-down ships.
-            const val MAX_VISIBILITY_TESTS = 65_536
-        }
     }
 
     class Group(val targets: List<Entity>, override val anchor: Vec3) : Delivery() {
@@ -201,6 +211,8 @@ sealed class Delivery {
     companion object {
         // Half the diagonal of a block: a cell middle is at most this far from any point of the cell.
         private const val HALF_DIAGONAL = 0.8661
+        // A full cone of 12 blocks at scale 1 is about 500 cells, so this binds only on much scaled-down ships.
+        private const val MAX_VISIBILITY_TESTS = 65_536
 
         fun shadowed(from: Vec3, to: Vec3, frames: List<AegisBox.Frame>): Boolean {
             if (frames.isEmpty()) return false

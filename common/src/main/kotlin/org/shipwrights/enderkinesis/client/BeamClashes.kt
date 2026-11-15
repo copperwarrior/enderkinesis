@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.client
 
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
+import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.world.phys.Vec3
@@ -78,7 +79,7 @@ object BeamClashes {
                 val off = 1.2 * (1 - easeOut(k.toDouble()))
                 for ((element, sign) in listOf(e to 1, (e.opposite ?: e) to -1)) {
                     val glyph = SpellArt.glyph(i * 5 + if (sign > 0) 1 else 9)
-                    SpellShapes.sprite(light, m, view, c.at.add(side.scale(sign * off)), 0.24, glyph, element.color, 1f, SpellShapes.FULL_BRIGHT)
+                    SpellShapes.sprite(light, m, view, c.at.add(side.scale(sign * off)), 0.24, glyph, element.color, 1f, LightTexture.FULL_BRIGHT)
                 }
             }
             if (t < c.ticks) {
@@ -86,7 +87,7 @@ object BeamClashes {
                 for (i in 0 until 4) {
                     val p = c.at.add(SpellGeom.spread(r).scale(0.4 * r.nextDouble()))
                     val spark = SpellArt.spark(r.nextInt(8))
-                    SpellShapes.sprite(light, m, view, p, 0.16, spark, if (i % 2 == 0) c.rgbB else c.rgbA, 1f, SpellShapes.FULL_BRIGHT)
+                    SpellShapes.sprite(light, m, view, p, 0.16, spark, if (i % 2 == 0) c.rgbB else c.rgbA, 1f, LightTexture.FULL_BRIGHT)
                 }
             }
         }
@@ -109,7 +110,7 @@ object BeamClashes {
         val frame = (cut * 7).toInt().coerceIn(0, 7)
         for (i in 0 until 5) {
             val p = tip.add((r.nextDouble() - 0.5) * 0.3, (r.nextDouble() - 0.5) * 0.3, (r.nextDouble() - 0.5) * 0.3)
-            SpellShapes.sprite(light, m, view, p, 0.16, SpellArt.spark(frame), 0xFFFFFF, 1f - cut, SpellShapes.FULL_BRIGHT)
+            SpellShapes.sprite(light, m, view, p, 0.16, SpellArt.spark(frame), 0xFFFFFF, 1f - cut, LightTexture.FULL_BRIGHT)
         }
     }
 

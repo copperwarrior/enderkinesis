@@ -19,6 +19,7 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.body.GamylanCageBodyForce
 import org.shipwrights.enderkinesis.body.GamylanCageData
@@ -29,14 +30,20 @@ import org.shipwrights.enderkinesis.body.GamylanCageRegistry
 import org.shipwrights.enderkinesis.body.GamylanCageShape
 import org.shipwrights.enderkinesis.body.SoderShape
 import org.valkyrienskies.core.api.bodies.VsBodyCreateData
+import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.api.world.ServerShipWorld
 import org.valkyrienskies.mod.common.dimensionId
+import org.valkyrienskies.mod.common.getEnclosingShip
 import org.valkyrienskies.mod.common.getLoadedShipManagingPos
+import org.valkyrienskies.mod.common.getShipManagingPos
+import org.valkyrienskies.mod.common.getShipMountedTo
+import org.valkyrienskies.mod.common.toWorldCoordinates
 import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.vsCore
 import org.valkyrienskies.core.api.util.GameTickOnly
 import org.valkyrienskies.core.api.VsBeta
 import org.shipwrights.enderkinesis.util.deleteStandaloneBody
+import org.shipwrights.enderkinesis.util.pointVelocity
 
 /**
  * Server-side orchestrator for the Wand of Ga'Mylan capture + break
@@ -345,7 +352,7 @@ object GamylanCageManager {
         ship?.transform?.shipToWorld?.transformPosition(hover)
         val origin = Vector3d(hover.x, hover.y - 1.0, hover.z)
 
-        val bodyId = tryCreateDynamicBody(level, hover, shapeDims, itemCull, isTribulla = false) ?: run {
+        val bodyId = tryCreateDynamicBody(level, hover, shapeDims, itemCull, isTribulla = false, carrier = ship) ?: run {
             return false
         }
         val addedAt = level.gameTime
@@ -364,6 +371,8 @@ object GamylanCageManager {
             dimId = level.dimensionId,
             fadeEndGameTime = addedAt + FADE_TICKS,
             displayedItem = stack,
+            carrierShipId = ship?.id,
+            hoverInShip = ship?.let { local },
         )
         GamylanCageRegistry.add(level, data)
         GamylanCageNetwork.broadcastAdded(level, data)
@@ -391,6 +400,9 @@ object GamylanCageManager {
     ): GamylanCageData? {
         val captured = CompoundTag()
         val isPlayer = target is net.minecraft.world.entity.player.Player
+        // Before the dismount below: a seat on a ship is how VS2 knows the rider's ship.
+        val carrier = carrierShip(level, target)
+        val origin = level.toWorldCoordinates(Vector3d(target.x, target.y, target.z))
         if (!isPlayer) {
             // The save includes passengers, but only this entity is removed. A rider would
             // stay in the world and get a copy with the same UUID on release.
@@ -412,8 +424,7 @@ object GamylanCageManager {
             (target is net.minecraft.world.entity.player.Player &&
                 target.gameProfile.name == "Tribulla")
 
-        val origin = Vector3d(target.x, target.y, target.z)
-        val hover = Vector3d(target.x, target.y + HOVER_OFFSET_Y, target.z)
+        val hover = Vector3d(origin.x, origin.y + HOVER_OFFSET_Y, origin.z)
         // Crystal shape dims (rx, midH, tipLen) — sized to the captured
         // entity's culling AABB (`getBoundingBoxForCulling`) rather than
         // its collision bbox, so oversized-model entities (Ender Dragon,
@@ -429,7 +440,7 @@ object GamylanCageManager {
             zSize = entityCullSize.z,
         )
 
-        val bodyId = tryCreateDynamicBody(level, hover, shapeDims, entityCullSize, isTribulla) ?: run {
+        val bodyId = tryCreateDynamicBody(level, hover, shapeDims, entityCullSize, isTribulla, carrier) ?: run {
             return null
         }
 
@@ -475,6 +486,8 @@ object GamylanCageManager {
             playerCustomizationByte = customizationByte,
             playerEquipment = equipment,
             droppedItems = java.util.ArrayList(droppedItems),
+            carrierShipId = carrier?.id,
+            hoverInShip = carrier?.transform?.worldToShip?.transformPosition(hover, Vector3d()),
         )
         GamylanCageRegistry.add(level, data)
         GamylanCageNetwork.broadcastAdded(level, data)
@@ -497,7 +510,7 @@ object GamylanCageManager {
         // One hit for each tick, for each cage and for each player: a packet burst must not break cages at once.
         if (data.lastDamageTick == level.gameTime || lastHitTick[player.uuid] == level.gameTime) return
         val body = level.shipObjectWorld.allBodies.getById(data.bodyId)
-        val livePos = body?.let { Vector3d(it.kinematics.position) } ?: data.hoverPos
+        val livePos = body?.let { Vector3d(it.kinematics.position) } ?: carriedHover(level, data)
         // From the eye to the surface, not from the feet to the centre: a large or scaled cage
         // has its centre more than the range away from each point a player can stand on.
         val scale = body?.kinematics?.transform?.scaling?.x() ?: 1.0
@@ -536,13 +549,22 @@ object GamylanCageManager {
         }
     }
 
-    /** Look up the cage's current VS body position. Returns null if
-     *  the body has been lost from VS2's store (shouldn't normally
-     *  happen, but the manager doesn't insist). */
-    private fun liveBodyPosition(level: ServerLevel, data: GamylanCageData): Vector3d? {
-        val body = level.shipObjectWorld.allBodies.getById(data.bodyId) ?: return null
-        return Vector3d(body.kinematics.position)
+    /** VS2's own attribution, in order: the ship of the target's seat or vehicle, the ship it stands on, the shipyard it is in. */
+    private fun carrierShip(level: ServerLevel, target: Entity): Ship? =
+        getShipMountedTo(target) ?: target.getEnclosingShip() ?: level.getShipManagingPos(target.position())
+
+    private fun loadedCarrier(level: ServerLevel, data: GamylanCageData): Ship? =
+        data.carrierShipId?.let { level.shipObjectWorld.loadedShips.getById(it) }
+
+    /** The hover point where the carrier ship has it now; the capture-time world point without a loaded carrier. */
+    private fun carriedHover(level: ServerLevel, data: GamylanCageData): Vector3d {
+        val ship = loadedCarrier(level, data) ?: return Vector3d(data.hoverPos)
+        val local = data.hoverInShip ?: return Vector3d(data.hoverPos)
+        return ship.transform.shipToWorld.transformPosition(local, Vector3d())
     }
+
+    private fun carrierVelocity(level: ServerLevel, data: GamylanCageData, at: Vector3dc): Vector3dc =
+        loadedCarrier(level, data)?.pointVelocity(at, Vector3d()) ?: Vector3d()
 
     /** HP = 0 — release the captured entity (boss) or discard it
      *  (non-boss), pull the cage from the registry, send the removal
@@ -551,14 +573,17 @@ object GamylanCageManager {
     /** Put the captured entity, the pedestal item and the held player items into the world at
      *  [at]. Shared by [breakCage] and the stale sweep, so no path removes a cage with its
      *  contents inside. */
-    private fun releaseContents(level: ServerLevel, data: GamylanCageData, at: Vector3d) {
+    private fun releaseContents(level: ServerLevel, data: GamylanCageData, at: Vector3d, velocity: Vector3dc) {
         val breakPos = at
+        // m/s to blocks per tick. On a ship, VS2 takes the ship's motion out of this when the entity lands on it.
+        val motion = Vec3(velocity.x() / 20.0, velocity.y() / 20.0, velocity.z() / 20.0)
         // Always release the captured entity on break — boss, villager,
         // chicken, doesn't matter. Player captures return null from
         // loadEntityRecursive (capturedTag is empty for the RemotePlayer
         // path) which the fall-through handles as a no-op.
         val restored = EntityType.loadEntityRecursive(data.capturedTag, level) { e: Entity ->
             e.moveTo(breakPos.x, breakPos.y, breakPos.z, e.yRot, e.xRot)
+            e.deltaMovement = motion
             e
         }
         if (restored != null) level.addFreshEntity(restored)
@@ -570,6 +595,7 @@ object GamylanCageManager {
             val item = net.minecraft.world.entity.item.ItemEntity(
                 level, breakPos.x, breakPos.y, breakPos.z, data.displayedItem.copy(),
             )
+            item.deltaMovement = item.deltaMovement.add(motion)
             item.setDefaultPickUpDelay()
             level.addFreshEntity(item)
         }
@@ -578,6 +604,7 @@ object GamylanCageManager {
             val item = net.minecraft.world.entity.item.ItemEntity(
                 level, breakPos.x, breakPos.y, breakPos.z, stack.copy(),
             )
+            item.deltaMovement = item.deltaMovement.add(motion)
             item.setDefaultPickUpDelay()
             level.addFreshEntity(item)
         }
@@ -588,8 +615,10 @@ object GamylanCageManager {
         // Break position — also the spawn point of the client shatter
         // cubes + the audible glass-break, so the visual / aural cues
         // line up with where the entity respawns.
-        val breakPos = liveBodyPosition(level, data) ?: data.hoverPos
-        releaseContents(level, data, breakPos)
+        val body = level.shipObjectWorld.allBodies.getById(data.bodyId)
+        val breakPos = body?.let { Vector3d(it.kinematics.position) } ?: carriedHover(level, data)
+        val breakVel = body?.kinematics?.velocity ?: carrierVelocity(level, data, breakPos)
+        releaseContents(level, data, breakPos, breakVel)
         level.playSound(
             null, breakPos.x, breakPos.y, breakPos.z,
             org.shipwrights.enderkinesis.registry.EKSounds.GAMYLAN_CAGE_SHATTER.get(),
@@ -641,7 +670,7 @@ object GamylanCageManager {
      *  soder bottle hull from [SoderShape]. */
     private fun tryCreateDynamicBody(
         level: ServerLevel, hoverPos: Vector3d, shapeDims: Vector3d,
-        entityCullSize: Vector3d, isTribulla: Boolean,
+        entityCullSize: Vector3d, isTribulla: Boolean, carrier: Ship?,
     ): Long? {
         return try {
             val shipWorld = level.shipObjectWorld as? ServerShipWorld ?: return null
@@ -652,8 +681,10 @@ object GamylanCageManager {
                         Vector3d(), CAGE_BODY_MASS,
                         boxInertia(shapeDims),
                     ),
+                    // A cage made on a ship moves with it from the first frame, as if fixed to it.
                     kinematics = vsCore.newBodyKinematics(
-                        Vector3d(), Vector3d(),
+                        carrier?.pointVelocity(hoverPos, Vector3d()) ?: Vector3d(),
+                        carrier?.let { Vector3d(it.angularVelocity) } ?: Vector3d(),
                         hoverPos, Quaterniond(), Vector3d(1.0), Vector3d(),
                     ),
                     collisionShape = if (isTribulla)
@@ -689,7 +720,8 @@ object GamylanCageManager {
             if (shipWorld.allBodies.getById(data.bodyId) == null) {
                 // The record goes, so its contents must come out first: a mob, a dead player's
                 // inventory or a pedestal item.
-                releaseContents(level, data, data.hoverPos)
+                val at = carriedHover(level, data)
+                releaseContents(level, data, at, carrierVelocity(level, data, at))
                 GamylanCagePedestals.forgetBody(level, data)
                 GamylanCageRegistry.remove(level, data.bodyId)
                 GamylanCageBodyForce.forgetBody(data.bodyId)

@@ -19,7 +19,6 @@ import org.joml.Vector3f
 import org.shipwrights.enderkinesis.block.AltarOfIlluminationBlock
 import org.shipwrights.enderkinesis.blockentity.AltarOfIlluminationBlockEntity
 import org.shipwrights.enderkinesis.blockentity.AltarOfIlluminationBlockEntity.Event
-import org.shipwrights.enderkinesis.registry.EKItems
 import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.spell.Element
 import org.shipwrights.enderkinesis.spell.Inscription
@@ -30,6 +29,8 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.shipwrights.enderkinesis.registry.glyphTint
+import org.shipwrights.enderkinesis.registry.glyphStack
 
 class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
     BlockEntityRenderer<AltarOfIlluminationBlockEntity> {
@@ -132,7 +133,7 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
                 }
             }
             val pose = crownPose(slotOf(i, events, time), time)
-            glyph(be, element, pose.pos, pose.facing, 0.0, pose.tip, scale, EKItems.glyphTint(element), haloBreath(time, i), HALO_SIZE, ps, buffers, i, alpha)
+            glyph(be, element, pose.pos, pose.facing, 0.0, pose.tip, scale, element.glyphTint, haloBreath(time, i), HALO_SIZE, ps, buffers, i, alpha)
         }
     }
 
@@ -146,20 +147,20 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
         val side = besideOf(at.pos)
         val v = age - HOLD
         if (v < 0) {
-            glyph(be, before, at.pos, at.facing, 0.0, at.tip, 1.0, EKItems.glyphTint(before), haloBreath(time, ev.index), HALO_SIZE, ps, buffers, ev.index)
-            glyph(be, shard, side, at.facing, 0.0, at.tip, 1.0, EKItems.glyphTint(shard), 0.5, HALO_SIZE, ps, buffers, 7)
+            glyph(be, before, at.pos, at.facing, 0.0, at.tip, 1.0, before.glyphTint, haloBreath(time, ev.index), HALO_SIZE, ps, buffers, ev.index)
+            glyph(be, shard, side, at.facing, 0.0, at.tip, 1.0, shard.glyphTint, 0.5, HALO_SIZE, ps, buffers, 7)
             return
         }
         if (v < MELD_SLIDE) {
             val inc = lerp(side, at.pos, inOutCubic(v / MELD_SLIDE))
             val mix = inOutCubic((v - 3) / 5)
-            glyph(be, before, at.pos, at.facing, 0.0, at.tip, 1.0, EKItems.glyphTint(before), 0.5, HALO_SIZE, ps, buffers, ev.index, 1 - mix)
-            glyph(be, shard, inc, at.facing, 0.0, at.tip, 1.0, EKItems.glyphTint(shard), 0.5, HALO_SIZE, ps, buffers, 7, 1 - mix)
-            glyph(be, after, at.pos, at.facing, 0.0, at.tip, 1.0, EKItems.glyphTint(after), 0.5, HALO_SIZE, ps, buffers, 8, mix)
+            glyph(be, before, at.pos, at.facing, 0.0, at.tip, 1.0, before.glyphTint, 0.5, HALO_SIZE, ps, buffers, ev.index, 1 - mix)
+            glyph(be, shard, inc, at.facing, 0.0, at.tip, 1.0, shard.glyphTint, 0.5, HALO_SIZE, ps, buffers, 7, 1 - mix)
+            glyph(be, after, at.pos, at.facing, 0.0, at.tip, 1.0, after.glyphTint, 0.5, HALO_SIZE, ps, buffers, 8, mix)
             return
         }
         val q = (v - MELD_SLIDE) / MELD_RING
-        if (q < 1) light(at.pos, EKItems.glyphTint(after), 0.9 * (1 - q), 0.06 + 0.8 * outCubic(q), ps, buffers)
+        if (q < 1) light(at.pos, after.glyphTint, 0.9 * (1 - q), 0.06 + 0.8 * outCubic(q), ps, buffers)
     }
 
     private fun overload(be: AltarOfIlluminationBlockEntity, ev: Event, age: Double, ps: PoseStack, buffers: MultiBufferSource) {
@@ -172,7 +173,7 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
         val contact = oppAt.add(dir.scale(0.05))
         val mid = contact.add(oppAt).scale(0.5)
         val v = age - HOLD
-        val incColor = EKItems.glyphTint(shard); val oppColor = EKItems.glyphTint(opposite)
+        val incColor = shard.glyphTint; val oppColor = opposite.glyphTint
         if (v < OVERLOAD_BURST) {
             var inc = incAt; var opp = oppAt
             var scale = 1.0; var white = 0.0; var haloAlpha = 0.5; var haloSize = HALO_SIZE
@@ -231,7 +232,7 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
         val dive = AltarOfIlluminationBlockEntity.DIVE_TICKS.toDouble()
         if (age < start) {
             val pose = crownPose(i.toDouble(), time)
-            glyph(be, element, pose.pos, pose.facing, 0.0, pose.tip, 1.0, EKItems.glyphTint(element), haloBreath(time, i), HALO_SIZE, ps, buffers, i)
+            glyph(be, element, pose.pos, pose.facing, 0.0, pose.tip, 1.0, element.glyphTint, haloBreath(time, i), HALO_SIZE, ps, buffers, i)
             return
         }
         val from = crownPose(i.toDouble(), ev.time + start)
@@ -245,14 +246,14 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
                 from.pos.y + (to.y - from.pos.y) * down + 0.06 * sin(PI * p) * (1 - p),
                 from.pos.z + (to.z - from.pos.z) * across,
             )
-            glyph(be, element, pos, from.facing + 2 * p, -1.3 * inOutCubic(p), 0.0, 1 - 0.35 * p, EKItems.glyphTint(element), 0.5 * (1 - p), HALO_SIZE, ps, buffers, i)
+            glyph(be, element, pos, from.facing + 2 * p, -1.3 * inOutCubic(p), 0.0, 1 - 0.35 * p, element.glyphTint, 0.5 * (1 - p), HALO_SIZE, ps, buffers, i)
             return
         }
         val q = (age - start - dive) / 18
         if (q < 1) {
-            once(be, ev, 10 + i) { splash(be, to, EKItems.glyphTint(element), 8) }
-            ripple(to, 0.02 + 0.2 * outCubic(q), mixColor(INK_RIPPLE, EKItems.glyphTint(element), 0.12), 0.7 * (1 - q), ps, buffers)
-            if (q < 0.33) light(to.add(0.0, 0.02, 0.0), EKItems.glyphTint(element), 1 - q * 3, 0.22, ps, buffers)
+            once(be, ev, 10 + i) { splash(be, to, element.glyphTint, 8) }
+            ripple(to, 0.02 + 0.2 * outCubic(q), mixColor(INK_RIPPLE, element.glyphTint, 0.12), 0.7 * (1 - q), ps, buffers)
+            if (q < 0.33) light(to.add(0.0, 0.02, 0.0), element.glyphTint, 1 - q * 3, 0.22, ps, buffers)
         }
     }
 
@@ -304,7 +305,7 @@ class AltarOfIlluminationRenderer(ctx: BlockEntityRendererProvider.Context) :
         // Items draw translucent, so a shard fades by dimming what it draws.
         val into = if (alpha < 0.999) BeamClashes.Dimmed(buffers, alpha.toFloat()) else buffers
         itemRenderer.renderStatic(
-            EKItems.glyphStack(element), ItemDisplayContext.FIXED, LightTexture.FULL_BRIGHT,
+            element.glyphStack(), ItemDisplayContext.FIXED, LightTexture.FULL_BRIGHT,
             OverlayTexture.NO_OVERLAY, ps, into, be.level, be.blockPos.asLong().toInt() + seed,
         )
         ps.popPose()

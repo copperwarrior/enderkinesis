@@ -2,42 +2,20 @@ package org.shipwrights.enderkinesis.body
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.math.sqrt
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.util.gravity
+import org.shipwrights.enderkinesis.util.movableMass
+import org.shipwrights.enderkinesis.util.pointVelocity
+import org.shipwrights.enderkinesis.util.reducedMass
 import org.valkyrienskies.core.api.events.CollisionEvent
 import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.core.api.util.PhysTickOnly
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.util.UnavailableInKrunch
 
-/**
- * Hooks the VS2 phys-tick to drive every cage body's forces. Three
- * states layered by priority:
- *
- * 1. **Wylland Tome grab** — when a player has grabbed this body via
- *    the tome ([OrbGrabState]), counter-gravity + spring toward the
- *    tome target + rotation PD toward the grab's ideal rotation. Wins
- *    over the fade lock so the player can yank the cage out of its
- *    hover spot the instant it spawns.
- * 2. **Fade hover lock** — `!fadeComplete` and no tome grab:
- *    counter-gravity + stiff critically-damped spring toward
- *    [GamylanCageData.hoverPos]. Treats the body as effectively static
- *    without requiring `isStatic = true`.
- * 3. **Free fall** — `fadeComplete` and no tome grab: skip entirely;
- *    VS2's gravity application drops the cage.
- *
- * Tuning is borrowed wholesale from [OrbGravityCanceller]: the cage
- * body uses the same force inducers VS2 bodies have available in this
- * codebase, so the tome feels identical on a cage and on an Orb of
- * Potential. Any future force applier the mod adds for VS bodies (as
- * opposed to ships, which use attachment-based ForceInducers like
- * [org.shipwrights.enderkinesis.physics.WyllandTomeForceInducer]) can
- * be hooked into this loop the same way the tome branch is.
- */
+/** The tome grab wins over the fade lock, so a player can pull a cage out of its hover spot at once. */
 object GamylanCageBodyForce {
-
 
     /** Spring stiffness (N / m / kg) used to pin the body to its
      *  hover position during the fade. High enough to keep the body
@@ -64,12 +42,8 @@ object GamylanCageBodyForce {
     private const val PEDESTAL_ROT_K: Double = 20.0
     private const val PEDESTAL_ROT_DAMPING: Double = 8.0
 
-    /** Whole-body speed gate (m/s) — at least one of the two bodies in
-     *  the contact must be moving this fast for any damage to fire.
-     *  Blocks the "gently-touched cage on a dock" case and rejects
-     *  spinner-tip contacts where neither COM is actually moving.
-     *  Lower than the crystal-explosive's 20 m/s because the cage is
-     *  meant to react to more modest impacts. */
+    /** The fastest START contact normal speed (m/s) must reach this for any damage, so a gentle touch on a
+     *  dock does nothing. Lower than the crystal explosive's 10 m/s: the cage reacts to smaller impacts. */
     private const val IMPACT_SAFETY_SPEED_MPS: Double = 3.0
 
     /** Minimum contact-normal-component speed (m/s) for a contact to
@@ -82,15 +56,11 @@ object GamylanCageBodyForce {
      *  stale-manifold restart events without rejecting real glances. */
     private const val IMPACT_SEPARATION_EPSILON: Float = 0.05f
 
-    /** Impulse (`effMass · |vN|`) below which the contact deals no
-     *  damage. Roughly a 65 kg player at 5 m/s = 325 impulse — a
-     *  running shoulder-check doesn't chip the crystal. */
-    private const val IMPACT_IMPULSE_THRESHOLD: Double = 300.0
+    /** Impulse (`effMass · |vN|`) below which the contact deals no damage. */
+    private const val IMPACT_IMPULSE_THRESHOLD: Double = 850.0
 
-    /** Damage per impulse unit above [IMPACT_IMPULSE_THRESHOLD]. 1 dmg
-     *  per 400 impulse units → a 15 m/s horse-charge (~5 000 impulse)
-     *  ≈ 12 dmg; a full-mass 20 m/s ship-ram breaks the cage. */
-    private const val IMPACT_DMG_PER_IMPULSE: Double = 1.0 / 400.0
+    /** Damage per impulse unit above [IMPACT_IMPULSE_THRESHOLD]. */
+    private const val IMPACT_DMG_PER_IMPULSE: Double = 1.0 / 1130.0
 
     @Volatile
     private var registered: Boolean = false
@@ -120,13 +90,17 @@ object GamylanCageBodyForce {
     fun register() {
         if (registered) return
         registered = true
-        vsApi.collisionStartEvent.on(::onCollisionStart)
+        vsApi.collisionStartEvent.on(::onCollision)
+        // A cage already in contact (resting on a deck, pinned against terrain) takes later hits as PERSIST.
+        vsApi.collisionPersistEvent.on(::onCollision)
         vsApi.physTickEvent.on { event, _ ->
             val physLevel = event.world
             val vsDim = physLevel.dimension
             val gravity = physLevel.gravity()
             val force = Vector3d()
             val torque = Vector3d()
+            val lockTarget = Vector3d()
+            val lockVel = Vector3d()
             GamylanCageRegistry.forEachInVsDim(vsDim) { data ->
                 val body = physLevel.getBodyById(data.bodyId) ?: return@forEachInVsDim
                 val mass = body.inertiaData.mass
@@ -161,11 +135,20 @@ object GamylanCageBodyForce {
                         force.z += mass * (PEDESTAL_SPRING_K * (data.hoverPos.z - pos.z()) - PEDESTAL_DAMPING * vel.z())
                     }
                     !data.fadeComplete -> {
-                        // Hover lock + counter-gravity during fade.
+                        // On a ship the lock point moves with it; damp toward the ship's velocity, not toward rest.
+                        val carrier = data.carrierShipId?.let { physLevel.getShipById(it) }
+                        val local = data.hoverInShip
+                        if (carrier != null && local != null) {
+                            carrier.transform.shipToWorld.transformPosition(local, lockTarget)
+                            carrier.pointVelocity(lockTarget, lockVel)
+                        } else {
+                            lockTarget.set(data.hoverPos)
+                            lockVel.zero()
+                        }
                         force.set(0.0, mass * gravity, 0.0)
-                        force.x += mass * (LOCK_SPRING_K * (data.hoverPos.x - pos.x()) - LOCK_DAMPING * vel.x())
-                        force.y += mass * (LOCK_SPRING_K * (data.hoverPos.y - pos.y()) - LOCK_DAMPING * vel.y())
-                        force.z += mass * (LOCK_SPRING_K * (data.hoverPos.z - pos.z()) - LOCK_DAMPING * vel.z())
+                        force.x += mass * (LOCK_SPRING_K * (lockTarget.x - pos.x()) - LOCK_DAMPING * (vel.x() - lockVel.x))
+                        force.y += mass * (LOCK_SPRING_K * (lockTarget.y - pos.y()) - LOCK_DAMPING * (vel.y() - lockVel.y))
+                        force.z += mass * (LOCK_SPRING_K * (lockTarget.z - pos.z()) - LOCK_DAMPING * (vel.z() - lockVel.z))
                     }
                     !data.terrainReady -> {
                         force.set(0.0, mass * gravity, 0.0)
@@ -178,7 +161,7 @@ object GamylanCageBodyForce {
 
                 // `applyBodyForce` expects a body-frame vector.
                 body.kinematics.rotation.transformInverse(force)
-                body.applyBodyForce(force, Vector3d())
+                body.applyBodyForce(Vector3d(force), Vector3d())
 
                 // Rotation PD. Two flavours:
                 //   • **Tome grab** — full-3D PD toward the tome's
@@ -204,7 +187,7 @@ object GamylanCageBodyForce {
                         torque.z -= TOME_ROT_DAMPING * angVel.z()
                         torque.mul(mass)
                         curRot.transformInverse(torque)
-                        body.applyBodyTorque(torque)
+                        body.applyBodyTorque(Vector3d(torque))
                     }
                     pedestalActive && !jointed -> {
                         // Target's world-up = target.rotation * (0,1,0).
@@ -233,69 +216,36 @@ object GamylanCageBodyForce {
                         torque.z -= PEDESTAL_ROT_DAMPING * swingZ
                         torque.mul(mass)
                         curRot.transformInverse(torque)
-                        body.applyBodyTorque(torque)
+                        body.applyBodyTorque(Vector3d(torque))
                     }
                 }
             }
         }
     }
 
-    /** VS Core collision-start callback. Mirrors the filter shape used
-     *  by [org.shipwrights.enderkinesis.blockentity.CrystalExplosiveCollisionRouter]:
-     *
-     *   1. **Whole-body safety-speed gate** — at least one body's COM
-     *      must be moving faster than [IMPACT_SAFETY_SPEED_MPS]. Kills
-     *      the "spinner tip whipping past a stationary cage" false hit.
-     *   2. **Per-contact separation gate** — reject stale manifold-
-     *      restart events whose `separation > EPSILON`.
-     *   3. **Contact-normal projection** — take `|v·n|` so pure
-     *      tangential slides (huge `|v|`, near-zero `|vN|`) don't
-     *      register. Sign-agnostic because VS2 doesn't guarantee A-vs-B
-     *      body ordering.
-     *   4. **Reduced-mass impulse** — `effMass = mA·mB/(mA+mB)` scales
-     *      the impact by both bodies' inertia; a chicken bumping the
-     *      cage delivers a fraction of what a ship-ram does at the same
-     *      speed. Damage is a linear ramp above
-     *      [IMPACT_IMPULSE_THRESHOLD].
-     *
-     *  Queued to [pendingImpactDamage] for the server tick to drain
-     *  (NBT mutation + broadcasts stay on the MC thread). */
+    /** Physics thread: queue damage only; the server tick drains it, so NBT and broadcasts stay on the MC thread.
+     *  Take `|v·n|`: VS2 does not fix which body is A. Speed is checked first, so resting contacts cost no lookups. */
     @Suppress("OPT_IN_USAGE") // CollisionEvent is @VsBeta
-    private fun onCollisionStart(event: CollisionEvent) {
-        val a = event.shipIdA
-        val b = event.shipIdB
-        var aIsCage = false
-        var bIsCage = false
-        GamylanCageRegistry.forEachInVsDim(event.dimensionId) { data ->
-            if (data.bodyId == a) aIsCage = true
-            if (data.bodyId == b) bIsCage = true
-        }
-        if (!aIsCage && !bIsCage) return
-
-        val bodyA = event.physLevel.getBodyById(a)
-        val bodyB = event.physLevel.getBodyById(b)
-        val mA = bodyA?.inertiaData?.mass ?: 0.0
-        val mB = bodyB?.inertiaData?.mass ?: 0.0
-        val effMass = when {
-            mA > 0.0 && mB > 0.0 -> (mA * mB) / (mA + mB)
-            else -> Math.max(mA, mB)
-        }
-        if (effMass <= 0.0) return
-
-        val speedA = bodyA?.kinematics?.velocity?.let { sqrt(it.x()*it.x() + it.y()*it.y() + it.z()*it.z()) } ?: 0.0
-        val speedB = bodyB?.kinematics?.velocity?.let { sqrt(it.x()*it.x() + it.y()*it.y() + it.z()*it.z()) } ?: 0.0
-        if (Math.max(speedA, speedB) < IMPACT_SAFETY_SPEED_MPS) return
-
-        var peakImpulse = 0.0
+    private fun onCollision(event: CollisionEvent) {
+        var peakApproach = 0.0
         for (contact in event.contactPoints) {
             if (contact.separation > IMPACT_SEPARATION_EPSILON) continue
             val v = contact.velocity
             val n = contact.normal
             val approach = Math.abs(v.x() * n.x() + v.y() * n.y() + v.z() * n.z())
             if (approach < IMPACT_APPROACH_MIN_MPS) continue
-            val impulse = effMass * approach
-            if (impulse > peakImpulse) peakImpulse = impulse
+            if (approach > peakApproach) peakApproach = approach
         }
+        if (peakApproach < IMPACT_SAFETY_SPEED_MPS) return
+
+        val a = event.shipIdA
+        val b = event.shipIdB
+        val aIsCage = GamylanCageRegistry.isCageIn(event.dimensionId, a)
+        val bIsCage = GamylanCageRegistry.isCageIn(event.dimensionId, b)
+        if (!aIsCage && !bIsCage) return
+
+        val effMass = reducedMass(event.physLevel.movableMass(a), event.physLevel.movableMass(b))
+        val peakImpulse = effMass * peakApproach
         if (peakImpulse < IMPACT_IMPULSE_THRESHOLD) return
 
         val dmg = 1 + ((peakImpulse - IMPACT_IMPULSE_THRESHOLD) * IMPACT_DMG_PER_IMPULSE).toInt()

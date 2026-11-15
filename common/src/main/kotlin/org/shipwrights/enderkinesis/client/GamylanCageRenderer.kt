@@ -133,9 +133,11 @@ object GamylanCageRenderer {
             // only signal for the player-capture branch).
             val isTribulla = ghost?.customName?.string == "Tribulla" ||
                 entry.playerName == "Tribulla"
-            val centerX = Mth.lerp(fade, entry.captureOrigin.x, livePos.x)
-            val centerY = Mth.lerp(fade, entry.captureOrigin.y + halfH, livePos.y)
-            val centerZ = Mth.lerp(fade, entry.captureOrigin.z, livePos.z)
+            // Offset from the live body, not a lerp from the world origin: on a moving ship the origin stays behind.
+            val rise = 1.0 - fade
+            val centerX = livePos.x + rise * (entry.captureOrigin.x - entry.hoverPos.x)
+            val centerY = livePos.y + rise * (entry.captureOrigin.y + halfH - entry.hoverPos.y)
+            val centerZ = livePos.z + rise * (entry.captureOrigin.z - entry.hoverPos.z)
 
             // 1. Frozen captured entity at the lerped centre. Sample the
             //    world lightmap at the centre position and pass it in so

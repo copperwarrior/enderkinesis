@@ -24,6 +24,7 @@ import org.shipwrights.enderkinesis.physics.LauncherRecoilAttachment
 import org.shipwrights.enderkinesis.spell.NamedEffects
 import org.shipwrights.enderkinesis.spell.SpellContext
 import org.shipwrights.enderkinesis.util.CrossFrameBlocks
+import org.shipwrights.enderkinesis.util.sees
 import org.valkyrienskies.core.api.ships.LoadedServerShip
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
@@ -35,7 +36,7 @@ fun SignatureEntity.creatures(centre: Vec3, r: Double): List<LivingEntity> =
 
 fun ServerLevel.creatures(centre: Vec3, r: Double, except: Entity?): List<LivingEntity> =
     getEntitiesOfClass(LivingEntity::class.java, AABB(centre, centre).inflate(r + 2.0)) {
-        it.isAlive && !it.isSpectator && it !== except && it !is ArmorStand && it.middle().distanceTo(centre) <= r
+        it.isAlive && !it.isSpectator && it !== except && it !is ArmorStand && it.middle().distanceTo(centre) <= r && sees(centre, it)
     }
 
 fun SignatureEntity.creaturesAlong(a: Vec3, b: Vec3, halfWidth: Double): List<LivingEntity> =
@@ -142,15 +143,21 @@ object SignatureShips {
         return out
     }
 
-    /** Visits ship blocks only. [world] and [pos] are scratch objects: copy them to keep them after [visit] returns. */
+    /**
+     * Visits ship blocks only. [world] and [pos] are scratch objects: copy them to keep them after [visit] returns.
+     * Only blocks seen from [centre] count, unless [throughWalls] (gravity-like pulls, by the user's choice).
+     */
     inline fun forEachBlockNear(
-        level: ServerLevel, centre: Vec3, r: Double, only: LoadedServerShip? = null,
+        level: ServerLevel, centre: Vec3, r: Double, only: LoadedServerShip? = null, throughWalls: Boolean = false,
         visit: (ship: LoadedServerShip, world: Vector3d, pos: BlockPos.MutableBlockPos, state: BlockState) -> Unit,
     ) {
         val blocks = CrossFrameBlocks(level, centre, r, if (only != null) listOf(only) else ships(level, centre, r))
+        val near = Vector3d()
         blocks.forEachWithin(r, world = false) { pos, ship ->
             val state = level.getBlockState(pos)
-            if (!state.isAir) visit(ship as LoadedServerShip, blocks.visitedMiddle, pos, state)
+            if (!state.isAir && (throughWalls || level.sees(centre, pos, ship, near))) {
+                visit(ship as LoadedServerShip, blocks.visitedMiddle, pos, state)
+            }
         }
     }
 
@@ -168,12 +175,12 @@ object SignatureShips {
         return null
     }
 
-    fun nearestBlocks(level: ServerLevel, centre: Vec3, r: Double): List<ShipBlock> {
+    fun nearestBlocks(level: ServerLevel, centre: Vec3, r: Double, throughWalls: Boolean = false): List<ShipBlock> {
         val out = ArrayList<ShipBlock>()
         for (ship in ships(level, centre, r)) {
             var best: ShipBlock? = null
             var bestD = Double.POSITIVE_INFINITY
-            forEachBlockNear(level, centre, r, ship) { _, world, pos, state ->
+            forEachBlockNear(level, centre, r, ship, throughWalls) { _, world, pos, state ->
                 val ox = centre.x - world.x; val oy = centre.y - world.y; val oz = centre.z - world.z
                 val d = ox * ox + oy * oy + oz * oz
                 if (d < bestD) {

@@ -22,11 +22,13 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.AttachFace
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import net.minecraft.world.level.block.state.properties.Property
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.shapes.CollisionContext
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.blockentity.AncriteEyeBlockEntity
+import org.shipwrights.enderkinesis.construction.PlayerSetPower
 import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
@@ -41,7 +43,9 @@ import org.shipwrights.enderkinesis.registry.EKSounds
  * right-click step *during* the press cancels the revert and commits the new level.
  */
 class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
-    FaceAttachedHorizontalDirectionalBlock(properties), EntityBlock {
+    FaceAttachedHorizontalDirectionalBlock(properties), EntityBlock, PlayerSetPower {
+
+    override val playerSetPower: Set<Property<*>> = setOf(POWER)
 
     init {
         registerDefaultState(
@@ -154,8 +158,7 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
         val px = cx + (random.nextDouble() - 0.5) * SHAPE_JITTER
         val py = cy + (random.nextDouble() - 0.5) * SHAPE_JITTER
         val pz = cz + (random.nextDouble() - 0.5) * SHAPE_JITTER
-        val dust = DustParticleOptions(DUST_COLOR, 0.8f + 0.4f * intensity)
-        level.addParticle(dust, px, py, pz, 0.0, 0.0, 0.0)
+        level.addParticle(DUST_BY_POWER[power], px, py, pz, 0.0, 0.0, 0.0)
     }
 
     @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION") // Vanilla still routes onRemove through this override.
@@ -179,6 +182,10 @@ class AncriteEyeBlock(properties: BlockBehaviour.Properties) :
         /** Ender-violet ambience colour — saturated purple, sits in the same palette
          *  family as the rest of the ender-themed mod blocks. */
         private val DUST_COLOR: Vector3f = Vector3f(0.55f, 0.10f, 0.85f)
+
+        private val DUST_BY_POWER: Array<DustParticleOptions> = Array(MAX_POWER + 1) { power ->
+            DustParticleOptions(DUST_COLOR, 0.8f + 0.4f * (power / MAX_POWER.toFloat()))
+        }
 
         /** Offset from the block centre (0.5) to the platform centre, in block-fractions.
          *  Platform is 3 voxels (3/16 = 0.1875) thick on the attached face, so its midpoint

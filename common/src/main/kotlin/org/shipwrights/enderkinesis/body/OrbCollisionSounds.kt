@@ -105,7 +105,7 @@ object OrbCollisionSounds {
     private const val SEPARATION_EPSILON = 0.05f
 
     /** Approach speeds in m/s. Below the minimum is a rest contact, not a knock. */
-    private const val MIN_SPEED = 0.5
+    private const val MIN_SPEED = 1.0
     private const val FULL_SPEED = 8.0
     private const val MIN_VOLUME = 0.3f
     private const val MAX_VOLUME = 1.0f

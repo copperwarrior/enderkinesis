@@ -35,6 +35,6 @@ public abstract class ClientChunkCacheSselithVoidFogMixin {
     // The Wohlon spreader resends biomes without the chunk; the water murk keys on the biome.
     @Inject(method = "replaceBiomes", at = @At("TAIL"))
     private void enderkinesis$waterMurkBiomesReplaced(int x, int z, FriendlyByteBuf buf, CallbackInfo ci) {
-        WohlonWaterMurk.markChunkDirty(x, z);
+        WohlonWaterMurk.markBiomesDirty(x, z);
     }
 }

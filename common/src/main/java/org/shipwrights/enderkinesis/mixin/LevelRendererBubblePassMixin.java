@@ -42,6 +42,7 @@ import org.shipwrights.enderkinesis.client.GrandStaffDreadClient;
 import org.shipwrights.enderkinesis.client.WohlonRitualTendrils;
 import org.shipwrights.enderkinesis.client.WohlonRitePedestalVisuals;
 import org.shipwrights.enderkinesis.client.WohlonStaffGhost;
+import org.shipwrights.enderkinesis.client.SureibjinDistanceBlur;
 import org.shipwrights.enderkinesis.client.SureibjinDreamVignette;
 import org.shipwrights.enderkinesis.client.SureibjinWaterFilm;
 import org.shipwrights.enderkinesis.client.TomeSummonOverlay;
@@ -171,6 +172,9 @@ public abstract class LevelRendererBubblePassMixin {
         // The fog wisps draw straight over main and must go over the tree ghost.
         VolumeLayer.INSTANCE.flush(Minecraft.getInstance().getMainRenderTarget());
         WohlonFogWisps.render(poseStack, projectionMatrix, camera);
+        // The distance blur reads main colour, so the wisp run must land on main first.
+        VolumeLayer.INSTANCE.flush(Minecraft.getInstance().getMainRenderTarget());
+        SureibjinDistanceBlur.render(poseStack, projectionMatrix, camera);
 
         // World-space fog goes under the screen-space overlays below.
         VolumePerf.INSTANCE.getVoidFog().begin();

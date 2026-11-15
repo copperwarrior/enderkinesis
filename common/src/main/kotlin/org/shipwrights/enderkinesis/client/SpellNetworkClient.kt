@@ -92,18 +92,19 @@ object SpellNetworkClient {
             ctx.queue { SpellVfxClient.add(kind, a, b, size, rgb, life, seed) }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.BLOCK_SHIFTS) { buf, ctx ->
-            val from = if (buf.readBoolean()) Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()) else null
-            val element = Element.entries.getOrNull(buf.readVarInt() - 1)
-            val n = buf.readCount(Long.SIZE_BYTES + 1, SpellNetwork.MAX_SHIFTS_PER_PACKET)
-            val positions = LongArray(n)
-            val states = IntArray(n)
-            for (i in 0 until n) {
-                positions[i] = buf.readLong()
-                states[i] = buf.readVarInt()
-            }
+            val shifts = readShifts(buf)
             ctx.queue {
                 val level = Minecraft.getInstance().level ?: return@queue
-                for (i in 0 until n) BlockShifts.add(level, from, Vec3.atCenterOf(BlockPos.of(positions[i])), element, states[i])
+                for (i in shifts.positions.indices) {
+                    BlockShifts.add(level, shifts.from, Vec3.atCenterOf(BlockPos.of(shifts.positions[i])), shifts.element, shifts.states[i])
+                }
+            }
+        }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.MUD_CREEP) { buf, ctx ->
+            val shifts = readShifts(buf)
+            ctx.queue {
+                val level = Minecraft.getInstance().level ?: return@queue
+                for (i in shifts.positions.indices) WohlonMudCreepTracker.start(level, shifts.positions[i], shifts.states[i])
             }
         }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, SpellNetwork.USED) { buf, ctx ->
@@ -187,6 +188,21 @@ object SpellNetworkClient {
 
     /** The world keeps the blocks, but the mesher and collision skip them. Thus re-mesh the neighbours too. */
     /** Packed int8 x3 flows, as SpellNetwork.writeFlows sends them. */
+    private class Shifts(val from: Vec3?, val element: Element?, val positions: LongArray, val states: IntArray)
+
+    private fun readShifts(buf: FriendlyByteBuf): Shifts {
+        val from = if (buf.readBoolean()) Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()) else null
+        val element = Element.entries.getOrNull(buf.readVarInt() - 1)
+        val n = buf.readCount(Long.SIZE_BYTES + 1, SpellNetwork.MAX_SHIFTS_PER_PACKET)
+        val positions = LongArray(n)
+        val states = IntArray(n)
+        for (i in 0 until n) {
+            positions[i] = buf.readLong()
+            states[i] = buf.readVarInt()
+        }
+        return Shifts(from, element, positions, states)
+    }
+
     private fun readFlows(buf: FriendlyByteBuf): Int2IntOpenHashMap {
         val flows = Int2IntOpenHashMap()
         repeat(buf.readCount(FLOW_ENTRY_MIN_BYTES)) {

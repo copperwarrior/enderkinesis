@@ -33,6 +33,7 @@ import org.shipwrights.enderkinesis.spell.SpellNetwork
 import org.shipwrights.enderkinesis.spell.SpellSounds
 import org.shipwrights.enderkinesis.spell.signature.Signatures
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.shardItem
 
 class UlderScrollItem(properties: Properties) : Item(properties) {
 
@@ -270,7 +271,7 @@ class UlderScrollItem(properties: Properties) : Item(properties) {
             val count = Mth.floor(exact) + if (level.random.nextDouble() < exact - Mth.floor(exact)) 1 else 0
             components.shuffle(java.util.Random(level.random.nextLong()))
             for (element in components.take(count)) {
-                val shard = ItemStack(EKItems.shardOf(element) ?: continue)
+                val shard = ItemStack(element.shardItem() ?: continue)
                 if (entity is Player) entity.inventory.add(shard)
                 if (shard.isEmpty) continue
                 val drop = ItemEntity(level, entity.x, entity.y, entity.z, shard)
