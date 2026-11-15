@@ -5,11 +5,16 @@ import com.fasterxml.jackson.annotation.JsonValue
 import com.fasterxml.jackson.databind.JsonNode
 import org.joml.Matrix3d
 import org.joml.Matrix3dc
+import org.joml.Matrix4d
+import org.joml.Matrix4dc
 import org.joml.Quaterniond
+import org.joml.Quaterniondc
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.util.gravity
+import org.shipwrights.enderkinesis.util.pointVelocity
 import org.valkyrienskies.core.api.ships.PhysShip
+import org.valkyrienskies.core.api.ships.Ship
 import org.valkyrienskies.core.api.ships.ShipPhysicsListener
 import org.valkyrienskies.core.api.world.PhysLevel
 import org.valkyrienskies.core.api.util.PhysTickOnly
@@ -38,7 +43,7 @@ class ConstriliarShipController(
     @Transient var upX: Double = 0.0,
     @Transient var upY: Double = 1.0,
     @Transient var upZ: Double = 0.0,
-    /** Desired world-frame walk velocity (m/s); the along-normal component is removed
+    /** Desired walk velocity (m/s), world axes, relative to the deck; the along-normal component is removed
      *  at application time (the hover spring owns that axis), so wall/ceiling travel
      *  may carry vertical velocity. */
     @Transient var moveVelX: Double = 0.0,
@@ -51,7 +56,13 @@ class ConstriliarShipController(
     @Transient var strengthScale: Double = 1.0,
     /** Re-asserted every game tick by the entity; false once it dies. */
     @Transient @Volatile var active: Boolean = false,
+    /** The ship whose deck the body walks on, or -1. [moveVelX] and the hover act relative to its motion. */
+    @Transient var deckShipId: Long = -1L,
 ) : ShipPhysicsListener {
+
+    /** The deck's pose when the brain wrote the world values: the physics thread carries them along with the deck. */
+    @Transient val deckWorldToShip = Matrix4d()
+    @Transient val deckRotation = Quaterniond()
 
     // Supplemental leg springs: a MUSCLE layer over the hover (which keeps weight and
     // primary height). Each stance leg is a modest bidirectional spring along the body
@@ -88,6 +99,8 @@ class ConstriliarShipController(
     /** A fall shake plays: the feet give [EXERT_BOOST] for it without drawing the budget,
      *  which the fall and the righting had mostly spent. */
     @Transient var shaking = false
+    /** The body pushes off VS2 contacts; off where it is meant to meet a face or line up in a slot. */
+    @Transient var feelBumps = false
     @Transient private var upAgree = 1.0
 
     /** Physics frames since the brain last wrote. The brain can stop (chunk unload,
@@ -118,6 +131,10 @@ class ConstriliarShipController(
         val kneeContact: BooleanArray,
         val plannedTurn: Boolean,
         val shaking: Boolean,
+        val feelBumps: Boolean,
+        val deckShipId: Long,
+        val deckWorldToShip: Matrix4dc,
+        val deckRotation: Quaterniondc,
     )
 
     @Transient
@@ -128,10 +145,31 @@ class ConstriliarShipController(
     private val pendingLaunch = java.util.concurrent.atomic.AtomicReference<Vector3d?>(null)
 
     // Physics-thread scratch. Never pass one to an apply* call: VS2 keeps the reference.
+    @Transient private val bodyForceScratch = Vector3d()
+    @Transient private val bodyTorqueScratch = Vector3d()
     @Transient private val plateWorld = Vector3d()
     @Transient private val up = Vector3d()
     @Transient private val tmp = Vector3d()
     @Transient private val accel = Vector3d()
+    /** World velocity of the deck point under the plate; zero off a deck. */
+    @Transient private val deckVel = Vector3d()
+    @Transient private var deck: PhysShip? = null
+    /** The deck's motion since the brain wrote: identity off a deck. */
+    @Transient private val deckDelta = Matrix4d()
+    @Transient private val deckRotDelta = Quaterniond()
+    // The command's world values, carried along with the deck to this frame.
+    @Transient private val cmdHover = Vector3d()
+    @Transient private val cmdUp = Vector3d()
+    @Transient private val cmdMove = Vector3d()
+    @Transient private val cmdRotation = Quaterniond()
+    @Transient private val anchorX = DoubleArray(4)
+    @Transient private val anchorY = DoubleArray(4)
+    @Transient private val anchorZ = DoubleArray(4)
+    @Transient private val kneeWX = DoubleArray(4)
+    @Transient private val kneeWY = DoubleArray(4)
+    @Transient private val kneeWZ = DoubleArray(4)
+    @Transient private val relVel = Vector3d()
+    @Transient private val deckPoint = Vector3d()
     @Transient private val comWorld = Vector3d()
     @Transient private val hipWorld = Vector3d()
     @Transient private val velHip = Vector3d()
@@ -142,18 +180,29 @@ class ConstriliarShipController(
     /** Zero until the first shake, so the first compare recomputes the inverse. */
     @Transient private val inertiaSeen = Matrix3d().zero()
     @Transient private val inertiaInverse = Matrix3d()
-    @Transient private val rotInverse = Quaterniond()
-    @Transient private val rotDiff = Quaterniond()
-    @Transient private val rotDiffVector = Vector3d()
+    @Transient private val rotationPd = RotationPd()
+    /** Physics thread: the rate-capped rotation the PD aims at; it starts at the body's own rotation. */
+    @Transient private val attitudeRef = Quaterniond()
+    @Transient private var referenceValid = false
+    @Transient private val refPrev = Quaterniond()
+    @Transient private val refScratch = Quaterniond()
+    /** World spin (rad/s) of [attitudeRef] this frame. */
+    @Transient private val refSpin = Vector3d()
     @Transient private val residual = Vector3d()
     @Transient private val feet = FootForceSolver()
+    @Transient private val bumpDir = Vector3d()
+    @Transient private val bumpLateral = Vector3d()
+    @Transient private val bumpNormal = Vector3d()
+    /** The last contact set pushed off: a set arrives once per physics frame while it lasts. */
+    @Transient private var bumpSeen: ConstriliarContacts.Snapshot? = null
+    /** Physics frames the ride target stays lowered after the last top contact. */
+    @Transient private var topHoldFrames = 0
     /** Physics-thread load ramp per leg, 0..1. */
     @Transient private val footLoad = DoubleArray(4)
     @Transient private val limited = Vector3d()
     // Physics thread only: the dimension gravity, read at the start of each physics tick.
     @Transient private var gravity = 0.0
     @Transient private var upset = false
-    /** Seconds of exertion left; a limb past its normal hold spends it. */
     /** Load observer: the force each frame applied, and the velocity it acted on. */
     @Transient private val applied = Vector3d()
     @Transient private val prevVel = Vector3d()
@@ -162,6 +211,7 @@ class ConstriliarShipController(
     /** Filtered outside force on the body (joints, ropes, pushes), world frame. */
     @Transient private val external = Vector3d()
     @Transient private val load = Vector3d()
+    /** Seconds of exertion left; a limb past its normal hold spends it. */
     @Transient private var exertLeft = EXERT_SECONDS
     @Transient private var overLimit = false
 
@@ -192,6 +242,19 @@ class ConstriliarShipController(
         moveVelX = v.x(); moveVelY = v.y(); moveVelZ = v.z()
     }
 
+    /** Game thread: the deck under the body, or null, with its pose this tick. */
+    fun setDeck(deck: Ship?) {
+        if (deck == null) {
+            deckShipId = -1L
+            deckWorldToShip.identity()
+            deckRotation.identity()
+        } else {
+            deckShipId = deck.id
+            deckWorldToShip.set(deck.transform.worldToShip)
+            deckRotation.set(deck.transform.shipToWorldRotation)
+        }
+    }
+
     fun setHover(x: Double, y: Double, z: Double) {
         hoverX = x; hoverY = y; hoverZ = z
         hoverActive = true
@@ -200,18 +263,39 @@ class ConstriliarShipController(
     /** Game thread: makes the values written since the last call visible to the physics
      *  thread as one object, and counts as the heartbeat. */
     fun publish() {
-        command = Command(
+        if (command?.let { publishedMatches(it) } != true) command = newCommand()
+        active = true
+        silentFrames = 0
+    }
+
+    private fun publishedMatches(c: Command): Boolean =
+        c.platformX == platformX && c.platformY == platformY && c.platformZ == platformZ &&
+            c.hoverX == hoverX && c.hoverY == hoverY && c.hoverZ == hoverZ && c.hoverActive == hoverActive &&
+            c.upX == upX && c.upY == upY && c.upZ == upZ &&
+            c.moveVelX == moveVelX && c.moveVelY == moveVelY && c.moveVelZ == moveVelZ &&
+            c.idealRotation.x == idealRotation.x && c.idealRotation.y == idealRotation.y &&
+            c.idealRotation.z == idealRotation.z && c.idealRotation.w == idealRotation.w &&
+            c.strengthScale == strengthScale && c.strutsActive == strutsActive &&
+            c.strutAnchorX.contentEquals(strutAnchorX) && c.strutAnchorY.contentEquals(strutAnchorY) &&
+            c.strutAnchorZ.contentEquals(strutAnchorZ) && c.strutHipX.contentEquals(strutHipX) &&
+            c.strutHipY.contentEquals(strutHipY) && c.strutHipZ.contentEquals(strutHipZ) &&
+            c.strutStance.contentEquals(strutStance) && c.legOnly == legOnly && c.selfMass == selfMass &&
+            c.legSystem == legSystem && c.legSwing.x() == legSwing.x() && c.legSwing.y() == legSwing.y() &&
+            c.legSwing.z() == legSwing.z() && c.kneeX.contentEquals(kneeX) && c.kneeY.contentEquals(kneeY) &&
+            c.kneeZ.contentEquals(kneeZ) && c.kneeContact.contentEquals(kneeContact) &&
+            c.plannedTurn == plannedTurn && c.shaking == shaking && c.feelBumps == feelBumps &&
+            c.deckShipId == deckShipId && c.deckWorldToShip == deckWorldToShip && c.deckRotation == deckRotation
+
+    private fun newCommand(): Command =
+        Command(
             platformX, platformY, platformZ, hoverX, hoverY, hoverZ, hoverActive,
             upX, upY, upZ, moveVelX, moveVelY, moveVelZ, Quaterniond(idealRotation),
             strengthScale, strutsActive,
             strutAnchorX.clone(), strutAnchorY.clone(), strutAnchorZ.clone(),
             strutHipX.clone(), strutHipY.clone(), strutHipZ.clone(), strutStance.clone(), legOnly, selfMass,
             legSystem, Vector3d(legSwing), kneeX.clone(), kneeY.clone(), kneeZ.clone(), kneeContact.clone(),
-            plannedTurn, shaking,
+            plannedTurn, shaking, feelBumps, deckShipId, Matrix4d(deckWorldToShip), Quaterniond(deckRotation),
         )
-        active = true
-        silentFrames = 0
-    }
 
     /** Game thread: one jump toward this world velocity (m/s); capped by JUMP_IMPULSE,
      *  so overloaded bodies jump weakly. */
@@ -227,21 +311,25 @@ class ConstriliarShipController(
         val c = command
         if (physShip.mass <= 0.0) {
             observed = false
+            referenceValid = false
             return
         }
         if (!active || silentFrames > HEARTBEAT_FRAMES || c == null) {
             observed = false
-            holdBrainless(physShip)
+            referenceValid = false
+            holdBrainless(physShip, physLevel, c)
             return
         }
         silentFrames++
         observeLoad(physShip, physicsStepSeconds(delta))
 
         physShip.transform.shipToWorld.transformPosition(plateWorld.set(c.platformX, c.platformY, c.platformZ))
+        followDeck(physLevel, c)
         applyPendingLaunch(physShip, c, delta)
+        bumpAway(physShip, c, physicsStepSeconds(delta))
 
-        val force = bodyForce(physShip, c)
-        val torque = bodyTorque(physShip, c)
+        val force = bodyForce(physShip, c, bodyForceScratch)
+        val torque = bodyTorque(physShip, c, physicsStepSeconds(delta), bodyTorqueScratch)
         if (c.shaking) pivotOnPlate(physShip, torque)
         val stance = c.hoverActive && c.strutsActive
         if (c.legSystem) {
@@ -254,27 +342,28 @@ class ConstriliarShipController(
         }
         footLoad.fill(0.0)
         if (stance) applyStruts(physShip, c, physShip.mass, physShip.velocity)
-        push(physShip, force)
-        physShip.applyWorldTorque(torque)
+        push(physShip, Vector3d(force))
+        physShip.applyWorldTorque(Vector3d(torque))
     }
 
     /** No brain drives the body (after a load the ship simulates before the entity
      *  ticks; a brain can stop while the ship stays loaded): hold it where it is. Limp,
      *  it sank until the thin plate's collision met the ground, a block deep, and was
      *  shoved out at speed, or fell through a crack. A released body is deleted. */
-    private fun holdBrainless(physShip: PhysShip) {
+    private fun holdBrainless(physShip: PhysShip, physLevel: PhysLevel, c: Command?) {
         val mass = physShip.mass
-        val v = physShip.velocity
+        // On a deck it rests with the deck: damp toward the deck's motion at the centre of mass, not world rest.
+        val d = if (c == null || c.deckShipId == -1L) null else physLevel.getShipById(c.deckShipId)
+        val rest = if (d == null) deckPoint.zero() else d.pointVelocity(physShip.transform.positionInWorld, deckPoint)
+        val v = relVel.set(physShip.velocity).sub(rest)
         physShip.applyWorldForceToBodyPos(
-            Vector3d(-v.x() * HOLD_DAMPING, gravity - v.y() * HOLD_DAMPING, -v.z() * HOLD_DAMPING).mul(mass),
+            Vector3d(-v.x * HOLD_DAMPING, gravity - v.y * HOLD_DAMPING, -v.z * HOLD_DAMPING).mul(mass),
         )
         val rotation = physShip.transform.shipToWorldRotation
-        val spin = tmp.set(physShip.angularVelocity).mul(-HOLD_DAMPING)
-        val torque = Vector3d()
-        rotation.transformInverse(spin, torque)
-        physShip.momentOfInertia.transform(torque)
-        rotation.transform(torque)
-        physShip.applyWorldTorque(torque)
+        val spin = tmp.set(physShip.angularVelocity)
+        if (d != null) spin.sub(d.angularVelocity)
+        spin.mul(-HOLD_DAMPING)
+        physShip.applyWorldTorque(physShip.momentOfInertia.transformInWorld(rotation, spin, Vector3d()))
     }
 
     /** Outside force = m·a − what this controller applied − gravity. VS2 integrates the
@@ -321,6 +410,55 @@ class ConstriliarShipController(
         push(physShip, Vector3d(accel).mul(physShip.mass))
     }
 
+    /** The body feels each new set of VS2 contacts once and pushes off them in the surface
+     *  plane: it rebounds by a share of the hit speed and resists the approach still left and
+     *  the overlap. keepClear only steers the walk target, so the two do not add up. A top
+     *  contact pushes down the same way and lowers the ride target while it lasts. */
+    private fun bumpAway(physShip: PhysShip, c: Command, dt: Double) {
+        if (!c.feelBumps) {
+            topHoldFrames = 0
+            return
+        }
+        if (topHoldFrames > 0) topHoldFrames--
+        val snap = ConstriliarContacts.recent(physShip.id, BUMP_MAX_AGE_NANOS) ?: return
+        if (snap === bumpSeen) return
+        bumpSeen = snap
+        up.set(cmdUp)
+        val vel = relVel.set(physShip.velocity).sub(deckVel)
+        val data = snap.data
+        bumpDir.zero()
+        var strongest = 0.0
+        var top = 0.0
+        for (k in 0 until snap.count) {
+            if (snap.separation[k] > ConstriliarContacts.TOUCH_SEPARATION) continue
+            val i = k * ConstriliarContacts.STRIDE
+            val depth = Math.max(0.0, -snap.separation[k].toDouble())
+            // A lasting contact repeats its speed in each PERSIST frame: only a new hit rebounds.
+            val hit = if (data[i + ConstriliarContacts.START] > 0.0) data[i + ConstriliarContacts.SPEED] else 0.0
+            val rebound = if (hit < BUMP_MIN_HIT) 0.0 else BUMP_REBOUND * hit / dt
+            if (ConstriliarContacts.awayFromContact(data, i, plateWorld, up, bumpLateral, bumpNormal)) {
+                val a = rebound + BUMP_DAMPING * Math.max(0.0, -vel.dot(bumpNormal)) + BUMP_STIFFNESS * depth
+                if (a <= 0.0) continue
+                bumpDir.fma(a, bumpNormal)
+                strongest = Math.max(strongest, a)
+            } else if (hit >= BUMP_MIN_HIT && ConstriliarContacts.isTopContact(data, i, plateWorld, up) &&
+                !ConstriliarContacts.isWalkerBody(snap.other(k, physShip.id))
+            ) {
+                // A walker that lands on this one or rests on it is not a ceiling.
+                topHoldFrames = TOP_HOLD_FRAMES
+                top = Math.max(top, rebound + BUMP_DAMPING * Math.max(0.0, vel.dot(up)) + BUMP_STIFFNESS * depth)
+            }
+        }
+        val cap = BUMP_FORCE_SHARE * LEG_STRENGTH * c.strengthScale
+        val mass = physShip.mass
+        val force = Vector3d()
+        if (strongest > 0.0 && bumpDir.lengthSquared() >= 1.0e-8) {
+            force.set(bumpDir).normalize(Math.min(mass * Math.min(strongest, BUMP_MAX_ACCEL), cap))
+        }
+        if (top > 0.0) force.fma(-Math.min(mass * Math.min(top, BUMP_MAX_ACCEL), cap), up)
+        if (force.lengthSquared() > 0.0) push(physShip, force)
+    }
+
     private fun sameMatrix(a: Matrix3dc, b: Matrix3dc): Boolean =
         a.m00() == b.m00() && a.m01() == b.m01() && a.m02() == b.m02() &&
             a.m10() == b.m10() && a.m11() == b.m11() && a.m12() == b.m12() &&
@@ -343,8 +481,9 @@ class ConstriliarShipController(
         // body with three feet planted fall off a rim.
         // Three planted feet inside the upset angle stand the body back up: in the band
         // the flag's hysteresis leaves, a body leant on a lip lay there for good.
+        // On a wall or ceiling the knees have no ground to right it on: a dropped carry is a fall.
         val upright = !updateUpset(physShip, c) || (c.plannedTurn && standingFeet(c) >= 2) ||
-            (standingFeet(c) >= 3 && upAgree >= UPSET_DOT)
+            (standingFeet(c) >= 3 && upAgree >= UPSET_DOT) || (cmdUp.y < CONE_MIN_UP_Y && standingFeet(c) >= 2)
         if (upright && c.hoverActive && c.strutsActive) {
             carry(physShip, c, force, torque, dt)
             return
@@ -372,7 +511,7 @@ class ConstriliarShipController(
         var count = 0
         for (i in 0..3) {
             val w = if (c.kneeContact[i]) 1.0 else 0.0
-            feet.setFoot(i, c.kneeX[i] - comWorld.x, c.kneeY[i] - comWorld.y, c.kneeZ[i] - comWorld.z, w)
+            feet.setFoot(i, kneeWX[i] - comWorld.x, kneeWY[i] - comWorld.y, kneeWZ[i] - comWorld.z, w)
             if (c.kneeContact[i]) count++
         }
         if (count == 0) return false
@@ -383,7 +522,7 @@ class ConstriliarShipController(
             val fy = feet.force[i * 3 + 1]
             val fz = feet.force[i * 3 + 2]
             if (fx == 0.0 && fy == 0.0 && fz == 0.0) continue
-            pushAt(physShip, Vector3d(fx, fy, fz), Vector3d(c.kneeX[i], c.kneeY[i], c.kneeZ[i]))
+            pushAt(physShip, Vector3d(fx, fy, fz), Vector3d(kneeWX[i], kneeWY[i], kneeWZ[i]))
         }
         return true
     }
@@ -392,7 +531,7 @@ class ConstriliarShipController(
      *  rights itself on the hover and the full rotation PD. */
     private fun updateUpset(physShip: PhysShip, c: Command): Boolean {
         physShip.transform.shipToWorldRotation.transform(tmp.set(0.0, 1.0, 0.0))
-        val agree = tmp.x * c.upX + tmp.y * c.upY + tmp.z * c.upZ
+        val agree = tmp.dot(cmdUp)
         upAgree = agree
         upset = if (upset) agree < UPRIGHT_DOT else agree < UPSET_DOT
         return upset
@@ -400,28 +539,60 @@ class ConstriliarShipController(
 
     private fun applyPendingLaunch(physShip: PhysShip, c: Command, delta: Double) {
         val launch = pendingLaunch.getAndSet(null) ?: return
-        val impulse = launch.sub(physShip.velocity).mul(physShip.mass)
+        val impulse = launch.add(deckVel).sub(physShip.velocity).mul(physShip.mass)
         val mag = impulse.length()
         val impulseCap = JUMP_IMPULSE * c.strengthScale
         if (mag > impulseCap) impulse.mul(impulseCap / mag)
         push(physShip, impulse.mul(1.0 / physicsStepSeconds(delta)))
     }
 
+    /** Reads the deck from VS2 and moves the command's world values with it since the brain wrote them, so the
+     *  hover, feet, heading and drive hold to the deck between game ticks. */
+    private fun followDeck(physLevel: PhysLevel, c: Command) {
+        val d = if (c.deckShipId == -1L) null else physLevel.getShipById(c.deckShipId)
+        deck = d
+        if (d == null) {
+            deckVel.zero()
+            deckDelta.identity()
+            deckRotDelta.identity()
+        } else {
+            d.pointVelocity(plateWorld, deckVel)
+            deckMotion(d.transform.shipToWorld, c.deckWorldToShip, deckDelta)
+            deckTurn(d.transform.shipToWorldRotation, c.deckRotation, deckRotDelta)
+        }
+        deckDelta.transformPosition(cmdHover.set(c.hoverX, c.hoverY, c.hoverZ))
+        deckRotDelta.transform(cmdUp.set(c.upX, c.upY, c.upZ))
+        deckRotDelta.transform(cmdMove.set(c.moveVelX, c.moveVelY, c.moveVelZ))
+        deckRotDelta.mul(c.idealRotation, cmdRotation)
+        for (i in 0..3) {
+            deckDelta.transformPosition(deckPoint.set(c.strutAnchorX[i], c.strutAnchorY[i], c.strutAnchorZ[i]))
+            anchorX[i] = deckPoint.x; anchorY[i] = deckPoint.y; anchorZ[i] = deckPoint.z
+            deckDelta.transformPosition(deckPoint.set(c.kneeX[i], c.kneeY[i], c.kneeZ[i]))
+            kneeWX[i] = deckPoint.x; kneeWY[i] = deckPoint.y; kneeWZ[i] = deckPoint.z
+        }
+    }
+
+    /** World velocity of the deck at [point] into [out]; zero off a deck. */
+    private fun deckVelocityAt(point: Vector3dc, out: Vector3d): Vector3d =
+        deck?.pointVelocity(point, out) ?: out.zero()
+
     /** Hover PD + weight + in-plane velocity PD. Sets [up] for the leg code. */
-    private fun bodyForce(physShip: PhysShip, c: Command): Vector3d {
+    private fun bodyForce(physShip: PhysShip, c: Command, force: Vector3d): Vector3d {
         val mass = physShip.mass
         val vel = physShip.velocity
-        val force = Vector3d()
+        force.zero()
         if (c.hoverActive) {
-            up.set(c.upX, c.upY, c.upZ)
-            val heightErr = tmp.set(c.hoverX, c.hoverY, c.hoverZ).sub(plateWorld).dot(up)
-            val hoverAccel = HOVER_STIFFNESS * heightErr - HOVER_DAMPING * vel.dot(up)
+            up.set(cmdUp)
+            // Under a top contact the ride target drops, so the hover gives way instead of pressing up.
+            val drop = if (topHoldFrames > 0) TOP_DROP else 0.0
+            val heightErr = tmp.set(cmdHover).sub(plateWorld).dot(up) - drop
+            val hoverAccel = HOVER_STIFFNESS * heightErr - HOVER_DAMPING * (vel.dot(up) - deckVel.dot(up))
             force.set(up).mul(mass * hoverAccel)
             // Weight relief only while attached — airborne, gravity owns the ship.
             force.y += mass * gravity
             // Velocity PD in the surface plane; the along-normal component is stripped
             // so the drive never fights the hover spring.
-            accel.set(c.moveVelX, c.moveVelY, c.moveVelZ).sub(vel).mul(MOVE_GAIN)
+            accel.set(cmdMove).add(deckVel).sub(vel).mul(MOVE_GAIN)
             accel.sub(tmp.set(up).mul(accel.dot(up)))
             val mag = accel.length()
             if (mag > MOVE_MAX_ACCEL) accel.mul(MOVE_MAX_ACCEL / mag)
@@ -430,7 +601,7 @@ class ConstriliarShipController(
                 // On its legs, the body pushes back against outside pulls as against its weight.
                 load.set(external)
                 val lift = load.dot(up)
-                if (lift > 0.0) load.sub(tmp.set(up).mul(lift))
+                if (lift > 0.0 || topHoldFrames > 0) load.sub(tmp.set(up).mul(lift))
                 force.sub(load)
             }
         }
@@ -445,26 +616,32 @@ class ConstriliarShipController(
         return force
     }
 
-    private fun bodyTorque(physShip: PhysShip, c: Command): Vector3d {
+    private fun bodyTorque(physShip: PhysShip, c: Command, dt: Double, out: Vector3d): Vector3d {
         val rotation = physShip.transform.shipToWorldRotation
-        // Quaternion error → small-angle axis vector → PD; see WyllandTomeForceInducer
-        // for the derivation and the shortest-arc sign flip.
-        c.idealRotation.mul(rotation.invert(rotInverse), rotDiff).normalize().invert()
-        rotDiffVector.set(rotDiff.x * 2.0, rotDiff.y * 2.0, rotDiff.z * 2.0)
-        if (rotDiff.w > 0.0) rotDiffVector.negate()
         // A fall shake swings faster than the walking spring can follow (under 1 Hz): it
         // stiffens for it, the damping kept in proportion.
         val gain = if (c.shaking) SHAKE_STIFFNESS_GAIN else 1.0
-        rotDiffVector.mul(ROTATION_STIFFNESS * gain).sub(tmp.set(physShip.angularVelocity).mul(ROTATION_DAMPING * Math.sqrt(gain)))
+        return rotationPd.torque(
+            followReference(rotation, c, dt), rotation, physShip.angularVelocity, refSpin, physShip.momentOfInertia,
+            ROTATION_STIFFNESS * gain, ROTATION_DAMPING * Math.sqrt(gain), LEG_TORQUE * c.strengthScale, out,
+        )
+    }
 
-        val torque = Vector3d()
-        rotation.transformInverse(rotDiffVector, torque)
-        physShip.momentOfInertia.transform(torque)
-        rotation.transform(torque)
-        val legTorque = LEG_TORQUE * c.strengthScale
-        val torqueMag = torque.length()
-        if (torqueMag > legTorque) torque.mul(legTorque / torqueMag)
-        return torque
+    /** The PD aims at a reference that turns toward the brain's target at a capped rate, and damps the spin
+     *  relative to the reference's own spin ([refSpin]): a jump in the target cannot flip the body. */
+    private fun followReference(rotation: Quaterniondc, c: Command, dt: Double): Quaterniondc {
+        if (!referenceValid) {
+            attitudeRef.set(rotation)
+            referenceValid = true
+        }
+        if (c.shaking) {
+            refSpin.zero()
+            return attitudeRef.set(cmdRotation)
+        }
+        refPrev.set(attitudeRef)
+        stepRotationToward(attitudeRef, cmdRotation, ROTATION_REF_MAX_RATE * dt)
+        spinBetween(refPrev, attitudeRef, dt, refScratch, refSpin)
+        return attitudeRef
     }
 
     /** The stance feet deliver the one body wrench; no second controller fights it.
@@ -490,7 +667,7 @@ class ConstriliarShipController(
         for (i in 0..3) {
             if (feet.force[i * 3] == 0.0 && feet.force[i * 3 + 1] == 0.0 && feet.force[i * 3 + 2] == 0.0) continue
             val f = limitFoot(i, grip, boost)
-            val foot = Vector3d(c.strutAnchorX[i], c.strutAnchorY[i], c.strutAnchorZ[i])
+            val foot = Vector3d(anchorX[i], anchorY[i], anchorZ[i])
             residual.sub(tmp.set(foot).sub(comWorld).cross(f))
             pushAt(physShip, Vector3d(f), foot)
         }
@@ -555,7 +732,7 @@ class ConstriliarShipController(
         var total = 0.0
         for (i in 0..3) {
             physShip.transform.shipToWorld.transformPosition(hipWorld.set(c.strutHipX[i], c.strutHipY[i], c.strutHipZ[i]))
-            val reach = hipWorld.distanceSquared(c.strutAnchorX[i], c.strutAnchorY[i], c.strutAnchorZ[i])
+            val reach = hipWorld.distanceSquared(anchorX[i], anchorY[i], anchorZ[i])
             val target = if (c.strutStance[i] && reach <= LEG_REACH * LEG_REACH) 1.0 else 0.0
             footLoad[i] = if (footLoad[i] < target) {
                 (footLoad[i] + ramp).coerceAtMost(target)
@@ -563,8 +740,8 @@ class ConstriliarShipController(
                 (footLoad[i] - ramp).coerceAtLeast(target)
             }
             feet.setFoot(
-                i, c.strutAnchorX[i] - comWorld.x, c.strutAnchorY[i] - comWorld.y,
-                c.strutAnchorZ[i] - comWorld.z, footLoad[i],
+                i, anchorX[i] - comWorld.x, anchorY[i] - comWorld.y,
+                anchorZ[i] - comWorld.z, footLoad[i],
             )
             total += footLoad[i]
         }
@@ -580,9 +757,9 @@ class ConstriliarShipController(
             if (!c.strutStance[i]) continue
             shipToWorld.transformPosition(hipWorld.set(c.strutHipX[i], c.strutHipY[i], c.strutHipZ[i]))
             val r = hipArm.set(hipWorld).sub(comWorld)
-            velHip.set(physShip.angularVelocity).cross(r).add(vel)
+            velHip.set(physShip.angularVelocity).cross(r).add(vel).sub(deckVelocityAt(hipWorld, deckPoint))
             val lenUp = tmp.set(hipWorld)
-                .sub(c.strutAnchorX[i], c.strutAnchorY[i], c.strutAnchorZ[i])
+                .sub(anchorX[i], anchorY[i], anchorZ[i])
                 .dot(up)
             // Bidirectional (a supplement may pull); rest matches the hover's
             // ride height so the layers agree at equilibrium.
@@ -684,6 +861,20 @@ class ConstriliarShipController(
         /** Jump impulse budget (N·s): a bare body launches crisply; near the carry
          *  limit the same spring barely hops. */
         const val JUMP_IMPULSE = 25_000.0
+        /** Bump push: the rebound share of the VS2 hit speed (a 3 m/s walk bump backs off at
+         *  0.45 m/s), from this hit speed up (below it is a rest contact); then the push per m/s
+         *  of approach left (1/s) and per m of overlap (1/s²); one frame's cap (m/s²). */
+        const val BUMP_REBOUND = 0.15
+        const val BUMP_MIN_HIT = 1.0
+        const val BUMP_DAMPING = 4.0
+        const val BUMP_STIFFNESS = 20.0
+        const val BUMP_MAX_ACCEL = 60.0
+        /** Under a top contact the ride target drops this far (m), for this many frames after the last one. */
+        const val TOP_DROP = 0.15
+        const val TOP_HOLD_FRAMES = 30
+        /** Share of LEG_STRENGTH the push may use, so a heavy load is not flung. */
+        const val BUMP_FORCE_SHARE = 0.3
+        private const val BUMP_MAX_AGE_NANOS = 50_000_000L
         private const val DEFAULT_STEP_SECONDS = 1.0 / 60.0
         private const val HEARTBEAT_FRAMES = 60
         /** Velocity and spin damping (1/s) of a body held with no brain. */

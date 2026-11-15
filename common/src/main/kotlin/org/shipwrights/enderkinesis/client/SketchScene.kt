@@ -16,6 +16,7 @@ import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.commands.arguments.blocks.BlockStateParser
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.core.Vec3i
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.NbtIo
@@ -41,6 +42,10 @@ import org.joml.Matrix3f
 import org.joml.Matrix4f
 import org.joml.Vector3f
 import org.shipwrights.enderkinesis.block.FractalProjectorBlock
+import org.shipwrights.enderkinesis.construction.ClientPlans
+import org.shipwrights.enderkinesis.construction.PLAN_SECTION_EDGE
+import org.shipwrights.enderkinesis.construction.PlanSection
+import org.shipwrights.enderkinesis.construction.PlanSections
 import org.shipwrights.enderkinesis.item.SketchSubject
 import org.shipwrights.enderkinesis.mixin.BlockEntityLevelAccessor
 import org.shipwrights.enderkinesis.mixin.StructureTemplateAccessor
@@ -66,6 +71,12 @@ internal sealed class SketchScene {
     open fun drawPart(pose: PoseStack, source: MultiBufferSource, normals: Boolean, from: Int, to: Int) =
         draw(pose, source, normals)
 
+    /** How many parts a staged bake draws at once. */
+    open val partBatch: Int get() = DEFAULT_PART_BATCH
+
+    /** False while the data of parts [from] until [to] is still on its way; the bake waits. */
+    open fun partsReady(from: Int, to: Int): Boolean = true
+
     /** The yaw the sketch looks along. */
     open val viewYaw: Float get() = StrikeSketch.ISO_YAW
 
@@ -74,6 +85,9 @@ internal sealed class SketchScene {
 
     /** The least alpha that the fit holds in frame; fainter parts may run off the edge. */
     open val fitAlpha: Int get() = HALF_ALPHA
+
+    /** The view of the first fit render; null starts at the origin with [extentHint]. */
+    open val firstView: SketchView? get() = null
 
     /** A fixed perspective camera; when set, the sketch draws through it and does not fit the view. */
     open val camera: SceneCamera? get() = null
@@ -106,6 +120,7 @@ internal sealed class SketchScene {
 
         override fun draw(pose: PoseStack, source: MultiBufferSource, normals: Boolean) {
             val dispatcher = Minecraft.getInstance().entityRenderDispatcher
+            val base = pose.last()
             pose.pushPose()
             pose.translate(0f, -entity.bbHeight / 2f, 0f)
             // As InventoryScreen does: a shadow would sample the world at the origin.
@@ -119,7 +134,7 @@ internal sealed class SketchScene {
                 if (failed.add(entity.type)) LOG.warn("Sketch skips the renderer of {}", entity.type, e)
             } finally {
                 dispatcher.setRenderShadow(true)
-                pose.popPose()
+                pose.popTo(base)
             }
         }
     }
@@ -128,13 +143,7 @@ internal sealed class SketchScene {
         private val blocks = (template as StructureTemplateAccessor).`enderkinesis$getPalettes`()
             .firstOrNull()?.blocks().orEmpty().take(MAX_STRUCTURE_BLOCKS)
 
-        override val extentHint: Float
-            get() {
-                val size = template.size
-                val across = (size.x + size.z) * ISO_HALF_ACROSS
-                val tall = size.y * ISO_HALF_TALL + (size.x + size.z) * ISO_HALF_DEPTH
-                return max(BLOCK_EXTENT, max(across, tall))
-            }
+        override val extentHint: Float get() = structureExtent(template.size)
 
         override fun draw(pose: PoseStack, source: MultiBufferSource, normals: Boolean) {
             val size = template.size
@@ -146,17 +155,110 @@ internal sealed class SketchScene {
                 )
             }
         }
+    }
 
-        // Jigsaw blocks become their final state when the structure places; structure voids and data markers place nothing.
-        private fun finalState(state: BlockState, nbt: CompoundTag?): BlockState? {
-            if (state.isAir || state.`is`(Blocks.STRUCTURE_VOID) || state.`is`(Blocks.STRUCTURE_BLOCK)) return null
-            if (!state.`is`(Blocks.JIGSAW)) return state
-            val text = nbt?.getString("final_state")?.ifEmpty { null } ?: return null
-            return try {
-                BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), text, false).blockState()
-                    .takeUnless { it.isAir }
-            } catch (_: CommandSyntaxException) {
-                null
+    /**
+     * A stored or local plan, one part for each non-empty section, so a staged bake draws it a section at a time. A
+     * part is ready once its section is here; the check holds it, so a cache eviction cannot drop it before the draw.
+     */
+    private class PlanScene(private val sections: PlanSections) : SketchScene() {
+        private var heldIndex = -1
+        private var held: PlanSection? = null
+
+        override val extentHint: Float get() = structureExtent(sections.size)
+        override val firstView: SketchView by lazy(LazyThreadSafetyMode.NONE) { planView(sections, viewPitch, viewYaw) }
+        override val parts: Int get() = sections.nonEmptyCount
+        override val partBatch: Int get() = 1
+
+        override fun partsReady(from: Int, to: Int): Boolean {
+            if (from >= to) return true
+            // Asking a few sections ahead keeps the fetches going while this one draws.
+            for (ahead in from + 1 until minOf(parts, from + PREFETCH + 1)) sections.sectionAt(sections.nonEmptyIndex(ahead))
+            val index = sections.nonEmptyIndex(from)
+            if (heldIndex != index) {
+                held = sections.sectionAt(index)
+                heldIndex = if (held == null) -1 else index
+            }
+            return held != null
+        }
+
+        override fun draw(pose: PoseStack, source: MultiBufferSource, normals: Boolean) =
+            drawPart(pose, source, normals, 0, parts)
+
+        override fun drawPart(pose: PoseStack, source: MultiBufferSource, normals: Boolean, from: Int, to: Int) {
+            val size = sections.size
+            for (i in from until to) {
+                val index = sections.nonEmptyIndex(i)
+                val section = (if (index == heldIndex) held else sections.sectionAt(index)) ?: continue
+                val origin = sections.grid.origin(index)
+                section.forEachNonAir { x, y, z, planState ->
+                    val state = finalState(planState, null) ?: return@forEachNonAir
+                    drawStateAt(
+                        state, null, pose, source, normals,
+                        origin.x + x - size.x / 2.0, origin.y + y - size.y / 2.0, origin.z + z - size.z / 2.0,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * A plan too large to keep its sections in the client cache over every pass, at reduced detail: each cube of
+     * [CoarsePlanCells.factor] blocks draws as one scaled block, the topmost block in it. The sections are read once, a
+     * few in each step, before the first draw; a part is one layer of cells.
+     */
+    private class CoarsePlanScene(private val sections: PlanSections) : SketchScene() {
+        private val cells = CoarsePlanCells<BlockState>(sections.size.x, sections.size.y, sections.size.z, COARSE_EDGE)
+        private val faceSteps = PlanAxes.IDENTITY.localFaceSteps()
+        private var gathered = 0
+
+        override val extentHint: Float get() = structureExtent(sections.size)
+        override val firstView: SketchView by lazy(LazyThreadSafetyMode.NONE) { planView(sections, viewPitch, viewYaw) }
+        override val parts: Int get() = cells.countY
+        override val partBatch: Int get() = COARSE_LAYER_BATCH
+
+        override fun partsReady(from: Int, to: Int): Boolean {
+            val count = sections.nonEmptyCount
+            val end = minOf(count, gathered + GATHER_PER_STEP)
+            for (ahead in gathered until minOf(count, gathered + PREFETCH)) sections.sectionAt(sections.nonEmptyIndex(ahead))
+            while (gathered < end) {
+                val index = sections.nonEmptyIndex(gathered)
+                val section = sections.sectionAt(index) ?: return false
+                gather(section, sections.grid.origin(index))
+                gathered++
+            }
+            return gathered == count
+        }
+
+        // Sections come bottom-up and cells y-last, so the last block put into a cell is its topmost one.
+        private fun gather(section: PlanSection, origin: BlockPos) {
+            section.forEachNonAir { x, y, z, planState ->
+                val state = finalState(planState, null) ?: return@forEachNonAir
+                cells.put(origin.x + x, origin.y + y, origin.z + z, state)
+            }
+        }
+
+        override fun draw(pose: PoseStack, source: MultiBufferSource, normals: Boolean) =
+            drawPart(pose, source, normals, 0, parts)
+
+        override fun drawPart(pose: PoseStack, source: MultiBufferSource, normals: Boolean, from: Int, to: Int) {
+            val size = sections.size
+            val factor = cells.factor
+            for (cy in from until to) {
+                for (cz in 0 until cells.countZ) {
+                    for (cx in 0 until cells.countX) {
+                        val state = cells.get(cx, cy, cz) ?: continue
+                        val hidden = if (!hidesSharedFaces(state)) 0
+                        else ghostHiddenFaces(cx, cy, cz, faceSteps) { x, y, z -> cells.get(x, y, z)?.let { hidesSharedFaces(it) } == true }
+                        val faces = ALL_FACES and hidden.inv()
+                        if (faces == 0) continue
+                        drawStateAt(
+                            state, null, pose, source, normals,
+                            cx * factor - size.x / 2.0, cy * factor - size.y / 2.0, cz * factor - size.z / 2.0,
+                            faces = faces, scale = factor.toFloat(),
+                        )
+                    }
+                }
             }
         }
     }
@@ -180,25 +282,25 @@ internal sealed class SketchScene {
             drawPart(pose, source, normals, 0, parts)
 
         override fun drawPart(pose: PoseStack, source: MultiBufferSource, normals: Boolean, from: Int, to: Int) {
-            var fade = 1f
-            var ground = false
+            val now = FadeState()
             // A renderer may hold two buffers at once, so each gets its own wrapper; it reads the state of the moment.
-            val faded = MultiBufferSource { type -> Fading(source.getBuffer(type), normals, { fade }, { ground }) }
+            val faded = MultiBufferSource { type -> Fading(source.getBuffer(type), normals, now) }
             for (i in from until minOf(to, blocks.size)) {
                 val block = blocks[i]
-                fade = block.fade
-                ground = block.ground
+                now.fade = block.fade
+                now.ground = block.ground
                 drawStateAt(block.state, block.nbt, pose, faded, normals, block.offset.x, block.offset.y, block.offset.z, block.tint, block.faces)
                 if (!block.state.fluidState.isEmpty) drawFluid(block, pose, faded)
             }
             if (to <= blocks.size) return
-            ground = false
+            now.ground = false
             val dispatcher = Minecraft.getInstance().entityRenderDispatcher
+            val base = pose.last()
             dispatcher.setRenderShadow(false)
             try {
                 for (view in entities) {
                     val entity = view.entity
-                    fade = view.fade
+                    now.fade = view.fade
                     val flames = WillfaerFlameVolume.mark()
                     try {
                         dispatcher.render(
@@ -210,6 +312,7 @@ internal sealed class SketchScene {
                             flames, view.offset.x - entity.x, view.offset.y - entity.y, view.offset.z - entity.z,
                         )
                     } catch (e: RuntimeException) {
+                        pose.popTo(base)
                         if (failed.add(entity.type)) LOG.warn("Sketch skips the renderer of {}", entity.type, e)
                     }
                 }
@@ -219,30 +322,36 @@ internal sealed class SketchScene {
         }
     }
 
-    /** Scales vertex alpha by [fade]; in the normals pass, red carries the [ground] flag instead of the tint. */
+    private class FadeState {
+        var fade = 1f
+        var ground = false
+    }
+
+    /** Scales vertex alpha by the fade of [now]; in the normals pass, red carries its ground flag instead of the tint. */
     private class Fading(
         private val inner: VertexConsumer,
         private val normals: Boolean,
-        private val fade: () -> Float,
-        private val ground: () -> Boolean,
+        private val now: FadeState,
     ) : VertexConsumer {
         override fun vertex(x: Double, y: Double, z: Double): VertexConsumer = apply { inner.vertex(x, y, z) }
         override fun color(r: Int, g: Int, b: Int, a: Int): VertexConsumer =
-            apply { inner.color(red(r), g, b, (a * fade()).toInt()) }
+            apply { inner.color(red(r), g, b, (a * now.fade).toInt()) }
         override fun uv(u: Float, v: Float): VertexConsumer = apply { inner.uv(u, v) }
         override fun overlayCoords(u: Int, v: Int): VertexConsumer = apply { inner.overlayCoords(u, v) }
         override fun uv2(u: Int, v: Int): VertexConsumer = apply { inner.uv2(u, v) }
         override fun normal(x: Float, y: Float, z: Float): VertexConsumer = apply { inner.normal(x, y, z) }
         override fun endVertex() = inner.endVertex()
-        override fun defaultColor(r: Int, g: Int, b: Int, a: Int) = inner.defaultColor(red(r), g, b, (a * fade()).toInt())
+        override fun defaultColor(r: Int, g: Int, b: Int, a: Int) = inner.defaultColor(red(r), g, b, (a * now.fade).toInt())
         override fun unsetDefaultColor() = inner.unsetDefaultColor()
 
         // strike_normals reads red as the ground flag; the sketch takes above 0.75 as ground.
-        private fun red(r: Int): Int = if (!normals) r else if (ground()) GROUND_RED else OTHER_RED
+        private fun red(r: Int): Int = if (!normals) r else if (now.ground) GROUND_RED else OTHER_RED
     }
 
-    /** A block of a view; [offset] is its minimum corner, and [fade] scales its coverage from 0 to 1. */
-    /** [pos] is the block's place in the level; [faces] has bit `Direction.ordinal` set for each face the level draws. */
+    /**
+     * A block of a view; [pos] is its place in the level and [offset] its minimum corner. [fade] scales its coverage
+     * from 0 to 1, and [faces] has bit `Direction.ordinal` set for each face the level draws.
+     */
     @Suppress("LongParameterList") // One block's state as the viewfinder saw it.
     class ViewBlock(
         val pos: BlockPos, val offset: Vec3, val state: BlockState, val nbt: CompoundTag?, val fade: Float, val ground: Boolean,
@@ -303,6 +412,14 @@ internal sealed class SketchScene {
         private const val ISO_HALF_TALL = 0.45f
         private const val ISO_HALF_DEPTH = 0.19f
         private const val MAX_STRUCTURE_BLOCKS = 32768
+        private const val DEFAULT_PART_BATCH = 256
+        private const val PREFETCH = 8
+
+        // A plan above a quarter of the client section cache would read its sections again for each bake pass.
+        private const val HUGE_PLAN_SECTIONS = ClientPlans.SECTIONS / 4
+        private const val COARSE_EDGE = 64
+        private const val COARSE_LAYER_BATCH = 4
+        private const val GATHER_PER_STEP = 32
         private const val HALF_ALPHA = 128
         private const val GROUND_RED = 255
         private const val OTHER_RED = 128
@@ -371,6 +488,60 @@ internal sealed class SketchScene {
             is SketchSubject.Picture, is SketchSubject.BlockTag -> null
         }
 
+        /** Plans with more non-empty sections than [HUGE_PLAN_SECTIONS] sketch at reduced detail. */
+        fun ofPlan(sections: PlanSections): SketchScene =
+            if (sections.nonEmptyCount > HUGE_PLAN_SECTIONS) CoarsePlanScene(sections) else PlanScene(sections)
+
+        /** The first fit view from the box of the plan's non-empty sections, in scene units. */
+        private fun planView(sections: PlanSections, pitch: Float, yaw: Float): SketchView {
+            val grid = sections.grid
+            var minX = Int.MAX_VALUE
+            var minY = Int.MAX_VALUE
+            var minZ = Int.MAX_VALUE
+            var maxX = Int.MIN_VALUE
+            var maxY = Int.MIN_VALUE
+            var maxZ = Int.MIN_VALUE
+            for (i in 0 until sections.nonEmptyCount) {
+                val index = sections.nonEmptyIndex(i)
+                minX = minOf(minX, grid.sectionX(index))
+                minY = minOf(minY, grid.sectionY(index))
+                minZ = minOf(minZ, grid.sectionZ(index))
+                maxX = maxOf(maxX, grid.sectionX(index))
+                maxY = maxOf(maxY, grid.sectionY(index))
+                maxZ = maxOf(maxZ, grid.sectionZ(index))
+            }
+            val size = sections.size
+            if (minX > maxX) return SketchView(0f, 0f, structureExtent(size))
+            return boxView(
+                Vector3f(sectionEdge(minX, 0, size.x), sectionEdge(minY, 0, size.y), sectionEdge(minZ, 0, size.z)),
+                Vector3f(sectionEdge(maxX, 1, size.x), sectionEdge(maxY, 1, size.y), sectionEdge(maxZ, 1, size.z)),
+                pitch, yaw,
+            )
+        }
+
+        /** The scene coordinate of the near ([end] 0) or far ([end] 1) edge of a section, centred as the plan draws. */
+        private fun sectionEdge(section: Int, end: Int, size: Int): Float =
+            minOf((section + end) * PLAN_SECTION_EDGE, size) - size / 2f
+
+        private fun structureExtent(size: Vec3i): Float {
+            val across = (size.x + size.z) * ISO_HALF_ACROSS
+            val tall = size.y * ISO_HALF_TALL + (size.x + size.z) * ISO_HALF_DEPTH
+            return max(BLOCK_EXTENT, max(across, tall))
+        }
+
+        // Jigsaw blocks become their final state when the structure places; structure voids and data markers place nothing.
+        private fun finalState(state: BlockState, nbt: CompoundTag?): BlockState? {
+            if (state.isAir || state.`is`(Blocks.STRUCTURE_VOID) || state.`is`(Blocks.STRUCTURE_BLOCK)) return null
+            if (!state.`is`(Blocks.JIGSAW)) return state
+            val text = nbt?.getString("final_state")?.ifEmpty { null } ?: return null
+            return try {
+                BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), text, false).blockState()
+                    .takeUnless { it.isAir }
+            } catch (_: CommandSyntaxException) {
+                null
+            }
+        }
+
         private fun createEntity(type: EntityType<*>, nbt: CompoundTag?): Entity? {
             val level = Minecraft.getInstance().level ?: return null
             val tag = nbt?.copy() ?: CompoundTag()
@@ -420,9 +591,11 @@ internal sealed class SketchScene {
             // Without a level and position, grass and foliage colours fall back to a fixed default, not the biome's.
             tint: Int = Minecraft.getInstance().blockColors.getColor(state, null, null, 0),
             faces: Int = ALL_FACES,
+            scale: Float = 1f,
         ) {
             pose.pushPose()
             pose.translate(x, y, z)
+            if (scale != 1f) pose.scale(scale, scale, scale)
             val flames = WillfaerFlameVolume.mark()
             drawState(state, nbt, pose, source, normals, tint, faces)
             // Block entity renderers queue flames in world space, and the detached block entity sits at the origin.
@@ -487,6 +660,7 @@ internal sealed class SketchScene {
             // Set the field, not setLevel: setLevel overrides can register the block entity in the world.
             minecraft.level?.let { (entity as BlockEntityLevelAccessor).`enderkinesis$setLevel`(it) }
             val renderer = minecraft.blockEntityRenderDispatcher.getRenderer(entity) ?: return false
+            val base = pose.last()
             pose.pushPose()
             try {
                 nbt?.let { entity.load(it) }
@@ -496,9 +670,14 @@ internal sealed class SketchScene {
                 if (failed.add(state.block)) LOG.warn("Sketch skips the block entity renderer of {}", state, e)
                 return false
             } finally {
-                pose.popPose()
+                pose.popTo(base)
             }
             return true
+        }
+
+        // A renderer that throws can leave its own pushes on the stack; without this, the next blocks draw offset.
+        private fun PoseStack.popTo(base: PoseStack.Pose) {
+            while (last() !== base && !clear()) popPose()
         }
 
         // The projector is a worldgen marker: it spawns an Orb of Potential and removes itself, so the sketch shows the orb.

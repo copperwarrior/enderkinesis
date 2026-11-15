@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "facing=up,heading=north": { "model": "enderkinesis:block/clawhod" },
+    "facing=up,heading=east": { "model": "enderkinesis:block/clawhod", "y": 90 },
+    "facing=up,heading=south": { "model": "enderkinesis:block/clawhod", "y": 180 },
+    "facing=up,heading=west": { "model": "enderkinesis:block/clawhod", "y": 270 },
+    "facing=down,heading=north": { "model": "enderkinesis:block/clawhod", "x": 180 },
+    "facing=down,heading=east": { "model": "enderkinesis:block/clawhod", "x": 180, "y": 90 },
+    "facing=down,heading=south": { "model": "enderkinesis:block/clawhod", "x": 180, "y": 180 },
+    "facing=down,heading=west": { "model": "enderkinesis:block/clawhod", "x": 180, "y": 270 },
+    "facing=north": { "model": "enderkinesis:block/clawhod", "x": 90 },
+    "facing=east": { "model": "enderkinesis:block/clawhod", "x": 90, "y": 90 },
+    "facing=south": { "model": "enderkinesis:block/clawhod", "x": 90, "y": 180 },
+    "facing=west": { "model": "enderkinesis:block/clawhod", "x": 90, "y": 270 }
+  }
+}

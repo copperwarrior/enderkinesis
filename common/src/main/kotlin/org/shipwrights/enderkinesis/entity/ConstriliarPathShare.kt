@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.entity
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import net.minecraft.core.BlockPos
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.entity.ConstriliarSurfaceNavigator.Node
@@ -18,7 +19,8 @@ internal class ConstriliarPathShare private constructor() {
     /** Cell flags of the blocks alone; each walker lays its nearby ships over them. */
     val cells = Long2IntOpenHashMap()
     val stances = Object2IntOpenHashMap<Node>().apply { defaultReturnValue(-1) }
-    private var cacheBorn = Long.MIN_VALUE
+    // Not Long.MIN_VALUE: now - MIN_VALUE overflows to a negative age, and the cache never cleared.
+    private var cacheBorn = Long.MIN_VALUE / 2
 
     class Route(val nodes: List<Node>, val end: Vec3, val born: Long, val serial: Long, val anchor: Vec3?)
 
@@ -83,9 +85,25 @@ internal class ConstriliarPathShare private constructor() {
         // Server thread only (see the class doc), so one map per level is safe here.
         private val byLevel = WeakHashMap<Level, ConstriliarPathShare>()
 
+        /**
+         * A shared [route]'s tail alone finishes a search to [goal]: it ends on that goal node, or it is the route of the
+         * same order ([anchor]), whose walkers stand round one spot. A route that only ends near the goal needs a finish
+         * search from its end, or the walker stops short of its spot and the order fails there.
+         */
+        fun arrives(route: Route, goal: BlockPos, anchor: Vec3?): Boolean {
+            if (route.nodes.last().pos == goal) return true
+            val a = route.anchor
+            return a != null && anchor != null && a.distanceToSqr(anchor) <= SAME_ANCHOR_SQ
+        }
+
         fun of(level: Level): ConstriliarPathShare {
             check(!level.isClientSide) { "path sharing is server-side" }
             return byLevel.getOrPut(level) { ConstriliarPathShare() }
+        }
+
+        /** Drops [level]'s share: the next [of] starts an empty one. */
+        fun forget(level: Level) {
+            byLevel.remove(level)
         }
 
         private const val CACHE_TICKS = 100L

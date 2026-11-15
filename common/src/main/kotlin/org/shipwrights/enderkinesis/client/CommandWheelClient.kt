@@ -7,22 +7,32 @@ import io.netty.buffer.Unpooled
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.FriendlyByteBuf
+import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.sounds.SoundEvents
-import net.minecraft.world.InteractionHand
+import net.minecraft.sounds.SoundSource
+import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
+import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
 import org.shipwrights.enderkinesis.item.CommandNetwork
+import org.shipwrights.enderkinesis.item.StaffBuildKeys
 import org.shipwrights.enderkinesis.item.StaffOfCommandItem
+import org.shipwrights.enderkinesis.item.heldCommandStaff
+import org.shipwrights.enderkinesis.registry.EKEntities
 import org.shipwrights.enderkinesis.registry.EKItems
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.roundToInt
 
 /** Client side of the Staff of Command's type selector: capture shift+scroll
  *  while the staff is held, send the cycle delta to the server, and render a
  *  vertical wheel on the right edge of the screen. Wheel slots are DYNAMIC —
  *  one per distinct commandable block type actually present in the staff's
  *  commanded list (icon = that block's item model), plus a Scroll-of-Animation
- *  slot when constriliars are commanded. Nothing commanded = no wheel. */
+ *  slot when constriliars are commanded, then the build entries, which always show. */
 object CommandWheelClient {
 
     /** Vertical pixel distance between adjacent wheel slots. */
@@ -39,14 +49,25 @@ object CommandWheelClient {
      *  dropped packet desync the wheel forever. */
     private const val PREDICT_WINDOW_MS: Long = 1000L
 
-    private val RAISED_SKELETON_KEY: String = org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity.ID.toString()
+    private const val DETAIL_LINE: Int = 11
+
+    private val RAISED_SKELETON_KEY: String = RaisedSkeletonEntity.ID.toString()
 
     private var animIndex: Float = 0f
     @Volatile private var predictedKey: String? = null
     @Volatile private var predictedAtMs: Long = 0L
 
+    // Render thread only. Staff writes are server-side, so a synced stack brings a new tag.
+    private var wheel: Wheel? = null
+
+    private class Wheel(val tag: CompoundTag?, val keys: List<String>, val stored: String?) {
+        val icons: List<ItemStack> = keys.map { iconFor(it) }
+        val labels: List<Component> = keys.map { labelFor(it) }
+    }
+
     fun init() {
         ClientGuiEvent.RENDER_HUD.register(::renderHud)
+        StaffBuildClient.init()
     }
 
     /** Shift+scroll while the staff is held: cycle the selected type. Called
@@ -57,13 +78,14 @@ object CommandWheelClient {
     fun tryConsumeScroll(verticalScroll: Double): Boolean {
         val mc = Minecraft.getInstance()
         val player = mc.player ?: return false
-        val staff = findStaff(player) ?: return false
-        val keys = StaffOfCommandItem.availableKeys(staff)
+        val staff = player.heldCommandStaff() ?: return false
+        val wheel = wheelOf(staff)
+        val keys = wheel.keys
         if (keys.size < 2) return false
 
         val delta = if (verticalScroll > 0) -1 else 1
-        val current = keys.indexOf(selectedKey(staff, keys)).coerceAtLeast(0)
-        predictedKey = keys[Math.floorMod(current + delta, keys.size)]
+        val current = keys.indexOf(selectedKey(wheel)).coerceAtLeast(0)
+        predictedKey = keys[(current + delta).mod(keys.size)]
         predictedAtMs = System.currentTimeMillis()
 
         val buf = FriendlyByteBuf(Unpooled.buffer())
@@ -73,30 +95,29 @@ object CommandWheelClient {
         mc.level?.playLocalSound(
             player.x, player.y, player.z,
             SoundEvents.UI_BUTTON_CLICK.value(),
-            net.minecraft.sounds.SoundSource.PLAYERS,
+            SoundSource.PLAYERS,
             0.5f, 1.6f, false,
         )
         return true
     }
 
-    private fun findStaff(player: net.minecraft.world.entity.player.Player): ItemStack? {
-        for (hand in arrayOf(InteractionHand.MAIN_HAND, InteractionHand.OFF_HAND)) {
-            val held = player.getItemInHand(hand)
-            if (held.item == EKItems.STAFF_OF_COMMAND.get()) return held
-        }
-        return null
+    private fun livePrediction(): String? =
+        predictedKey?.takeIf { System.currentTimeMillis() - predictedAtMs < PREDICT_WINDOW_MS }
+
+    private fun wheelOf(staff: ItemStack): Wheel {
+        val tag = staff.tag
+        wheel?.let { if (it.tag === tag) return it }
+        return Wheel(tag, StaffOfCommandItem.availableKeys(staff), StaffOfCommandItem.getSelectedKey(staff))
+            .also { wheel = it }
     }
 
     /** Selected key with local prediction: the just-scrolled-to key wins while
      *  the cycle packet round-trips; afterwards the synced NBT is
      *  authoritative. */
-    private fun selectedKey(staff: ItemStack, keys: List<String>): String? {
-        val predicted = predictedKey
-        if (predicted != null &&
-            System.currentTimeMillis() - predictedAtMs < PREDICT_WINDOW_MS &&
-            predicted in keys
-        ) return predicted
-        return StaffOfCommandItem.getSelectedKey(staff)
+    private fun selectedKey(wheel: Wheel): String? {
+        val predicted = livePrediction()
+        if (predicted != null && predicted in wheel.keys) return predicted
+        return wheel.stored
     }
 
     /** Wheel-slot icon: the commanded block's own item model; constriliars
@@ -105,6 +126,7 @@ object CommandWheelClient {
      *  (block gone after a mod update) fall back to a barrier so the slot
      *  stays visible + removable. */
     private fun iconFor(key: String): ItemStack {
+        if (key in StaffBuildKeys.ALL) return ItemStack(buildIcon(key))
         if (key == StaffOfCommandItem.CONSTRILIAR_ID.toString()) {
             return ItemStack(EKItems.SCROLL_OF_ANIMATION.get())
         }
@@ -114,16 +136,28 @@ object CommandWheelClient {
         return if (item == Items.AIR) ItemStack(Items.BARRIER) else ItemStack(item)
     }
 
+    private fun buildIcon(key: String): Item = when (key) {
+        StaffBuildKeys.CLEAR -> Items.TNT
+        StaffBuildKeys.MARK -> Items.TARGET
+        StaffBuildKeys.SAVE -> Items.CARTOGRAPHY_TABLE
+        else -> Items.BARRIER
+    }
+
     /** Slot label. The constriliar slot borrows the Scroll of Animation's
      *  ICON but labels as the entity ("Constriliar") — the scroll is a
      *  stand-in model, not the thing being commanded. Everything else reads
      *  its icon item's name. */
-    private fun labelFor(key: String): net.minecraft.network.chat.Component {
+    private fun labelFor(key: String): Component {
+        if (key in StaffBuildKeys.ALL) {
+            return Component.translatable(
+                "item.enderkinesis.staff_of_command.build.key.${key.substringAfterLast('/')}",
+            )
+        }
         if (key == StaffOfCommandItem.CONSTRILIAR_ID.toString()) {
-            return org.shipwrights.enderkinesis.registry.EKEntities.CONSTRILIAR.get().description
+            return EKEntities.CONSTRILIAR.get().description
         }
         if (key == RAISED_SKELETON_KEY) {
-            return org.shipwrights.enderkinesis.registry.EKEntities.RAISED_SKELETON.get().description
+            return EKEntities.RAISED_SKELETON.get().description
         }
         return iconFor(key).hoverName
     }
@@ -131,11 +165,12 @@ object CommandWheelClient {
     private fun renderHud(gfx: GuiGraphics, partialTick: Float) {
         val mc = Minecraft.getInstance()
         val player = mc.player ?: return
-        val staff = findStaff(player) ?: return
-        val keys = StaffOfCommandItem.availableKeys(staff)
+        val staff = player.heldCommandStaff() ?: return
+        val wheel = wheelOf(staff)
+        val keys = wheel.keys
         if (keys.isEmpty()) return
         val n = keys.size
-        val target = keys.indexOf(selectedKey(staff, keys)).coerceAtLeast(0)
+        val target = keys.indexOf(selectedKey(wheel)).coerceAtLeast(0)
 
         // Ease along the shortest wrap-around path so cycling off either end
         // spins the wheel the short way instead of rewinding through the list.
@@ -156,27 +191,38 @@ object CommandWheelClient {
 
         RenderSystem.enableBlend()
         if (n == 1) {
-            gfx.renderItem(iconFor(keys[0]), centreX, centreY)
+            gfx.renderItem(wheel.icons[0], centreX, centreY)
         } else {
             for (slot in -WINDOW_HALF..WINDOW_HALF + 1) {
-                val idxF = Math.floor(animIndex.toDouble()).toInt() + slot
+                val idxF = floor(animIndex).toInt() + slot
                 val offset = idxF - animIndex
                 if (offset < -WINDOW_HALF - 0.999f || offset > WINDOW_HALF + 0.999f) continue
-                val key = keys[Math.floorMod(idxF, n)]
-                val y = centreY + Math.round(offset * SLOT_SPACING)
+                val y = centreY + (offset * SLOT_SPACING).roundToInt()
                 // Distance falloff: centre = opaque, edges fade out.
-                val dist = Math.abs(offset) / (WINDOW_HALF + 1f)
+                val dist = abs(offset) / (WINDOW_HALF + 1f)
                 val alpha = (1f - dist).coerceIn(0.15f, 1f)
                 RenderSystem.setShaderColor(1f, 1f, 1f, alpha)
-                gfx.renderItem(iconFor(key), centreX, y)
+                gfx.renderItem(wheel.icons[idxF.mod(n)], centreX, y)
             }
         }
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
 
         // Label for the selected family, right-aligned beside the wheel.
-        val name = labelFor(keys[target])
+        val name = wheel.labels[target]
         val tw = mc.font.width(name)
         gfx.drawString(mc.font, name, centreX - 8 - tw, centreY + 4, 0xFFFFFFFF.toInt(), true)
+        if (keys[target] == StaffBuildKeys.MARK || keys[target] == StaffBuildKeys.SAVE) {
+            val box = StaffBuildClient.view(staff).capture?.box()
+            val detail = if (box == null) {
+                Component.translatable("item.enderkinesis.staff_of_command.build.no_box")
+            } else {
+                Component.translatable(
+                    "item.enderkinesis.staff_of_command.build.box_line", box.xSpan, box.ySpan, box.zSpan,
+                )
+            }
+            val dw = mc.font.width(detail)
+            gfx.drawString(mc.font, detail, centreX - 8 - dw, centreY + 4 + DETAIL_LINE, 0xFFAAAAAA.toInt(), true)
+        }
         RenderSystem.disableBlend()
     }
 }

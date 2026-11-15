@@ -4,7 +4,6 @@ import dev.architectury.networking.NetworkManager
 import net.minecraft.network.chat.Component
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.world.InteractionHand
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKItems
 
@@ -22,11 +21,12 @@ object CommandNetwork {
     val AIM: ResourceLocation = EnderkinesisMod.id("staff_of_command/aim")
 
     fun init() {
+        StaffBuildNetwork.init()
         NetworkManager.registerReceiver(NetworkManager.Side.C2S, CYCLE_TYPE) { buf, ctx ->
             val delta = buf.readInt()
             val player = ctx.player as? ServerPlayer ?: return@registerReceiver
             ctx.queue {
-                val staff = findStaff(player) ?: return@queue
+                val staff = player.heldCommandStaff() ?: return@queue
                 StaffOfCommandItem.cycleSelected(staff, delta)
             }
         }
@@ -51,13 +51,5 @@ object CommandNetwork {
                 }
             }
         }
-    }
-
-    private fun findStaff(player: ServerPlayer): net.minecraft.world.item.ItemStack? {
-        for (hand in arrayOf(InteractionHand.MAIN_HAND, InteractionHand.OFF_HAND)) {
-            val held = player.getItemInHand(hand)
-            if (held.item == EKItems.STAFF_OF_COMMAND.get()) return held
-        }
-        return null
     }
 }

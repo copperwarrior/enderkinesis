@@ -11,6 +11,7 @@ import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.server.level.ServerLevel
+import org.valkyrienskies.core.api.ships.Ship
 import net.minecraft.util.Mth
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
@@ -37,14 +38,19 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Matrix3d
+import org.joml.Matrix4d
 import org.joml.Quaterniond
 import org.joml.Quaternionf
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import org.joml.Vector3f
 import org.joml.Vector3i
 import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
+import org.shipwrights.enderkinesis.construction.faceClawhodToward
+import org.shipwrights.enderkinesis.physics.ATTITUDE_MAX_STEP
 import org.shipwrights.enderkinesis.physics.ConstriliarContacts
 import org.shipwrights.enderkinesis.physics.ConstriliarShipController
+import org.shipwrights.enderkinesis.physics.turnUpToward
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKSounds
 import dev.architectury.registry.registries.RegistrySupplier
@@ -68,6 +74,10 @@ import java.util.EnumSet
 import java.util.UUID
 import org.shipwrights.enderkinesis.util.TICKS_PER_SECOND
 import org.shipwrights.enderkinesis.util.gravity
+import org.shipwrights.enderkinesis.util.pointVelocity
+import org.shipwrights.enderkinesis.physics.deckMotion
+import org.shipwrights.enderkinesis.physics.deckTurn
+import org.shipwrights.enderkinesis.physics.deckTwistYawDegrees
 import org.valkyrienskies.core.api.util.GameTickOnly
 
 /**
@@ -212,7 +222,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     // Hard-stall recovery anchor: survives replans (the navigator's own stall clock
     // resets on every replan, so a moving owner masks a physically pinned body).
-    private var stallAnchor: Vec3? = null
+    private val stallAnchor = Vector3d()
+    private var stallAnchorValid = false
     private var stallAnchorTicks = 0
 
     /** Refreshed by a once-a-second poll; vanilla's setRecordPlayingNearby is
@@ -318,6 +329,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         entityData.define(DATA_LEG_MASK, 0.toByte())
         entityData.define(DATA_LEG_LIMP, 0.toByte())
         for (accessor in DATA_LEG_ANCHOR) entityData.define(accessor, Vector3f())
+        for (accessor in DATA_LEG_SHIP) entityData.define(accessor, -1L)
     }
 
     /** True while the back ship exists — the platform BER renders the body then. */
@@ -539,7 +551,11 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     /** Carrying or pulled past the comfortable mass budget, or feet held past their limit — the legs tremble. */
     fun isStrained(): Boolean = entityData.get(DATA_STRAINED)
 
-    internal fun gaitClock(): Float = entityData.get(DATA_GAIT)
+    /** The server's phase clock; the client sees only its mode (stopped, crawl or trot). */
+    internal fun gaitClock(): Float = if (level().isClientSide) entityData.get(DATA_GAIT) else gaitPhaseClock.encoded()
+
+    /** Server side only: ownerUUID is never synced. A group order skips the walkers this is false for. */
+    fun mayBeCommandedBy(player: Player): Boolean = ownerUUID == player.uuid
 
     /** Staff of Command order: walk to [target]; a sitting constriliar only turns
      *  toward it. */
@@ -547,6 +563,11 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  own slot round it): walkers of one order share their routes by it. */
     fun commandMoveTo(target: Vec3, face: Direction? = null, anchor: Vec3 = target) {
         acknowledge()
+        moveClaim = null
+        orderPlanned = false
+        orderGaveUp = false
+        surfaceNav.resetStalls()
+        spotHeld = false
         arrivalCheered = false
         if (commandedTarget?.distanceToSqr(target) ?: Double.MAX_VALUE > COMMAND_ARRIVE_SQ) surfaceNav.clearTrail()
         commandedTarget = target
@@ -555,7 +576,148 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         commandedTicks = 0
         faceTarget = null
         faceAnchorShipId = -1L
+        goShipId = -1L
+        goFace = null
     }
+
+    /**
+     * A go-to order to a point held in ship [shipId]'s shipyard: it follows the ship, and the planner gets its exact
+     * world point. [face] (ship grid axes, null for a floor) turns with the ship into the world face of the order.
+     */
+    fun commandMoveToShipPoint(shipId: Long, local: org.joml.Vector3dc, worldNow: Vec3, face: Direction? = null) {
+        commandMoveTo(worldNow)
+        goShipId = shipId
+        goLocal.set(local)
+        goFace = face
+        (level() as? ServerLevel)?.let(::refreshTrackedGoTarget)
+    }
+
+    private var goShipId: Long = -1L
+    private val goLocal = Vector3d()
+    private var goFace: Direction? = null
+
+    /** Re-derive a ship-held go-to target from the live ship transform, before the order reads it this tick. */
+    private fun refreshTrackedGoTarget(server: ServerLevel) {
+        if (goShipId == -1L || commandedTarget == null) return
+        val ship = server.shipObjectWorld.loadedShips.getById(goShipId) ?: return
+        val v = ship.shipToWorld.transformPosition(goLocal, goScratch)
+        commandedTarget = Vec3(v.x, v.y, v.z)
+        commandedAnchor = commandedTarget
+        commandedFace = goFace?.let { f ->
+            val d = ship.shipToWorld.transformDirection(goScratch.set(f.stepX.toDouble(), f.stepY.toDouble(), f.stepZ.toDouble()))
+            Direction.getNearest(d.x, d.y, d.z)
+        }
+    }
+
+    private val goScratch = Vector3d()
+
+    internal fun commandTarget(): Vec3? = commandedTarget
+
+    /** The shipyard cell of a ship-held go-to order, or Long.MIN_VALUE. The cell also names the ship (one shipyard area per ship). */
+    internal fun shipOrderCell(): Long =
+        if (goShipId == -1L || commandedTarget == null) Long.MIN_VALUE
+        else BlockPos.asLong(Mth.floor(goLocal.x), Mth.floor(goLocal.y), Mth.floor(goLocal.z))
+
+    internal fun surfaceNavigator(): ConstriliarSurfaceNavigator = surfaceNav
+
+    internal fun jumpPhase(): Int = when (jumpState) {
+        is ConstriliarJumpState.Idle -> 0
+        is ConstriliarJumpState.Crouch -> 1
+        is ConstriliarJumpState.Flight -> 2
+    }
+
+    internal var followingOwner: Boolean = false
+        private set
+
+    private val moveNote = ConstriliarMoveLog.Note()
+
+    /** True when the walker has no go-to order, or stands at the spot of its order. */
+    fun orderSettled(): Boolean = commandedTarget?.let(::arrivedAt) ?: true
+
+    /** [orderSettled] without a write to the hold state, for logs. */
+    fun orderSettledPeek(): Boolean = commandedTarget?.let(::arrivedAtPeek) ?: true
+
+    /** The Clawhod (worker id) whose move order this walker carries out now, so Clawhods on one body take turns. */
+    internal var moveClaim: UUID? = null
+
+    /** The cells the body and its whole load fill, per layer, as the route planner needs them free. */
+    internal fun navShape(): ConstriliarCargoShape {
+        updateNavClearance()
+        return cargoShape
+    }
+
+    /** Why this walker's planner would not take world block [floor] as a goal on its [face] side, or STAND_OK. */
+    internal fun standReject(floor: BlockPos, others: List<Vec3>, face: Direction = Direction.DOWN): Int {
+        if (!hasBackShip()) return ConstriliarSurfaceNavigator.STAND_OK
+        return surfaceNav.standReject(level(), floor, ownShipOrNull(), others, face)
+    }
+
+    /** The body fits at [cell] on support [face] by the planner's own room rule; see [ConstriliarSurfaceNavigator.bodyFitsOn]. */
+    internal fun bodyFitsOn(cell: BlockPos, face: Direction, ships: List<Ship>): Boolean =
+        surfaceNav.bodyFitsOn(level(), cell, face, ships)
+
+    /** True when the floor of the last [standReject] that passed is fit to park on for work, not only to cross. */
+    /** The ship whose deck this walker stands on, by its planner's own frame test, or -1. */
+    internal fun deckShipId(): Long {
+        if (deckTick != tickCount) {
+            deckTick = tickCount
+            deckId = surfaceNav.deckShipIdAt(level(), position(), ownShipOrNull())
+        }
+        return deckId
+    }
+
+    private var deckTick = -1
+    private var deckId = -1L
+
+    internal fun lastGoalHoldsWork(): Boolean =
+        !hasBackShip() || ConstriliarSurfaceNavigator.workSpotFooting(surfaceNav.lastGoalStance)
+
+    /** Where the other walkers between this one and [dest] stand, as the planner avoids them. */
+    internal fun otherWalkersNear(dest: Vec3): List<Vec3> = gatherOccupied(dest)
+
+    /** The go-to order has had its first route plan: only then can no route mean it failed. */
+    private var orderPlanned = false
+
+    /** The search proved the spot out of reach for this body: the order stops replanning until a new one. */
+    private var orderGaveUp = false
+
+    /**
+     * True when the go-to order cannot finish: the route search proved the walker trapped, the whole route is
+     * walked and its goal is no arrival at the spot, no node near the spot fits the body, or the body stalls in one
+     * place on a found route. Once true it stays true for this order, so it fails once.
+     */
+    fun orderFailed(): Boolean {
+        val t = commandedTarget ?: return false
+        if (orderGaveUp) return true
+        // Before the first plan of this order there is no route and no search yet: that is no failure.
+        if (!orderPlanned || arrivedAt(t)) return false
+        if (!hasBackShip()) return navigation.isDone
+        val nav = surfaceNav
+        if (nav.stallsInPlace >= ORDER_STALLS_IN_PLACE || nav.planResult == ConstriliarSurfaceNavigator.PLAN_NO_GOAL) {
+            orderGaveUp = true
+            return true
+        }
+        val failed = nav.isTrapped() || !nav.isInProgress() && !nav.isSearching() && !goalArrives(t)
+        // No route at all can be a passing state (a dropped route, a capped search, a body still settling): only a
+        // walked route or a trap is a final answer.
+        if (failed && (nav.isTrapped() || nav.routeEnd() != null)) orderGaveUp = true
+        return failed
+    }
+
+    /** The finished route's goal node counts as an arrival at [t]. With no route the walker plans again when it
+     *  is off its floor, waits out a capped search, or a stall or fall dropped the route. */
+    private fun goalArrives(t: Vec3): Boolean {
+        val level = level()
+        val end = surfaceNav.routeEnd() ?: return !onFloorFace() || surfaceNav.holdsExhausted(level) ||
+            surfaceNav.planResult == ConstriliarSurfaceNavigator.PLAN_DROPPED
+        if (!surfaceNav.routeWhole) return true
+        val centre = surfaceNav.nodeWorldCenter(level, end)
+        val up = surfaceNav.nodeWorldUp(level, end, goalUpScratch)
+        val drop = if (commandedFace == null) HALF_BLOCK else HALF_BLOCK - BODY_LIFT
+        return arrivedFrom(Vec3(centre.x - up.x * drop, centre.y - up.y * drop, centre.z - up.z * drop), t)
+    }
+
+    private val goalUpScratch = Vector3d()
 
     /** Staff "Aim To": turn in place toward [target] without walking. Cancels any
      *  in-flight go-to so the two orders don't fight over the body yaw. */
@@ -634,7 +796,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val pPos = platformPos ?: return
         val ship = level.shipObjectWorld.loadedShips.getById(shipId) ?: return
         cargoShape.update(level, ship, pPos)
-        surfaceNav.setClearance(cargoShape.radius, cargoShape.height)
+        surfaceNav.setClearance(cargoShape)
     }
 
     /** Boid separation: push gently away from nearby walkers, so their bodies and legs
@@ -685,12 +847,37 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private var letGoTicks = 0
     private val holdRef = Vector3d()
     private val holdScratch = Vector3d()
+    /** World velocity of the deck point under the plate this tick; zero off a deck. */
+    private val deckVel = Vector3d()
+    /** The deck under the body this tick, or null. */
+    private var deckShip: ServerShip? = null
+    /** The deck's pose last tick, for its motion over one tick. */
+    private var deckPrevId = -1L
+    private val deckPrevWorldToShip = Matrix4d()
+    private val deckPrevRotation = Quaterniond()
+    private val deckStep = Matrix4d()
+    private val deckStepTurn = Quaterniond()
+    private val deckScratch = Vector3d()
+    private val rideVel = Vector3d()
     private val attitudeScratch = Vector3d()
     private val bodyUpScratch = Vector3d()
+    private val hoverAhead = Vector3d()
+    private val hoverOffsets = IntArray(HOVER_ROUTE_SAMPLES)
+    private val hoverAlong = DoubleArray(HOVER_ROUTE_SAMPLES)
+    private val hoverHits = arrayOfNulls<Vec3>(HOVER_ROUTE_SAMPLES)
     private val headingScratch = Vector3d()
     private val routeScratch = Vector3d()
     private val keepHeadingScratch = Vector3d()
     private val keepForwardScratch = Vector3d()
+    private val upHintScratch = Vector3d()
+    private val attitudeTarget = Vector3d()
+    private val faceAimDir = Vector3d()
+    private val faceAimPara = Vector3d()
+    private val faceAimUp = Vector3d()
+    private val faceAimX = Vector3d()
+    private val faceAimTmp = Vector3d()
+    private val danceSide = Vector3d()
+    private val danceForward = Vector3d()
     private val headingTilt = Quaterniond()
     private var turningInPlace = false
     private var transitionTicks = 0
@@ -790,6 +977,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     override fun tick() {
         super.tick()
         if (!level().isClientSide) {
+            refreshTrackedGoTarget(level() as ServerLevel)
             if (shapeDestroyed) {
                 kill()
                 return
@@ -822,6 +1010,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             tickIdleAlign(level() as ServerLevel)
             tickShip()
             trackImpacts(level() as ServerLevel)
+            if (ConstriliarMoveLog.ENABLED) ConstriliarMoveLog.observe(this, moveNote, level() as ServerLevel)
             if (isStrained() && tickCount % STRAIN_SOUND_TICKS == 0) voice(EKSounds.CONSTRILIAR_STRAIN, 0.5f)
         } else {
             clientUpPrev.set(clientUpCur)
@@ -1010,7 +1199,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             holdRef.set(plate)
             holdValid = true
         }
-        holdRef.fma(1.0 / TICKS_PER_SECOND, moveVel)
+        holdRef.fma(1.0 / TICKS_PER_SECOND, moveVel).fma(1.0 / TICKS_PER_SECOND, deckVel)
         // Stopped: settle the centre of mass over the middle of the planted feet, the
         // steadiest spot. The feet already stand around it, by the gait's COM shift.
         if (moveVel.lengthSquared() < STILL_CMD_SQ && serverGait.stanceCentroid(holdScratch) >= 3) {
@@ -1071,9 +1260,19 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     private fun ownShipOrNull(): Long? = shipId.takeIf { it != NO_SHIP }
 
-    /** Interpolated body up-vector for rendering. */
-    fun upVector(partialTick: Float): Vector3f =
-        Vector3f(clientUpPrev).lerp(clientUpCur, partialTick).normalize()
+    /** Client body up: the ship's own up. The intro draws the entity, not the ship, so it uses the synced up. */
+    fun upVector(partialTick: Float): Vector3f {
+        if (!introActive()) shipRenderUp()?.let { return it }
+        return Vector3f(clientUpPrev).lerp(clientUpCur, partialTick).normalize()
+    }
+
+    private fun shipRenderUp(): Vector3f? {
+        val pPos = entityData.get(DATA_PLATFORM_POS).orElse(null) ?: return null
+        val ship = level().getLoadedShipManagingPos(pPos) as? org.valkyrienskies.core.api.ships.ClientShip ?: return null
+        val rot = ship.renderTransform.shipToWorldRotation
+        val up = rot.transform(Vector3d(0.0, 1.0, 0.0))
+        return Vector3f(up.x.toFloat(), up.y.toFloat(), up.z.toFloat())
+    }
 
     /** Client-side lift: during the intro it reads the LOCAL clock at fractional time —
      *  the synced-int countdown quantizes per tick and made the legs stutter against
@@ -1103,9 +1302,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     // ------------------------------------------------------------------ attitude
 
-    /** Set [smoothUp] to the local surface normal, unfiltered: a filter here lagged every
-     *  face change behind the ship's own rotation spring. Face orders build the aim
-     *  basis directly; only an explicit move order folds the look pitch in. */
+    /** Turn [smoothUp] toward the local surface normal at a capped rate, not a lag filter: the target steps at
+     *  route nodes, at turn gates and on stepped faces, and a step flipped the body in a frame. Face orders build
+     *  the aim basis directly; only an explicit move order folds the look pitch in. */
     private fun updateAttitude() {
         // The intro plays grid-square like the block it was: no surface alignment (and
         // no look-tilt) until the hop-up, which doubles as the "coming alive" beat.
@@ -1121,21 +1320,34 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val serverLevel = level() as? ServerLevel
         if (serverLevel != null && isPlateSubmerged(serverLevel)) {
             surfaceUp.set(WORLD_UP)
-            smoothUp.set(WORLD_UP)
+            turnSmoothUp(WORLD_UP)
             syncUp()
             return
         }
         updateSurfaceUp(sampleContactUp())
-        val target = Vector3d(surfaceUp)
+        val target = attitudeTarget.set(surfaceUp)
         faceAimRotation = buildFaceAim(target)
         foldMovePitch(target)
-        keepHeadingScratch.set(smoothUp)
-        smoothUp.set(target).normalize()
-        keepHeading(keepHeadingScratch)
+        turnSmoothUp(target)
         syncUp()
     }
 
+    private fun turnSmoothUp(target: Vector3dc) {
+        keepHeadingScratch.set(smoothUp)
+        // A target straight behind the up turns the body nose first, over its head.
+        val yawRad = Math.toRadians(yBodyRot.toDouble())
+        val forward = headingTilt.rotationTo(WORLD_UP, smoothUp)
+            .transform(upHintScratch.set(-Math.sin(yawRad), 0.0, Math.cos(yawRad)))
+        turnUpToward(smoothUp, target, ATTITUDE_MAX_STEP, forward)
+        keepHeading(keepHeadingScratch)
+    }
+
+    /** Only the intro draws from the synced up; past it the client reads the ship's rotation. */
     private fun syncUp() {
+        if (!isSpawnAnimating()) return
+        val dot = entityData.get(DATA_UP_X) * smoothUp.x + entityData.get(DATA_UP_Y) * smoothUp.y +
+            entityData.get(DATA_UP_Z) * smoothUp.z
+        if (dot > UP_SYNC_DOT) return
         entityData.set(DATA_UP_X, smoothUp.x.toFloat())
         entityData.set(DATA_UP_Y, smoothUp.y.toFloat())
         entityData.set(DATA_UP_Z, smoothUp.z.toFloat())
@@ -1170,11 +1382,10 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             surfaceUp.set(pathUp)
             // In a slot the nearest contact is a side wall: blended in, it rolled the
             // load into the walls of a one-wide shaft.
-            if (contactUp != null && !inSlot) {
-                surfaceUp.add(contactUp)
-                // Opposed normals (ceiling path, floor contact) cancel out — the path
-                // face wins rather than normalizing a near-zero vector.
-                if (surfaceUp.lengthSquared() > 1.0e-4) surfaceUp.normalize() else surfaceUp.set(pathUp)
+            // A contact square to the path face is a step's underside or side, not this face bending: on a
+            // stepped overhang it tilted the body 45° into the step.
+            if (contactUp != null && !inSlot && contactUp.dot(pathUp) >= CONTACT_BLEND_MIN_DOT) {
+                surfaceUp.add(contactUp).normalize()
             }
         } else if (faceTarget != null && !isFlailing()) {
             // Aiming: live SDF contact under a pitched body compounds with the aim
@@ -1276,27 +1487,27 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val ft = faceTarget ?: return null
         if (!facePoseActive || isFlailing()) return null
         val origin = bodyBlockCentre()
-        val f = Vector3d(ft.x - origin.x, ft.y - origin.y, ft.z - origin.z)
+        val f = faceAimDir.set(ft.x - origin.x, ft.y - origin.y, ft.z - origin.z)
         if (f.lengthSquared() <= 1.0e-6) return null
         f.normalize()
         val capSin = Math.sin(Math.toRadians(FACE_PITCH_FOLD_MAX_DEG.toDouble()))
         var e = f.dot(faceBaseUp)
         if (Math.abs(e) > capSin) {
             // Pull the aim direction back toward the base plane to the cap.
-            val fPara = Vector3d(f).sub(Vector3d(faceBaseUp).mul(e))
+            val fPara = faceAimPara.set(f).sub(faceAimTmp.set(faceBaseUp).mul(e))
             val paraLen = fPara.length()
             if (paraLen > 1.0e-6) {
                 fPara.mul(Math.sqrt(1.0 - capSin * capSin) / paraLen)
-                f.set(fPara).add(Vector3d(faceBaseUp).mul(capSin * Math.signum(e))).normalize()
+                f.set(fPara).add(faceAimTmp.set(faceBaseUp).mul(capSin * Math.signum(e))).normalize()
                 e = f.dot(faceBaseUp)
             }
         }
         faceAimPitchDeg = (-Math.toDegrees(Math.asin(e.coerceIn(-1.0, 1.0)))).toFloat()
-        val upAim = Vector3d(faceBaseUp).sub(Vector3d(f).mul(e))
+        val upAim = faceAimUp.set(faceBaseUp).sub(faceAimTmp.set(f).mul(e))
         if (upAim.lengthSquared() <= 1.0e-6) return null
         upAim.normalize()
         target.set(upAim)
-        val xAxis = Vector3d(upAim).cross(f)
+        val xAxis = faceAimX.set(upAim).cross(f)
         if (xAxis.lengthSquared() <= 1.0e-6) return null
         xAxis.normalize()
         return Quaterniond().setFromNormalized(
@@ -1419,7 +1630,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             val serverShip = level.shipObjectWorld.allShips.getById(ship.id) ?: continue
             var found: BlockPos? = null
             ConstriliarCargo.forEachShipBlock(level, serverShip, CARGO_SCAN_BUDGET) { pos, state ->
-                if (found == null && state.`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())) found = pos
+                if (found == null && state.`is`(EKBlocks.CONSTRILIAR_PLATFORM.get())) found = pos.immutable()
             }
             val pPos = found ?: continue
             val claimed = level.getEntitiesOfClass(
@@ -1486,8 +1697,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 Vector3i(blockPosition().x, blockPosition().y, blockPosition().z),
                 false, 1.0, level.dimensionId,
             )
-        } catch (t: Throwable) {
-            LOG.warn("[EK constriliar] failed to create back ship for {}", this, t)
+        } catch (e: Exception) {
+            LOG.warn("[EK constriliar] failed to create back ship for {}", this, e)
             return
         }
         // Born dynamic — the PD controller owns it from the first loaded tick, and a
@@ -1538,7 +1749,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             false,
         )
         val context = net.minecraft.world.item.context.BlockPlaceContext(player, hand, stack, hit)
-        return (stack.item as BlockItem).place(context).consumesAction()
+        val placed = (stack.item as BlockItem).place(context).consumesAction()
+        if (placed) level.faceClawhodToward(pPos.above(), player)
+        return placed
     }
 
     /**
@@ -1564,7 +1777,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 if (found == null && state.`is`(EKBlocks.CONSTRILIAR_PLATFORM.get()) &&
                     (level.getBlockEntity(pos) as? ConstriliarPlatformBlockEntity)?.ownerUuid == uuid
                 ) {
-                    found = pos
+                    found = pos.immutable()
                 }
             }
             val moved = found ?: continue
@@ -1660,6 +1873,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             discard()
             return
         }
+        readDeck(level, plate)
         rideBody(loaded, plate)
         trackContacts()
         stitchPath(level)
@@ -1674,6 +1888,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             ConstriliarShipController()
         }
         controller.setPlatform(platformCentre)
+        controller.setDeck(deckShip)
         val submerged = isPlateSubmerged(level)
         if (submerged) {
             driveSubmerged(level, controller, loaded, plate, moveVel)
@@ -1684,6 +1899,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         controller.strengthScale = strengthScale()
         controller.selfMass = inheritedPlatformMass() ?: loaded.inertiaData.mass
         controller.legSystem = !submerged && !isSpawnAnimating()
+        controller.feelBumps = clearing && !submerged
         updateKnees(level, loaded, controller)
         updateLegSwing(level, loaded, controller)
         controller.publish()
@@ -1695,6 +1911,41 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val wantsMotion = moveVel.lengthSquared() > 0.25
         tickInertRescue(level, loaded, wantsMotion)
         tickHardStall(level, controller, node, wantsMotion)
+    }
+
+    /** Sets [deckShip] and [deckVel] from VS2, and turns the heading with the deck's turn about up. */
+    private fun readDeck(level: ServerLevel, plate: Vector3d) {
+        val id = deckShipId()
+        val deck = if (id == -1L) null else level.shipObjectWorld.loadedShips.getById(id)
+        deckShip = deck
+        if (deck == null) {
+            deckVel.zero()
+            deckPrevId = -1L
+            return
+        }
+        deck.pointVelocity(plate, deckVel)
+        val carried = deckPrevId == deck.id
+        if (carried) carryWithDeck(deck)
+        deckPrevId = deck.id
+        deckPrevWorldToShip.set(deck.transform.worldToShip)
+        deckPrevRotation.set(deck.transform.shipToWorldRotation)
+        // The pose delta, not the summed angular velocity, so a long spin does not drift from the deck.
+        if (!carried || isSpawnAnimating()) return
+        yBodyRot += deckTwistYawDegrees(deckStepTurn, smoothUp)
+        yRot = yBodyRot
+    }
+
+    /** Moves the world-held order state with the deck's motion since last tick: a standing face order turns with
+     *  the deck, and the hard-stall anchor stays on the deck. */
+    private fun carryWithDeck(deck: ServerShip) {
+        val step = deckMotion(deck.transform.shipToWorld, deckPrevWorldToShip, deckStep)
+        deckTurn(deck.transform.shipToWorldRotation, deckPrevRotation, deckStepTurn).transform(faceBaseUp)
+        if (stallAnchorValid) step.transformPosition(stallAnchor)
+        val ft = faceTarget
+        if (ft != null && faceAnchorShipId == -1L) {
+            val p = step.transformPosition(deckScratch.set(ft.x, ft.y, ft.z))
+            faceTarget = Vec3(p.x, p.y, p.z)
+        }
     }
 
     private fun logDebugState(
@@ -1752,7 +2003,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         if (!isSpawnAnimating()) {
             val lift = currentLift()
             setPos(plate.x - smoothUp.x * lift, plate.y - smoothUp.y * lift, plate.z - smoothUp.z * lift)
-            setDeltaMovement(loaded.velocity.x() / 20.0, loaded.velocity.y() / 20.0, loaded.velocity.z() / 20.0)
+            // The brain sits at the plate, not at the centre of mass, which cargo moves. The gait steps on the deck.
+            loaded.pointVelocity(plate, rideVel).sub(deckVel)
+            setDeltaMovement(rideVel.x / TICKS_PER_SECOND, rideVel.y / TICKS_PER_SECOND, rideVel.z / TICKS_PER_SECOND)
         } else {
             setDeltaMovement(Vec3.ZERO)
         }
@@ -1949,7 +2202,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
      *  it off centre. */
     private fun keepClear(level: ServerLevel, plate: Vector3d, moveVel: Vector3d) {
         if (tickCount % CARGO_SHAPE_TICKS == 0) refreshCargoShape(level)
-        if (!legOnly || pathTurnActive || serverGait.reachPending || isSitting() || inSlot) return
+        clearing = legOnly && !pathTurnActive && !serverGait.reachPending && !isSitting() && !inSlot
+        if (!clearing) return
         val up = smoothUp
         val ref = if (Math.abs(up.x) < CLEAR_AXIS_DOT) clearA.set(1.0, 0.0, 0.0) else clearA.set(0.0, 0.0, 1.0)
         up.cross(ref, clearA).normalize()
@@ -2003,22 +2257,18 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         contactDir.zero()
         var depth = 0.0
         for (k in 0 until snap.count) {
+            if (snap.separation[k] > ConstriliarContacts.TOUCH_SEPARATION) continue
             val i = k * ConstriliarContacts.STRIDE
-            val lateral = contactLateral.set(plate.x - data[i], plate.y - data[i + 1], plate.z - data[i + 2])
-            lateral.fma(-lateral.dot(up), up)
-            if (lateral.lengthSquared() < CONTACT_MIN_LATERAL * CONTACT_MIN_LATERAL) continue
-            val n = contactNormal.set(data[i + 3], data[i + 4], data[i + 5])
-            n.fma(-n.dot(up), up)
-            if (n.lengthSquared() < CONTACT_MIN_SIDE * CONTACT_MIN_SIDE) continue
-            // The normal's sign is the pair's order; it must point from the block to the body.
-            if (n.dot(lateral) < 0.0) n.negate()
+            if (!ConstriliarContacts.awayFromContact(data, i, plate, up, contactLateral, contactNormal)) continue
             val d = Math.max(0.0, -snap.separation[k].toDouble()) + CLEAR_MARGIN
-            contactDir.fma(d, n.normalize())
+            contactDir.fma(d, contactNormal)
             depth = Math.max(depth, d)
         }
         if (depth > 0.0 && contactDir.lengthSquared() > 1.0e-8) clearPush.add(contactDir.normalize(depth))
     }
 
+    /** keepClear runs this tick; the controller's bump push follows it. */
+    private var clearing = false
     private val contactDir = Vector3d()
     private val contactLateral = Vector3d()
     private val contactNormal = Vector3d()
@@ -2069,7 +2319,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     }
 
     private fun reachAhead(level: ServerLevel) {
-        if (surfaceNav.reachAhead(level, plateCentre(), reachNormal, reachPoint, reachDir)) {
+        if (surfaceNav.reachAhead(level, plateCentre(), smoothUp, reachNormal, reachPoint, reachDir)) {
             serverGait.setReach(reachNormal, reachPoint, reachDir)
         } else {
             serverGait.setReach(null, null, null)
@@ -2236,10 +2486,16 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val falling = jumpState is ConstriliarJumpState.Idle && (flailing || vy < -FALL_SPEED)
         if (falling) {
             // At [FALL_SPEED] the body has already dropped v²/2g.
-            if (fallTopY.isNaN()) fallTopY = plate.y + if (flailing) 0.0 else vy * vy / (2.0 * level().gravity())
+            if (fallTopY.isNaN()) {
+                fallTopY = plate.y + if (flailing) 0.0 else vy * vy / (2.0 * level().gravity())
+                if (ConstriliarMoveLog.ENABLED) ConstriliarMoveLog.fall(this, "fall start flailing=$flailing vy=${ConstriliarDebugLog.f(vy)}")
+            }
             return
         }
         if (fallTopY.isNaN() || vy < -LANDED_SPEED) return
+        if (ConstriliarMoveLog.ENABLED) {
+            ConstriliarMoveLog.fall(this, "fall end drop=${ConstriliarDebugLog.f(fallTopY - plate.y)}")
+        }
         if (fallTopY - plate.y >= DAZE_FALL) {
             dazePending = DAZE_SETTLE_TICKS
             if (ConstriliarDebugLog.ENABLED) {
@@ -2436,13 +2692,26 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private fun sampleHoverSurface(level: ServerLevel, plate: Vector3d, moveVel: Vector3d, lift: Double): Vec3? {
         val upV = Vec3(smoothUp.x, smoothUp.y, smoothUp.z)
         val plateV = Vec3(plate.x, plate.y, plate.z)
-        var bestSurface: Vec3? = null
-        var bestAlongUp = Double.NEGATIVE_INFINITY
         val moveLen = moveVel.length()
-        val samples = if (moveLen > 0.5) HOVER_SAMPLE_COUNT else 1
-        for (i in 0 until samples) {
-            val ahead = i * HOVER_SAMPLE_SPACING / moveLen.coerceAtLeast(1.0e-6)
-            val base = plateV.add(moveVel.x * ahead, moveVel.y * ahead, moveVel.z * ahead)
+        var samples = 1
+        var onRoute = false
+        if (moveLen > 0.5) {
+            hoverAhead.set(moveVel).div(moveLen)
+            samples = HOVER_SAMPLE_COUNT
+        }
+        if (samples == 1 && routeSamplesAtStepOut(level, plateV)) {
+            onRoute = true
+            samples = HOVER_ROUTE_SAMPLES
+        }
+        var count = 0
+        for (k in 0 until HOVER_ROUTE_SAMPLES) {
+            if (k >= samples) break
+            val i = if (onRoute) hoverRouteOffset(k) else k
+            hoverOffsets[k] = i
+            hoverAlong[k] = Double.NaN
+            hoverHits[k] = null
+            count = k + 1
+            val base = hoverSampleBase(plateV, hoverAhead, i)
             val from = hoverRayStart(level, base, upV)
             val hit = level.clipIncludeShips(
                 ConstriliarCollision.Clip(from, from.add(upV.scale(-(HOVER_RAY_REACH + lift + HOVER_RAY_START_UP))), this),
@@ -2451,16 +2720,32 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             )
             if (hit.type == HitResult.Type.MISS) {
                 if (i == 0 && onFloorFace()) return null
+                // Slow on a wall or ceiling over open space (a notch's open foot, past a lip): the surface the
+                // route goes on to holds the body. Under a grab the drive is too slow for the moving samples.
+                if (i == 0 && samples == 1 && surfaceNav.routeDirection(level, plateV, hoverAhead) &&
+                    hoverAhead.lengthSquared() > 1.0e-9
+                ) {
+                    hoverAhead.normalize()
+                    onRoute = true
+                    samples = HOVER_ROUTE_SAMPLES
+                }
                 continue
             }
             val loc = fluidAdjustedSurface(level, hit.location)
-            val along = loc.x * smoothUp.x + loc.y * smoothUp.y + loc.z * smoothUp.z
-            if (along > bestAlongUp) {
-                bestAlongUp = along
-                bestSurface = loc
-            }
+            hoverHits[k] = loc
+            hoverAlong[k] = loc.x * smoothUp.x + loc.y * smoothUp.y + loc.z * smoothUp.z
         }
-        return bestSurface
+        val chosen = chooseHoverHit(hoverOffsets, hoverAlong, count)
+        return if (chosen < 0) null else hoverHits[chosen]
+    }
+
+    /** A stepped overhang: the plate ray meets the lower face under the step, and the drive keeps to the plane, so
+     *  only a sample ahead lifts the body the block out it must go before it can climb. Sets [hoverAhead]. */
+    private fun routeSamplesAtStepOut(level: ServerLevel, plate: Vec3): Boolean {
+        if (onFloorFace() || !surfaceNav.stepsOutAhead()) return false
+        if (!surfaceNav.routeDirection(level, plate, hoverAhead) || hoverAhead.lengthSquared() <= 1.0e-9) return false
+        hoverAhead.normalize()
+        return true
     }
 
     /** A ray that starts inside a block hits at its start, so a low ceiling read as
@@ -2552,10 +2837,10 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         }
         val dir = if (phase == 0) 1.0 else -1.0
         val rot = controller.idealRotation
-        val side = rot.transform(Vector3d(1.0, 0.0, 0.0))
+        val side = rot.transform(danceSide.set(1.0, 0.0, 0.0))
         // Roll about the WORLD-space forward axis — a ship-local axis rolls
         // whatever the flipped model frame points at (it read as a slight nod).
-        val forward = rot.transform(Vector3d(0.0, 0.0, 1.0)).normalize()
+        val forward = rot.transform(danceForward.set(0.0, 0.0, 1.0)).normalize()
         controller.hoverX += side.x * dir * beat * DANCE_SWAY
         controller.hoverY += side.y * dir * beat * DANCE_SWAY
         controller.hoverZ += side.z * dir * beat * DANCE_SWAY
@@ -2580,12 +2865,12 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         controller.plannedTurn = pathTurnActive
         legOnly = controller.legOnly
         gaitPhaseClock.tick(deltaMovement.length(), carrying && onFloorFace())
-        entityData.set(DATA_GAIT, gaitPhaseClock.encoded())
+        entityData.set(DATA_GAIT, gaitPhaseClock.mode())
         if (!strutsOk) {
             if (ConstriliarShipController.LEGS_CARRY_WEIGHT) entityData.set(DATA_LEG_MASK, 0.toByte())
             return
         }
-        serverGait.tick(this, level, gaitScratch.set(moveVel).mul(1.0 / 20.0))
+        serverGait.tick(this, level, gaitScratch.set(moveVel).mul(1.0 / 20.0), deckShip)
         if (carrying) publishLegs()
         for (i in 0..3) {
             controller.strutAnchorX[i] = serverGait.anchors[i].x
@@ -2604,8 +2889,14 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private fun publishLegs() {
         var mask = LEG_SYNC_LIVE
         var limp = 0
+        val lastMask = entityData.get(DATA_LEG_MASK).toInt()
         for (i in 0..3) {
             val swinging = serverGait.isSwinging(i)
+            val ship = serverGait.pinnedShip(i)
+            // A foot planted on a ship stays put in its frame, and the client carries it with the ship.
+            val heldOnShip = !swinging && ship != -1L && lastMask and (1 shl i) == 0 &&
+                ship == entityData.get(DATA_LEG_SHIP[i])
+            entityData.set(DATA_LEG_SHIP[i], if (swinging) -1L else ship)
             if (swinging) mask = mask or (1 shl i)
             if (serverGait.isLimp(i)) limp = limp or (1 shl i)
             val a = serverGait.footTarget(i)
@@ -2614,7 +2905,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             val dy = current.y - a.y.toFloat()
             val dz = current.z - a.z.toFloat()
             val distSq = dx * dx + dy * dy + dz * dz
-            if (if (swinging) distSq > LEG_TARGET_RESYNC * LEG_TARGET_RESYNC else distSq > 0f) {
+            if (if (swinging) distSq > LEG_TARGET_RESYNC * LEG_TARGET_RESYNC else !heldOnShip && distSq > 0f) {
                 entityData.set(DATA_LEG_ANCHOR[i], Vector3f(a.x.toFloat(), a.y.toFloat(), a.z.toFloat()))
             }
         }
@@ -2630,6 +2921,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     fun legSwinging(leg: Int): Boolean = entityData.get(DATA_LEG_MASK).toInt() and (1 shl leg) != 0
 
     fun legAnchor(leg: Int): Vector3f = entityData.get(DATA_LEG_ANCHOR[leg])
+
+    /** The ship a planted foot stands on, or -1: its [legAnchor] moves with that ship. */
+    fun legShip(leg: Int): Long = entityData.get(DATA_LEG_SHIP[leg])
 
     /** Inert-body rescue: VS2 puts settled bodies to sleep and a sleeping body ignores
      *  listener forces. Wanting motion while the ship sits dead-still for ~0.75 s earns
@@ -2655,19 +2949,19 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         wantsMotion: Boolean,
     ) {
         if (!wantsMotion || jumpState !is ConstriliarJumpState.Idle) {
-            stallAnchor = null
+            stallAnchorValid = false
             stallAnchorTicks = 0
             return
         }
-        val anchor = stallAnchor
-        if (anchor == null || position().distanceToSqr(anchor) > HARD_STALL_DIST_SQ) {
-            stallAnchor = position()
+        if (!stallAnchorValid || stallAnchor.distanceSquared(x, y, z) > HARD_STALL_DIST_SQ) {
+            stallAnchor.set(x, y, z)
+            stallAnchorValid = true
             stallAnchorTicks = 0
             return
         }
         if (++stallAnchorTicks < HARD_STALL_TICKS) return
         stallAnchorTicks = 0
-        stallAnchor = null
+        stallAnchorValid = false
         val waypoint = node?.let { surfaceNav.nodeWorldCenter(level, it) } ?: return
         // In the surface plane plus off the surface: a world-up hop pushed wall and
         // ceiling walkers along or into their own surface.
@@ -2857,7 +3151,9 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     override fun remove(reason: RemovalReason) {
         val level = level()
-        if (level is ServerLevel) ConstriliarImpactSounds.untrack(level.dimensionId, impactShipId)
+        if (level is ServerLevel) {
+            ConstriliarImpactSounds.untrack(level.dimensionId, impactShipId)
+        }
         if (!level().isClientSide && reason.shouldDestroy()) releaseShip(dropCargo = true)
         if (trackedShip != NO_SHIP) ConstriliarContacts.untrack(trackedShip)
         super.remove(reason)
@@ -2885,6 +3181,10 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             commandedFace?.let { f -> tag.putInt("EkGoFace", f.get3DDataValue()) }
             commandedAnchor?.let { a ->
                 tag.putDouble("EkGoAX", a.x); tag.putDouble("EkGoAY", a.y); tag.putDouble("EkGoAZ", a.z)
+            }
+            if (goShipId != -1L) {
+                tag.putLong("EkGoShip", goShipId)
+                tag.putDouble("EkGoSX", goLocal.x); tag.putDouble("EkGoSY", goLocal.y); tag.putDouble("EkGoSZ", goLocal.z)
             }
         }
         ownerUUID?.let { tag.putUUID(NBT_OWNER, it) }
@@ -2915,6 +3215,10 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
                 commandedTarget
             }
             commandedTicks = 0
+            if (tag.contains("EkGoShip")) {
+                goShipId = tag.getLong("EkGoShip")
+                goLocal.set(tag.getDouble("EkGoSX"), tag.getDouble("EkGoSY"), tag.getDouble("EkGoSZ"))
+            }
         }
         ownerUUID = if (tag.hasUUID(NBT_OWNER)) tag.getUUID(NBT_OWNER) else null
         shipId = if (tag.contains(NBT_SHIP_ID)) tag.getLong(NBT_SHIP_ID) else NO_SHIP
@@ -2947,19 +3251,25 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
         override fun canUse(): Boolean {
             val t = commandedTarget ?: return false
-            return !isSitting() && !isSpawnAnimating() && !arrivedAt(t)
+            return !isSitting() && !isSpawnAnimating() && !orderGaveUp && !arrivedAt(t)
         }
 
         override fun canContinueToUse(): Boolean = canUse()
 
         override fun start() {
-            commandedTarget?.let { orderMoveTo(it, commandedFace, commandedAnchor) }
+            commandedTarget?.let {
+                orderMoveTo(it, commandedFace, commandedAnchor)
+                orderPlanned = true
+            }
         }
 
         override fun tick() {
             val t = commandedTarget ?: return
             commandedTicks++
-            if (commandedTicks % 20 == 0) orderMoveTo(t, commandedFace, commandedAnchor)
+            if (commandedTicks % 20 == 0) {
+                orderMoveTo(t, commandedFace, commandedAnchor)
+                orderPlanned = true
+            }
         }
 
         override fun stop() {
@@ -2982,14 +3292,30 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     /** At an ordered spot: on the ordered face's side of it and near along it. A plain
      *  radius counted a body under a cap as arrived at a spot on the cap's top. */
     private fun arrivedAt(t: Vec3): Boolean {
-        val face = commandedFace ?: return distanceToSqr(t.x, t.y, t.z) <= COMMAND_ARRIVE_SQ
-        val p = plateCentre()
+        val held = arrivedAtPeek(t)
+        spotHeld = held
+        return held
+    }
+
+    private fun arrivedAtPeek(t: Vec3): Boolean {
+        val p = if (commandedFace == null) position() else plateCentre()
+        // Once there, the spot holds within a wider band, so body sway does not count as leaving it.
+        return arrivedFrom(p, t) || spotHeld && arrivedFrom(p, t, ARRIVE_HOLD_SLACK)
+    }
+
+    /** The body reached the spot of this order and has not left its hold band since. */
+    private var spotHeld = false
+
+    /** [arrivedAt] for a body at [p]: its position for a plain order, its plate centre for a faced one. */
+    private fun arrivedFrom(p: Vec3, t: Vec3, slack: Double = 0.0): Boolean {
+        val face = commandedFace ?: return p.distanceToSqr(t) <= (COMMAND_ARRIVE + slack) * (COMMAND_ARRIVE + slack)
+        val along = ARRIVE_ALONG + slack
         val dx = p.x - t.x
         val dy = p.y - t.y
         val dz = p.z - t.z
         val out = dx * face.stepX + dy * face.stepY + dz * face.stepZ
-        if (out < 0.0 || out > ARRIVE_FACE_OUT) return false
-        return dx * dx + dy * dy + dz * dz - out * out <= ARRIVE_ALONG_SQ
+        if (out < -slack || out > ARRIVE_FACE_OUT + slack) return false
+        return dx * dx + dy * dy + dz * dz - out * out <= along * along
     }
 
     private inner class FollowOwnerGoal : Goal() {
@@ -3017,6 +3343,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
         override fun start() {
             reorderIn = 0
+            followingOwner = true
         }
 
         override fun tick() {
@@ -3027,6 +3354,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         }
 
         override fun stop() {
+            followingOwner = false
             stopNavigating()
         }
     }
@@ -3052,10 +3380,16 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         private const val SIT_TURN_SPEED = 8f
         /** Covers a 180° turn inside the rise + crouch window (~10 ticks). */
         private const val INTRO_TURN_SPEED = 20f
-        private const val COMMAND_ARRIVE_SQ = 1.25 * 1.25
+        private const val COMMAND_ARRIVE = 1.25
+        private const val COMMAND_ARRIVE_SQ = COMMAND_ARRIVE * COMMAND_ARRIVE
+
+        /** Route stalls in one place before a go-to order fails: the body cannot follow the route it found. */
+        private const val ORDER_STALLS_IN_PLACE = 3
+        /** How far (blocks) past the arrival radius a body that arrived may sway before it counts as displaced. */
+        private const val ARRIVE_HOLD_SLACK = 0.5
         /** Arrival at a face order: how far out from the face, and how far along it. */
         private const val ARRIVE_FACE_OUT = 1.5
-        private const val ARRIVE_ALONG_SQ = 1.25 * 1.25
+        private const val ARRIVE_ALONG = 1.25
         /** Boid separation: neighbour radius (blocks), per-tick velocity nudge, and the
          *  golden angle for breaking exact-overlap ties. The radius is two foot spans,
          *  so the feet of two walkers do not overlap. */
@@ -3145,6 +3479,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
          *  out-of-plane drive is retained to commit into the turn. */
         private const val TRANSITION_AGREE = 0.9
         private const val TRANSITION_GRACE_TICKS = 60
+        /** Least cosine between the felt contact and the path face for the contact to bend the attitude (60°). */
+        private const val CONTACT_BLEND_MIN_DOT = 0.5
         private const val QUEUE_RADIUS = 3.0
         /** Covers [SEPARATION_RADIUS], [QUEUE_RADIUS] and [GIVE_WAY_RADIUS], so one scan serves all three. */
         private const val WALKER_SCAN_RADIUS = SEPARATION_RADIUS
@@ -3205,11 +3541,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         /** Centre of the load block straight above the plate, above the plate centre. */
         private const val CARGO_ABOVE_UP = 1.0
         private const val CARGO_SHAPE_TICKS = 20
-        /** VS2 contacts: the oldest snapshot used, the least offset off the body's axis,
-         *  and the least sideways share of the normal. */
+        /** VS2 contacts: the oldest snapshot used. */
         private const val CONTACT_MAX_AGE_NANOS = 150_000_000L
-        private const val CONTACT_MIN_LATERAL = 0.2
-        private const val CONTACT_MIN_SIDE = 0.5
         /** Walk share while a front foot still has to grab the next face. */
         private const val REACH_WAIT_SHARE = 0.4
         private const val TRANSITION_DRIVE_KEEP = 0.6
@@ -3297,13 +3630,13 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
          *  spring settles onto nodes instead of overshooting them. */
         private const val BRAKE_GAIN = 2.5
         /** Surface-sample reach below the plate; nothing in reach = free-fall. */
-        private const val HOVER_RAY_REACH = 2.5
+        internal const val HOVER_RAY_REACH = 2.5
         /** Adaptive suspension: rays under the plate plus this many-1 look-ahead samples
          *  along travel; ride height keys off the highest hit. */
-        private const val HOVER_SAMPLE_COUNT = 3
-        private const val HOVER_SAMPLE_SPACING = 0.9
+        internal const val HOVER_SAMPLE_COUNT = 3
+        internal const val HOVER_SAMPLE_SPACING = 0.9
         /** Rays start this far up the normal so a 1-block step ahead is still caught. */
-        private const val HOVER_RAY_START_UP = 1.25
+        internal const val HOVER_RAY_START_UP = 1.25
         private const val CEILING_RAY_GAP = 0.01
         /** Extra ride height per unit of orientation-vs-surface mismatch, so plate
          *  corners clear the terrain mid-reorientation. */
@@ -3388,10 +3721,15 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         /** Bits 0-3: leg planted on nothing. */
         private val DATA_LEG_LIMP: EntityDataAccessor<Byte> =
             SynchedEntityData.defineId(ConstriliarEntity::class.java, EntityDataSerializers.BYTE)
+        private val DATA_LEG_SHIP: Array<EntityDataAccessor<Long>> = Array(4) {
+            SynchedEntityData.defineId(ConstriliarEntity::class.java, EntityDataSerializers.LONG)
+        }
         private val DATA_LEG_ANCHOR: Array<EntityDataAccessor<Vector3f>> = Array(4) {
             SynchedEntityData.defineId(ConstriliarEntity::class.java, EntityDataSerializers.VECTOR3)
         }
         private const val LEG_SYNC_LIVE = 0x10
+        /** The intro's up resyncs past 1°. */
+        private val UP_SYNC_DOT = Math.cos(Math.toRadians(1.0))
         private const val LEG_TARGET_RESYNC = 0.05f
         /** Light probe height above the model ground plane: mid-plate. */
         private const val LIGHT_PROBE_UP = 0.5
@@ -3412,4 +3750,38 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             .add(Attributes.MOVEMENT_SPEED, 0.3)
             .add(Attributes.FOLLOW_RANGE, 48.0)
     }
+}
+
+/** Hover samples on the route: the plate, two ahead, and one behind when none of those hit. At a convex edge the
+ *  ray down the turning body only grazes the edge; the face the body leaves holds it until the next is under it. */
+internal const val HOVER_ROUTE_SAMPLES = 4
+
+/**
+ * The hover sample the ride height keys off, from [count] samples: [offsets] holds each one's route offset and
+ * [along] its hit's height along up (NaN for a miss). The highest plate or ahead hit wins; a behind hit counts
+ * only when none of those hit, as a floor hit behind lies higher along up than the face ahead and would pull the
+ * body off it. -1 when nothing hit.
+ */
+internal fun chooseHoverHit(offsets: IntArray, along: DoubleArray, count: Int): Int {
+    require(count <= offsets.size && count <= along.size) { "count $count exceeds the sample arrays" }
+    for (pass in 0..1) {
+        val behind = pass == 1
+        var best = -1
+        for (k in 0 until count) {
+            if ((offsets[k] < 0) != behind || along[k].isNaN()) continue
+            if (best < 0 || along[k] > along[best]) best = k
+        }
+        if (best >= 0) return best
+    }
+    return -1
+}
+
+/** Spacings along the route of route sample [k] (see [HOVER_ROUTE_SAMPLES]). */
+internal fun hoverRouteOffset(k: Int): Int = if (k < HOVER_ROUTE_SAMPLES - 1) k else -1
+
+/** Where hover ray [i] starts: [i] sample spacings from [plate] along the unit [dir]. Top level: tests call it
+ *  without the entity's static data. */
+internal fun hoverSampleBase(plate: Vec3, dir: Vector3dc, i: Int): Vec3 {
+    val ahead = i * ConstriliarEntity.HOVER_SAMPLE_SPACING
+    return plate.add(dir.x() * ahead, dir.y() * ahead, dir.z() * ahead)
 }

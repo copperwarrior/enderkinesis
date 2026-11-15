@@ -1,13 +1,19 @@
 package org.shipwrights.enderkinesis.entity
 
+import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.util.Mth
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.physics.ConstriliarShipController
+import org.joml.primitives.AABBd
+import org.valkyrienskies.core.api.ships.Ship
+import org.valkyrienskies.mod.common.getShipsIntersecting
+import org.valkyrienskies.mod.common.shipObjectWorld
 
 /**
  * The physical gait: its stance anchors are the leg force points. In carry mode the
@@ -29,9 +35,22 @@ class ConstriliarServerGait {
     private val axisY = Vector3d()
     private val swingProgress = FloatArray(4) { PLANTED }
     private val grounded = BooleanArray(4)
+    /** A block went in where the planted foot stands (a build beside a beam the body clamps): it steps again. */
+    private val buried = BooleanArray(4)
+    private val buryCursor = BlockPos.MutableBlockPos()
     private val due = BooleanArray(4)
     private val lateTicks = IntArray(4)
     private val scratch = Vector3d()
+    /** Per leg: the ship the planted foot stands on (-1 for none) and the foot in that ship's shipyard frame. */
+    private val pinShip = LongArray(4) { -1L }
+    private val anchorLocal = Array(4) { Vector3d() }
+    /** The planted foot was already searched for a ship: a foot on the world is not searched again until it steps. */
+    private val pinChecked = BooleanArray(4)
+    private val deckCell = BlockPos.MutableBlockPos()
+    private val pinBox = AABBd()
+    private val shipCacheId = LongArray(4)
+    private val shipCache = arrayOfNulls<Ship>(4)
+    private var shipCacheCount = 0
     private val lead = Vector3d()
     /** In-plane offset of the centre of mass from the platform; the homes centre on it. */
     val comShift: Vector3dc get() = comShiftValue
@@ -73,10 +92,99 @@ class ConstriliarServerGait {
         initialized = false
         swingProgress.fill(PLANTED)
         due.fill(false)
+        pinShip.fill(-1L)
+        pinChecked.fill(false)
     }
 
-    /** [desiredPerTick]: the commanded walk velocity, for the Raibert feedback term. */
-    fun tick(entity: ConstriliarEntity, level: ServerLevel, desiredPerTick: Vector3dc) {
+    /** [desiredPerTick]: the commanded walk velocity, for the Raibert feedback term. [deck]: the ship under the body. */
+    fun tick(entity: ConstriliarEntity, level: ServerLevel, desiredPerTick: Vector3dc, deck: Ship?) {
+        shipCacheCount = 0
+        followShips(level)
+        tickLegs(entity, level, desiredPerTick)
+        pinFeet(level, deck, entity.ownShipIdForCollision(), entity.serverUp())
+    }
+
+    /** A foot planted on a ship moves with it: its anchor is held in that ship's shipyard frame. */
+    private fun followShips(level: ServerLevel) {
+        for (i in 0..3) {
+            if (pinShip[i] == -1L || swingProgress[i] < PLANTED) continue
+            val ship = cachedShip(level, pinShip[i])
+            if (ship == null) {
+                unpin(i)
+                continue
+            }
+            ship.transform.shipToWorld.transformPosition(anchors[i].set(anchorLocal[i]))
+        }
+    }
+
+    /** Pins each planted foot to the ship its support block is on. A foot is searched once per plant: the deck
+     *  first, then one ship query near the foot. */
+    private fun pinFeet(level: ServerLevel, deck: Ship?, bodyShip: Long?, up: Vector3dc) {
+        for (i in 0..3) {
+            if (swingProgress[i] < PLANTED) {
+                unpin(i)
+                continue
+            }
+            if (pinShip[i] != -1L) {
+                val ship = cachedShip(level, pinShip[i])
+                if (ship != null && supportOn(level, ship, i, up)) continue
+                unpin(i)
+            }
+            if (pinChecked[i]) continue
+            pinChecked[i] = true
+            if (deck != null && deck.id != bodyShip && supportOn(level, deck, i, up)) {
+                pin(i, deck)
+                continue
+            }
+            val a = anchors[i]
+            pinBox.setMin(a.x - PIN_PROBE_BOX, a.y - PIN_PROBE_BOX, a.z - PIN_PROBE_BOX)
+                .setMax(a.x + PIN_PROBE_BOX, a.y + PIN_PROBE_BOX, a.z + PIN_PROBE_BOX)
+            for (ship in level.getShipsIntersecting(pinBox)) {
+                if (ship.id == bodyShip || ship.id == deck?.id || !supportOn(level, ship, i, up)) continue
+                pin(i, ship)
+                break
+            }
+        }
+    }
+
+    private fun pin(leg: Int, ship: Ship) {
+        pinShip[leg] = ship.id
+        cacheShip(ship)
+    }
+
+    private fun unpin(leg: Int) {
+        pinShip[leg] = -1L
+        pinChecked[leg] = false
+    }
+
+    /** True when foot [leg] stands on a block of [ship]. Stores the foot in that ship's frame in [anchorLocal]. */
+    private fun supportOn(level: ServerLevel, ship: Ship, leg: Int, up: Vector3dc): Boolean {
+        val a = anchors[leg]
+        val worldToShip = ship.transform.worldToShip
+        val local = worldToShip.transformPosition(anchorLocal[leg].set(a))
+        val support = worldToShip.transformPosition(
+            scratch.set(a.x - up.x() * DECK_FOOT_PROBE, a.y - up.y() * DECK_FOOT_PROBE, a.z - up.z() * DECK_FOOT_PROBE),
+        )
+        return !level.getBlockState(deckCell.set(support.x, support.y, support.z)).isAir ||
+            !level.getBlockState(deckCell.set(local.x, local.y, local.z)).isAir
+    }
+
+    /** One loaded-ship lookup per ship id per tick. */
+    private fun cachedShip(level: ServerLevel, id: Long): Ship? {
+        for (k in 0 until shipCacheCount) if (shipCacheId[k] == id) return shipCache[k]
+        val ship = level.shipObjectWorld.loadedShips.getById(id)
+        if (ship != null) cacheShip(ship)
+        return ship
+    }
+
+    private fun cacheShip(ship: Ship) {
+        for (k in 0 until shipCacheCount) if (shipCacheId[k] == ship.id) return
+        if (shipCacheCount == shipCache.size) return
+        shipCacheId[shipCacheCount] = ship.id
+        shipCache[shipCacheCount++] = ship
+    }
+
+    private fun tickLegs(entity: ConstriliarEntity, level: ServerLevel, desiredPerTick: Vector3dc) {
         ownShip = entity.ownShipIdForCollision()
         val gait = entity.gaitClock()
         val lastSit = sitBlend
@@ -113,6 +221,7 @@ class ConstriliarServerGait {
             return
         }
         advanceSwings(ConstriliarGait.swingRate(entity.deltaMovement.length()))
+        markBuried(level, up)
         if (squeezeActive && !reachActive) {
             squeezeSteps()
         } else {
@@ -207,6 +316,34 @@ class ConstriliarServerGait {
         }
     }
 
+    /** A planted foot whose own room, just off its support, is now a full block. The room lies along [up] off a foot
+     *  on the face under the body, and out from the body off a foot that grips a side face. */
+    private fun markBuried(level: ServerLevel, up: Vector3dc) {
+        for (i in 0..3) {
+            buried[i] = false
+            if (swingProgress[i] < PLANTED) continue
+            val a = anchors[i]
+            var dx = up.x()
+            var dy = up.y()
+            var dz = up.z()
+            if (gripping[i]) {
+                dx = a.x - hips[i].x
+                dy = a.y - hips[i].y
+                dz = a.z - hips[i].z
+                val along = dx * up.x() + dy * up.y() + dz * up.z()
+                dx -= along * up.x()
+                dy -= along * up.y()
+                dz -= along * up.z()
+            }
+            val len = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (len < 1.0e-6) continue
+            val k = BURY_PROBE / len
+            buryCursor.set(Mth.floor(a.x + dx * k), Mth.floor(a.y + dy * k), Mth.floor(a.z + dz * k))
+            if (!level.isLoaded(buryCursor)) continue
+            buried[i] = level.getBlockState(buryCursor).isCollisionShapeFullBlock(level, buryCursor)
+        }
+    }
+
     /** Contact schedule: a leg falls due when its clock window opens, and lifts once
      *  the support rule allows. A late foot so delays the next lifter, and the
      *  support never thins below the gait's. */
@@ -222,7 +359,7 @@ class ConstriliarServerGait {
             val reach = ConstriliarShipController.LEG_REACH
             // A stretched foot still holds: it lets go only while two others stand.
             val pastReach = anchors[i].distanceSquared(hips[i]) > reach * reach && standingOthers(i) >= 2
-            val lift = if ((!grounded[i] && homeGrounded[i]) || pastReach) {
+            val lift = if ((!grounded[i] && homeGrounded[i]) || pastReach || (buried[i] && standingOthers(i) >= 2)) {
                 true
             } else if (reachPending || (reachActive && !homeGrounded[i])) {
                 // At a face change other steps wait: a grab starts only with every foot down,
@@ -366,6 +503,9 @@ class ConstriliarServerGait {
 
     /** Where a swinging foot will land; its anchor when planted. */
     fun footTarget(leg: Int): Vector3d = if (swingProgress[leg] < PLANTED) homes[leg] else anchors[leg]
+
+    /** The ship whose frame holds planted foot [leg], or -1. */
+    fun pinnedShip(leg: Int): Long = pinShip[leg]
 
     /** A stance leg: planted on real support — a supplemental-spring force point. */
     fun isStance(leg: Int): Boolean = swingProgress[leg] >= PLANTED && grounded[leg]
@@ -619,6 +759,7 @@ class ConstriliarServerGait {
             hips[leg].set(hip.x, hip.y, hip.z)
             // A free foot hangs below its rest spot, not at its last stance before the fall.
             anchors[leg].set(home.x, home.y - ConstriliarGait.DROOP, home.z)
+            unpin(leg)
             // A hip that has barely moved since its last miss misses again.
             val miss = catchMissMemo[leg]
             if (miss.matches(hip, hip, up, entity.tickCount, CATCH_MISS_EPS_SQ, CATCH_MISS_TICKS)) continue
@@ -835,6 +976,12 @@ class ConstriliarServerGait {
         private const val PLANTED = 1f
         private const val LATE_HOLD = 0.95f
         private const val LATE_TOUCHDOWN_TICKS = 6
+        /** How far off its support a planted foot's room is probed for a new block (blocks). */
+        private const val BURY_PROBE = 0.15
+        /** How far under a planted foot its support is probed on a deck (blocks). */
+        private const val DECK_FOOT_PROBE = 0.25
+        /** Half size of the ship query box round a newly planted foot (blocks). */
+        private const val PIN_PROBE_BOX = 0.5
         private val LEG_NAMES = arrayOf("FR", "FL", "BL", "BR")
         /** Hip on the home diagonal: |(0.4375, 0.4375)| of the home radius. */
         private const val HIP_SHARE = 0.4375 / ConstriliarGait.HOME_R
@@ -847,7 +994,6 @@ class ConstriliarServerGait {
         /** How far below the body's surface a side grip takes hold, and its ray length. */
         private const val GRIP_DROP = 0.4
         private const val GRIP_RAY = 1.2
-        /** Least reach out along a leg's corner, from the body centre (blocks). */
         /** The plate in body blocks: half width, and its underside and top above the origin. */
         private const val PLATE_HALF = 0.5
         private const val PLATE_BOTTOM = 0.25

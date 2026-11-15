@@ -26,6 +26,9 @@ internal class ConstriliarGaitClock {
 
     fun encoded(): Float = if (!running) STOPPED else phase.toFloat() + if (trot) 1f else 0f
 
+    /** [encoded] without the phase: the client needs only the mode, so the sync goes out on a mode change. */
+    fun mode(): Float = if (!running) STOPPED else if (trot) 1f else 0f
+
     companion object {
 
         const val STOPPED = -1f

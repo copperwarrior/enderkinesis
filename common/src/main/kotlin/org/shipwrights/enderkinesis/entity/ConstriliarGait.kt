@@ -10,6 +10,7 @@ import org.joml.Quaternionf
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.Vector3f
+import org.valkyrienskies.mod.common.shipObjectWorld
 import org.valkyrienskies.mod.common.world.clipIncludeShips
 import kotlin.math.acos
 import kotlin.math.atan2
@@ -37,6 +38,10 @@ class ConstriliarGait {
     val footCur = Array(4) { Vec3.ZERO }
     private val stepFrom = Array(4) { Vec3.ZERO }
     private val stepTo = Array(4) { Vec3.ZERO }
+    private val pinSeenShip = LongArray(4) { -1L }
+    private val pinSeenAnchor = Array(4) { Vector3f() }
+    private val pinLocal = Array(4) { Vector3d() }
+    private val pinScratch = Vector3d()
     private val stepProgress = FloatArray(4) { 1f }
     private val stepPrev = FloatArray(4) { 1f }
     private val holdTicks = IntArray(4)
@@ -185,8 +190,7 @@ class ConstriliarGait {
         for (i in 0..3) {
             footPrev[i] = footCur[i]
             stepPrev[i] = stepProgress[i]
-            val a = entity.legAnchor(i)
-            val target = Vec3(a.x.toDouble(), a.y.toDouble(), a.z.toDouble())
+            val target = syncedTarget(entity, i)
             if (entity.legSwinging(i)) {
                 if (stepProgress[i] >= 1f) startSwing(i, target)
                 retarget(i, target)
@@ -209,6 +213,24 @@ class ConstriliarGait {
                 footCur[i] = target
             }
         }
+    }
+
+    /** The synced foot target. A foot planted on a ship is synced once and then carried here in that ship's frame. */
+    private fun syncedTarget(entity: ConstriliarEntity, leg: Int): Vec3 {
+        val a = entity.legAnchor(leg)
+        val shipId = if (entity.legSwinging(leg)) -1L else entity.legShip(leg)
+        val ship = if (shipId == -1L) null else entity.level().shipObjectWorld.allShips.getById(shipId)
+        if (ship == null) {
+            pinSeenShip[leg] = -1L
+            return Vec3(a.x.toDouble(), a.y.toDouble(), a.z.toDouble())
+        }
+        if (pinSeenShip[leg] != shipId || pinSeenAnchor[leg] != a) {
+            pinSeenShip[leg] = shipId
+            pinSeenAnchor[leg].set(a)
+            ship.transform.worldToShip.transformPosition(pinLocal[leg].set(a.x.toDouble(), a.y.toDouble(), a.z.toDouble()))
+        }
+        val w = ship.transform.shipToWorld.transformPosition(pinScratch.set(pinLocal[leg]))
+        return Vec3(w.x, w.y, w.z)
     }
 
     /** A swing's target moved: re-measure the ground it must clear when it moved far. */

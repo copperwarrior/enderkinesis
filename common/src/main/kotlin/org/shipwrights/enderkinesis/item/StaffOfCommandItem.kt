@@ -27,6 +27,14 @@ import org.valkyrienskies.mod.common.getShipManagingPos
 import org.shipwrights.enderkinesis.util.hasChunkAtPos
 import org.shipwrights.enderkinesis.util.loadedRayRange
 
+fun Player.heldCommandStaff(): ItemStack? {
+    for (hand in InteractionHand.entries) {
+        val held = getItemInHand(hand)
+        if (held.item is StaffOfCommandItem) return held
+    }
+    return null
+}
+
 /** Staff of Command — right-click a [Commandable] block to add it to this stack's command
  *  list (re-click to remove); right-click open air to fire every listed block's command in
  *  one pass; **shift-right-click open air** to wipe the list.
@@ -38,9 +46,7 @@ import org.shipwrights.enderkinesis.util.loadedRayRange
  *  - Stored entries carry the dimension they were added in. Firing only acts on entries
  *    whose dimension matches the wielder's current level — same-dimension is enforced at
  *    both add-time (trivially: you can only add blocks you're looking at) and fire-time.
- *  - **Ship target**: reachable when (a) the wielder is currently on the same ship, or
- *    (b) the wielder isn't on any ship AND the target's world position is within 64.
- *  - **World target**: reachable when within 64 blocks of the wielder.
+ *  - A target (world or ship block) is reachable while its chunk is loaded on the server.
  *
  *  Out-of-range / out-of-dimension / ship-unloaded entries are silently skipped without
  *  being purged — re-entering range or returning to the dimension re-arms them. */
@@ -55,8 +61,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             return InteractionResult.PASS
         }
 
-        val targetShip = level.getLoadedShipManagingPos(blockPos)
-        if (!isReachable(player, level, blockPos, targetShip)) {
+        if (!isReachable(level, blockPos)) {
             if (!level.isClientSide) {
                 player.displayClientMessage(
                     Component.translatable("item.enderkinesis.staff_of_command.out_of_range"), true,
@@ -220,8 +225,8 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
 
         /** The wheel's slots: one per distinct commandable block type present
          *  in the staff's list (first-add order, keyed by block id), then one
-         *  per distinct commanded entity type (keyed by entity id). Empty
-         *  list = nothing commanded = no wheel. */
+         *  per distinct commanded entity type (keyed by entity id), then the
+         *  plan capture entries ([StaffBuildKeys.wheelKeys]). */
         fun availableKeys(stack: ItemStack): List<String> {
             val keys = ArrayList<String>()
             for (entry in readEntries(stack)) {
@@ -232,17 +237,22 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 val key = entry.typeId.toString()
                 if (key !in keys) keys.add(key)
             }
+            val corners = StaffBuild.capture(stack)?.corners ?: 0
+            keys.addAll(StaffBuildKeys.wheelKeys(corners))
             return keys
         }
+
+        private fun storedKey(stack: ItemStack): String? =
+            stack.tag?.takeIf { it.contains(SELECTED_KEY_TAG) }?.getString(SELECTED_KEY_TAG)
 
         /** Selected key, snapped back into [availableKeys] when the stored one
          *  no longer exists (its last entry was removed). Null when the list is
          *  empty. Read-only — the snap isn't written back; [cycleSelected] and
          *  dispatch both re-derive it the same way. */
         fun getSelectedKey(stack: ItemStack): String? {
+            val stored = storedKey(stack)
             val keys = availableKeys(stack)
             if (keys.isEmpty()) return null
-            val stored = stack.tag?.getString(SELECTED_KEY_TAG)
             return if (stored != null && stored in keys) stored else keys.first()
         }
 
@@ -254,13 +264,6 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             stack.orCreateTag.putString(SELECTED_KEY_TAG, next)
         }
 
-        /** Shared dispatch loop for both clicks. `aim = true` is the left-click
-         *  "Aim To" (devices orient toward the gaze; note blocks cycle);
-         *  `aim = false` is the right-click "Go To / Trigger" (devices actuate;
-         *  constriliars walk). Only entries matching the staff's selected
-         *  wheel key fire — block ids and entity type ids share one key space,
-         *  so both lists are scanned against the same key. Returns how many
-         *  devices were reached. */
         /** Drop entries whose position no longer holds their stamped block type.
          *  Unverifiable entries (other dimension, unloaded chunk) are kept — absence
          *  of evidence isn't a broken block. */
@@ -282,11 +285,22 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             if (changed) writeEntries(stack, kept)
         }
 
+        /** Shared dispatch loop for both clicks. `aim = true` is the left-click
+         *  "Aim To" (devices orient toward the gaze; note blocks cycle);
+         *  `aim = false` is the right-click "Go To / Trigger" (devices actuate;
+         *  constriliars walk). Only entries matching the staff's selected
+         *  wheel key fire — block ids and entity type ids share one key space,
+         *  so both lists are scanned against the same key. Returns how many
+         *  devices were reached. */
         fun dispatch(
             player: Player, level: Level, stack: ItemStack, contextStack: ItemStack, aim: Boolean,
         ): Int {
             (level as? ServerLevel)?.let { validateEntries(it, stack) }
             val selectedKey = getSelectedKey(stack) ?: return 0
+            if (selectedKey in StaffBuildKeys.ALL) {
+                if (player is net.minecraft.server.level.ServerPlayer) StaffBuild.handle(player, stack, selectedKey, aim)
+                return 0
+            }
             val currentDim = level.dimension().location()
             val serverLevel = level as? ServerLevel
             var fired = 0
@@ -294,7 +308,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                 if (entry.blockId.toString() != selectedKey) continue      // other family
                 if (entry.dim != currentDim) continue                       // other dimension
                 val ship = level.getLoadedShipManagingPos(entry.pos)
-                if (!isReachable(player, level, entry.pos, ship)) continue  // out of range
+                if (!isReachable(level, entry.pos)) continue  // out of range
                 val be = level.getBlockEntity(entry.pos)
                 val handled = when {
                     be is Commandable -> {
@@ -324,6 +338,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                     val entity = serverLevel.getEntity(entry.uuid) ?: continue
                     when (entity) {
                         is org.shipwrights.enderkinesis.entity.ConstriliarEntity -> {
+                            if (!entity.mayBeCommandedBy(player)) continue
                             // Aim = turn toward the gaze hit (TRACKING it if it's a
                             // ship block); trigger = walk to it (a sitting one only
                             // turns — entity-side).
@@ -339,7 +354,7 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                                 // Spread each commanded walker to its own slot around the
                                 // gaze point (tangent-plane phyllotaxis) so they gather
                                 // beside each other instead of stacking on one block.
-                                // A ship block's face is in shipyard axes; only a world face is passed.
+                                // Only a world block's face is passed: a ship block's face turns with the ship.
                                 val face = if (target.shipLocal == null) {
                                     val n = target.normal
                                     net.minecraft.core.Direction.getNearest(n.x, n.y, n.z)
@@ -464,7 +479,9 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
                     val local = ship.transform.worldToShip.transformPosition(
                         org.joml.Vector3d(hit.location.x, hit.location.y, hit.location.z),
                     )
-                    return GazeTarget(hit.location, ship.id, local, normal)
+                    // A ship hit's direction is a shipyard axis.
+                    val n = ship.transform.shipToWorldRotation.transform(org.joml.Vector3d(normal.x, normal.y, normal.z))
+                    return GazeTarget(hit.location, ship.id, local, net.minecraft.world.phys.Vec3(n.x, n.y, n.z))
                 }
             }
             return GazeTarget(hit.location, -1L, null, normal)
@@ -564,24 +581,10 @@ class StaffOfCommandItem(properties: Properties) : Item(properties) {
             if (tag.isEmpty) stack.tag = null
         }
 
-        /** Reachability shared by add (`useOn`) and fire (`use`). Stored positions are
-         *  either shipyard or world coords; we re-resolve the ship at check time so a
-         *  ship that unloads silently skips. The gate is "chunk is server-loaded" —
-         *  past the firing player's render distance the chunk isn't loaded for them,
-         *  so the staff naturally caps at render distance without a hardcoded radius.
-         *  Replaces the previous 64-block constant that matched vanilla BER-render
-         *  distance and made the staff stop working on BEs visible but past 64. */
-        private fun isReachable(player: Player, level: Level, targetPos: BlockPos, targetShip: Ship?): Boolean {
-            if (targetShip != null) {
-                val playerStandingPos = BlockPos.containing(player.x, player.y - 0.05, player.z)
-                val playerShip = level.getLoadedShipManagingPos(playerStandingPos)
-                if (playerShip != null && playerShip.id == targetShip.id) return true
-                if (playerShip != null) return false  // wielder on a *different* ship
-            }
-            // VS2 ship blocks live in the level's chunk map at shipyard coords, so the
-            // same hasChunkAtPos call covers both world and ship targets.
-            return level.hasChunkAtPos(targetPos)
-        }
+        /** The staff reaches a target while its chunk is server-loaded, so its range is the loaded area. */
+        private fun isReachable(level: Level, targetPos: BlockPos): Boolean =
+            // VS2 ship blocks live in the level's chunk map at shipyard coords: one check covers world and ship targets.
+            level.hasChunkAtPos(targetPos)
 
         private val BEAM_COLOR = Vector3f(1.0f, 0.15f, 0.15f)
         private val DUST_BEAM = DustParticleOptions(BEAM_COLOR, 0.7f)
