@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.phys.Vec3
+import net.minecraft.world.phys.shapes.CollisionContext
 import org.joml.Vector3dc
 import java.util.Locale
 
@@ -71,7 +72,7 @@ internal object ConstriliarDebugLog {
             cursor.set(x, baseY + dy, z)
             val state = level.getBlockState(cursor)
             val fluid = !state.fluidState.isEmpty
-            if (fluid || (!state.getCollisionShape(level, cursor).isEmpty && !ConstriliarCollision.shipPassable(state))) {
+            if (fluid || !ConstriliarCollision.supportShape(level, cursor, state, CollisionContext.empty()).isEmpty) {
                 val n = if (dy >= 0) "+$dy" else "$dy"
                 return if (fluid) "$n~" else "$n "
             }

@@ -566,6 +566,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         moveClaim = null
         orderPlanned = false
         orderGaveUp = false
+        routeSpentSince = ConstriliarOrderArrival.NOT_SPENT
         surfaceNav.resetStalls()
         spotHeld = false
         arrivalCheered = false
@@ -669,6 +670,15 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private var deckTick = -1
     private var deckId = -1L
 
+    /** The walker stands on any face of ship [shipId]: its deck below, or [STANCE_ON_SHIP] planted feet on the
+     *  ship's floor, wall or ceiling. One foot on a hull beside the world ground does not count. */
+    internal fun standsOnShip(shipId: Long): Boolean {
+        if (deckShipId() == shipId) return true
+        var feet = 0
+        for (leg in 0..3) if (serverGait.pinnedShip(leg) == shipId) feet++
+        return feet >= STANCE_ON_SHIP
+    }
+
     internal fun lastGoalHoldsWork(): Boolean =
         !hasBackShip() || ConstriliarSurfaceNavigator.workSpotFooting(surfaceNav.lastGoalStance)
 
@@ -683,8 +693,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
 
     /**
      * True when the go-to order cannot finish: the route search proved the walker trapped, the whole route is
-     * walked and its goal is no arrival at the spot, no node near the spot fits the body, or the body stalls in one
-     * place on a found route. Once true it stays true for this order, so it fails once.
+     * walked and its goal or the body is no arrival at the spot, no node near the spot fits the body, or the body
+     * stalls in one place on a found route. Once true it stays true for this order, so it fails once.
      */
     fun orderFailed(): Boolean {
         val t = commandedTarget ?: return false
@@ -714,7 +724,27 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         val centre = surfaceNav.nodeWorldCenter(level, end)
         val up = surfaceNav.nodeWorldUp(level, end, goalUpScratch)
         val drop = if (commandedFace == null) HALF_BLOCK else HALF_BLOCK - BODY_LIFT
-        return arrivedFrom(Vec3(centre.x - up.x * drop, centre.y - up.y * drop, centre.z - up.z * drop), t)
+        if (!arrivedFrom(Vec3(centre.x - up.x * drop, centre.y - up.y * drop, centre.z - up.z * drop), t)) return false
+        // The node advance is looser than arrival: a body riding a block over its goal node used up the route,
+        // stood still and never settled the order.
+        return !ConstriliarOrderArrival.spentRouteFails(routeSpentSince, level.gameTime)
+    }
+
+    /** Game time the whole route ran out with the body still off the spot, or [ConstriliarOrderArrival.NOT_SPENT]. */
+    private var routeSpentSince = ConstriliarOrderArrival.NOT_SPENT
+
+    internal fun routeSpentShort(): Boolean = routeSpentSince != ConstriliarOrderArrival.NOT_SPENT
+
+    // Sampled once a tick right after the route advance, so the empty-to-used-up blip of a re-plan is never seen.
+    private fun noteRouteSpent(now: Long) {
+        val t = commandedTarget
+        val spent = t != null && surfaceNav.routeWhole && surfaceNav.routeEnd() != null &&
+            !surfaceNav.isInProgress() && !surfaceNav.isSearching() && !arrivedAtPeek(t)
+        routeSpentSince = when {
+            !spent -> ConstriliarOrderArrival.NOT_SPENT
+            routeSpentSince == ConstriliarOrderArrival.NOT_SPENT -> now
+            else -> routeSpentSince
+        }
     }
 
     private val goalUpScratch = Vector3d()
@@ -2046,6 +2076,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
             val bodyUp = loaded.transform.shipToWorldRotation.transform(bodyUpScratch.set(0.0, 1.0, 0.0))
             surfaceNav.tickFollow(level, position(), bodyUp, transitioning, serverGait.reachPending)
         }
+        noteRouteSpent(level.gameTime)
         reachAhead(level)
         if (node == null) {
             pathUpActive = false
@@ -3307,16 +3338,8 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
     private var spotHeld = false
 
     /** [arrivedAt] for a body at [p]: its position for a plain order, its plate centre for a faced one. */
-    private fun arrivedFrom(p: Vec3, t: Vec3, slack: Double = 0.0): Boolean {
-        val face = commandedFace ?: return p.distanceToSqr(t) <= (COMMAND_ARRIVE + slack) * (COMMAND_ARRIVE + slack)
-        val along = ARRIVE_ALONG + slack
-        val dx = p.x - t.x
-        val dy = p.y - t.y
-        val dz = p.z - t.z
-        val out = dx * face.stepX + dy * face.stepY + dz * face.stepZ
-        if (out < -slack || out > ARRIVE_FACE_OUT + slack) return false
-        return dx * dx + dy * dy + dz * dz - out * out <= along * along
-    }
+    private fun arrivedFrom(p: Vec3, t: Vec3, slack: Double = 0.0): Boolean =
+        ConstriliarOrderArrival.arrived(p.x, p.y, p.z, t.x, t.y, t.z, commandedFace, slack)
 
     private inner class FollowOwnerGoal : Goal() {
         init {
@@ -3380,16 +3403,13 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         private const val SIT_TURN_SPEED = 8f
         /** Covers a 180° turn inside the rise + crouch window (~10 ticks). */
         private const val INTRO_TURN_SPEED = 20f
-        private const val COMMAND_ARRIVE = 1.25
+        private const val COMMAND_ARRIVE = ConstriliarOrderArrival.RADIUS
         private const val COMMAND_ARRIVE_SQ = COMMAND_ARRIVE * COMMAND_ARRIVE
 
         /** Route stalls in one place before a go-to order fails: the body cannot follow the route it found. */
         private const val ORDER_STALLS_IN_PLACE = 3
         /** How far (blocks) past the arrival radius a body that arrived may sway before it counts as displaced. */
         private const val ARRIVE_HOLD_SLACK = 0.5
-        /** Arrival at a face order: how far out from the face, and how far along it. */
-        private const val ARRIVE_FACE_OUT = 1.5
-        private const val ARRIVE_ALONG = 1.25
         /** Boid separation: neighbour radius (blocks), per-tick velocity nudge, and the
          *  golden angle for breaking exact-overlap ties. The radius is two foot spans,
          *  so the feet of two walkers do not overlap. */
@@ -3595,6 +3615,7 @@ class ConstriliarEntity(type: EntityType<out ConstriliarEntity>, level: Level) :
         private const val SUPPORT_SLOW_ONE = 0.5
         private const val JUMP_MIN_STANCE = 2
         private const val CLIMB_MIN_STANCE = 2
+        private const val STANCE_ON_SHIP = 2
         /** Idle contact within ~60° of the last path face keeps that face. */
         private const val IDLE_KEEP_DOT = 0.5
         private const val RECOVER_TICKS = 60

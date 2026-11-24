@@ -224,6 +224,9 @@ internal object ConstriliarMoveLog {
                 "the body stalled ${nav.stallsInPlace}x in one place on its route (route dropped, plan ${planName(nav.planResult)}); " +
                     "last stall: ${nav.lastStallSummary ?: "-"}"
             nav.routeEnd() == null -> "no route: ${planName(nav.planResult)} (h=${walker.navShape().height})"
+            walker.routeSpentShort() -> "the whole route to ${nav.routeEnd()?.pos?.toShortString()} is walked, but " +
+                "the body at ${String.format(Locale.ROOT, "(%.2f, %.2f, %.2f)", walker.x, walker.y, walker.z)} " +
+                "stayed off the spot for ${ConstriliarOrderArrival.SPENT_GRACE_TICKS} ticks"
             nav.routeWhole -> "the whole route ends at ${nav.routeEnd()?.pos?.toShortString()}, the nearest node the " +
                 "whole body fits (h=${walker.navShape().height}); the spot is out of its reach (${spotReject(walker)})"
             else -> "no route and no search left"

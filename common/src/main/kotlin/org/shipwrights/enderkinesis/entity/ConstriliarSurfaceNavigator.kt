@@ -55,7 +55,7 @@ class ConstriliarSurfaceNavigator internal constructor(private val blocks: Block
         override fun loaded(level: Level, pos: BlockPos): Boolean = level.blockLoaded(pos)
         override fun state(level: Level, pos: BlockPos): BlockState = level.getBlockState(pos)
         override fun shape(level: Level, pos: BlockPos, state: BlockState): VoxelShape =
-            ConstriliarCollision.shipShape(level, pos, state)
+            ConstriliarCollision.supportShape(level, pos, state)
     }
 
     /** [face] points from the air cell toward its supporting solid block. */

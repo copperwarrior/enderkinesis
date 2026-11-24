@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.entity
 import net.minecraft.SharedConstants
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.Bootstrap
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.SlabBlock
@@ -252,6 +253,44 @@ class NavigatorShapesTest {
                 assertRoute(world, nav, ground, node)
             }
         }
+    }
+
+    /** Tagged constriliar_climbable: the body passes through them, but the legs hold them as full cubes. */
+    @TestFactory
+    fun climbables(): List<DynamicTest> {
+        val tests = mutableListOf(
+            DynamicTest.dynamicTest("the climbable tag holds scaffolding and every leaf") {
+                assertTrue(NavigatorTestWorld.isClimbable(Blocks.SCAFFOLDING.defaultBlockState())) { "no scaffolding" }
+                assertTrue(NavigatorTestWorld.isClimbable(Blocks.OAK_LEAVES.defaultBlockState())) { "no oak leaves" }
+                assertTrue(ResourceLocation("enderkinesis", "wogor_leaves") in NavigatorTestWorld.climbableIds) { "no wogor leaves" }
+            },
+        )
+        val materials = listOf("scaffolding" to Blocks.SCAFFOLDING.defaultBlockState(), "leaves" to Blocks.OAK_LEAVES.defaultBlockState())
+        for ((name, state) in materials) {
+            val column = { w: NavigatorTestWorld -> w.fill(0, 0, 1, 6, 0, 0, state) }
+            val layer = { w: NavigatorTestWorld -> w.fill(-24, 24, 1, 1, -2, 6, state) }
+            val wall = { w: NavigatorTestWorld -> w.fill(-24, 24, 1, 5, 0, 0, state) }
+            listOf(
+                Case("$name column: face", ground, n(0, 3, -1, Direction.SOUTH)) { column(this) },
+                Case("$name column: climb to the top", ground, n(0, 7, 0)) { column(this) },
+                Case("$name column: top down to the ground", n(0, 7, 0), ground) { column(this) },
+                Case("$name layer: stand on it", ground, n(0, 2, 2)) { layer(this) },
+                Case("$name layer: walk across the top", n(0, 2, -2), n(0, 2, 6)) { layer(this) },
+                Case("$name layer: over to the far ground", ground, n(0, 1, 9)) { layer(this) },
+                Case("$name wall: over to the far ground", ground, n(0, 1, 3)) { wall(this) },
+            ).mapTo(tests) { case ->
+                DynamicTest.dynamicTest(case.name) {
+                    NavigatorTestWorld().use { world ->
+                        case.build(world)
+                        assertRoute(world, world.navigator(*case.load), case.start, case.goal)
+                        val route = world.navigator(*case.load).planForTest(world.level, case.start, case.goal)
+                        val inside = route.filter { NavigatorTestWorld.isClimbable(world.stateAt(it.pos)) }
+                        assertTrue(inside.isEmpty()) { "route goes through $name at ${inside.joinToString(" ") { fmt(it) }}" }
+                    }
+                }
+            }
+        }
+        return tests
     }
 
     @TestFactory

@@ -340,7 +340,8 @@ class ConstriliarServerGait {
             val k = BURY_PROBE / len
             buryCursor.set(Mth.floor(a.x + dx * k), Mth.floor(a.y + dy * k), Mth.floor(a.z + dz * k))
             if (!level.isLoaded(buryCursor)) continue
-            buried[i] = level.getBlockState(buryCursor).isCollisionShapeFullBlock(level, buryCursor)
+            val state = level.getBlockState(buryCursor)
+            buried[i] = state.isCollisionShapeFullBlock(level, buryCursor) || state.isConstriliarClimbable()
         }
     }
 

@@ -12,9 +12,12 @@ import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.level.BlockGetter
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.LeavesBlock
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.phys.shapes.Shapes
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.shipwrights.enderkinesis.entity.ConstriliarSurfaceNavigator.Node
+import org.shipwrights.enderkinesis.util.classpathBlockTag
 
 /** An in-memory block world: the real planner reads it through its block seam. Each world has its own
  *  mocked [Level], for the game time and path sharing only; [close] releases both. */
@@ -39,7 +42,7 @@ internal class NavigatorTestWorld(private val groundTop: Int = 0, private val gr
 
     override fun state(level: Level, pos: BlockPos): BlockState = stateAt(pos)
 
-    override fun shape(level: Level, pos: BlockPos, state: BlockState): VoxelShape = vanillaShape(level, pos, state)
+    override fun shape(level: Level, pos: BlockPos, state: BlockState): VoxelShape = supportShape(level, pos, state)
 
     fun stateAt(pos: BlockPos): BlockState = blocks.get(pos.asLong()) ?: when {
         groundTop == NO_GROUND -> AIR
@@ -94,10 +97,19 @@ internal class NavigatorTestWorld(private val groundTop: Int = 0, private val gr
             Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST, Direction.UP,
         )
 
-        // Mirrors ConstriliarCollision.shipShape; that object needs the VS2 mixin accessors.
+        val climbableIds by lazy { classpathBlockTag(CONSTRILIAR_CLIMBABLE.location) }
+
+        fun isClimbable(state: BlockState): Boolean = BuiltInRegistries.BLOCK.getKey(state.block) in climbableIds
+
+        // Mirrors ConstriliarCollision.supportShape; that object needs the VS2 mixin accessors.
+        // VS2's vs_mass natural/tree.json gives #minecraft:leaves no_collision.
         @Suppress("DEPRECATION") // VS2 uses BlockState.isSolid; 1.20.1 has no replacement.
-        fun vanillaShape(level: BlockGetter, pos: BlockPos, state: BlockState): VoxelShape =
-            if (state.isSolid) state.getShape(level, pos) else state.getCollisionShape(level, pos)
+        fun supportShape(level: BlockGetter, pos: BlockPos, state: BlockState): VoxelShape = when {
+            isClimbable(state) -> Shapes.block()
+            state.block is LeavesBlock -> Shapes.empty()
+            state.isSolid -> state.getShape(level, pos)
+            else -> state.getCollisionShape(level, pos)
+        }
 
         /** Mod blocks have no registry in tests: bars and chains map to the vanilla ones, the rest to stone. */
         private fun parse(text: String): BlockState {

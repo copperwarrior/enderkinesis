@@ -53,7 +53,7 @@ object ConstriliarSurfaceField {
      *  normal up to ~17° on a flat floor at a 0.2-block sample height. The distances
      *  stay per-block, so thresholds tuned on them keep their meaning.
      *
-     *  [physicsOnly]: skip blocks a VS2 body passes through (see [ConstriliarCollision]). */
+     *  [physicsOnly]: the walker's support shapes (see [ConstriliarCollision.supportShape]). */
     fun sample(
         level: Level,
         entity: Entity?,
@@ -213,8 +213,8 @@ object ConstriliarSurfaceField {
     }
 
     /** The collision boxes in [area] into [out], through [map] when given. With
-     *  [physicsOnly], blocks a VS2 body passes through are skipped; that needs the block
-     *  state, which [Level.getBlockCollisions] does not give. */
+     *  [physicsOnly], the walker's support shapes; they need the block state, which
+     *  [Level.getBlockCollisions] does not give. */
     private fun addCollisions(
         level: Level,
         entity: Entity?,
@@ -240,8 +240,8 @@ object ConstriliarSurfaceField {
         )) {
             if (!level.hasChunkAtPos(pos)) continue
             val state = level.getBlockState(pos)
-            if (state.isAir || ConstriliarCollision.shipPassable(state)) continue
-            val shape = state.getCollisionShape(level, pos, context)
+            if (state.isAir) continue
+            val shape = ConstriliarCollision.supportShape(level, pos, state, context)
             if (shape.isEmpty) continue
             for (local in shape.toAabbs()) {
                 val box = local.move(pos)
