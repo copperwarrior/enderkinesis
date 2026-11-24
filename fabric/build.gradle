@@ -9,12 +9,56 @@ architectury {
     fabric()
 }
 
+evaluationDependsOn(":common")
+
+// Dev-client conveniences, by Modrinth module and version. The GameTest run leaves them out:
+// Distant Horizons casts the server to DedicatedServer and crashes the GameTest server.
+def devOnlyMods = [
+        "natures-compass"  : "1.20.1-2.6.0-fabric",
+        "explorers-compass": "1.20.1-2.6.0-fabric",
+        // Dev-only: test Enderkinesis' DH compat (compat/distanthorizons) in the dev client.
+        "distanthorizons"  : "3.3.3-1.20.1",
+]
+
+sourceSets {
+    // Only the GameTest mod's fabric.mod.json and template; the test classes are common's gametest source set.
+    gametest {
+        runtimeClasspath += main.runtimeClasspath.filter { jar -> !devOnlyMods.any { name, version -> jar.name == "${name}-${version}.jar" } } +
+                project(":common").sourceSets.gametest.output
+    }
+}
+
 loom {
     accessWidenerPath = project(":common").loom.accessWidenerPath
     runs {
         client {
             // Fixed offline user keeps the player UUID stable across dev runs.
             programArgs "--username", "Dev", "--uuid", "380df991-f603-344c-a090-369bad2a924a"
+        }
+        // ./gradlew :fabric:runGametest runs every GameTest on a headless server and exits non-zero on a failure.
+        gametest {
+            server()
+            name "GameTest"
+            vmArg "-Dfabric-api.gametest"
+            vmArg "-Dfabric-api.gametest.report-file=${project.layout.buildDirectory.file('gametest/junit.xml').get().asFile}"
+            runDir "build/gametest"
+            source sourceSets.gametest
+        }
+    }
+}
+
+// Each run starts on a new world, so no build job or ship of an earlier run is loaded.
+// The server exits 0 when it finds no test, so a report without the ship test fails the task.
+tasks.matching { it.name == "runGametest" }.configureEach {
+    def report = layout.buildDirectory.file("gametest/junit.xml")
+    doFirst {
+        delete(layout.buildDirectory.dir("gametest/world"))
+        delete(report)
+    }
+    doLast {
+        def xml = report.get().asFile
+        if (!xml.exists() || !xml.text.contains("constriliarshipbuildgametest.buildsroamingendship")) {
+            throw new GradleException("GameTest report ${xml} does not list the Constriliar ship build test")
         }
     }
 }
@@ -85,10 +129,7 @@ dependencies {
     implementation("org.joml:joml-primitives:1.10.0")
     implementation("org.joml:joml:1.10.4")
 
-    modRuntimeOnly("maven.modrinth:natures-compass:1.20.1-2.6.0-fabric")
-    modRuntimeOnly("maven.modrinth:explorers-compass:1.20.1-2.6.0-fabric")
-    // Dev-only: test Enderkinesis' DH compat (compat/distanthorizons) in the dev client.
-    modRuntimeOnly("maven.modrinth:distanthorizons:3.3.3-1.20.1")
+    devOnlyMods.each { name, version -> modRuntimeOnly("maven.modrinth:${name}:${version}") }
 
     // Trinkets API — accessory-slot mod (Fabric). Compile-time only; the robe armor's
     // combined-score calc plugs in via `AccessoryGatherer` at runtime if loaded.

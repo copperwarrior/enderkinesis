@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "enderkinesis_gametest",
+  "version": "1.0.0",
+  "name": "Enderkinesis GameTests",
+  "license": "Apache-2.0",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": [
+      "org.shipwrights.enderkinesis.gametest.ConstriliarShipBuildGameTest"
+    ]
+  },
+  "depends": {
+    "enderkinesis": "*",
+    "fabric-gametest-api-v1": "*"
+  },
+  "mixins": [
+    "enderkinesis_gametest.mixins.json"
+  ]
+}
