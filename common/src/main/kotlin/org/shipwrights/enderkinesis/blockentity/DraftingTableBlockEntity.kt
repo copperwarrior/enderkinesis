@@ -32,6 +32,9 @@ class DraftingTableBlockEntity(pos: BlockPos, state: BlockState) :
         private set
     var placement: TablePlacement = TablePlacement.NONE
         private set
+    /** Ghost display only: draw just the cells that can be placed now. Synced to clients. */
+    var buildableOnly: Boolean = false
+        private set
     private var anchorCache: PlanAnchor? = null
     private var suppliesTick = -1L
     private var suppliesCount = 0
@@ -61,6 +64,11 @@ class DraftingTableBlockEntity(pos: BlockPos, state: BlockState) :
     fun hold(plan: PlanRef?, placement: TablePlacement) {
         this.plan = plan
         this.placement = placement
+        changed()
+    }
+
+    fun setBuildableOnly(value: Boolean) {
+        buildableOnly = value
         changed()
     }
 
@@ -95,6 +103,7 @@ class DraftingTableBlockEntity(pos: BlockPos, state: BlockState) :
         if (tag.hasUUID(TABLE_ID)) tableId = tag.getUUID(TABLE_ID)
         plan = if (tag.contains(PLAN, Tag.TAG_COMPOUND.toInt())) tag.getCompound(PLAN).toPlanRef() else null
         placement = tag.getCompound(PLACEMENT).toTablePlacement()
+        buildableOnly = tag.getBoolean(BUILDABLE_ONLY)
         anchorCache = null
         // A move that loads the saved data into a placed table sets the level first.
         if (level?.isClientSide == false) rebind()
@@ -111,6 +120,7 @@ class DraftingTableBlockEntity(pos: BlockPos, state: BlockState) :
         tag.putUUID(TABLE_ID, tableId)
         plan?.let { tag.put(PLAN, it.toTag()) }
         tag.put(PLACEMENT, placement.toTag())
+        tag.putBoolean(BUILDABLE_ONLY, buildableOnly)
     }
 
     override fun getUpdatePacket(): Packet<ClientGamePacketListener> = ClientboundBlockEntityDataPacket.create(this)
@@ -121,6 +131,7 @@ class DraftingTableBlockEntity(pos: BlockPos, state: BlockState) :
         const val TABLE_ID = "TableId"
         const val PLAN = "Plan"
         const val PLACEMENT = "Placement"
+        const val BUILDABLE_ONLY = "BuildableOnly"
     }
 }
 

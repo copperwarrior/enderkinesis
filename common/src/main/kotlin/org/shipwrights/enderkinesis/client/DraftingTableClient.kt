@@ -46,6 +46,8 @@ object DraftingTableClient {
                         onPick = { choose(view.pos, it) },
                         // A table with a plan goes on to its screen, so Build is one click away.
                         onCancel = { if (view.plan != null) Minecraft.getInstance().setScreen(DraftingTableScreen(view)) },
+                        shipSize = view.shipSize,
+                        onCapture = { captureShip(view.pos, it) },
                     ),
                 )
             }
@@ -71,6 +73,10 @@ object DraftingTableClient {
         DraftingTableNetwork.send(DraftingTableNetwork.PLACE, table) { it.writeTablePlacement(placement) }
 
     fun build(table: BlockPos) = DraftingTableNetwork.send(DraftingTableNetwork.BUILD, table)
+
+    fun recruit(table: BlockPos) = DraftingTableNetwork.send(DraftingTableNetwork.RECRUIT, table)
+
+    fun toggleBuildable(table: BlockPos) = DraftingTableNetwork.send(DraftingTableNetwork.TOGGLE_BUILDABLE, table)
 
     fun stop(table: BlockPos) = DraftingTableNetwork.send(DraftingTableNetwork.STOP, table)
 

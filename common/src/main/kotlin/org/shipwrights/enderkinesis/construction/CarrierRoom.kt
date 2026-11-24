@@ -10,10 +10,17 @@ internal fun interface BodyRoom {
     fun fits(x: Int, y: Int, z: Int): Boolean
 }
 
-/** Whether a body base at (x, y, z) is out of the plan: past its footprint or over its top. */
+/** Whether a body base at (x, y, z) is out of the plan: see [planLayerOut]. */
 internal fun interface OutOfPlan {
     fun out(x: Int, y: Int, z: Int): Boolean
 }
+
+/** [planLayerOut] bottom of a ground build: its base stands on the ground, so no base is under it. */
+const val GROUND_PLAN_BOTTOM = Int.MIN_VALUE
+
+/** A base on plan layer [y] is out of the plan: past its footprint, over [topY], or under [bottomY]. */
+internal fun planLayerOut(y: Int, inFootprint: Boolean, topY: Int, bottomY: Int): Boolean =
+    y > topY || y < bottomY || !inFootprint
 
 /** A cell between two carriers' stand floors: a leg cell for each body. */
 const val STAND_GAP = 2

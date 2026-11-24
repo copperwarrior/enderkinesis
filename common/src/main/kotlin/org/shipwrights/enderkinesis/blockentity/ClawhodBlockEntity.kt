@@ -23,7 +23,6 @@ import org.shipwrights.enderkinesis.construction.ClawhodWorker
 import org.shipwrights.enderkinesis.construction.HAND_SLOTS
 import org.shipwrights.enderkinesis.construction.HandMotion
 import org.shipwrights.enderkinesis.construction.NO_POS
-import org.shipwrights.enderkinesis.construction.commandClawhodBuild
 import org.shipwrights.enderkinesis.construction.isClawhodTool
 import org.shipwrights.enderkinesis.registry.EKBlockEntities
 import org.valkyrienskies.core.api.ships.Ship
@@ -130,9 +129,8 @@ class ClawhodBlockEntity(pos: BlockPos, state: BlockState) :
         return out
     }
 
-    override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
-        if (level is ServerLevel) commandClawhodBuild(player, this)
-    }
+    // A drafting table recruits Clawhods itself; the staff right-click has no action here.
+    override fun executeStaffCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) = Unit
 
     override fun executeAimCommand(player: Player, hostShip: Ship?, contextStack: ItemStack) {
         val level = level as? ServerLevel ?: return

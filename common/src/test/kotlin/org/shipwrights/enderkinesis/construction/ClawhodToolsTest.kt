@@ -92,6 +92,16 @@ class ClawhodToolsTest {
     }
 
     @Test
+    fun `an instant block needs no tool and is taken in any pass`() {
+        val grass = Blocks.GRASS.defaultBlockState()
+        needsNoTool(grass) shouldBe true
+        needsNoTool(Blocks.DIRT.defaultBlockState()) shouldBe false
+        val passes = ToolPasses()
+        passes.takes(ItemStack(Items.IRON_AXE), grass) shouldBe true
+        passes.otherCount shouldBe 0
+    }
+
+    @Test
     fun `a rest pass cuts with a pickaxe but leaves other tools' misfits to bare hands`() {
         restCuts(ItemStack(Items.IRON_PICKAXE), Blocks.OAK_LOG.defaultBlockState()) shouldBe true
         restCuts(ItemStack(Items.SHEARS), Blocks.STONE.defaultBlockState()) shouldBe false

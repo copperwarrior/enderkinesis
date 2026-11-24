@@ -1,6 +1,5 @@
 package org.shipwrights.enderkinesis.construction
 
-import com.google.gson.JsonParser
 import io.kotest.matchers.shouldBe
 import net.minecraft.SharedConstants
 import net.minecraft.core.BlockPos
@@ -26,13 +25,10 @@ import net.minecraft.world.level.block.state.properties.SlabType
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.shipwrights.enderkinesis.util.classpathBlockTag
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ClearRulesTest {
-    private companion object {
-        const val TAG_DEPTH = 8
-    }
-
     @BeforeAll
     fun bootstrap() {
         SharedConstants.tryDetectVersion()
@@ -43,23 +39,7 @@ class ClearRulesTest {
     private val air = Blocks.AIR.defaultBlockState()
     private val stairs = Blocks.OAK_STAIRS.defaultBlockState()
 
-    // Bootstrap binds no tags, so the test merges every copy of the tag on the classpath, as a data load does.
-    private val dirtIds: Set<ResourceLocation> by lazy { blockTag(ResourceLocation("minecraft", "dirt"), TAG_DEPTH) }
-
-    private fun blockTag(tag: ResourceLocation, depth: Int): Set<ResourceLocation> {
-        check(depth > 0) { "tag nesting too deep at $tag" }
-        val ids = HashSet<ResourceLocation>()
-        val copies = javaClass.classLoader.getResources("data/${tag.namespace}/tags/blocks/${tag.path}.json")
-        for (url in copies) {
-            val json = url.openStream().reader().use { JsonParser.parseReader(it).asJsonObject }
-            if (json.get("replace")?.asBoolean == true) ids.clear()
-            for (value in json.getAsJsonArray("values")) {
-                val id = if (value.isJsonObject) value.asJsonObject.get("id").asString else value.asString
-                if (id.startsWith("#")) ids += blockTag(ResourceLocation(id.substring(1)), depth - 1) else ids += ResourceLocation(id)
-            }
-        }
-        return ids
-    }
+    private val dirtIds: Set<ResourceLocation> by lazy { classpathBlockTag(ResourceLocation("minecraft", "dirt")) }
 
     private fun matches(plan: Block, world: Block) =
         planMatches(plan.defaultBlockState(), world.defaultBlockState()) { BuiltInRegistries.BLOCK.getKey(it.block) in dirtIds }

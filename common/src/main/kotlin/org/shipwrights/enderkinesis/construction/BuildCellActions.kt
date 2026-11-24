@@ -63,9 +63,9 @@ private fun BuildJob.placeCell(
         say(worker, WorkerWhy.CANNOT_STAND) { "${BuildLog.blockName(task.state)} at ${pos.toShortString()} cannot stand yet; deferred" }
         return blockCell(s, cell, task, worker, CellStatus.DEFERRED)
     }
-    if (worker.heldBlock() != clawhodBlockOf(cost.stack()) || worker.heldCount() < cost.count) {
+    if (!worker.holdsAll(cost)) {
         say(worker, WorkerWhy.HELD_MISMATCH) {
-            "worker holds ${worker.heldBlock()} x${worker.heldCount()}, the cell needs ${cost.count} ${BuildLog.itemName(cost.item)}; cell dropped"
+            "worker holds ${worker.heldBlock()} x${worker.heldCount()}, the cell needs ${BuildLog.costName(cost)}; cell dropped"
         }
         release(task.cell, worker.workerId)
         return PlaceResult.BLOCKED
@@ -75,12 +75,13 @@ private fun BuildJob.placeCell(
         say(worker, WorkerWhy.ENTITY_IN_CELL) { "an entity stands in ${pos.toShortString()}; deferred to a later pass" }
         return blockCell(s, cell, task, worker, CellStatus.DEFERRED)
     }
+    checkPaid(task.state, cost)
     // A protection mod can refuse the place; the worker then keeps the block.
     if (!level.setBlock(pos, task.state, PLACE_FLAGS)) {
         say(worker, WorkerWhy.SET_BLOCK_FAILED) { "setBlock refused at ${pos.toShortString()} (a mod cancelled the place)" }
         return blockCell(s, cell, task, worker, CellStatus.BLOCKED)
     }
-    worker.takeMany(cost.count)
+    worker.takeAll(cost)
     if (s.partnerPos[cell] != NO_POS) task.state.block.setPlacedBy(level, pos, task.state, actor, cost.stack())
     readPower(level, pos)
     placeEffects(level, pos, task.state)
@@ -89,6 +90,15 @@ private fun BuildJob.placeCell(
     s.stalled = false
     release(task.cell, worker.workerId)
     return PlaceResult.PLACED
+}
+
+private fun BuildWorker.holdsAll(cost: PlanCost.Items): Boolean {
+    for (i in 0 until cost.size) if (countOf(cost.itemAt(i)) < cost.countAt(i)) return false
+    return true
+}
+
+private fun BuildWorker.takeAll(cost: PlanCost.Items) {
+    for (i in 0 until cost.size) take(cost.itemAt(i), cost.countAt(i))
 }
 
 /** Turns the right block to its plan state, at no cost. */

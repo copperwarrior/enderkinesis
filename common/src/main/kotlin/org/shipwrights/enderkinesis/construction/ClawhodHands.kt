@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.construction
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.world.item.Item
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 import net.minecraft.world.level.block.Block
@@ -64,11 +65,26 @@ internal fun handBlock(slots: List<ItemStack>): Block? {
 }
 
 /** How many of [block] the hand holds in all its slots. */
-internal fun handCount(slots: List<ItemStack>, block: Block): Int {
-    val item = block.asItem()
+internal fun handCount(slots: List<ItemStack>, block: Block): Int = handCount(slots, block.asItem())
+
+/** How many plain (untagged) [item] the hand holds in all its slots. */
+internal fun handCount(slots: List<ItemStack>, item: Item): Int {
     var n = 0
     for (slot in slots) if (slot.`is`(item) && !slot.hasTag()) n += slot.count
     return n
+}
+
+/** How many more plain [item] fit in the slots, with no stack made: room on its stacks, then empty slots. */
+internal fun handRoomFor(slots: List<ItemStack>, item: Item): Int {
+    var room = 0
+    for (slot in slots) {
+        room += when {
+            slot.isEmpty -> item.maxStackSize
+            slot.`is`(item) && !slot.hasTag() -> (slot.maxStackSize - slot.count).coerceAtLeast(0)
+            else -> 0
+        }
+    }
+    return room
 }
 
 /**
@@ -86,10 +102,11 @@ internal fun handRoom(slots: List<ItemStack>, block: Block): Int {
 /** True when the hand holds anything other than a tool: the tool stays in the hand through unloads. */
 internal fun handHasItems(slots: List<ItemStack>): Boolean = slots.any { !it.isEmpty && !isClawhodTool(it) }
 
-/** Takes [count] of [block] out of the slots, from the last slot first. Returns how many it took. */
-internal fun handTake(slots: MutableList<ItemStack>, block: Block, count: Int): Int {
+internal fun handTake(slots: MutableList<ItemStack>, block: Block, count: Int): Int = handTake(slots, block.asItem(), count)
+
+/** Takes [count] plain [item] out of the slots, from the last slot first. Returns how many it took. */
+internal fun handTake(slots: MutableList<ItemStack>, item: Item, count: Int): Int {
     require(count >= 0) { "Count must not be negative: $count" }
-    val item = block.asItem()
     var left = count
     for (i in slots.indices.reversed()) {
         if (left == 0) break

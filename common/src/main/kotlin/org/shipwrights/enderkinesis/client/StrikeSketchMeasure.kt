@@ -16,7 +16,7 @@ internal class StrikeSketchMeasure(
     val anchors: FloatArray,
 ) {
     companion object {
-        private const val LUMINANCE_LEVELS = 256
+        internal const val LUMINANCE_LEVELS = 256
         private const val COVERED_ALPHA = 128
         private const val TONE_LOW_PERCENTILE = 0.05f
         private const val TONE_HIGH_PERCENTILE = 0.95f
@@ -43,9 +43,7 @@ internal class StrikeSketchMeasure(
             var high = -1
             for (y in 0 until size) {
                 for (x in 0 until size) {
-                    val pixel = image.getPixelRGBA(x, y)
-                    if (pixel ushr ALPHA_SHIFT < COVERED_ALPHA) continue
-                    counts[luminance(pixel)]++
+                    if (!countTone(counts, image.getPixelRGBA(x, y))) continue
                     covered++
                     if (y < low) low = y
                     if (y > high) high = y
@@ -54,8 +52,8 @@ internal class StrikeSketchMeasure(
             if (covered == 0) return StrikeSketchMeasure(0f, 1f, 0.5f, 0f, 0.5f, FloatArray(0))
             val base = base(image, low, high)
             return StrikeSketchMeasure(
-                percentile(counts, covered * TONE_LOW_PERCENTILE) / CHANNEL_MAX,
-                percentile(counts, covered * TONE_HIGH_PERCENTILE) / CHANNEL_MAX,
+                toneLow(counts, covered),
+                toneHigh(counts, covered),
                 base[0], base[1], base[2],
                 anchors(image),
             )
@@ -122,6 +120,17 @@ internal class StrikeSketchMeasure(
         private fun covered(image: NativeImage, x: Int, y: Int): Boolean =
             x in 0 until image.width && y in 0 until image.height &&
                 image.getPixelRGBA(x, y) ushr ALPHA_SHIFT >= COVERED_ALPHA
+
+        /** Adds a covered [pixel] (ABGR, as NativeImage) to the luminance [counts]; false when it is not covered. */
+        internal fun countTone(counts: IntArray, pixel: Int): Boolean {
+            if (pixel ushr ALPHA_SHIFT < COVERED_ALPHA) return false
+            counts[luminance(pixel)]++
+            return true
+        }
+
+        internal fun toneLow(counts: IntArray, covered: Int): Float = percentile(counts, covered * TONE_LOW_PERCENTILE) / CHANNEL_MAX
+
+        internal fun toneHigh(counts: IntArray, covered: Int): Float = percentile(counts, covered * TONE_HIGH_PERCENTILE) / CHANNEL_MAX
 
         private fun luminance(pixel: Int): Int {
             val red = pixel and CHANNEL_MASK

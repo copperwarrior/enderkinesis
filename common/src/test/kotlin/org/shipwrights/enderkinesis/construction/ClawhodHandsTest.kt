@@ -107,6 +107,24 @@ class ClawhodHandsTest {
     }
 
     @Test
+    fun `a pot hand has room for its plant in the free slot only`() {
+        val h = hand(ItemStack(Items.FLOWER_POT, 1))
+        handRoomFor(h, Items.POPPY) shouldBe 64
+        handRoom(h, Blocks.POPPY) shouldBe 0
+        handRoomFor(hand(ItemStack(Items.FLOWER_POT, 64), ItemStack(Items.FLOWER_POT, 64)), Items.POPPY) shouldBe 0
+    }
+
+    @Test
+    fun `a kit hand counts and takes each item apart`() {
+        val h = hand(ItemStack(Items.FLOWER_POT, 1), ItemStack(Items.POPPY, 1))
+        handCount(h, Items.FLOWER_POT) shouldBe 1
+        handCount(h, Items.POPPY) shouldBe 1
+        handTake(h, Items.POPPY, 1) shouldBe 1
+        handCount(h, Items.FLOWER_POT) shouldBe 1
+        h[1].isEmpty shouldBe true
+    }
+
+    @Test
     fun `work spot offsets give rings one to six, sides first`() {
         WORK_SPOT_OFFSETS.size shouldBe WORK_SPOT_MAX_RINGS * 8 * 2
         (WORK_SPOT_OFFSETS[0] to WORK_SPOT_OFFSETS[1]) shouldBe (0 to -1)

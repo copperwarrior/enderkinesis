@@ -201,6 +201,11 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     private var moveSpot = NO_POS
     private var moveCheckAt = 0L
     private var moveFails = 0
+    /** Move checks in a row with the carrier in one place; the walker can stand still on a route and never fail it. */
+    private var moveStill = 0
+    private var moveLastX = Double.NaN
+    private var moveLastY = Double.NaN
+    private var moveLastZ = Double.NaN
 
     private var carrierShip = NO_SHIP
     private var carrierId: UUID? = null
@@ -390,8 +395,9 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     }
 
     /**
-     * Ends the move to [moveSpot] when the walker arrives, or when it fails on two checks in a row (the route search
-     * proved it trapped, or no route is left); that spot is then skipped. No new move goes out before it ends.
+     * Ends the move to [moveSpot] when the walker arrives, when it fails on two checks in a row (the route search
+     * proved it trapped, or no route is left), or when it stays in one place for [MOVE_STILL_CHECKS] checks; that
+     * spot is then skipped. No new move goes out before it ends.
      */
     private fun checkMove(level: ServerLevel, job: BuildJob) {
         val walker = carrier(level)
@@ -403,14 +409,21 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         }
         if (level.gameTime < moveCheckAt) return
         moveCheckAt = level.gameTime + IDLE_RETRY_TICKS
-        if (!walker.orderFailed()) {
+        val still = walker.distanceToSqr(moveLastX, moveLastY, moveLastZ) < MOVE_STILL_SQ
+        moveLastX = walker.x
+        moveLastY = walker.y
+        moveLastZ = walker.z
+        moveStill = if (still) moveStill + 1 else 0
+        val stalled = moveStill >= MOVE_STILL_CHECKS
+        if (!stalled && !walker.orderFailed()) {
             moveFails = 0
             return
         }
-        if (++moveFails < MOVE_FAIL_CHECKS) return
+        if (!stalled && ++moveFails < MOVE_FAIL_CHECKS) return
         val spot = moveSpot
+        val why = if (stalled) "it stands still" else "trapped or no route"
         say(job, ClawhodWhy.CARRIER_STUCK, BlockPos.getX(spot) xor BlockPos.getZ(spot)) {
-            "the carrier cannot reach ${BlockPos.of(spot).toShortString()} (trapped or no route); the next spot is tried"
+            "the carrier cannot reach ${BlockPos.of(spot).toShortString()} ($why); the next spot is tried"
         }
         moveSpot = NO_POS
         spotFailed = true
@@ -573,6 +586,10 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         h.supply = p.supply
         h.fetchItem = p.fetchItem
         h.fetchCount = p.fetchCount
+        h.extraSupply = p.extraSupply
+        h.extraItem = p.extraItem
+        h.extraCount = p.extraCount
+        h.kitLeg = p.kitLeg
         h.cutChain = false
         // A chained cut flies on from the cell it just cut.
         if (h.stage == Stage.HOME) h.pos.set(gem)
@@ -647,6 +664,8 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             return dropAndReturn(job, h)
         }
         if (isToolItem(item)) return fetchJobTool(level, job, h, item, from, container)
+        // Before depositOthers: the hand keeps the pot or cake that this extra goes into.
+        if (h.kitLeg) return fetchKitExtra(level, job, h, item, from, container)
         if (container != null) depositOthers(h, container, item)
         if (item == Items.BUCKET) {
             val free = h.slots.any { it.isEmpty }
@@ -680,6 +699,50 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             return dropAndReturn(job, h)
         }
         trimToHeld(job, h, h.heldCount())
+        if (h.extraItem != null) startKitLeg(job, h) else goToTask(h)
+    }
+
+    /** Sends [h], which holds the base of a two-item cell, to the supply of the extra. */
+    private fun startKitLeg(job: BuildJob, h: Hand) {
+        val from = h.extraSupply
+        val item = h.extraItem
+        h.extraSupply = null
+        h.extraItem = null
+        if (from == null || item == null || h.tasks.isEmpty()) return goToTask(h)
+        h.supply = from
+        h.fetchItem = item
+        h.fetchCount = h.extraCount
+        h.extraCount = 0
+        h.kitLeg = true
+        job.claimFetch(h.workerId, from, item, h.fetchCount)
+        h.stage = Stage.FETCH
+        fly(h, from)
+    }
+
+    /** Takes the extra of a two-item cell into a free slot, as a bucket goes in: the base block stays held. */
+    private fun fetchKitExtra(level: ServerLevel, job: BuildJob, h: Hand, item: Item, from: BlockPos, container: Container?) {
+        h.kitLeg = false
+        val need = h.fetchCount
+        val stock = container?.countOf(item) ?: 0
+        if (stock == 0) return missAll(level, job, h, item, from)
+        if (stock < need) {
+            say(h, job, ClawhodWhy.SUPPLY_EMPTIED, BuildLog.itemId(item)) {
+                "supply ${from.toShortString()} has $stock ${BuildLog.itemName(item)} left, under the $need needed; picks again"
+            }
+            h.resetIdle()
+            return dropAndReturn(job, h)
+        }
+        // Into the hand first, then out of the supply, so a failed take leaves nothing to drop.
+        val put = if (container != null && h.hasRoomFor(item, need)) pickupInsert(h.slots, ItemStack(item, need), need) else 0
+        if (put < need || container == null || !container.takeItems(item, need)) {
+            if (put > 0) h.take(item, put)
+            say(h, job, ClawhodWhy.FETCH_REFUSED, BuildLog.itemId(item)) {
+                "the hand has no slot for $need ${BuildLog.itemName(item)} beside ${h.heldBlock()}; its cell waits"
+            }
+            h.refusal.refuse(item, job.supplyEpoch, h.heldBlock(), h.heldCount())
+            return dropAndReturn(job, h)
+        }
+        be.handsChanged()
         goToTask(h)
     }
 
@@ -866,7 +929,8 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     private fun scoop(level: ServerLevel, job: BuildJob, h: Hand, t: BuildTask) {
         val slots = h.slots
         val i = slots.indexOfFirst { it.`is`(Items.BUCKET) }
-        if (i < 0) {
+        // The filled bucket needs the emptied slot or a free one, or it would have to drop.
+        if (i < 0 || (slots[i].count > 1 && slots.none { it.isEmpty })) {
             job.release(t.cell, h.workerId)
             return
         }
@@ -949,10 +1013,9 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         fly(h, to)
     }
 
-    /** A supply in reach with room for the hand's first stack, one that holds it first; else the first in reach. */
+    /** A supply in reach with room for the hand's first stack, one that holds it first; null when none has room. */
     private fun unloadTarget(level: ServerLevel, job: BuildJob, h: Hand): BlockPos? {
         val first = h.firstCargo() ?: return null
-        var any: BlockPos? = null
         var roomy: BlockPos? = null
         for (pos in job.supplies) {
             if (!level.isLoaded(pos) || !reaches(pos.asLong())) continue
@@ -961,28 +1024,27 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
                 if (container.holdsSame(first)) return pos
                 if (roomy == null) roomy = pos
             }
-            if (any == null) any = pos
         }
-        return roomy ?: any
+        return roomy
     }
 
-    // What fits in no supply in reach drops at the supply, as the user asked.
+    // The user's rule: carried items never drop. What no supply in reach takes (full, or the carrier walked the
+    // supply away) stays in the hand, and startUnload tries another supply or waits and asks the carrier to move.
     private fun unloadAt(level: ServerLevel, job: BuildJob, h: Hand) {
         val at = h.supply ?: return flyHome(h)
         val slots = h.slots
+        var kept: ItemStack? = null
         for (i in slots.indices) {
             if (!h.isCargo(i)) continue
-            val stack = depositInReach(job, slots[i])
-            if (!stack.isEmpty) {
-                say(h, job, ClawhodWhy.SUPPLY_FULL, BuildLog.itemId(stack.item)) {
-                    "${stack.count} ${BuildLog.itemName(stack.item)} fit in no supply in reach; dropped at ${at.toShortString()}"
-                }
-                Block.popResource(level, at.above(), stack)
-            }
-            slots[i] = ItemStack.EMPTY
+            slots[i] = depositInReach(job, slots[i])
+            if (!slots[i].isEmpty && kept == null) kept = slots[i]
         }
         be.handsChanged()
-        flyHome(h)
+        val left = kept ?: return flyHome(h)
+        say(h, job, ClawhodWhy.SUPPLY_FULL, BuildLog.itemId(left.item)) {
+            "${left.count} ${BuildLog.itemName(left.item)} fit in no supply in reach of ${at.toShortString()}; the hand keeps them"
+        }
+        startUnload(level, job, h)
     }
 
     private fun missAll(level: ServerLevel, job: BuildJob, h: Hand, item: Item, from: BlockPos) {
@@ -1032,7 +1094,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     private fun fly(h: Hand, to: BlockPos, looseId: Int = ClawhodBlockEntity.NO_LOOSE) {
         closeLid(h)
         endPunch(level, h)
-        worldCentre(to, target)
+        if (!worldCentre(to, target)) target.set(h.pos)
         h.arriveAt = level.gameTime + flightTicks(h.pos.distance(target))
         h.pos.set(target)
         h.at = to.asLong()
@@ -1076,20 +1138,26 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             return
         }
         handCell.set(h.at)
-        if (level.isBlockInShipyard(handCell)) worldCentre(handCell, h.pos)
+        if (!level.isBlockInShipyard(handCell) || worldCentre(handCell, h.pos)) return
+        // VS deletes a ship when its last block breaks: the hand keeps its last world point, and a hand with no task goes home.
+        if (h.tasks.isEmpty() && !h.relaying) flyHome(h)
     }
 
-    /** World centre of the block at [pos]; a supply may sit on a ship. */
-    private fun worldCentre(pos: BlockPos, out: Vector3d) {
+    /**
+     * World centre of the block at [pos]; a supply may sit on a ship. False, and [out] unchanged, when [pos] is in the
+     * shipyard but its ship is gone: the raw shipyard point is millions of blocks out.
+     */
+    private fun worldCentre(pos: BlockPos, out: Vector3d): Boolean {
+        val ship = if (level.isBlockInShipyard(pos)) level.getShipManagingPos(pos) ?: return false else null
         out.set(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
-        if (level.isBlockInShipyard(pos)) level.getShipManagingPos(pos)?.shipToWorld?.transformPosition(out)
+        ship?.shipToWorld?.transformPosition(out)
+        return true
     }
 
     private fun reaches(packed: Long): Boolean {
         scratch.set(packed)
         if (!level.isBlockInShipyard(scratch)) return withinReach(gem.x, gem.y, gem.z, scratch.x, scratch.y, scratch.z, reachNow)
-        worldCentre(scratch, target)
-        return target.distanceSquared(gem) <= reachNow * reachNow
+        return worldCentre(scratch, target) && target.distanceSquared(gem) <= reachNow * reachNow
     }
 
     private fun reportIdle(level: ServerLevel, job: BuildJob, h: Hand) {
@@ -1290,6 +1358,8 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         )
         moveSpot = spot
         moveFails = 0
+        moveStill = 0
+        moveLastX = Double.NaN
         moveCheckAt = level.gameTime + IDLE_RETRY_TICKS
         val face = Direction.from3DDataValue(faceId)
         if (faceId == FLOOR_FACE) {
@@ -1322,6 +1392,8 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     private fun neededItem(p: WorkerPick): Item? {
         val cost = p.farState?.planCost() as? PlanCost.Items
         if (!p.farBuild || cost == null) return p.farItem
+        // A stock-up would fill both slots with the base and leave no slot for the extra of a two-item cell.
+        if (cost.extra != null) return null
         val block = clawhodBlockOf(cost.stack()) ?: return null
         for (h in hands) if (handCount(h.slots, block) >= cost.count) return null
         return cost.item
@@ -1335,7 +1407,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             if (!level.isLoaded(pos)) continue
             val container = HopperBlockEntity.getContainerAt(level, pos) ?: continue
             if (item != null && container.countOf(item) == 0) continue
-            worldCentre(pos, target)
+            if (!worldCentre(pos, target)) continue
             val d = target.distanceSquared(gem)
             if (d < bestDist) {
                 best = pos
@@ -1627,9 +1699,10 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         return routeResult
     }
 
-    /** The walker's body base cell in the walk frame. */
+    /** The walker's body base cell in the walk frame. Its position sits on the support, so the base is off it along up. */
     private fun walkerBase(walker: ConstriliarEntity): Long {
-        framePt.set(walker.x, walker.y + HALF, walker.z)
+        val up = walker.serverUp()
+        framePt.set(walker.x + up.x * HALF, walker.y + up.y * HALF, walker.z + up.z * HALF)
         walkShip?.worldToShip?.transformPosition(framePt)
         return BlockPos.asLong(Mth.floor(framePt.x), Mth.floor(framePt.y), Mth.floor(framePt.z))
     }
@@ -1875,7 +1948,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
 
     /**
      * Takes the walker's whole body shape, the walkers round it, and the walk frame for the next floor search: the
-     * plan ship's shipyard while the walker stands on its deck, else the world. The gem and the lift go into it.
+     * plan ship's shipyard while the walker stands on any face of it, else the world. The gem and the lift go into it.
      */
     private fun clearFor(walker: ConstriliarEntity, job: BuildJob) {
         bodyShape = walker.navShape()
@@ -1897,13 +1970,13 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         walkBelow = walkAbove - 1
     }
 
-    /** The plan's ship when [walker] stands on its deck (the planner's own frame test), else null for the world. */
+    /** The plan's ship when [walker] stands on any face of it, else null for the world. */
     private fun walkFrame(job: BuildJob, walker: ConstriliarEntity): Ship? {
         val ship = job.planShip(level) ?: return null
         if (walkFrameAt != level.gameTime || walkFrameWalker != walker.uuid) {
             walkFrameAt = level.gameTime
             walkFrameWalker = walker.uuid
-            walkFrameOn = walker.deckShipId() == ship.id
+            walkFrameOn = walker.standsOnShip(ship.id)
         }
         return if (walkFrameOn) ship else null
     }
@@ -2156,8 +2229,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         } else if (level.getShipManagingPos(pos)?.id != mineShip) {
             return false
         }
-        worldCentre(pos, target)
-        if (target.distanceSquared(gem) > reachNow * reachNow) return false
+        if (!worldCentre(pos, target) || target.distanceSquared(gem) > reachNow * reachNow) return false
         if (!inFront(target.x - gem.x, target.y - gem.y, target.z - gem.z, mineFacing.x, mineFacing.y, mineFacing.z)) return false
         if (state.getDestroySpeed(level, pos) < 0f) return false
         // Another Clawhod, or a walker's plate, is never ore.
@@ -2373,7 +2445,8 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
 
     private fun depositMined(level: ServerLevel, actor: ServerPlayer, h: Hand, at: BlockPos) {
         h.supply = null
-        if (!mayEdit(level, actor, at)) return
+        // The carrier may have walked the chest away during the flight; the load then waits for the next unload.
+        if (!reaches(at.asLong()) || !mayEdit(level, actor, at)) return
         val container = HopperBlockEntity.getContainerAt(level, at) ?: return
         val slots = h.slots
         for (i in slots.indices) {
@@ -2980,7 +3053,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     }
 
     private fun putInChest(level: ServerLevel, task: RelayTask, at: BlockPos, count: Int): Int {
-        if (!mayEdit(level, relayActor(level, task), at)) return 0
+        if (!reaches(at.asLong()) || !mayEdit(level, relayActor(level, task), at)) return 0
         val container = HopperBlockEntity.getContainerAt(level, at) ?: return 0
         return count - HopperBlockEntity.addItem(null, container, ItemStack(task.item, count), null).count
     }
@@ -3431,8 +3504,8 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     }
 
     /**
-     * The walls-in flood, in the carrier's walk frame: the plan ship's shipyard on its deck (the plan's own frame),
-     * else the world, where ship blocks count through [shipsClear].
+     * The walls-in flood, in the carrier's walk frame: the plan ship's shipyard on any face of it (the plan's own
+     * frame), else the world, where ship blocks count through [shipsClear]. Body layers run away from the support.
      */
     private fun flood(walker: ConstriliarEntity, seen: LongOpenHashSet): WayOut {
         val job = floodJob ?: return WayOut.OUT
@@ -3442,7 +3515,9 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         roomFrame = frame
         roomWalkersBlock = false
         bodyK = carrierScale / (frame?.transform?.shipToWorldScaling?.x() ?: 1.0)
-        framePt.set(walker.x, walker.y + HALF, walker.z)
+        val up = walker.serverUp()
+        floodFace = supportFaceIn(frame, up)
+        framePt.set(walker.x + up.x * HALF, walker.y + up.y * HALF, walker.z + up.z * HALF)
         frame?.worldToShip?.transformPosition(framePt)
         val x = Mth.floor(framePt.x)
         val y = Mth.floor(framePt.y)
@@ -3452,15 +3527,33 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             return WayOut.OUT
         }
         val minY = minOf(y, frameBaseY(job, frame)) - 1
-        return wayOut(x, y, z, minY, frameTopY(job, frame) + 1, bodyRoom, outOfPlan, floodQueue, seen, FLOOD_CAP)
+        roomFace = floodFace
+        val result = wayOut(x, y, z, minY, frameTopY(job, frame) + 1, bodyRoom, outOfPlan, floodQueue, seen, FLOOD_CAP)
+        roomFace = Direction.DOWN
+        return result
     }
+
+    /** The face [up] (world) stands on, in [frame] (null: world). */
+    private fun supportFaceIn(frame: Ship?, up: Vector3dc): Direction {
+        faceScratch.set(up)
+        frame?.worldToShip?.transformDirection(faceScratch)
+        return Direction.getNearest(-faceScratch.x, -faceScratch.y, -faceScratch.z)
+    }
+
+    private val faceScratch = Vector3d()
+    /** The support face of the last walls-in flood: its body layers run away from it. */
+    private var floodFace = Direction.DOWN
+    /** The support face [bodyFits] lays body layers on. */
+    private var roomFace = Direction.DOWN
 
     private var floodFrame: Ship? = null
 
-    /** Base ([x], [y], [z]) of the flood frame is out of the plan: past its footprint or over its top. */
+    /** Base ([x], [y], [z]) of the flood frame is out of the plan. A plan on a ship has open air under it. */
     private fun planOut(job: BuildJob, x: Int, y: Int, z: Int): Boolean {
-        val p = if (roomFrame != null || job.planShip(level) == null) BlockPos.asLong(x, y, z) else job.toPlanFrame(level, x, y, z)
-        return BlockPos.getY(p) > job.planTopY || !job.inFootprint(BlockPos.getX(p), BlockPos.getZ(p))
+        val onShip = job.planShip(level) != null
+        val p = if (roomFrame != null || !onShip) BlockPos.asLong(x, y, z) else job.toPlanFrame(level, x, y, z)
+        val bottomY = if (onShip) job.planBottomY else GROUND_PLAN_BOTTOM
+        return planLayerOut(BlockPos.getY(p), job.inFootprint(BlockPos.getX(p), BlockPos.getZ(p)), job.planTopY, bottomY)
     }
 
     /** A block in plan cell [packed] would fill a body base the cached flood reached, in the flood's frame. */
@@ -3481,7 +3574,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
     /** A block at ([x], [y], [z]) would fill a body base the cached flood reached. */
     private fun touchesReachable(x: Int, y: Int, z: Int): Boolean {
         val shape = bodyShape ?: return reachable.contains(BlockPos.asLong(x, y, z))
-        if (Math.abs(bodyK - 1.0) >= SCALE_EPS) return touchesReachableScaled(shape, x, y, z)
+        if (floodFace != Direction.DOWN || Math.abs(bodyK - 1.0) >= SCALE_EPS) return touchesReachableScaled(shape, x, y, z)
         for (layer in 0 until shape.height) {
             val r = maxOf(shape.radiusAt(layer), 0)
             for (a in -r..r) {
@@ -3491,13 +3584,16 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         return false
     }
 
-    /** [touchesReachable] for scaled body cells: every reached base near the cell whose layer cells take it. */
+    /** [touchesReachable] for scaled body cells or a body off a wall or ceiling: every reached base near the cell
+     *  whose layer cells take it. */
     private fun touchesReachableScaled(shape: ConstriliarCargoShape, x: Int, y: Int, z: Int): Boolean {
         val across = minOf(Mth.ceil((maxOf(shape.radius, 0) + HALF) * bodyK), MAX_BODY_SPAN)
         val up = minOf(Mth.ceil(shape.height * bodyK), MAX_BODY_SPAN)
-        for (bx in x - across..x + across) {
-            for (bz in z - across..z + across) {
-                for (by in y - up..y) {
+        val upright = floodFace == Direction.DOWN
+        val side = if (upright) across else maxOf(across, up)
+        for (bx in x - side..x + side) {
+            for (bz in z - side..z + side) {
+                for (by in (if (upright) y - up else y - side)..(if (upright) y else y + side)) {
                     if (reachable.contains(BlockPos.asLong(bx, by, bz)) && cellInBody(shape, bx, by, bz, x, y, z)) return true
                 }
             }
@@ -3507,7 +3603,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
 
     private fun cellInBody(shape: ConstriliarCargoShape, bx: Int, by: Int, bz: Int, x: Int, y: Int, z: Int): Boolean {
         for (layer in 0 until shape.height) {
-            if (!bodyLayer(bx, by, bz, layer, maxOf(shape.radiusAt(layer), 0), bodyK)) return true
+            if (!bodyLayer(bx, by, bz, layer, maxOf(shape.radiusAt(layer), 0), bodyK, floodFace)) return true
             if (x in lx0..lx1 && y in ly0..ly1 && z in lz0..lz1) return true
         }
         return false
@@ -3521,7 +3617,7 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         val shape = bodyShape
         val height = shape?.height ?: 2
         for (layer in 0 until height) {
-            if (!bodyLayer(x, y, z, layer, maxOf(shape?.radiusAt(layer) ?: 0, 0), bodyK)) return false
+            if (!bodyLayer(x, y, z, layer, maxOf(shape?.radiusAt(layer) ?: 0, 0), bodyK, roomFace)) return false
             for (cx in lx0..lx1) {
                 for (cy in ly0..ly1) {
                     for (cz in lz0..lz1) {
@@ -3541,14 +3637,14 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
 
     /**
      * The carrier stands in the plan with no way out for its whole body: logs it and sends it to a floor outside
-     * the plan, so it climbs or jumps for it. True when that was handled.
+     * the plan, so it climbs or jumps for it. True when that was handled; false lets the usual moves go on.
      */
     private fun carrierTrapped(level: ServerLevel, job: BuildJob): Boolean {
         val walker = carrier(level) ?: return false
         if (refreshFlood(walker) != WayOut.SHUT) return false
         say(job, ClawhodWhy.CARRIER_TRAPPED, walker.blockPosition().hashCode()) {
             "the carrier at ${walker.blockPosition().toShortString()} has no way out of the plan for its whole body " +
-                "(h=${bodyShape?.height}, ${reachable.size} spots inside)"
+                "(h=${bodyShape?.height}, face=${floodFace.name.lowercase()}, ${reachable.size} spots inside)"
         }
         val ready = readyCarrier(level, job, "the carrier is walled in") ?: return true
         clearFor(ready, job)
@@ -3564,7 +3660,11 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             }
             return true
         }
-        return true
+        // The flood can miss a way out the planner has: a trap check must never hold the carrier still for good.
+        say(job, ClawhodWhy.CARRIER_TRAPPED_NO_EXIT) {
+            "no floor outside the plan is near the walled-in carrier; the next cell's move goes out as usual"
+        }
+        return false
     }
 
     /** A cell waits because the block would go into the carrier, or wall it in: the carrier steps out. */
@@ -3647,6 +3747,12 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         var fetchCount = 0
         var arriveAt = 0L
 
+        /** See [WorkerPick.extraSupply] and [WorkerPick.kitLeg]. */
+        var extraSupply: BlockPos? = null
+        var extraItem: Item? = null
+        var extraCount = 0
+        var kitLeg = false
+
         /** Where the hand is, in world space, for flight times; [refreshGem] moves it with its frame each tick. */
         val pos = Vector3d()
 
@@ -3715,6 +3821,10 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             supply = null
             fetchItem = null
             fetchCount = 0
+            extraSupply = null
+            extraItem = null
+            extraCount = 0
+            kitLeg = false
             noWork = false
         }
 
@@ -3737,6 +3847,14 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
             val block = heldBlock() ?: return
             if (handTake(slots, block, count) > 0) be.handsChanged()
         }
+
+        override fun countOf(item: Item): Int = handCount(slots, item)
+
+        override fun take(item: Item, count: Int) {
+            if (handTake(slots, item, count) > 0) be.handsChanged()
+        }
+
+        override fun hasRoomFor(item: Item, count: Int): Boolean = tool().isEmpty && handRoomFor(slots, item) >= count
 
         // The user's rule: cut drops go in the hand, then in a supply in reach; the caller drops the rest.
         override fun holdPickups(stacks: List<ItemStack>): List<ItemStack> {
@@ -3937,6 +4055,9 @@ internal class ClawhodWorker(private val be: ClawhodBlockEntity) {
         private const val NO_SIG = Long.MIN_VALUE
         private const val SIG_PRIME = 31L
         private const val MOVE_FAIL_CHECKS = 2
+        /** Move checks (one per [IDLE_RETRY_TICKS]) with the carrier in place before its move counts as failed. */
+        private const val MOVE_STILL_CHECKS = 8
+        private const val MOVE_STILL_SQ = 0.05 * 0.05
         /** Walls-in floods per tick beyond the cached one, and the bases one flood may search. */
         private const val FLOODS_PER_TICK = 2
         private const val FLOOD_CAP = 1024

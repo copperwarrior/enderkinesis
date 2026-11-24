@@ -21,6 +21,7 @@ class TableView(
     val supplies: Int,
     val crew: Int,
     val note: Component,
+    val buildableOnly: Boolean = false,
 )
 
 /**
@@ -37,6 +38,8 @@ object DraftingTableNetwork {
     val BUILD: ResourceLocation = EnderkinesisMod.id("drafting_table/build")
     val STOP: ResourceLocation = EnderkinesisMod.id("drafting_table/stop")
     val CAPTURE_SHIP: ResourceLocation = EnderkinesisMod.id("drafting_table/capture_ship")
+    val RECRUIT: ResourceLocation = EnderkinesisMod.id("drafting_table/recruit")
+    val TOGGLE_BUILDABLE: ResourceLocation = EnderkinesisMod.id("drafting_table/toggle_buildable")
 
     fun init() {
         onTable(ASK_SKETCHBOOK, { }) { player, pos, _ ->
@@ -47,6 +50,8 @@ object DraftingTableNetwork {
         onTable(PLACE, FriendlyByteBuf::readTablePlacement) { player, pos, placement -> placePlan(player, pos, placement) }
         onTable(BUILD, { }) { player, pos, _ -> buildAt(player, pos) }
         onTable(STOP, { }) { player, pos, _ -> stopAt(player, pos) }
+        onTable(RECRUIT, { }) { player, pos, _ -> recruitAt(player, pos) }
+        onTable(TOGGLE_BUILDABLE, { }) { player, pos, _ -> toggleBuildable(player, pos) }
         onTable(CAPTURE_SHIP, { it.readUtf(PlanRef.MAX_NAME) }) { player, pos, name -> captureShip(player, pos, name) }
     }
 
@@ -104,6 +109,7 @@ fun FriendlyByteBuf.writeTableView(view: TableView) {
     writeVarInt(view.supplies)
     writeVarInt(view.crew)
     writeComponent(view.note)
+    writeBoolean(view.buildableOnly)
 }
 
 fun FriendlyByteBuf.readTableView(): TableView {
@@ -112,5 +118,5 @@ fun FriendlyByteBuf.readTableView(): TableView {
     val placement = readTablePlacement()
     val building = readBoolean()
     val shipSize = if (readBoolean()) Vec3i(readVarInt(), readVarInt(), readVarInt()) else null
-    return TableView(pos, plan, placement, building, shipSize, readVarInt(), readVarInt(), readComponent())
+    return TableView(pos, plan, placement, building, shipSize, readVarInt(), readVarInt(), readComponent(), readBoolean())
 }

@@ -76,6 +76,69 @@ class CarrierRoomTest {
         shouldThrow<IllegalArgumentException> { wayOut(0, 0, 0, 3, 2, Hut(true, true).room, Hut(true, true).out, queue, seen, 8) }
     }
 
+    /**
+     * A plan on a held ship, footprint x, z 0..8, layers 0..4: the hull fills layers 1..4, and a lower band fills
+     * layer 0 on its south rows (z 0..1). Under the hull is open air down to the ground far below.
+     */
+    private fun underHull(x: Int, y: Int, z: Int): Boolean {
+        if (x !in 0..8 || z !in 0..8) return false
+        return y in 1..4 || y == 0 && z <= 1
+    }
+
+    /** A body two layers tall and three cells wide, laid out off support [face] as the walls-in flood lays it. */
+    private fun faceRoom(face: Direction, solid: (Int, Int, Int) -> Boolean): BodyRoom {
+        val box = DoubleArray(BOX_VALUES)
+        return BodyRoom { x, y, z ->
+            (0 until 2).all { layer ->
+                bodyBox(x, y, z, face, layer, layer + 1, 1.5, 1.0, box)
+                cellsIn(box).none { (cx, cy, cz) -> solid(cx, cy, cz) }
+            }
+        }
+    }
+
+    private fun cellsIn(box: DoubleArray): List<Triple<Int, Int, Int>> = buildList {
+        val eps = 1.0e-6
+        for (x in Math.floor(box[0] + eps).toInt() until Math.ceil(box[3] - eps).toInt()) {
+            for (y in Math.floor(box[1] + eps).toInt() until Math.ceil(box[4] - eps).toInt()) {
+                for (z in Math.floor(box[2] + eps).toInt() until Math.ceil(box[5] - eps).toInt()) add(Triple(x, y, z))
+            }
+        }
+    }
+
+    private fun planOut(bottomY: Int) = OutOfPlan { x, y, z -> planLayerOut(y, x in 0..8 && z in 0..8, 4, bottomY) }
+
+    // The carrier hangs from the hull's underside (base cell y 0) beside the lower band, as on ship 83.
+    private fun runUnderHull(face: Direction, bottomY: Int): WayOut =
+        wayOut(4, 0, 2, -2, 5, faceRoom(face, ::underHull), planOut(bottomY), queue, seen, 1024)
+
+    @Test
+    fun `a carrier on a ship's underside by a lip has a way out`() {
+        runUnderHull(Direction.UP, bottomY = 0) shouldBe WayOut.OUT
+    }
+
+    @Test
+    fun `the upright body rule read the same carrier as shut`() {
+        runUnderHull(Direction.DOWN, bottomY = GROUND_PLAN_BOTTOM) shouldBe WayOut.SHUT
+        seen.size shouldBe 1
+    }
+
+    @Test
+    fun `under a ship plan is out of it, under a ground build is not`() {
+        planLayerOut(-1, inFootprint = true, topY = 4, bottomY = 0) shouldBe true
+        planLayerOut(0, inFootprint = true, topY = 4, bottomY = 0) shouldBe false
+        planLayerOut(-1, inFootprint = true, topY = 4, bottomY = GROUND_PLAN_BOTTOM) shouldBe false
+        planLayerOut(5, inFootprint = true, topY = 4, bottomY = GROUND_PLAN_BOTTOM) shouldBe true
+        planLayerOut(2, inFootprint = false, topY = 4, bottomY = 0) shouldBe true
+    }
+
+    @Test
+    fun `a ground build's closed hut is still shut by the plan's own rule`() {
+        val hut = Hut(roof = true, door = false)
+        val out = OutOfPlan { x, y, z -> planLayerOut(y, x in 0..4 && z in 0..4, 3, GROUND_PLAN_BOTTOM) }
+        wayOut(2, 0, 2, -1, 4, hut.room, out, queue, seen, 1024) shouldBe WayOut.SHUT
+        wayOut(2, 0, 2, -1, 4, faceRoom(Direction.DOWN, hut::solid), out, queue, seen, 1024) shouldBe WayOut.SHUT
+    }
+
     private fun claimsClash(a: Long, faceA: Int, reachA: Double, b: Long, faceB: Int, reachB: Double, height: Double = 2.0): Boolean {
         val boxA = DoubleArray(BOX_VALUES)
         val boxB = DoubleArray(BOX_VALUES)

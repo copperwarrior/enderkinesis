@@ -10,6 +10,7 @@ import net.minecraft.world.item.PickaxeItem
 import net.minecraft.world.item.ShearsItem
 import net.minecraft.world.item.enchantment.EnchantmentHelper
 import net.minecraft.world.item.enchantment.Enchantments
+import net.minecraft.world.level.EmptyBlockGetter
 import net.minecraft.world.level.block.entity.HopperBlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import kotlin.math.ceil
@@ -30,6 +31,9 @@ internal const val TOOL_MATCH = 2
 
 /** A pickaxe on a block it is not the tool for: the user's fallback. */
 internal const val TOOL_FALLBACK = 1
+
+/** An instant block (grass, flowers): no tool breaks it faster than a bare hand, so it never waits for one. */
+internal fun needsNoTool(state: BlockState): Boolean = state.getDestroySpeed(EmptyBlockGetter.INSTANCE, BlockPos.ZERO) == 0f
 
 /** How well [tool] suits [state]: [TOOL_MATCH], [TOOL_FALLBACK], or 0 when a hand does not take it for the block. */
 internal fun toolRank(tool: ItemStack, state: BlockState): Int = when {
@@ -124,7 +128,7 @@ internal class ToolPasses(private val samples: Int = PASS_SAMPLES) {
 
     /** True when [tool] breaks [state] in this pass; else [state] is noted for the next pass. */
     fun takes(tool: ItemStack, state: BlockState): Boolean {
-        if (restPass || toolRank(tool, state) == TOOL_MATCH) return true
+        if (restPass || needsNoTool(state) || toolRank(tool, state) == TOOL_MATCH) return true
         if (otherCount < samples && !noted(state)) others[otherCount++] = state
         return false
     }

@@ -51,13 +51,15 @@ fun fixableInPlace(plan: BlockState, world: BlockState): Boolean =
         !plan.isFirstHalf() && !plan.isSecondHalf() &&
         plan.planCost() is PlanCost.Items && world.planCost() == plan.planCost()
 
-/** The plan state with the world's water kept, so a fix never removes a fluid. */
-fun fixedState(plan: BlockState, world: BlockState): BlockState =
-    if (plan.hasProperty(BlockStateProperties.WATERLOGGED) && world.hasProperty(BlockStateProperties.WATERLOGGED)) {
-        plan.setValue(BlockStateProperties.WATERLOGGED, world.getValue(BlockStateProperties.WATERLOGGED))
+/** The plan state with the world's water and contents kept, so a fix never removes a fluid, a book or a bottle. */
+fun fixedState(plan: BlockState, world: BlockState): BlockState {
+    val kept = if (world.block == plan.block) plan.withContentsOf(world) else plan
+    return if (plan.hasProperty(BlockStateProperties.WATERLOGGED) && world.hasProperty(BlockStateProperties.WATERLOGGED)) {
+        kept.setValue(BlockStateProperties.WATERLOGGED, world.getValue(BlockStateProperties.WATERLOGGED))
     } else {
-        plan
+        kept
     }
+}
 
 enum class ClearKind {
     /** Nothing to remove here. */

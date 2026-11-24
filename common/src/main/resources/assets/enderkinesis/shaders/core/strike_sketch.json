@@ -7,7 +7,8 @@
     ],
     "samplers": [
         { "name": "Sampler0" },
-        { "name": "Sampler1" }
+        { "name": "Sampler1" },
+        { "name": "Sampler2" }
     ],
     "uniforms": [
         { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
@@ -22,6 +23,7 @@
         { "name": "OutlineGround", "type": "float", "count": 1, "values": [ 0.0 ] },
         { "name": "SideFade", "type": "float", "count": 1, "values": [ 0.0 ] },
         { "name": "Colour", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "WorldNoise", "type": "float", "count": 1, "values": [ 0.0 ] },
         { "name": "Frame", "type": "float", "count": 4, "values": [ 1.2, 0.07, -0.06, 0.0 ] }
     ]
 }

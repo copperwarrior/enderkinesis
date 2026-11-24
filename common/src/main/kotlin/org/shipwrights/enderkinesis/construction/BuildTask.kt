@@ -67,6 +67,15 @@ internal interface BuildWorker {
 
     fun takeMany(count: Int)
 
+    /** How many plain [item] the worker holds in any slot. */
+    fun countOf(item: Item): Int
+
+    /** Takes [count] plain [item] from any slot. */
+    fun take(item: Item, count: Int)
+
+    /** True when [count] more plain [item] fit beside what the worker holds (the extra of a two-item cell). */
+    fun hasRoomFor(item: Item, count: Int): Boolean
+
     /** Puts what fits of [stacks] in the pickup slots and returns what is left over; [stacks] are not changed. */
     fun holdPickups(stacks: List<ItemStack>): List<ItemStack>
 
@@ -121,6 +130,14 @@ internal class WorkerPick(var pattern: BuildPattern) {
     var supply: BlockPos? = null
     var fetchItem: Item? = null
     var fetchCount = 0
+
+    /** A two-item cell's second fetch, made after the first; null for every other pick. */
+    var extraSupply: BlockPos? = null
+    var extraItem: Item? = null
+    var extraCount = 0
+
+    /** The first fetch is the extra of a two-item cell: the hand keeps what it holds and puts the extra beside it. */
+    var kitLeg = false
 
     var held: Block? = null
         private set
@@ -188,6 +205,10 @@ internal class WorkerPick(var pattern: BuildPattern) {
         supply = null
         fetchItem = null
         fetchCount = 0
+        extraSupply = null
+        extraItem = null
+        extraCount = 0
+        kitLeg = false
         searchedAll = false
         capacities.clear()
         val nowHeld = worker.heldBlock()

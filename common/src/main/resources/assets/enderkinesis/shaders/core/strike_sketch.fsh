@@ -3,6 +3,10 @@
 // Look modelled on "Hand-drawn Sketch Effect" by hlorenzi (Shadertoy, CC BY-NC-SA); no code is taken from it.
 uniform sampler2D Sampler0;
 uniform sampler2D Sampler1;
+// Plan ghost only (WorldNoise 1): position on the surface, relative to the plan anchor, and the face axis in alpha.
+uniform sampler2D Sampler2;
+// 1 for the plan ghost: its random pattern sticks to the surfaces, not the screen. The item sketches leave it 0.
+uniform float WorldNoise;
 uniform vec2 SketchSize;
 uniform float PixelScale;
 uniform vec2 ToneRange;
@@ -69,22 +73,87 @@ float detail(vec2 uv, float alpha, float lo, float hi) {
   float gy = (t02 + 2.0 * t12 + t22) - (t00 + 2.0 * t10 + t20);
   return smoothstep(lo, hi, length(vec2(gx, gy))) * alpha;
 }
+// 1 where the nearest ghost surface is drawn as plain graphite, with no dye wash.
+float paperPlain = 0.0;
+// Paper coordinates (blocks on the face plane, shifted per face axis), the width of a render pixel in blocks.
+vec2 paperPC = vec2(0.0);
+float paperFoot = 0.05;
+vec3 paperCoord(vec2 uv) {
+  vec4 t = texture(Sampler2, uv);
+  float code = floor(t.a * 8.0 + 0.5);
+  if (code < 0.5) return vec3(0.0, 0.0, -1.0);
+  float axis = code > 4.5 ? code - 4.0 : code;
+  vec3 p = t.rgb * 512.0 - 256.0;
+  vec2 c = axis > 2.5 ? p.xy : (axis > 1.5 ? p.xz : p.zy);
+  return vec3(c + axis * vec2(37.0, 91.0), axis);
+}
+float paperStep(vec2 uv, vec3 c, vec2 d) {
+  vec3 n = paperCoord(uv + d);
+  return abs(n.z - c.z) < 0.01 ? length(n.xy - c.xy) : 1000.0;
+}
+float paperFootAt(vec2 uv, vec3 c) {
+  vec2 px = 1.0 / SketchSize;
+  float fx = min(paperStep(uv, c, vec2(px.x, 0.0)), paperStep(uv, c, vec2(-px.x, 0.0)));
+  float fy = min(paperStep(uv, c, vec2(0.0, px.y)), paperStep(uv, c, vec2(0.0, -px.y)));
+  return clamp(max(fx, fy), 1.0 / 128.0, 0.5);
+}
+// The surface under this pixel, or the nearest one within a few pixels, so the halo of lines around a form has paper too.
+void setupPaper() {
+  if (WorldNoise < 0.5) return;
+  vec2 uv = texCoord0;
+  vec3 c = paperCoord(uv);
+  for (int i = 0; i < 16 && c.z < 0.0; i++) {
+    float a = float(i % 8) * PI / 4.0;
+    uv = texCoord0 + vec2(cos(a), sin(a)) * (i < 8 ? 6.0 : 12.0) / SketchSize;
+    c = paperCoord(uv);
+  }
+  if (c.z < 0.0) return;
+  paperPlain = texture(Sampler2, uv).a * 8.0 > 4.5 ? 1.0 : 0.0;
+  paperPC = c.xy;
+  paperFoot = paperFootAt(uv, c);
+}
+// The cell size of a hash that should cover about [renderPx] render pixels, snapped to a power of two.
+float paperCell(float renderPx) { return exp2(round(log2(paperFoot * renderPx))); }
+// A fixed offset per seed in place of the zigzag warp, so the line pair keeps its double stroke but nothing moves with the camera.
 vec2 wobble(vec2 uv, float seed, float amount) {
+  if (WorldNoise > 0.5) return uv + (vec2(hash(seed * 0.37), hash(seed * 0.61)) - 0.5) * amount;
   return uv + vec2(zigzag(uv.y * hash(seed * 0.37) * 4.0) * hash(seed * 0.61),
                    zigzag(uv.x * hash(seed * 0.83) * 4.0) * hash(seed * 0.29)) * amount;
 }
 vec2 grain(vec2 uv, float amount) {
+  if (WorldNoise > 0.5) return uv;
   return uv + (vec2(hash(dot(uv, vec2(12.9, 78.2))), hash(dot(uv, vec2(39.3, 11.1)))) - 0.5) * amount;
 }
 
 const vec3 INK = vec3(0.27, 0.27, 0.29);
 vec2 frame(vec2 u) { return 0.5 + (u - 0.5) * Frame.x + Frame.yz; }
+vec2 markCell() {
+  if (WorldNoise > 0.5) return floor(paperPC / paperCell(3.0 * PixelScale));
+  return floor(texCoord0 * SketchSize / (PixelScale * 3.0));
+}
 float sparseMarks(vec2 uv, float alpha) {
-  vec2 cell = floor(texCoord0 * SketchSize / (PixelScale * 3.0));
+  vec2 cell = markCell();
   return detail(uv, alpha, 1.3, 2.2) * 0.4 * step(0.25, hash2(cell + 7.0));
 }
-float tooth() { return 0.55 + 0.45 * hash2(floor(texCoord0 * SketchSize)); }
+float tooth() {
+  if (WorldNoise > 0.5) return 0.55 + 0.45 * hash2(floor(paperPC / paperCell(2.0)));
+  return 0.55 + 0.45 * hash2(floor(texCoord0 * SketchSize));
+}
+// One layer of world-anchored hatching: lines [periodBlocks] apart, [width] GUI px thick however far the surface is.
+float hatchLayer(vec2 dir, float periodBlocks, float width) {
+  float along = dot(paperPC, vec2(-dir.y, dir.x));
+  float d = abs(fract(along / periodBlocks) - 0.5) * periodBlocks / (paperFoot * PixelScale);
+  float aa = 0.5 / PixelScale;
+  return 1.0 - smoothstep(width - aa, width + aa, d);
+}
+// The period stays near [period] GUI px: the two nearest power-of-two layers cross-fade as the surface comes nearer or goes away.
+float hatchWorld(vec2 dir, float period, float width) {
+  float lod = log2(max(paperFoot * period * PixelScale, 1.0e-4));
+  float l0 = floor(lod);
+  return mix(hatchLayer(dir, exp2(l0), width), hatchLayer(dir, exp2(l0 + 1.0), width), lod - l0);
+}
 float hatchLines(vec2 uv, vec2 dir, float period, float width) {
+  if (WorldNoise > 0.5) return hatchWorld(dir, period, width);
   vec2 px = (uv - 0.5) * SketchSize / PixelScale;
   float d = abs(fract(dot(px, vec2(-dir.y, dir.x)) / period) - 0.5) * period;
   float aa = 0.5 / PixelScale;
@@ -335,7 +404,7 @@ vec3 nearestDye(vec3 c) {
 }
 // Set a little off the line and a little past each form; darker where it dried; bare paper on the brightest tops.
 vec4 dyeWash(float ink, vec2 uv) {
-  vec2 g = texCoord0 * SketchSize / PixelScale;
+  vec2 g = WorldNoise > 0.5 ? paperPC * min(8.0, 1.0 / (paperFoot * PixelScale)) : texCoord0 * SketchSize / PixelScale;
   vec2 wuv = frame(wobble(texCoord0, SEED + 31.0, 0.012) + vec2(0.004, -0.003));
   float reach = washReach(wuv, 2.4) * (0.75 + 0.5 * vnoise(g / 3.5));
   float body = smoothstep(0.35, 0.55, reach);
@@ -349,6 +418,7 @@ vec4 dyeWash(float ink, vec2 uv) {
 }
 
 void main() {
+  setupPaper();
   vec2 uv = frame(grain(wobble(texCoord0, SEED + 5.0, 0.004), 0.002));
   float alpha = coverage(uv);
   float raw = smoothstep(0.1, 0.9, 1.0 - shade(uv, 0.4));
@@ -375,13 +445,13 @@ void main() {
   edges = max(edges, max(iA, iB));
   float marks = sparseMarks(uv, alpha) * mix(0.1, 1.5, interest);
   // Gentle edges in light areas (book spines, ring lines) get light marks; dark areas stay one mass.
-  float keep = step(0.25, hash2(floor(texCoord0 * SketchSize / (PixelScale * 3.0)) + 7.0));
+  float keep = step(0.25, hash2(markCell() + 7.0));
   marks = max(marks, detail(uv, alpha, 0.4, 0.9) * 0.35 * (1.0 - smoothstep(0.3, 0.6, raw)) * keep);
   // Under a wash the graphite tone is a light underdrawing; the wash carries the values.
-  float tonal = Colour > 0.5 ? 0.3 : 1.0;
+  float tonal = Colour > 0.5 && paperPlain < 0.5 ? 0.3 : 1.0;
   float ink = max(max(max(smudge * tonal, lines * tonal), groundInk), max(edges, marks)) * sideFade(uv);
   vec2 np = wobble(texCoord0, SEED + 23.0, 0.002);
   ink = max(ink, notes(np) * mix(0.85 * t, 1.0, alpha));
-  fragColor = Colour > 0.5 ? dyeWash(ink, uv) : vec4(INK, ink);
+  fragColor = Colour > 0.5 && paperPlain < 0.5 ? dyeWash(ink, uv) : vec4(INK, ink);
   if (fragColor.a < 0.02) discard;
 }

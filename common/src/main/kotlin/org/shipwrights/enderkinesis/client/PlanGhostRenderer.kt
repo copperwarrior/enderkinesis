@@ -10,7 +10,6 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.floats.FloatArrayList
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import net.minecraft.client.Minecraft
-import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.client.renderer.LightTexture
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.block.model.BakedQuad
@@ -18,6 +17,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture
 import net.minecraft.client.resources.model.BakedModel
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
+import net.minecraft.world.level.ChunkPos
 import net.minecraft.util.RandomSource
 import net.minecraft.world.inventory.InventoryMenu
 import net.minecraft.world.level.Level
@@ -34,7 +34,6 @@ import org.shipwrights.enderkinesis.construction.BuildCellStatus
 import org.shipwrights.enderkinesis.construction.ClientBuildJob
 import org.shipwrights.enderkinesis.construction.ClientBuildJobs
 import org.shipwrights.enderkinesis.construction.ClientPlans
-import org.shipwrights.enderkinesis.construction.PLAN_SECTION_CELLS
 import org.shipwrights.enderkinesis.construction.PLAN_SECTION_EDGE
 import org.shipwrights.enderkinesis.construction.PlanAnchor
 import org.shipwrights.enderkinesis.construction.PlanRef
@@ -42,10 +41,8 @@ import org.shipwrights.enderkinesis.construction.PlanSection
 import org.shipwrights.enderkinesis.construction.PlanSectionState
 import org.shipwrights.enderkinesis.construction.PlanSections
 import org.shipwrights.enderkinesis.construction.cellWorldState
+import org.shipwrights.enderkinesis.construction.paidState
 import org.shipwrights.enderkinesis.construction.planCellLocal
-import org.shipwrights.enderkinesis.construction.planCellLocalX
-import org.shipwrights.enderkinesis.construction.planCellLocalY
-import org.shipwrights.enderkinesis.construction.planCellLocalZ
 import org.shipwrights.enderkinesis.item.heldCommandStaff
 import org.valkyrienskies.core.api.ships.ClientShip
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -55,9 +52,9 @@ import kotlin.math.floor
 import kotlin.math.sqrt
 
 /**
- * Translucent plan ghosts of the loaded drafting tables (an open table screen shows its pending placement). Drawn after translucent
- * terrain with no depth write, so water behind it stays. One VBO for each plan section near the camera and in the frustum; a VBO is rebuilt
- * only when the build progress of its section changes, and the least recently drawn ones go past a byte budget.
+ * Plan ghosts of the loaded drafting tables (an open table screen shows its pending placement), as a Silverpoint sketch
+ * through [PlanGhostSketch]; cells the build cannot do draw in plain graphite, without the dye wash. One VBO for each plan section near the camera and in the frustum; a VBO is
+ * rebuilt only when the build progress of its section changes, and the least recently drawn ones go past a byte budget.
  */
 object PlanGhostRenderer {
 
@@ -81,10 +78,9 @@ object PlanGhostRenderer {
 
     private class GpuSection(val mesh: GhostMesh, val index: Int) {
         var buffer: VertexBuffer? = null
-        var marks: VertexBuffer? = null
         var version = UNBUILT
 
-        // Of both buffers, for the byte budget.
+        // Of the buffer, for the byte budget.
         var bytes = 0L
         var lastDrawn = 0L
 
@@ -92,6 +88,8 @@ object PlanGhostRenderer {
         var boxX = 0
         var boxY = 0
         var boxZ = 0
+        var boxEndX = 0
+        var boxEndZ = 0
     }
 
     // A hash names fixed content, so a newer PlanSections object for the same hash keeps the built sections.
@@ -100,15 +98,26 @@ object PlanGhostRenderer {
         val grid = GhostSectionGrid(sections.size.x, sections.size.y, sections.size.z, axes)
         val faceSteps = axes.localFaceSteps()
 
-        // With a job, plan-air cells can hold red marks, so empty sections count too. The near list is
-        // collected again when this changes.
-        var withJob = false
-        val nearFilter = SectionFilter { sx, sy, sz -> withJob || this.sections.state(sx, sy, sz) != PlanSectionState.EMPTY }
+        // Only cells that rest on or beside a standing block; the table's own setting.
+        var buildable = false
+        val nearFilter = SectionFilter { sx, sy, sz -> this.sections.state(sx, sy, sz) != PlanSectionState.EMPTY }
         val gpu = Int2ObjectOpenHashMap<GpuSection>()
         var nearX = Int.MIN_VALUE
         var nearY = Int.MIN_VALUE
         var nearZ = Int.MIN_VALUE
         var nearRadius = 0
+
+        val anchorX = BlockPos.getX(key.anchor)
+        val anchorY = BlockPos.getY(key.anchor)
+        val anchorZ = BlockPos.getZ(key.anchor)
+
+        // This frame's draw list.
+        val visible = IntArrayList()
+        val visibleFade = FloatArrayList()
+        val base = Matrix4f()
+        var dx = 0.0
+        var dy = 0.0
+        var dz = 0.0
     }
 
     // Render thread only.
@@ -116,7 +125,6 @@ object PlanGhostRenderer {
     private val live = ArrayList<GpuSection>()
     private var liveBytes = 0L
     private val builder by lazy(LazyThreadSafetyMode.NONE) { BufferBuilder(BUILDER_BYTES) }
-    private val markBuilder by lazy(LazyThreadSafetyMode.NONE) { BufferBuilder(MARK_BUILDER_BYTES) }
     private val cellPose = PoseStack()
     private val modelView = Matrix4f()
     private val viewProjection = Matrix4f()
@@ -125,11 +133,18 @@ object PlanGhostRenderer {
     private val camLocal = Vector3d()
     private val frustum = FrustumIntersection()
     private val box = IntArray(BOX_INTS)
-    private val visible = IntArrayList()
-    private val visibleFade = FloatArrayList()
     private val scratchKey = MeshKey("", Rotation.NONE, Mirror.NONE, 0L)
     private val neighbours = arrayOfNulls<PlanSection>(NEIGHBOURS)
     private val modelRandom = RandomSource.create()
+    private val cursor = BlockPos.MutableBlockPos()
+    private val FACE_DIRECTIONS = Direction.values()
+
+    // Block and chunk changes since the last frame, filled by the LevelChunk mixin on the render thread.
+    private val changedBlocks = LongArray(MAX_PENDING_BLOCKS)
+    private var changedCount = 0
+    private val changedChunks = LongArray(MAX_PENDING_CHUNKS)
+    private var chunkCount = 0
+    private var allChanged = false
     private var frame = 0L
 
     @Suppress("UNUSED_PARAMETER") // partialTick: same signature as the other after-translucent renderers.
@@ -143,6 +158,8 @@ object PlanGhostRenderer {
             CaptureBoxRenderer.render(poseStack, consumers, level, StaffBuildClient.view(it), camX, camY, camZ)
         }
         frame++
+        drainWorldChanges()
+        PlanGhostSketch.beginFrame()
         val preview = DraftingTableClient.preview
         val tables = ClientDraftingTables.loaded
         // Backwards, so a table of a gone level or chunk leaves the list here.
@@ -156,9 +173,76 @@ object PlanGhostRenderer {
             val own = if (preview != null && preview.table == table.blockPos) preview else null
             val plan = own?.plan ?: table.plan ?: continue
             val anchor = own?.anchor ?: table.anchor() ?: continue
-            drawGhost(poseStack, level, table.blockPos, plan, anchor, jobAt(plan, anchor), camX, camY, camZ)
+            drawGhost(poseStack, level, table.blockPos, plan, anchor, jobAt(plan, anchor), table.buildableOnly, camX, camY, camZ)
         }
+        PlanGhostSketch.composite()
         evict()
+    }
+
+    /** A block of a client level changed, in that level's own frame (shipyard for a ship). Render thread only. */
+    @JvmStatic
+    fun onBlockChanged(pos: BlockPos) {
+        if (meshes.isEmpty()) return
+        if (changedCount < MAX_PENDING_BLOCKS) changedBlocks[changedCount++] = pos.asLong() else allChanged = true
+    }
+
+    /** A chunk of a client level arrived; its cells may now hold blocks. Render thread only. */
+    @JvmStatic
+    fun onChunkLoaded(chunkX: Int, chunkZ: Int) {
+        if (meshes.isEmpty()) return
+        if (chunkCount < MAX_PENDING_CHUNKS) changedChunks[chunkCount++] = ChunkPos.asLong(chunkX, chunkZ) else allChanged = true
+    }
+
+    /** Marks the built sections that a change touches as stale; they rebuild inside the frame budget when next drawn. */
+    private fun drainWorldChanges() {
+        if (changedCount == 0 && chunkCount == 0 && !allChanged) return
+        for (mesh in meshes.values) {
+            if (mesh.gpu.isEmpty) continue
+            if (allChanged) {
+                for (gpu in mesh.gpu.values) gpu.version = UNBUILT
+                continue
+            }
+            for (i in 0 until changedCount) staleBlock(mesh, BlockPos.getX(changedBlocks[i]), BlockPos.getY(changedBlocks[i]), BlockPos.getZ(changedBlocks[i]))
+            for (i in 0 until chunkCount) staleChunk(mesh, ChunkPos.getX(changedChunks[i]), ChunkPos.getZ(changedChunks[i]))
+        }
+        changedCount = 0
+        chunkCount = 0
+        allChanged = false
+    }
+
+    /** A changed block also changes the support and the hidden faces of its six neighbour cells. */
+    private fun staleBlock(mesh: GhostMesh, x: Int, y: Int, z: Int) {
+        staleAt(mesh, x, y, z)
+        staleAt(mesh, x - 1, y, z)
+        staleAt(mesh, x + 1, y, z)
+        staleAt(mesh, x, y - 1, z)
+        staleAt(mesh, x, y + 1, z)
+        staleAt(mesh, x, y, z - 1)
+        staleAt(mesh, x, y, z + 1)
+    }
+
+    private fun staleAt(mesh: GhostMesh, x: Int, y: Int, z: Int) {
+        val dx = x - mesh.anchorX
+        val dy = y - mesh.anchorY
+        val dz = z - mesh.anchorZ
+        val axes = mesh.axes
+        val size = mesh.sections.size
+        val lx = axes.localX(dx.toDouble(), dy.toDouble(), dz.toDouble()).toInt()
+        val ly = axes.localY(dx.toDouble(), dy.toDouble(), dz.toDouble()).toInt()
+        val lz = axes.localZ(dx.toDouble(), dy.toDouble(), dz.toDouble()).toInt()
+        if (lx < 0 || ly < 0 || lz < 0 || lx >= size.x || ly >= size.y || lz >= size.z) return
+        val index = mesh.sections.grid.index(lx shr SECTION_SHIFT, ly shr SECTION_SHIFT, lz shr SECTION_SHIFT)
+        mesh.gpu.get(index)?.version = UNBUILT
+    }
+
+    private fun staleChunk(mesh: GhostMesh, chunkX: Int, chunkZ: Int) {
+        val minX = chunkX * PLAN_SECTION_EDGE
+        val minZ = chunkZ * PLAN_SECTION_EDGE
+        for (gpu in mesh.gpu.values) {
+            val overlapsX = mesh.anchorX + gpu.boxX < minX + PLAN_SECTION_EDGE && mesh.anchorX + gpu.boxEndX > minX
+            val overlapsZ = mesh.anchorZ + gpu.boxZ < minZ + PLAN_SECTION_EDGE && mesh.anchorZ + gpu.boxEndZ > minZ
+            if (overlapsX && overlapsZ) gpu.version = UNBUILT
+        }
     }
 
     /**
@@ -167,7 +251,7 @@ object PlanGhostRenderer {
      */
     @Suppress("LongParameterList") // Camera-relative doubles keep the ghost exact far from the world origin.
     private fun drawGhost(
-        poseStack: PoseStack, level: Level, table: BlockPos, plan: PlanRef, anchor: PlanAnchor, job: ClientBuildJob?,
+        poseStack: PoseStack, level: Level, table: BlockPos, plan: PlanRef, anchor: PlanAnchor, job: ClientBuildJob?, buildable: Boolean,
         camX: Double, camY: Double, camZ: Double,
     ) {
         val pos = anchor.pos
@@ -185,9 +269,9 @@ object PlanGhostRenderer {
         ship?.let { ghostBase.mul(shipTurn.set(it.renderTransform.shipToWorld).setTranslation(0f, 0f, 0f)) }
         val sections = ClientPlans.sections(plan) ?: return
         val mesh = meshFor(scratchKey.set(plan.hash, anchor.rotation, anchor.mirror, pos.asLong()), sections)
-        if (mesh.withJob != (job != null)) {
-            mesh.withJob = job != null
-            mesh.nearX = Int.MIN_VALUE
+        if (mesh.buildable != buildable) {
+            mesh.buildable = buildable
+            for (gpu in mesh.gpu.values) gpu.version = UNBUILT
         }
         val cx = camLocal.x - pos.x
         val cy = camLocal.y - pos.y
@@ -196,7 +280,12 @@ object PlanGhostRenderer {
         viewProjection.set(RenderSystem.getProjectionMatrix()).mul(ghostBase)
         frustum.set(viewProjection, false)
         update(mesh, job, cx, cy, cz, scale)
-        draw(mesh, ghostBase, -cx, -cy, -cz)
+        if (mesh.visible.isEmpty) return
+        mesh.base.set(ghostBase)
+        mesh.dx = -cx
+        mesh.dy = -cy
+        mesh.dz = -cz
+        drawSource(mesh)
     }
 
     private fun meshFor(key: MeshKey, sections: PlanSections): GhostMesh {
@@ -238,8 +327,9 @@ object PlanGhostRenderer {
         val deadline = System.nanoTime() + BUILD_NANOS
         var builds = 0
         var asks = 0
+        val visible = mesh.visible
         visible.clear()
-        visibleFade.clear()
+        mesh.visibleFade.clear()
         for (i in 0 until mesh.grid.nearCount) {
             val sx = mesh.grid.nearX(i)
             val sy = mesh.grid.nearY(i)
@@ -263,18 +353,18 @@ object PlanGhostRenderer {
                 // A miss asks the server for the section; nearest first, as the near list is sorted.
                 val ask = if (state == PlanSectionState.LOADING) asks++ < MAX_ASKS_PER_FRAME else canBuild
                 val data = if (ask && !empty) sections.sectionAt(index) else null
-                // An empty section with no status from the server has nothing to mark, so it spends no build.
-                val marksOnly = empty && job != null && version != 0
-                if (canBuild && (data != null || marksOnly)) {
+                if (canBuild && data != null) {
                     gpu = gpu ?: GpuSection(mesh, index).also { mesh.gpu.put(index, it) }
                     rebuild(gpu, mesh, data, sx, sy, sz, job)
                     gpu.version = version
                     builds++
                 }
             }
-            if (gpu != null && (gpu.buffer != null || gpu.marks != null)) {
+            if (gpu != null && gpu.buffer != null) {
                 visible.add(index)
-                visibleFade.add(fade)
+                mesh.visibleFade.add(fade)
+                gpu.lastDrawn = frame
+                addBounds(cx, cy, cz)
             }
         }
     }
@@ -285,10 +375,13 @@ object PlanGhostRenderer {
         val shaper = mc.blockRenderer.blockModelShaper
         val origin = PlanAnchor(Level.OVERWORLD, BlockPos.ZERO, mesh.key.rotation, mesh.key.mirror)
         val axes = mesh.axes
+        val level = mc.level
         mesh.grid.worldBox(sx, sy, sz, box)
         gpu.boxX = box[0]
         gpu.boxY = box[1]
         gpu.boxZ = box[2]
+        gpu.boxEndX = box[3]
+        gpu.boxEndZ = box[5]
         val baseX = sx * PLAN_SECTION_EDGE
         val baseY = sy * PLAN_SECTION_EDGE
         val baseZ = sz * PLAN_SECTION_EDGE
@@ -298,42 +391,91 @@ object PlanGhostRenderer {
             if (planState.renderShape != RenderShape.MODEL) return@forEachNonAir
             val status = job?.status(sx, sy, sz, planCellLocal(lx, ly, lz)) ?: BuildCellStatus.TODO
             if (status == BuildCellStatus.DONE) return@forEachNonAir
-            val state = origin.cellWorldState(planState)
+            // The ghost shows what the Clawhod will build: no book, bottles or ripe crop that the plan cannot pay for.
+            val state = origin.cellWorldState(planState).paidState()
             val px = baseX + lx
             val py = baseY + ly
             val pz = baseZ + lz
+            if (occupied(mesh, level, px, py, pz)) return@forEachNonAir
+            if (mesh.buildable && !supported(mesh, level, px, py, pz)) return@forEachNonAir
             val tint = mc.blockColors.getColor(state, null, null, 0)
             val r = if (tint == -1) 1f else (tint shr 16 and 0xFF) / 255f
             val g = if (tint == -1) 1f else (tint shr 8 and 0xFF) / 255f
             val b = if (tint == -1) 1f else (tint and 0xFF) / 255f
-            val flagged = status == BuildCellStatus.BLOCKED || status == BuildCellStatus.MISSING
-            val hidden = if (!hidesSharedFaces(planState)) 0 else ghostHiddenFaces(lx, ly, lz, mesh.faceSteps) { x, y, z -> solidNear(data, x, y, z) }
+            val plain = status == BuildCellStatus.BLOCKED || status == BuildCellStatus.MISSING
+            val hidden = if (!hidesSharedFaces(planState)) 0 else ghostHiddenFaces(lx, ly, lz, mesh.faceSteps) { x, y, z -> hidesFace(mesh, level, job, data, sx, sy, sz, x, y, z) }
             cellPose.pushPose()
             cellPose.translate(
                 (axes.worldX(px, py, pz) - gpu.boxX).toFloat(),
                 (axes.worldY(px, py, pz) - gpu.boxY).toFloat(),
                 (axes.worldZ(px, py, pz) - gpu.boxZ).toFloat(),
             )
-            renderModel(cellPose.last(), state, shaper.getBlockModel(state), r, g, b, hidden, flagged)
+            renderModel(cellPose.last(), state, shaper.getBlockModel(state), r, g, b, hidden, plain)
             cellPose.popPose()
         }
         neighbours.fill(null)
-        markBuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR)
-        if (job != null) markAirCells(gpu, mesh, data, sx, sy, sz, job)
         val blocks = builder.endOrDiscardIfEmpty()
-        val marks = markBuilder.endOrDiscardIfEmpty()
-        if (blocks == null && marks == null) {
+        if (blocks == null) {
             release(gpu)
             return
         }
-        val wasLive = gpu.buffer != null || gpu.marks != null
-        val bytes = (blocks?.drawState()?.vertexBufferSize() ?: 0).toLong() + (marks?.drawState()?.vertexBufferSize() ?: 0)
+        val wasLive = gpu.buffer != null
+        val bytes = blocks.drawState().vertexBufferSize().toLong()
         gpu.buffer = upload(gpu.buffer, blocks)
-        gpu.marks = upload(gpu.marks, marks)
         if (!wasLive) live.add(gpu)
         liveBytes += bytes - gpu.bytes
         gpu.bytes = bytes
         gpu.lastDrawn = frame
+    }
+
+    /**
+     * True when the cell next to a ghost cell, at section-local ([x], [y], [z]) one step outside or inside the section,
+     * hides the face between them: a solid block that stands there, or a solid plan cell that this ghost really draws.
+     * A plan cell that a filter skips (a block stands there, the cell is not buildable yet, or it is done) hides nothing.
+     */
+    @Suppress("LongParameterList", "ReturnCount") // A section, its job and a neighbour cell.
+    private fun hidesFace(
+        mesh: GhostMesh, level: Level?, job: ClientBuildJob?, data: PlanSection, sx: Int, sy: Int, sz: Int, x: Int, y: Int, z: Int,
+    ): Boolean {
+        val px = sx * PLAN_SECTION_EDGE + x
+        val py = sy * PLAN_SECTION_EDGE + y
+        val pz = sz * PLAN_SECTION_EDGE + z
+        if (level != null) {
+            val axes = mesh.axes
+            cursor.set(mesh.anchorX + axes.worldX(px, py, pz), mesh.anchorY + axes.worldY(px, py, pz), mesh.anchorZ + axes.worldZ(px, py, pz))
+            val world = level.getBlockState(cursor)
+            if (hidesSharedFaces(world)) return true
+            // A block that is not solid fills the cell: the plan cell is not drawn there.
+            if (!world.isAir && !world.canBeReplaced()) return false
+        }
+        if (!solidNear(data, x, y, z)) return false
+        val done = job?.status(px shr SECTION_SHIFT, py shr SECTION_SHIFT, pz shr SECTION_SHIFT, planCellLocal(px and EDGE_MASK, py and EDGE_MASK, pz and EDGE_MASK))
+        if (done == BuildCellStatus.DONE) return false
+        return !(mesh.buildable && !supported(mesh, level, px, py, pz))
+    }
+
+    /** True when a block that is not air and not replaceable stands where plan cell ([px], [py], [pz]) lies. */
+    private fun occupied(mesh: GhostMesh, level: Level?, px: Int, py: Int, pz: Int): Boolean {
+        if (level == null) return false
+        val axes = mesh.axes
+        cursor.set(mesh.anchorX + axes.worldX(px, py, pz), mesh.anchorY + axes.worldY(px, py, pz), mesh.anchorZ + axes.worldZ(px, py, pz))
+        val state = level.getBlockState(cursor)
+        return !state.isAir && !state.canBeReplaced()
+    }
+
+    /** True when a block that is not air and not replaceable stands at one of the six face neighbours of the cell. */
+    private fun supported(mesh: GhostMesh, level: Level?, px: Int, py: Int, pz: Int): Boolean {
+        if (level == null) return false
+        val axes = mesh.axes
+        val x = mesh.anchorX + axes.worldX(px, py, pz)
+        val y = mesh.anchorY + axes.worldY(px, py, pz)
+        val z = mesh.anchorZ + axes.worldZ(px, py, pz)
+        for (i in FACE_DIRECTIONS.indices) {
+            val face = FACE_DIRECTIONS[i]
+            val state = level.getBlockState(cursor.set(x + face.stepX, y + face.stepY, z + face.stepZ))
+            if (!state.isAir && !state.canBeReplaced()) return true
+        }
+        return false
     }
 
     /** Uploads [rendered] into [buffer] (made when null); an empty render frees the buffer and returns null. */
@@ -347,62 +489,6 @@ object PlanGhostRenderer {
         out.upload(rendered)
         VertexBuffer.unbind()
         return out
-    }
-
-    /**
-     * A red box over each plan-air cell that the job cannot clear (BLOCKED or MISSING), for example a full chest in
-     * the way. Plan-air cells that wait for nothing stay invisible.
-     */
-    @Suppress("LongParameterList") // A section, its place in the grid and its build progress.
-    private fun markAirCells(gpu: GpuSection, mesh: GhostMesh, data: PlanSection?, sx: Int, sy: Int, sz: Int, job: ClientBuildJob) {
-        // Version 0: the server never sent a status for this section, so every cell is TODO.
-        if (job.sectionVersion(sx, sy, sz) == 0) return
-        val size = mesh.sections.size
-        val axes = mesh.axes
-        for (local in 0 until PLAN_SECTION_CELLS) {
-            val status = job.status(sx, sy, sz, local)
-            if (status != BuildCellStatus.BLOCKED && status != BuildCellStatus.MISSING) continue
-            val lx = planCellLocalX(local)
-            val ly = planCellLocalY(local)
-            val lz = planCellLocalZ(local)
-            if (data?.stateAt(lx, ly, lz) != null) continue
-            val px = sx * PLAN_SECTION_EDGE + lx
-            val py = sy * PLAN_SECTION_EDGE + ly
-            val pz = sz * PLAN_SECTION_EDGE + lz
-            if (px >= size.x || py >= size.y || pz >= size.z) continue
-            markBox(
-                (axes.worldX(px, py, pz) - gpu.boxX).toFloat(),
-                (axes.worldY(px, py, pz) - gpu.boxY).toFloat(),
-                (axes.worldZ(px, py, pz) - gpu.boxZ).toFloat(),
-            )
-        }
-    }
-
-    /** Six untextured faces of the cell at ([x], [y], [z]), a little larger than the block so its faces do not z-fight. */
-    private fun markBox(x: Float, y: Float, z: Float) {
-        val x0 = x - MARK_GROW
-        val y0 = y - MARK_GROW
-        val z0 = z - MARK_GROW
-        val x1 = x + 1f + MARK_GROW
-        val y1 = y + 1f + MARK_GROW
-        val z1 = z + 1f + MARK_GROW
-        markQuad(x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1)
-        markQuad(x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0)
-        markQuad(x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0)
-        markQuad(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1)
-        markQuad(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0)
-        markQuad(x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1)
-    }
-
-    @Suppress("LongParameterList") // Four corners.
-    private fun markQuad(
-        ax: Float, ay: Float, az: Float, bx: Float, by: Float, bz: Float,
-        cx: Float, cy: Float, cz: Float, dx: Float, dy: Float, dz: Float,
-    ) {
-        markBuilder.vertex(ax.toDouble(), ay.toDouble(), az.toDouble()).color(1f, FLAG_DIM, FLAG_DIM, MARK_ALPHA).endVertex()
-        markBuilder.vertex(bx.toDouble(), by.toDouble(), bz.toDouble()).color(1f, FLAG_DIM, FLAG_DIM, MARK_ALPHA).endVertex()
-        markBuilder.vertex(cx.toDouble(), cy.toDouble(), cz.toDouble()).color(1f, FLAG_DIM, FLAG_DIM, MARK_ALPHA).endVertex()
-        markBuilder.vertex(dx.toDouble(), dy.toDouble(), dz.toDouble()).color(1f, FLAG_DIM, FLAG_DIM, MARK_ALPHA).endVertex()
     }
 
     /** The six plan-local face neighbours of a section into [neighbours]. */
@@ -438,78 +524,65 @@ object PlanGhostRenderer {
     }
 
     /**
-     * As ModelBlockRenderer.renderModel, without the faces in [hidden] (a bit for each Direction ordinal). A [flagged]
-     * cell turns red on every quad, not only on the tinted ones.
+     * As ModelBlockRenderer.renderModel, without the faces in [hidden] (a bit for each Direction ordinal). A [plain] cell
+     * carries a lightmap that plan_ghost_source reads as "sketch without colour".
      */
     @Suppress("LongParameterList") // renderModel's parameters, with the hidden faces and the flag.
     private fun renderModel(
-        pose: PoseStack.Pose, state: BlockState, model: BakedModel, r: Float, g: Float, b: Float, hidden: Int, flagged: Boolean,
+        pose: PoseStack.Pose, state: BlockState, model: BakedModel, r: Float, g: Float, b: Float, hidden: Int, plain: Boolean,
     ) {
         for (direction in Direction.entries) {
             if (hidden and (1 shl direction.ordinal) != 0) continue
             // renderModel seeds 42 before each quad list, so random models pick the same variants.
             modelRandom.setSeed(MODEL_SEED)
-            putQuads(pose, model.getQuads(state, direction, modelRandom), r, g, b, flagged)
+            putQuads(pose, model.getQuads(state, direction, modelRandom), r, g, b, plain)
         }
         modelRandom.setSeed(MODEL_SEED)
-        putQuads(pose, model.getQuads(state, null, modelRandom), r, g, b, flagged)
+        putQuads(pose, model.getQuads(state, null, modelRandom), r, g, b, plain)
     }
 
     @Suppress("LongParameterList") // A quad list, its biome tint and the flag.
-    private fun putQuads(pose: PoseStack.Pose, quads: List<BakedQuad>, r: Float, g: Float, b: Float, flagged: Boolean) {
+    private fun putQuads(pose: PoseStack.Pose, quads: List<BakedQuad>, r: Float, g: Float, b: Float, plain: Boolean) {
+        val light = if (plain) PLAIN_LIGHT else LightTexture.FULL_BRIGHT
         for (i in quads.indices) {
             val quad = quads[i]
             // As vanilla, the biome tint goes only on tinted quads.
             val tinted = quad.isTinted
-            val red = if (flagged) 1f else if (tinted) r else 1f
-            val green = (if (tinted) g else 1f) * if (flagged) FLAG_DIM else 1f
-            val blue = (if (tinted) b else 1f) * if (flagged) FLAG_DIM else 1f
-            builder.putBulkData(pose, quad, red, green, blue, LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY)
+            builder.putBulkData(pose, quad, if (tinted) r else 1f, if (tinted) g else 1f, if (tinted) b else 1f, light, OverlayTexture.NO_OVERLAY)
         }
     }
 
-    private fun draw(mesh: GhostMesh, base: Matrix4f, dx: Double, dy: Double, dz: Double) {
-        if (visible.isEmpty) return
-        val shader = GameRenderer.getRendertypeTranslucentShader() ?: return
-        val mc = Minecraft.getInstance()
+    /** The section in [box], grown by the warble, into the sketch's screen box. */
+    private fun addBounds(cx: Double, cy: Double, cz: Double) = PlanGhostSketch.addBounds(
+        viewProjection,
+        (box[0] - cx).toFloat() - BOUNDS_GROW, (box[1] - cy).toFloat() - BOUNDS_GROW, (box[2] - cz).toFloat() - BOUNDS_GROW,
+        (box[3] - cx).toFloat() + BOUNDS_GROW, (box[4] - cy).toFloat() + BOUNDS_GROW, (box[5] - cz).toFloat() + BOUNDS_GROW,
+    )
+
+    /** The ghost blocks into the sketch's colour target, then its normals target. */
+    private fun drawSource(mesh: GhostMesh) {
+        val shader = PlanGhostSketch.beginSource() ?: return
         RenderSystem.setShaderTexture(0, InventoryMenu.BLOCK_ATLAS)
-        mc.gameRenderer.lightTexture().turnOnLightLayer()
-        RenderSystem.enableBlend()
-        RenderSystem.defaultBlendFunc()
-        RenderSystem.enableDepthTest()
-        RenderSystem.depthMask(false)
-        for (i in 0 until visible.size) {
-            val gpu = mesh.gpu.get(visible.getInt(i)) ?: continue
-            gpu.lastDrawn = frame
-            val buffer = gpu.buffer ?: continue
-            RenderSystem.setShaderColor(1f, 1f, 1f, GHOST_ALPHA * visibleFade.getFloat(i))
-            modelView.set(base).translate((dx + gpu.boxX).toFloat(), (dy + gpu.boxY).toFloat(), (dz + gpu.boxZ).toFloat())
-            buffer.bind()
-            buffer.drawWithShader(modelView, RenderSystem.getProjectionMatrix(), shader)
+        for (pass in 0 until SOURCE_PASSES) {
+            PlanGhostSketch.bindPass(shader, pass)
+            for (i in 0 until mesh.visible.size) {
+                val gpu = mesh.gpu.get(mesh.visible.getInt(i)) ?: continue
+                val buffer = gpu.buffer ?: continue
+                RenderSystem.setShaderColor(1f, 1f, 1f, mesh.visibleFade.getFloat(i))
+                PlanGhostSketch.warbleOrigin(shader, mesh.anchorX + gpu.boxX, mesh.anchorY + gpu.boxY, mesh.anchorZ + gpu.boxZ)
+                PlanGhostSketch.frameOrigin(shader, gpu.boxX, gpu.boxY, gpu.boxZ)
+                sectionModelView(mesh, gpu)
+                buffer.bind()
+                buffer.drawWithShader(modelView, RenderSystem.getProjectionMatrix(), shader)
+            }
         }
         VertexBuffer.unbind()
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
-        mc.gameRenderer.lightTexture().turnOffLightLayer()
-        drawMarks(mesh, base, dx, dy, dz)
-        RenderSystem.depthMask(true)
-        RenderSystem.disableBlend()
+        PlanGhostSketch.endSource()
     }
 
-    /** The red marks, after the blocks, with blend on and no depth write; both sides, as the player may stand inside one. */
-    private fun drawMarks(mesh: GhostMesh, base: Matrix4f, dx: Double, dy: Double, dz: Double) {
-        val shader = GameRenderer.getPositionColorShader() ?: return
-        RenderSystem.disableCull()
-        for (i in 0 until visible.size) {
-            val gpu = mesh.gpu.get(visible.getInt(i)) ?: continue
-            val marks = gpu.marks ?: continue
-            RenderSystem.setShaderColor(1f, 1f, 1f, visibleFade.getFloat(i))
-            modelView.set(base).translate((dx + gpu.boxX).toFloat(), (dy + gpu.boxY).toFloat(), (dz + gpu.boxZ).toFloat())
-            marks.bind()
-            marks.drawWithShader(modelView, RenderSystem.getProjectionMatrix(), shader)
-        }
-        VertexBuffer.unbind()
-        RenderSystem.setShaderColor(1f, 1f, 1f, 1f)
-        RenderSystem.enableCull()
+    private fun sectionModelView(mesh: GhostMesh, gpu: GpuSection) {
+        modelView.set(mesh.base).translate((mesh.dx + gpu.boxX).toFloat(), (mesh.dy + gpu.boxY).toFloat(), (mesh.dz + gpu.boxZ).toFloat())
     }
 
     /** Frees the least recently drawn sections past the byte budget; the scan runs only when the budget is passed. */
@@ -534,7 +607,7 @@ object PlanGhostRenderer {
     }
 
     private fun release(gpu: GpuSection) {
-        if (gpu.buffer == null && gpu.marks == null) return
+        if (gpu.buffer == null) return
         closeBuffers(gpu)
         live.remove(gpu)
     }
@@ -542,8 +615,6 @@ object PlanGhostRenderer {
     private fun closeBuffers(gpu: GpuSection) {
         gpu.buffer?.close()
         gpu.buffer = null
-        gpu.marks?.close()
-        gpu.marks = null
         liveBytes -= gpu.bytes
         gpu.bytes = 0
     }
@@ -595,13 +666,17 @@ object PlanGhostRenderer {
     private const val FADE_DISTANCE = 8.0
     private const val HASH_STEP = 31
     private const val GPU_BYTE_BUDGET = 256L shl 20
-    private const val GHOST_ALPHA = 0.45f
-    private const val FLAG_DIM = 0.25f
+    private const val SOURCE_PASSES = 3
+
+    // Past the 0.03-block warble in plan_ghost_source.vsh.
+    private const val BOUNDS_GROW = 0.05f
+    // Sky light 14 against the full 15 of a coloured cell; plan_ghost_source reads it from UV2.
+    private val PLAIN_LIGHT = LightTexture.pack(15, 14)
     private const val MODEL_SEED = 42L
-    private const val MARK_GROW = 0.01f
-    private const val MARK_ALPHA = 0.35f
-    private const val MARK_BUILDER_BYTES = 1 shl 14
     private const val EDGE_MASK = PLAN_SECTION_EDGE - 1
+    private const val SECTION_SHIFT = 4
+    private const val MAX_PENDING_BLOCKS = 512
+    private const val MAX_PENDING_CHUNKS = 32
     private const val NEIGHBOURS = 6
 
     // loadNeighbours slots: axis * 2 + (0 for the minus side, 1 for the plus side).

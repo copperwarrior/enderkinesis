@@ -116,7 +116,7 @@ class ClawhodRenderer(ctx: BlockEntityRendererProvider.Context) : BlockEntityRen
         val hands = be.clientHands()
         for (i in 0 until CLAWHOD_HANDS) {
             val m = hands[i]
-            val target = be.handTarget(i)
+            val target = liveTarget(level, be.handTarget(i))
             val punching = target != NO_POS && be.handPunches(i)
             val holdWant = if (be.shownItem(i).isEmpty) 0.0 else 1.0
             m.homeHold += (holdWant - m.homeHold) * (1.0 - exp(-dt / HOLD_EASE_TICKS))
@@ -198,6 +198,13 @@ class ClawhodRenderer(ctx: BlockEntityRendererProvider.Context) : BlockEntityRen
      * a supply) on the gem side, by [PUNCH_REST]; an open cell it fills stops it [PLACE_REST] short, outside the cell. Returns true for a solid target. An [open] target stays open
      * though the block is placed there, so the hand does not jump back when the block appears.
      */
+    /** VS deletes a ship when its last block breaks: a cell on it has no world place, so the hand flies home. */
+    private fun liveTarget(level: ClientLevel, target: Long): Long {
+        if (target == NO_POS) return NO_POS
+        lightPos.set(target)
+        return if (level.isBlockInShipyard(lightPos) && level.getShipManagingPos(lightPos) == null) NO_POS else target
+    }
+
     private fun aimAt(level: ClientLevel, target: Long, open: Boolean, looseId: Int, partial: Float): Boolean {
         val item = if (looseId == ClawhodBlockEntity.NO_LOOSE) null else level.getEntity(looseId) as? ItemEntity
         if (item != null) {
@@ -406,14 +413,14 @@ class ClawhodRenderer(ctx: BlockEntityRendererProvider.Context) : BlockEntityRen
     }
 
     /**
-     * True when shipyard point [p] is in [ship]'s block box (max inclusive). There the hand takes the hull's shipyard
+     * True when shipyard point [p] is in [ship]'s block box (max exclusive). There the hand takes the hull's shipyard
      * light, like the ship's own blocks; outside it takes the world light where it is drawn.
      */
     private fun inHull(ship: ClientShip?, p: Vector3d): Boolean {
         val box = ship?.shipAABB ?: return false
-        return p.x >= box.minX() && p.x < box.maxX() + 1 &&
-            p.y >= box.minY() && p.y < box.maxY() + 1 &&
-            p.z >= box.minZ() && p.z < box.maxZ() + 1
+        return p.x >= box.minX() && p.x < box.maxX() &&
+            p.y >= box.minY() && p.y < box.maxY() &&
+            p.z >= box.minZ() && p.z < box.maxZ()
     }
 
     private fun toWorld(ship: ClientShip?, v: Vector3d) {

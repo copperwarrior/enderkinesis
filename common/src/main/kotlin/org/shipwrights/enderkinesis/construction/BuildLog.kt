@@ -136,7 +136,7 @@ internal enum class WorkerWhy {
 internal enum class ClawhodWhy {
     JOINED, LEFT, JOB_GONE, WORK_TAKEN, NO_REACHABLE_WORK, NOTHING_OPEN, NO_ACTIVE_SECTION, ASK_MOVE,
     ASK_MOVE_SUPPLY, ASK_CLIMB, NO_WORK_POSITION, CARRIER_SITTING, CARRIER_MOVING, CARRIER_BUSY, CARRIER_STUCK, ENTITY_BLOCKS, CARRIER_STEP_ASIDE, NO_SUPPLY_IN_REACH,
-    CARRIER_IN_WAY, CARRIER_TRAPPED, CARRIER_TRAPPED_MOVE, STOCK_UP, SPOT_TAKEN, SUPPLY_EMPTIED, SWAP,
+    CARRIER_IN_WAY, CARRIER_TRAPPED, CARRIER_TRAPPED_MOVE, CARRIER_TRAPPED_NO_EXIT, STOCK_UP, SPOT_TAKEN, SUPPLY_EMPTIED, SWAP,
     UNLOAD, SUPPLY_FULL, FETCH_MISSED, FETCH_REFUSED, TASK_OUT_OF_REACH, RESERVATION_LOST, CUT_UNLOAD,
     SUPPLY_REFUSED, RELAY, RELAY_GIVE, RELAY_RETURN, RELAY_BREAK, RELAY_BACKOFF, TOOL_FETCH, TOOL_PASS, REST_PASS, HOLD_FOR_FAR, HOLD_ENDS,
     FAR_GIVEN_UP,
@@ -172,6 +172,9 @@ internal object BuildLog {
     fun itemId(item: Item?): Int = item?.let { BuiltInRegistries.ITEM.getId(it) } ?: 0
 
     fun itemName(item: Item): String = BuiltInRegistries.ITEM.getKey(item).toString()
+
+    fun costName(cost: PlanCost.Items): String =
+        "${cost.count} ${itemName(cost.item)}" + (cost.extra?.let { " + ${cost.extraCount} ${itemName(it)}" } ?: "")
 
     fun blockName(state: BlockState): String = BuiltInRegistries.BLOCK.getKey(state.block).toString()
 

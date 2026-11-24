@@ -106,6 +106,12 @@ class BuildJobs : SavedData() {
         if (crews.put(clawhod.asLong(), tableId) != tableId) setDirty()
     }
 
+    /** The table a Clawhod works for, or null. */
+    internal fun crewTable(clawhod: BlockPos): UUID? = crews.get(clawhod.asLong())
+
+    /** True when the table [tableId] has a job running. */
+    internal fun isRunning(tableId: UUID): Boolean = jobs.values.any { it.tableId == tableId }
+
     internal fun dropCrew(clawhod: BlockPos) {
         if (crews.containsKey(clawhod.asLong())) {
             crews.remove(clawhod.asLong())

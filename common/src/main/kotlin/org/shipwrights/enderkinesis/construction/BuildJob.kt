@@ -263,7 +263,7 @@ class BuildJob(
                 if (unloaded < 0) unloaded = index
                 continue
             }
-            val s = BuildSection(index, progress.doneBits(index), plan.sectionAt(index), grid.origin(index), anchor, plan, seed)
+            val s = BuildSection(index, progress.doneBits(index), plan.sectionAt(index), grid.origin(index), anchor, plan, seed, table.asLong())
             if (evict >= 0) {
                 active[evict] = s
             } else {
@@ -435,6 +435,8 @@ class BuildJob(
         val pick = sc.pick
         val key = cellKey(s.index, l)
         val pos = scratch.set(s.boxPos[l])
+        // The table's own cell counts as done; the builder never cuts the table.
+        if (pos == table) return false
         val reserved = reservations.containsKey(key)
         // A PLACE or FIX reservation is build work. Counted as open CLEAR work, it keeps all other workers out of BUILD.
         if (reserved && !s.clearHeld[l]) return false
@@ -504,6 +506,7 @@ class BuildJob(
             s.note(sc.pick.tally, WhyNot.OTHER_TOOL_PASS, s.boxPos[l], world)
             return false
         }
+        if (needsNoTool(world)) return true
         if (sc.worker.mayFetchTool() && sc.noToolFor !== world.block && findTool(sc, world)) return true
         if (!sc.worker.toolHolderTakes(s.boxPos[l], world)) return true
         s.note(sc.pick.tally, WhyNot.FOR_TOOL_HOLDER, s.boxPos[l], world)
@@ -585,6 +588,7 @@ class BuildJob(
 
     /** World y of the plan's top layer. */
     internal val planTopY: Int get() = anchor.pos.y + ref.size.y - 1
+    internal val planBottomY: Int get() = anchor.pos.y
 
     /**
      * Claims [floor] on support [face] for [worker]'s carrier, a body of chebyshev [reach] and [height] world blocks:
@@ -856,6 +860,7 @@ class BuildJob(
             s.setStatus(cell, CellStatus.BLOCKED)
             return false
         }
+        if (cost.extra != null) return tryKit(sc, s, cell, cost, block)
         val limit: Int
         if (pick.held != null) {
             if (pick.held != block || pick.heldLeft < cost.count) {
@@ -875,6 +880,50 @@ class BuildJob(
         return true
     }
 
+    /**
+     * A two-item cell (pot and plant, cake and candle), never in a batch: the hand fetches the base unless it holds
+     * enough, then the extra into its free slot. The place takes both.
+     */
+    @Suppress("ReturnCount") // One return per pick outcome reads clearer than nested branches.
+    private fun tryKit(sc: Picker, s: BuildSection, cell: Int, cost: PlanCost.Items, block: Block): Boolean {
+        val pick = sc.pick
+        val extra = checkNotNull(cost.extra) { "a kit cost has an extra item" }
+        val baseHeld = pick.held == block && pick.heldLeft >= cost.count
+        if (pick.held != null && !baseHeld) {
+            s.note(pick.tally, WhyNot.HOLDING_OTHER, s.positions[cell], s.states[cell])
+            return false
+        }
+        if (baseHeld && !sc.worker.hasRoomFor(extra, cost.extraCount)) {
+            s.note(pick.tally, WhyNot.NO_CAPACITY, s.positions[cell], s.states[cell])
+            return false
+        }
+        if (!baseHeld && fetchLimit(sc, s, cell, cost, block) < 0) return false
+        val baseSupply = pick.supply
+        val extraSupply = supplyFor(sc, s, cell, extra, cost.extraCount)
+        if (extraSupply == null) {
+            pick.supply = null
+            pick.fetchItem = null
+            return false
+        }
+        s.setStatus(cell, CellStatus.TODO)
+        reserve(sc.worker, s, cell)
+        pick.tasks.add(BuildTask(TaskKind.PLACE, cellKey(s.index, s.local[cell]), BlockPos.of(s.positions[cell]), s.states[cell], cost))
+        if (baseHeld) {
+            pick.heldLeft -= cost.count
+            pick.supply = extraSupply
+            pick.fetchItem = extra
+            pick.fetchCount = cost.extraCount
+            pick.kitLeg = true
+        } else {
+            pick.supply = baseSupply
+            pick.fetchCount = cost.count
+            pick.extraSupply = extraSupply
+            pick.extraItem = extra
+            pick.extraCount = cost.extraCount
+        }
+        return true
+    }
+
     /** True when the worker holds nothing, or holds the block that [target] costs. */
     private fun usesHeld(pick: WorkerPick, target: BlockState): Boolean {
         val held = pick.held ?: return true
@@ -890,31 +939,36 @@ class BuildJob(
             s.note(pick.tally, WhyNot.NO_CAPACITY, s.positions[cell], s.states[cell])
             return -1
         }
-        if (sc.worker.refuses(cost.item)) {
-            s.note(pick.tally, WhyNot.FETCH_REFUSED, s.positions[cell], s.states[cell])
-            return -1
-        }
-        val supply = findSupply(sc, cost.item, cost.count)
-        if (supply == null) {
-            if (supplySpoken) {
-                // Every supply with the item is spoken for by hands on their way: wait for them.
-                s.note(pick.tally, WhyNot.RESERVED, s.positions[cell], s.states[cell])
-                return -1
-            }
-            if (cost.item in missingItems) {
-                s.noteMissing(pick.tally, cost.item, s.positions[cell])
-                s.setStatus(cell, CellStatus.MISSING)
-            } else {
-                s.note(pick.tally, WhyNot.NO_SUPPLY_IN_REACH, s.positions[cell], s.states[cell])
-                pick.noteFar(s.positions[cell], s.states[cell], build = true)
-            }
-            return -1
-        }
+        val supply = supplyFor(sc, s, cell, cost.item, cost.count) ?: return -1
         val stock = (HopperBlockEntity.getContainerAt(sc.level, supply)?.countOf(cost.item) ?: 0) -
             pendingFetch(supply, cost.item, sc.worker.workerId)
         pick.supply = supply
         pick.fetchItem = cost.item
         return minOf(capacity, stock)
+    }
+
+    /** A supply in reach with [count] of [item] for [cell], or null with the reason noted on the cell. */
+    private fun supplyFor(sc: Picker, s: BuildSection, cell: Int, item: Item, count: Int): BlockPos? {
+        val pick = sc.pick
+        if (sc.worker.refuses(item)) {
+            s.note(pick.tally, WhyNot.FETCH_REFUSED, s.positions[cell], s.states[cell])
+            return null
+        }
+        val supply = findSupply(sc, item, count)
+        if (supply != null) return supply
+        when {
+            // Every supply with the item is spoken for by hands on their way: wait for them.
+            supplySpoken -> s.note(pick.tally, WhyNot.RESERVED, s.positions[cell], s.states[cell])
+            item in missingItems -> {
+                s.noteMissing(pick.tally, item, s.positions[cell])
+                s.setStatus(cell, CellStatus.MISSING)
+            }
+            else -> {
+                s.note(pick.tally, WhyNot.NO_SUPPLY_IN_REACH, s.positions[cell], s.states[cell])
+                pick.noteFar(s.positions[cell], s.states[cell], build = true)
+            }
+        }
+        return null
     }
 
     /**
@@ -937,7 +991,7 @@ class BuildJob(
             if (BlockPos.getY(s.positions[c]) != layer) break
             if (s.isDone(c) || reservations.containsKey(key) || !sc.worker.reaches(s.positions[c])) continue
             val other = s.states[c].planCost() as? PlanCost.Items ?: continue
-            if (other.item != cost.item || other.count > left) continue
+            if (other.extra != null || other.item != cost.item || other.count > left) continue
             if (check(sc.level, sc.actor, s, c, sc.pick) != Check.READY || !sc.worker.keepsCarrierFree(s.positions[c])) continue
             s.setStatus(c, CellStatus.TODO)
             reserve(sc.worker, s, c)

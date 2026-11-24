@@ -1,14 +1,12 @@
 package org.shipwrights.enderkinesis.construction
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.core.Vec3i
-import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.Container
-import net.minecraft.world.InteractionHand
-import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.block.ChestBlock
 import net.minecraft.world.level.block.Mirror
 import net.minecraft.world.level.block.Rotation
@@ -19,7 +17,6 @@ import org.shipwrights.enderkinesis.block.DraftingTableBlock
 import org.shipwrights.enderkinesis.blockentity.ClawhodBlockEntity
 import org.shipwrights.enderkinesis.blockentity.DraftingTableBlockEntity
 import org.shipwrights.enderkinesis.item.PlanPlacement
-import org.shipwrights.enderkinesis.item.StaffOfCommandItem
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.util.CrossFrameBlocks
 import org.valkyrienskies.mod.common.getShipManagingPos
@@ -36,44 +33,47 @@ private const val KEY = "message.enderkinesis.drafting_table."
 
 private fun note(key: String, vararg args: Any): Component = Component.translatable(KEY + key, *args)
 
-/** A right-click on the table at [pos]: a staff that holds Clawhods hands them to the table; else the sketchbook opens. */
-fun ServerLevel.useDraftingTable(pos: BlockPos, player: ServerPlayer, hand: InteractionHand) {
+/** A right-click on the table at [pos]: its screen opens, or the sketchbook when it holds no plan. */
+fun ServerLevel.useDraftingTable(pos: BlockPos, player: ServerPlayer) {
     val table = getBlockEntity(pos) as? DraftingTableBlockEntity ?: return
-    val held = player.getItemInHand(hand)
-    val clawhodId = BuiltInRegistries.BLOCK.getKey(EKBlocks.CLAWHOD.get())
-    if (held.item is StaffOfCommandItem && StaffOfCommandItem.readEntries(held).any { it.blockId == clawhodId }) {
-        assignCrew(player, pos, table, held)
-        return
-    }
     dropMissingPlan(table)
-    DraftingTableNetwork.openSketchbook(player, view(pos, table, Component.empty()))
+    val state = view(pos, table, Component.empty())
+    if (table.plan != null) DraftingTableNetwork.sendState(player, state, open = true) else DraftingTableNetwork.openSketchbook(player, state)
 }
 
+/** The radius of the plan, half its largest side, as the placement reach rule uses it, and the crew reach around its centre. */
+private const val CREW_REACH_FACTOR = 1.5
+
+private fun crewRadius(size: Vec3i): Double = CREW_REACH_FACTOR * maxOf(size.x, size.y, size.z) / 2.0
+
 /**
- * The user's process: Clawhods go on the staff first, then the staff hands them all to a table. The Clawhods of this
- * level leave the staff and work for the table; they join its job now when it runs. Other staff entries stay.
+ * The table takes every Clawhod within 1.5 times the plan radius of the placed plan's centre, in the world and on
+ * ships. A Clawhod that works for another table with a running job stays with it; idle ones and its own join the crew.
  */
-private fun ServerLevel.assignCrew(player: ServerPlayer, pos: BlockPos, table: DraftingTableBlockEntity, staff: ItemStack) {
-    val clawhodId = BuiltInRegistries.BLOCK.getKey(EKBlocks.CLAWHOD.get())
-    val dim = dimension().location()
+private fun ServerLevel.recruitCrew(pos: BlockPos, table: DraftingTableBlockEntity, ref: PlanRef): Int {
+    val box = table.placement.box(pos, ref.size)
+    val centre = toWorldCoordinates(Vec3((box.minX() + box.maxX() + 1) / 2.0, (box.minY() + box.maxY() + 1) / 2.0, (box.minZ() + box.maxZ() + 1) / 2.0))
     val data = BuildJobs.get(this)
-    val job = data.jobAt(pos)
-    val entries = StaffOfCommandItem.readEntries(staff)
-    val kept = ArrayList<StaffOfCommandItem.Companion.Entry>(entries.size)
-    var count = 0
-    for (entry in entries) {
-        if (entry.blockId != clawhodId || entry.dim != dim) {
-            kept.add(entry)
-            continue
+    var joined = 0
+    forEachClawhodNear(centre, crewRadius(ref.size)) { clawhod ->
+        val owner = data.crewTable(clawhod.blockPos)
+        if (owner == null || owner == table.tableId || !data.isRunning(owner)) {
+            data.assignCrew(clawhod.blockPos, table.tableId)
+            joined++
         }
-        // An unloaded Clawhod is assigned by its cell; a loaded cell with no Clawhod is a stale entry and goes.
-        val clawhod = if (isLoaded(entry.pos)) getBlockEntity(entry.pos) as? ClawhodBlockEntity ?: continue else null
-        data.assignCrew(entry.pos, table.tableId)
-        if (clawhod != null && job != null) clawhod.ensureWorker().join(job)
-        count++
     }
-    StaffOfCommandItem.writeEntries(staff, kept)
-    player.displayClientMessage(if (count == 0) note("no_crew") else note("crew_assigned", count), true)
+    return joined
+}
+
+/** Recruit: the table takes the Clawhods in reach now, with no build; a running job takes them in at once. */
+internal fun ServerLevel.recruitAt(player: ServerPlayer, pos: BlockPos) {
+    val table = tableFor(player, pos) ?: return
+    dropMissingPlan(table)
+    val ref = table.plan ?: return answer(player, pos, table, note("no_plan"))
+    val joined = recruitCrew(pos, table, ref)
+    val job = BuildJobs.get(this).jobAt(pos)
+    if (job != null) for (clawhod in loadedCrew(table.tableId)) clawhod.ensureWorker().join(job)
+    answer(player, pos, table, if (joined == 0) note("no_clawhod", crewRadius(ref.size).toInt()) else note("recruited", joined))
 }
 
 /** A plan the server no longer has is dropped with its placement. */
@@ -95,11 +95,11 @@ internal fun ServerLevel.tableFor(player: ServerPlayer, pos: BlockPos): Drafting
 /** The table's state for its screen, with [note] as the last answer. */
 internal fun ServerLevel.view(pos: BlockPos, table: DraftingTableBlockEntity, note: Component): TableView {
     val ship = if (isBlockInShipyard(pos)) getShipManagingPos(pos) else null
-    val shipSize = ship?.shipAABB?.let { Vec3i(it.maxX() - it.minX() + 1, it.maxY() - it.minY() + 1, it.maxZ() - it.minZ() + 1) }
+    val shipSize = ship?.shipAABB?.let { Vec3i(it.maxX() - it.minX(), it.maxY() - it.minY(), it.maxZ() - it.minZ()) }
     val data = BuildJobs.get(this)
     return TableView(
         pos, table.plan, table.placement, data.jobAt(pos) != null, shipSize,
-        table.suppliesAt(gameTime) { suppliesNear(pos, buildTuning().maxLinkedSupplies).size }, data.crewOf(table.tableId).size, note,
+        table.suppliesAt(gameTime) { suppliesNear(pos, buildTuning().maxLinkedSupplies).size }, data.crewOf(table.tableId).size, note, table.buildableOnly,
     )
 }
 
@@ -113,11 +113,52 @@ internal fun ServerLevel.choosePlan(player: ServerPlayer, pos: BlockPos, wanted:
     if (stored == null) return answer(player, pos, table, note("unknown_plan"), open = true)
     if (table.plan?.key != stored.key) {
         val front = getBlockState(pos).getValue(DraftingTableBlock.FACING)
-        val placement = TablePlacement.initial(stored.size, front) ?: TablePlacement(Vec3i(0, 1, 0), Rotation.NONE, Mirror.NONE)
+        val fallback = TablePlacement.initial(stored.size, front) ?: TablePlacement(Vec3i(0, 1, 0), Rotation.NONE, Mirror.NONE)
+        val placement = snapToPlanTable(pos, stored, front, fallback)
         stopFor(pos)
         table.hold(stored, placement)
     }
     answer(player, pos, table, note("chosen", stored.name), open = true)
+}
+
+/**
+ * [fallback] turned so a plan drafting table faces as the real table does (front is its facing), then moved so that cell
+ * lands on the real table. Of the plan's tables, the one nearest the real table under [fallback]'s offset wins. A table
+ * with no horizontal facing keeps [fallback]'s turn. [fallback] stays when the plan has no table or the result breaks a
+ * placement rule. One pass over the plan's non-empty sections, at load only.
+ */
+private fun ServerLevel.snapToPlanTable(pos: BlockPos, plan: PlanRef, front: Direction, fallback: TablePlacement): TablePlacement {
+    val sections = PlanStorage.sections(server, plan) ?: return fallback
+    val tableBlock = EKBlocks.DRAFTING_TABLE.get()
+    val dimension = dimension()
+    // The anchor of each turn with no offset, by Rotation ordinal.
+    val bare = Array(Rotation.entries.size) {
+        TablePlacement(Vec3i.ZERO, Rotation.entries[it], fallback.mirror).anchor(dimension, pos, plan.size)
+    }
+    var bestCell: BlockPos? = null
+    var bestTurn = fallback.rotation
+    var bestDistance = Long.MAX_VALUE
+    for (i in 0 until sections.nonEmptyCount) {
+        val index = sections.nonEmptyIndex(i)
+        val section = sections.sectionAt(index) ?: continue
+        val origin = sections.grid.origin(index)
+        section.forEachNonAir { x, y, z, state ->
+            if (!state.`is`(tableBlock)) return@forEachNonAir
+            val turn = Rotation.entries.firstOrNull { state.mirror(fallback.mirror).rotate(it).getValue(DraftingTableBlock.FACING) == front }
+                ?: fallback.rotation
+            // Where this cell lies with no offset; the offset that lands it on the table is the table minus this.
+            val bareWorld = bare[turn.ordinal].cellWorldPos(BlockPos(origin.x + x, origin.y + y, origin.z + z))
+            val distance = bareWorld.offset(fallback.offset).distSqr(pos).toLong()
+            if (distance < bestDistance) {
+                bestDistance = distance
+                bestCell = bareWorld
+                bestTurn = turn
+            }
+        }
+    }
+    val cell = bestCell ?: return fallback
+    val snapped = fallback.copy(offset = Vec3i(pos.x - cell.x, pos.y - cell.y, pos.z - cell.z), rotation = bestTurn)
+    return snapped.takeIf { tableRefusal(pos, plan.size, it) == null } ?: fallback
 }
 
 /** A new offset, turn or mirror from the screen; refused past the reach and world limits. */
@@ -125,7 +166,7 @@ internal fun ServerLevel.placePlan(player: ServerPlayer, pos: BlockPos, placemen
     val table = tableFor(player, pos) ?: return
     val ref = table.plan ?: return answer(player, pos, table, note("no_plan"))
     if (placement == table.placement) return answer(player, pos, table, Component.empty())
-    val refusal = planRefusal(pos, ref, placement)
+    val refusal = tableRefusal(pos, ref.size, placement)
     if (refusal != null) return answer(player, pos, table, note(refusal))
     // A job builds one placement; the user starts the moved plan with Build.
     val stopped = stopFor(pos)
@@ -150,18 +191,11 @@ internal fun ServerLevel.tableRefusal(pos: BlockPos, size: Vec3i, placement: Tab
     }
 }
 
-/** [tableRefusal], and the user's rule that a placement may not remove the table. */
-private fun ServerLevel.planRefusal(pos: BlockPos, ref: PlanRef, placement: TablePlacement): String? =
-    tableRefusal(pos, ref.size, placement) ?: "removes_table".takeIf { removesTable(pos, ref, placement) }
-
-/** True when the plan cell on the table holds air or another block. Structure void or the table itself keeps it. */
-private fun ServerLevel.removesTable(pos: BlockPos, ref: PlanRef, placement: TablePlacement): Boolean {
-    val local = placement.anchor(dimension(), pos, ref.size).cellLocalPos(pos)
-    val size = ref.size
-    if (local.x !in 0 until size.x || local.y !in 0 until size.y || local.z !in 0 until size.z) return false
-    val plan = PlanStorage.sections(server, ref) ?: return false
-    if (plan.isKeep(local.x, local.y, local.z)) return false
-    return plan.stateAt(local.x, local.y, local.z)?.`is`(EKBlocks.DRAFTING_TABLE.get()) != true
+/** The ghost filter: only cells that can be placed now. Display only; the builders are not touched. */
+internal fun ServerLevel.toggleBuildable(player: ServerPlayer, pos: BlockPos) {
+    val table = tableFor(player, pos) ?: return
+    table.setBuildableOnly(!table.buildableOnly)
+    answer(player, pos, table, Component.empty())
 }
 
 /** Build: starts or rejoins the table's job, with the containers near it and its assigned Clawhods. */
@@ -169,13 +203,14 @@ internal fun ServerLevel.buildAt(player: ServerPlayer, pos: BlockPos) {
     val table = tableFor(player, pos) ?: return
     dropMissingPlan(table)
     val ref = table.plan ?: return answer(player, pos, table, note("no_plan"))
-    planRefusal(pos, ref, table.placement)?.let { return answer(player, pos, table, note(it)) }
+    tableRefusal(pos, ref.size, table.placement)?.let { return answer(player, pos, table, note(it)) }
     val anchor = table.placement.anchor(dimension(), pos, ref.size)
     val result = BuildJobs.start(this, player, pos, table.tableId, ref, anchor, suppliesNear(pos, buildTuning().maxLinkedSupplies))
     if (result !is StartResult.Started) return answer(player, pos, table, result.message())
+    recruitCrew(pos, table, ref)
     val crew = loadedCrew(table.tableId)
     BuildJobs.get(this).job(result.jobId)?.let { job -> for (clawhod in crew) clawhod.ensureWorker().join(job) }
-    answer(player, pos, table, if (crew.isEmpty()) note("no_clawhod") else result.message())
+    answer(player, pos, table, if (crew.isEmpty()) note("no_clawhod", crewRadius(ref.size).toInt()) else result.message())
 }
 
 /** Stop: the table's job ends; its Clawhods fly home and stay assigned. */
@@ -189,11 +224,12 @@ private fun ServerLevel.stopFor(pos: BlockPos): Boolean = BuildJobs.cancelTable(
 /** The job of a table that moved starts again at [pos], for the same owner, with no new order. */
 internal fun ServerLevel.restartTable(owner: UUID, pos: BlockPos, table: DraftingTableBlockEntity) {
     val ref = table.plan ?: return
-    if (planRefusal(pos, ref, table.placement) != null) return
+    if (tableRefusal(pos, ref.size, table.placement) != null) return
     val stored = PlanStorage.find(server, ref.owner, ref.hash) ?: return
     val anchor = table.placement.anchor(dimension(), pos, ref.size)
     val supplies = suppliesNear(pos, buildTuning().maxLinkedSupplies)
     val job = BuildJobs.get(this).openJob(this, owner, pos, table.tableId, stored, anchor, supplies)
+    recruitCrew(pos, table, ref)
     for (clawhod in loadedCrew(table.tableId)) clawhod.ensureWorker().join(job)
 }
 
@@ -217,8 +253,8 @@ internal fun ServerLevel.captureShip(player: ServerPlayer, pos: BlockPos, name: 
     val table = tableFor(player, pos) ?: return
     val aabb = (if (isBlockInShipyard(pos)) getShipManagingPos(pos) else null)?.shipAABB
         ?: return answer(player, pos, table, note("not_on_ship"))
-    // VS2 shipAABB maxima are inclusive.
-    val box = BoundingBox(aabb.minX(), aabb.minY(), aabb.minZ(), aabb.maxX(), aabb.maxY(), aabb.maxZ())
+    // shipAABB max is exclusive; BoundingBox max is inclusive.
+    val box = BoundingBox(aabb.minX(), aabb.minY(), aabb.minZ(), aabb.maxX() - 1, aabb.maxY() - 1, aabb.maxZ() - 1)
     val size = Vec3i(box.xSpan, box.ySpan, box.zSpan)
     val base = PlanPlacement.baseOf(BlockPos(box.minX(), box.minY(), box.minZ()), size, Rotation.NONE, Mirror.NONE)
     val placement = TablePlacement(base.subtract(pos), Rotation.NONE, Mirror.NONE)

@@ -64,14 +64,13 @@ class DraftingTableBlock(properties: Properties) : Block(properties), EntityBloc
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = DraftingTableBlockEntity(pos, state)
 
-    // Block.use runs before Item.useOn, so a staff click with Clawhods selected reaches the table here.
     @Suppress("OVERRIDE_DEPRECATION") // Forced by vanilla 1.20.1.
     override fun use(
         state: BlockState, level: Level, pos: BlockPos,
         player: Player, hand: InteractionHand, hit: BlockHitResult,
     ): InteractionResult {
         if (level.isClientSide) return InteractionResult.SUCCESS
-        if (level is ServerLevel && player is ServerPlayer) level.useDraftingTable(pos, player, hand)
+        if (level is ServerLevel && player is ServerPlayer) level.useDraftingTable(pos, player)
         return InteractionResult.CONSUME
     }
 

@@ -35,6 +35,8 @@ internal class BuildSection(
     anchor: PlanAnchor,
     plan: PlanSections,
     private val seed: Long,
+    // Packed world position of the drafting table: its cell counts as done and gets no clear work.
+    private val skipPos: Long = NO_POS,
 ) {
     private val sizeX = plan.size.x
     private val sizeZ = plan.size.z
@@ -111,7 +113,9 @@ internal class BuildSection(
             cell.set(origin.x + planCellLocalX(l), origin.y + planCellLocalY(l), origin.z + planCellLocalZ(l))
             if (cell.x >= plan.size.x || cell.y >= plan.size.y || cell.z >= plan.size.z) continue
             if (section == null || section.isKeep(l)) continue
-            boxPos[l] = anchor.cellWorldPos(cell).asLong()
+            val packed = anchor.cellWorldPos(cell).asLong()
+            if (packed == skipPos && section.stateAt(planCellLocalX(l), planCellLocalY(l), planCellLocalZ(l)) == null) continue
+            boxPos[l] = packed
             box++
         }
         boxCount = box
@@ -119,8 +123,9 @@ internal class BuildSection(
             cellOf[local[c]] = c
             positions[c] = boxPos[local[c]]
         }
-        states = Array(n) { anchor.cellWorldState(checkNotNull(localStates[it])).withoutWater().withoutPower() }
+        states = Array(n) { anchor.cellWorldState(checkNotNull(localStates[it])).paidState().withoutWater().withoutPower() }
         for (c in 0 until n) {
+            if (positions[c] == skipPos) done.setBit(local[c])
             kinds[c] = states[c].cellKind()
             status[local[c]] = when {
                 done.bit(local[c]) -> CellStatus.DONE

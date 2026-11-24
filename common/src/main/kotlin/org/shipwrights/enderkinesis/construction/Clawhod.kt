@@ -4,7 +4,6 @@ package org.shipwrights.enderkinesis.construction
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.player.Player
 import org.joml.Vector3d
@@ -83,12 +82,6 @@ fun ServerLevel.playerTakeFromClawhod(pos: BlockPos, player: ServerPlayer): Bool
     val out = clawhod.takeAllItems()
     for (stack in out) player.inventory.placeItemBackInInventory(stack)
     return out.isNotEmpty()
-}
-
-/** The Staff of Command right-click on Clawhods: a drafting table gives the work, so the staff only points there. */
-@Suppress("UNUSED_PARAMETER") // The Commandable hook passes the Clawhod; the hint is the same for each.
-internal fun commandClawhodBuild(player: Player, clawhod: ClawhodBlockEntity) {
-    player.displayClientMessage(Component.translatable("message.enderkinesis.drafting_table.assign_hint"), true)
 }
 
 internal class Carrier(val onWalker: Boolean, val entity: ConstriliarEntity?)

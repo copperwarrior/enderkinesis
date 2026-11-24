@@ -83,6 +83,15 @@ class DraftingTableScreen(private var view: TableView) : Screen(Component.transl
             Button.builder(buildLabel) { if (building) DraftingTableClient.stop(table) else DraftingTableClient.build(table) }
                 .bounds(left, y, PANEL_WIDTH, BUTTON).build(),
         ).active = hasPlan || building
+        y += ROW
+        val onlyBuildable = Component.translatable(BUILDABLE_KEY, Component.translatable(if (view.buildableOnly) ON_KEY else OFF_KEY))
+        addRenderableWidget(
+            Button.builder(onlyBuildable) { DraftingTableClient.toggleBuildable(table) }.bounds(left, y, PANEL_WIDTH, BUTTON).build(),
+        ).active = hasPlan
+        y += ROW
+        addRenderableWidget(
+            Button.builder(Component.translatable(RECRUIT_KEY)) { DraftingTableClient.recruit(table) }.bounds(left, y, PANEL_WIDTH, BUTTON).build(),
+        ).active = hasPlan
         showPreview()
     }
 
@@ -166,7 +175,7 @@ class DraftingTableScreen(private var view: TableView) : Screen(Component.transl
         DraftingTableClient.showPreview(null)
     }
 
-    private companion object {
+    internal companion object {
         val AXES = listOf(Direction.Axis.X, Direction.Axis.Y, Direction.Axis.Z)
 
         fun axisKey(axis: Direction.Axis, onShip: Boolean) =
@@ -183,6 +192,8 @@ class DraftingTableScreen(private var view: TableView) : Screen(Component.transl
         const val ROTATION_KEY = "screen.enderkinesis.drafting_table.rotation"
         const val PLANS_KEY = "screen.enderkinesis.drafting_table.plans"
         const val CAPTURE_KEY = "screen.enderkinesis.drafting_table.capture_ship"
+        const val RECRUIT_KEY = "screen.enderkinesis.drafting_table.recruit"
+        const val BUILDABLE_KEY = "screen.enderkinesis.drafting_table.buildable_only"
         const val BUILD_KEY = "screen.enderkinesis.drafting_table.build"
         const val ON_KEY = "screen.enderkinesis.drafting_table.on"
         const val OFF_KEY = "screen.enderkinesis.drafting_table.off"

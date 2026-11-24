@@ -1,6 +1,8 @@
 package org.shipwrights.enderkinesis.client
 
 import net.minecraft.Util
+import net.minecraft.client.Minecraft
+import net.minecraft.core.Vec3i
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.Screen
@@ -27,6 +29,9 @@ class PlanChoiceScreen(
     private val stored: List<PlanRef>,
     private val onPick: (PlanRef) -> Unit,
     private val onCancel: () -> Unit = {},
+    // The size of the ship the table stands on; null off a ship, which hides the capture button.
+    private val shipSize: Vec3i? = null,
+    private val onCapture: (String) -> Unit = {},
 ) : Screen(Component.translatable(TITLE_KEY)) {
 
     private sealed interface Entry {
@@ -123,6 +128,13 @@ class PlanChoiceScreen(
             Button.builder(Component.translatable(FOLDER_KEY)) { Util.getPlatform().openFile(ClientPlanFiles.folder().toFile()) }
                 .bounds(left + 2 * (SMALL_WIDTH + GAP), footerY, FOLDER_WIDTH, BUTTON_HEIGHT).build(),
         )
+        shipSize?.let { size ->
+            addRenderableWidget(
+                Button.builder(Component.translatable(DraftingTableScreen.CAPTURE_KEY)) {
+                    Minecraft.getInstance().setScreen(CaptureNameScreen(size, onCapture))
+                }.bounds(left + 2 * (SMALL_WIDTH + GAP) + FOLDER_WIDTH + GAP, footerY, CAPTURE_WIDTH, BUTTON_HEIGHT).build(),
+            )
+        }
         addRenderableWidget(
             Button.builder(CommonComponents.GUI_CANCEL) { onClose() }
                 .bounds(left + FOOTER_WIDTH - CANCEL_WIDTH, footerY, CANCEL_WIDTH, BUTTON_HEIGHT).build(),
@@ -448,10 +460,11 @@ class PlanChoiceScreen(
         const val MAX_STATUS_LINES = 2
         const val FOOTER = 30
         const val FOOTER_GAP = 5
-        const val FOOTER_WIDTH = 260
+        const val FOOTER_WIDTH = 320
         const val BUTTON_HEIGHT = 20
         const val SMALL_WIDTH = 20
-        const val FOLDER_WIDTH = 120
+        const val FOLDER_WIDTH = 100
+        const val CAPTURE_WIDTH = 100
         const val CANCEL_WIDTH = 64
         const val GAP = 4
         const val PERCENT = 100f
