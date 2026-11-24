@@ -6,6 +6,7 @@
     "minecraft:snow_golem",
     "minecraft:guardian",
     "minecraft:elder_guardian",
-    "enderkinesis:wohlem"
+    "enderkinesis:wohlem",
+    "enderkinesis:swarm_fly"
   ]
 }

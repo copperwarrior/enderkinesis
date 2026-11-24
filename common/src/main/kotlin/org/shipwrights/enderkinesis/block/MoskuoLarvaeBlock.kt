@@ -2,7 +2,6 @@ package org.shipwrights.enderkinesis.block
 
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import net.minecraft.core.SectionPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.tags.FluidTags
 import net.minecraft.util.RandomSource
@@ -28,7 +27,7 @@ import org.shipwrights.enderkinesis.registry.EKEntities
 
 /**
  * Moskuo eggs and larvae on still water, after vanilla FrogspawnBlock. They hatch into Moskuo unless fish eat them.
- * Fish eat here through [eatOne]; the planned horned frog's tadpoles should feed here too.
+ * Fish eat here through [eatOne].
  */
 class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
 
@@ -153,7 +152,7 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
         private fun areaAllows(level: ServerLevel, at: BlockPos): Boolean {
             var found = 0
             val spacingSq = SPACING * SPACING
-            return scan(level, at, AREA_RADIUS, AREA_RADIUS_Y, BlockPos.MutableBlockPos()) { pos ->
+            return level.scanForBlock(EKBlocks.MOSKUO_LARVAE.get(), at, AREA_RADIUS, AREA_RADIUS_Y, BlockPos.MutableBlockPos()) { pos ->
                 found++
                 pos.distSqr(at) < spacingSq || found >= MAX_BLOCKS_IN_AREA
             } == null
@@ -164,7 +163,7 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
             var best: BlockPos? = null
             var bestDistance = Double.MAX_VALUE
             // Return value ignored: the visitor never stops the scan; it only records the nearest hit.
-            scan(level, from, radius, radiusY, cursor) { pos ->
+            level.scanForBlock(EKBlocks.MOSKUO_LARVAE.get(), from, radius, radiusY, cursor) { pos ->
                 val distance = pos.distSqr(from)
                 if (distance < bestDistance) {
                     bestDistance = distance
@@ -173,47 +172,6 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
                 false
             }
             return best
-        }
-
-        /**
-         * Visits each larvae block in the box until [visit] returns true, and returns that position.
-         * Sections whose palette has no larvae are skipped, so a scan over open water costs a few palette checks.
-         */
-        private inline fun scan(
-            level: ServerLevel,
-            center: BlockPos,
-            radius: Int,
-            radiusY: Int,
-            cursor: BlockPos.MutableBlockPos,
-            visit: (BlockPos.MutableBlockPos) -> Boolean,
-        ): BlockPos? {
-            val block = EKBlocks.MOSKUO_LARVAE.get()
-            val minY = maxOf(center.y - radiusY, level.minBuildHeight)
-            val maxY = minOf(center.y + radiusY, level.maxBuildHeight - 1)
-            for (sx in SectionPos.blockToSectionCoord(center.x - radius)..SectionPos.blockToSectionCoord(center.x + radius)) {
-                for (sz in SectionPos.blockToSectionCoord(center.z - radius)..SectionPos.blockToSectionCoord(center.z + radius)) {
-                    val chunk = level.chunkSource.getChunkNow(sx, sz) ?: continue
-                    for (sy in SectionPos.blockToSectionCoord(minY)..SectionPos.blockToSectionCoord(maxY)) {
-                        val section = chunk.getSection(chunk.getSectionIndexFromSectionY(sy))
-                        if (section.hasOnlyAir() || !section.maybeHas { it.`is`(block) }) continue
-                        val x0 = maxOf(center.x - radius, SectionPos.sectionToBlockCoord(sx))
-                        val x1 = minOf(center.x + radius, SectionPos.sectionToBlockCoord(sx) + SECTION_MAX)
-                        val y0 = maxOf(minY, SectionPos.sectionToBlockCoord(sy))
-                        val y1 = minOf(maxY, SectionPos.sectionToBlockCoord(sy) + SECTION_MAX)
-                        val z0 = maxOf(center.z - radius, SectionPos.sectionToBlockCoord(sz))
-                        val z1 = minOf(center.z + radius, SectionPos.sectionToBlockCoord(sz) + SECTION_MAX)
-                        for (y in y0..y1) for (x in x0..x1) for (z in z0..z1) {
-                            cursor.set(x, y, z)
-                            if (section.getBlockState(x and SECTION_MAX, y and SECTION_MAX, z and SECTION_MAX).`is`(block) &&
-                                visit(cursor)
-                            ) {
-                                return cursor.immutable()
-                            }
-                        }
-                    }
-                }
-            }
-            return null
         }
 
         /** Eats one larva at [pos]; removes the block at zero. False when no larvae are there. */
@@ -225,6 +183,5 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
             return level.setBlock(pos, state.setValue(LARVAE, larvae - 1), Block.UPDATE_CLIENTS)
         }
 
-        private const val SECTION_MAX = 15
     }
 }

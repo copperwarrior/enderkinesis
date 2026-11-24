@@ -71,7 +71,7 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
 
     val isPerched: Boolean get() = entityData.get(DATA_PERCHED)
 
-    /** Low over or in water, where an Eauhorrana can lunge at it. The planned horned frog should hunt here too. */
+    /** Low over or in water, where an Eauhorrana can lunge at it. */
     val isDipping: Boolean
         get() = isInWater || level().getFluidState(BlockPos.containing(x, y - DIP_HEIGHT, z)).`is`(FluidTags.WATER)
 
@@ -186,7 +186,7 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
 
     private fun isPrey(entity: LivingEntity): Boolean =
         entity !== this && entity.isAlive && entity !is MoskuoEntity && entity !is ArmorStand &&
-            entity !is AbstractFish && entity !is EauhorranaEntity && entity !is WillOTheWispEntity &&
+            entity !is AbstractFish && entity !is EauhorranaEntity && entity !is WillOTheWispEntity && entity !is SwarmFlyEntity &&
             EntitySelector.NO_CREATIVE_OR_SPECTATOR.test(entity)
 
     private fun stingVictim(victim: LivingEntity): Boolean {

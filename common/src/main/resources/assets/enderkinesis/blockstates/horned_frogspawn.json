@@ -1,0 +1,21 @@
+{
+  "variants": {
+    "": [
+      {
+        "model": "enderkinesis:block/horned_frogspawn"
+      },
+      {
+        "model": "enderkinesis:block/horned_frogspawn",
+        "y": 90
+      },
+      {
+        "model": "enderkinesis:block/horned_frogspawn",
+        "y": 180
+      },
+      {
+        "model": "enderkinesis:block/horned_frogspawn",
+        "y": 270
+      }
+    ]
+  }
+}

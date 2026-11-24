@@ -48,6 +48,12 @@
         "weight": 1,
         "minCount": 1,
         "maxCount": 2
+      },
+      {
+        "type": "enderkinesis:horned_frog",
+        "weight": 4,
+        "minCount": 1,
+        "maxCount": 3
       }
     ],
     "ambient": [
@@ -56,6 +62,12 @@
         "weight": 10,
         "minCount": 1,
         "maxCount": 3
+      },
+      {
+        "type": "enderkinesis:swarm_fly",
+        "weight": 8,
+        "minCount": 1,
+        "maxCount": 2
       }
     ],
     "axolotls": [],
