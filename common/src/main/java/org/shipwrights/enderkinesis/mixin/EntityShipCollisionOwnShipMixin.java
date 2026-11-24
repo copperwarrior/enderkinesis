@@ -25,7 +25,7 @@ import org.valkyrienskies.mod.common.util.EntityShipCollisionUtils;
 public class EntityShipCollisionOwnShipMixin {
 
     @WrapOperation(
-        method = "getShipPolygonsCollidingWithEntity",
+        method = "shipPolygons",
         at = @At(
             value = "INVOKE",
             target = "Lorg/valkyrienskies/core/internal/ships/VsiQueryableShipData;getIntersecting(Lorg/joml/primitives/AABBdc;Ljava/lang/String;)Ljava/lang/Iterable;"

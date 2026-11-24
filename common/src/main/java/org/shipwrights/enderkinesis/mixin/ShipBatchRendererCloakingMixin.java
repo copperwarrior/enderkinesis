@@ -2,7 +2,7 @@ package org.shipwrights.enderkinesis.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import com.llamalad7.mixinextras.sugar.Local;
+import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexBuffer;
 import java.util.ArrayList;
@@ -16,27 +16,16 @@ import org.shipwrights.enderkinesis.client.ConcealmentShipFB;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.valkyrienskies.mod.common.render.batched.ShipBatchRenderer;
+import org.valkyrienskies.mod.common.render.batched.ShipMaterialUniforms;
 import org.valkyrienskies.mod.common.render.batched.ShipRenderObject;
 
-/**
- * Redirect cloaking ships' per-ship draws inside {@link ShipBatchRenderer#drawLayer}
- * to {@link ConcealmentShipFB}.
- *
- * <p>VS2's batched renderer draws all visible ships in one call to {@code drawLayer},
- * but it does so in a per-ship loop that issues an independent {@code VertexBuffer.draw()}
- * for each ship (translucent path issues one per section). By wrapping that draw call,
- * we can decide on a per-ship basis whether the geometry lands in the main FB
- * (non-cloaking ships, default behaviour) or the side FB (cloaking ships).
- *
- * <p>The result: the cloaking ship is fully removed from the main FB (so it's invisible
- * outside the bubble silhouette), and present in the side FB (so the post-shader can
- * sample it for the refraction). The mesh data comes from VS2's own batched compiler —
- * no chunk-pipeline duplication, no lighting wrapper, no shader uniform plumbing.
- */
+/** Sends cloaking ships' draws from the batched renderer to {@link ConcealmentShipFB}, so the post-shader can refract them. */
 @Mixin(value = ShipBatchRenderer.class, remap = false)
 public abstract class ShipBatchRendererCloakingMixin {
 
@@ -74,14 +63,58 @@ public abstract class ShipBatchRendererCloakingMixin {
         }
     }
 
-    // @Mixin/@WrapOperation stay remap=false because ShipBatchRenderer
-    // and drawLayer are VS2 names (not in MC mappings). But the @At
-    // target IS a Minecraft method — `VertexBuffer.draw()` — so it must
-    // be remapped Mojang→intermediary; otherwise on Fabric prod the
-    // literal "draw" name is searched on class_291 and matches nothing
-    // (the actual intermediary name is method_35665).
+    // drawPreparedLayer sets each ship's transform before any of its draws, so this is the ship of the next draws.
+    @Unique private long enderkinesis$drawShipId;
+
+    // ShipFrameData is private, so it is coerced to Object. No descriptor: the AP does not remap a mod method's descriptor.
     @WrapOperation(
-        method = "drawLayer",
+        method = "drawPreparedLayer",
+        at = @At(value = "INVOKE", target = "Lorg/valkyrienskies/mod/common/render/batched/ShipBatchRenderer;setShipTransform"),
+        remap = false
+    )
+    private void enderkinesis$trackDrawShip(
+        @Coerce Object data, boolean usingBatchedShader, int shipIndexLoc, Uniform modelViewUniform,
+        Operation<Void> original
+    ) {
+        enderkinesis$drawShipId = ((ShipFrameDataAccessor) data).enderkinesis$getShip().getId();
+        original.call(data, usingBatchedShader, shipIndexLoc, modelViewUniform);
+    }
+
+    @WrapOperation(
+        method = "drawPreparedLayer",
+        at = @At(value = "INVOKE", target = "Lorg/valkyrienskies/mod/common/render/batched/ShipBatchRenderer;drawSections"),
+        remap = false
+    )
+    private void enderkinesis$redirectCloakingSections(
+        @Coerce Object data, int layer, Uniform chunkOffset, ShipMaterialUniforms uniforms, Operation<Void> original
+    ) {
+        final boolean sideFb = enderkinesis$bindSideFbIfCloaking();
+        try {
+            original.call(data, layer, chunkOffset, uniforms);
+        } finally {
+            if (sideFb) Minecraft.getInstance().getMainRenderTarget().bindWrite(true);
+        }
+    }
+
+    @WrapOperation(
+        method = "drawPreparedLayer",
+        at = @At(value = "INVOKE", target = "Lorg/valkyrienskies/mod/common/render/batched/ShipBatchRenderer;drawBlendedHull"),
+        remap = false
+    )
+    private void enderkinesis$redirectCloakingBlendedHull(
+        @Coerce Object data, Uniform chunkOffset, ShipMaterialUniforms uniforms, Operation<Void> original
+    ) {
+        final boolean sideFb = enderkinesis$bindSideFbIfCloaking();
+        try {
+            original.call(data, chunkOffset, uniforms);
+        } finally {
+            if (sideFb) Minecraft.getInstance().getMainRenderTarget().bindWrite(true);
+        }
+    }
+
+    // The @At target is a Minecraft method, so it must be remapped; on Fabric prod "draw" is method_35665.
+    @WrapOperation(
+        method = "drawPreparedLayer",
         at = @At(
             value = "INVOKE",
             target = "Lcom/mojang/blaze3d/vertex/VertexBuffer;draw()V",
@@ -89,52 +122,24 @@ public abstract class ShipBatchRendererCloakingMixin {
         ),
         remap = false
     )
-    private void enderkinesis$redirectCloakingShipDraw(
-        VertexBuffer instance, Operation<Void> original,
-        @Local(name = "shipIdx") int shipIdx
-    ) {
-        // shipIdx is the per-ship loop variable inside drawLayer (both the opaque
-        // and the translucent paths share it). drawOrder.get(shipIdx) is the ship
-        // whose mesh is about to be drawn.
-        if (shipIdx < 0 || shipIdx >= drawOrder.size()) {
+    private void enderkinesis$redirectCloakingShipDraw(VertexBuffer instance, Operation<Void> original) {
+        final boolean sideFb = enderkinesis$bindSideFbIfCloaking();
+        try {
             original.call(instance);
-            return;
+        } finally {
+            if (sideFb) Minecraft.getInstance().getMainRenderTarget().bindWrite(true);
         }
-        final ShipRenderObject renderObject = drawOrder.get(shipIdx);
-        final long shipId = renderObject.ship.getId();
-        final float progress = ClientShipCloakingState.INSTANCE.getProgress(shipId);
+    }
 
-        // If the camera is physically inside THIS ship's bubble, treat the
-        // ship as non-cloaking for redirect purposes — it renders normally to
-        // main FB and depth-sorts against entities, hand items, and the rest
-        // of the scene through the standard pipeline. The post-shader's
-        // inside-observer mode then warbles only the world OUTSIDE this
-        // bubble; the ship itself stays crisp because it's just part of main
-        // FB. Without this, the side FB ship would be composited over
-        // entities/hand items by the post-shader (no depth test in the
-        // composite).
-        if (progress > 0.001f && !CloakingMixinSupport.isCameraInsideBubbleOf(shipId)) {
-            // Cloaking — send this draw to the side FB instead of main FB. The
-            // side FB has its OWN depth attachment (NOT main's). The HEAD
-            // inject above blitted current main FB depth into it at the start
-            // of this drawLayer, so terrain occludes the ship in side FB
-            // correctly. The ship's own depth WRITES go to side depth only —
-            // main depth stays clean for the rest of the world render. Inside
-            // the layer's per-ship loop, side depth accumulates each cloaked
-            // ship's writes, so overlapping cloaked ships also depth-occlude
-            // each other correctly within the layer.
-            ConcealmentShipFB.INSTANCE.bindForDraw();
-            try {
-                original.call(instance);
-            } finally {
-                // Restore main FB for the next ship's draw (this loop iterates
-                // many ships per drawLayer call).
-                Minecraft.getInstance().getMainRenderTarget().bindWrite(true);
-            }
-        } else {
-            // Non-cloaking ship — draw normally to whatever's currently bound
-            // (main FB).
-            original.call(instance);
-        }
+    @Unique
+    private boolean enderkinesis$bindSideFbIfCloaking() {
+        final long shipId = enderkinesis$drawShipId;
+        final float progress = ClientShipCloakingState.INSTANCE.getProgress(shipId);
+        // Inside its own bubble the ship stays in main FB, so it depth-sorts against entities and hand items.
+        if (progress <= 0.001f || CloakingMixinSupport.isCameraInsideBubbleOf(shipId)) return false;
+        // The side FB has its own depth, seeded from main depth at drawLayer HEAD, so cloaked
+        // writes never reach main depth and overlapping cloaked ships still occlude each other.
+        ConcealmentShipFB.INSTANCE.bindForDraw();
+        return true;
     }
 }
