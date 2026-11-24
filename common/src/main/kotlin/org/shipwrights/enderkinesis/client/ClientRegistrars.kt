@@ -14,6 +14,7 @@ import org.shipwrights.enderkinesis.client.model.CatalogerModel
 import org.shipwrights.enderkinesis.client.model.ClawhodHandModel
 import org.shipwrights.enderkinesis.client.model.ConstriliarModel
 import org.shipwrights.enderkinesis.client.model.EauhorranaModel
+import org.shipwrights.enderkinesis.client.model.HornedFrogModel
 import org.shipwrights.enderkinesis.client.model.HeartOfTheWildModel
 import org.shipwrights.enderkinesis.client.model.KekhekhModel
 import org.shipwrights.enderkinesis.client.model.MoskuoModel
@@ -47,6 +48,7 @@ fun registerModelLayers(register: (ModelLayerLocation, () -> LayerDefinition) ->
     register(WeheloStoneCreatureModel.LAYER_LOCATION, WeheloStoneCreatureModel::createBodyLayer)
     register(MoskuoModel.LAYER_LOCATION, MoskuoModel::createBodyLayer)
     register(EauhorranaModel.LAYER_LOCATION, EauhorranaModel::createBodyLayer)
+    register(HornedFrogModel.LAYER_LOCATION, HornedFrogModel::createBodyLayer)
     register(TightRobeArmorModel.INNER_LAYER, TightRobeArmorModel::createInnerLayer)
     register(TightRobeArmorModel.OUTER_LAYER, TightRobeArmorModel::createOuterLayer)
     register(TightRobeArmorModel.WITCH_HAT_LAYER, TightRobeArmorModel::createWitchHatLayer)
@@ -101,6 +103,7 @@ fun registerCoreShaders(register: (ResourceLocation, VertexFormat, (ShaderInstan
     register(EnderkinesisMod.id("owl_sight"), DefaultVertexFormat.POSITION) { OwlSightPasses.shader = it }
     register(EnderkinesisMod.id("strike_sketch"), DefaultVertexFormat.POSITION_TEX) { StrikeSketch.shader = it }
     register(EnderkinesisMod.id("strike_normals"), DefaultVertexFormat.NEW_ENTITY) { StrikeSketchRenderTypes.normalsShader = it }
+    register(EnderkinesisMod.id("plan_ghost_source"), DefaultVertexFormat.BLOCK) { PlanGhostSketch.sourceShader = it }
 }
 
 /** The dimension_type JSON of each dimension names these ids in its `effects` field. */

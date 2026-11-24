@@ -69,6 +69,8 @@ object EnderkinesisModClient {
         EntityRendererRegistry.register(EKEntities.KEKHEKH) { ctx -> KekhekhRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.MOSKUO) { ctx -> MoskuoRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.EAUHORRANA) { ctx -> EauhorranaRenderer(ctx) }
+        EntityRendererRegistry.register(EKEntities.HORNED_FROG) { ctx -> HornedFrogRenderer(ctx) }
+        EntityRendererRegistry.register(EKEntities.SWARM_FLY) { ctx -> SwarmFlyRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.WILL_O_THE_WISP) { ctx -> WillOTheWispRenderer(ctx) }
         EntityRendererRegistry.register(EKEntities.WEHELO_STONE_CREATURE) { ctx -> WeheloStoneCreatureRenderer(ctx) }
 
@@ -207,6 +209,7 @@ object EnderkinesisModClient {
             // Remnant prediction — runs the shared integrator locally so the
             // mass keeps moving between server syncs instead of stuttering.
             org.shipwrights.enderkinesis.client.remnant.IrreverentRemnantClient.tick()
+            QuiescentCradleDrag.tick(mc)
         }
 
         // 1-bit-alpha lattice texture (opaque crystal pixels, fully-transparent gaps). Cutout
@@ -297,6 +300,7 @@ object EnderkinesisModClient {
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.SCRIBES_DESK.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.DRAFTING_TABLE.get())
         RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.OARSCRIBE.get())
+        RenderTypeRegistry.register(RenderType.cutout(), EKBlocks.QUIESCENT_CRADLE.get())
         RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.JAR_RECEPTACLE.get())
 
         // Crepusculite Glass — partial-alpha glass block, same render layer as Void Harness.
@@ -341,7 +345,7 @@ object EnderkinesisModClient {
             EKBlocks.POTTED_WOHLON_LUMPY_MUSHROOM.get(),
         )
         // Vanilla frogspawn, our placeholder art, is translucent.
-        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.MOSKUO_LARVAE.get())
+        RenderTypeRegistry.register(RenderType.translucent(), EKBlocks.MOSKUO_LARVAE.get(), EKBlocks.HORNED_FROGSPAWN.get())
 
         // Binding Roots: custom hand-rolled model (we abandoned the `minecraft:block/cross`
         // parent to add the wogor-wood slab base), so we lose the implicit cutout layer the
@@ -386,6 +390,8 @@ object EnderkinesisModClient {
         BlockEntityRendererRegistry.register(EKBlockEntities.EYEROSCOPE.get()) { _ ->
             EyeroscopeRenderer()
         }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.WOOD_STATUE.get()) { ctx -> WoodStatueRenderer(ctx) }
 
         // Statues — single BER picks the right Blockbench model by block kind.
         BlockEntityRendererRegistry.register(EKBlockEntities.STATUE.get()) { ctx ->
@@ -475,6 +481,12 @@ object EnderkinesisModClient {
         BlockEntityRendererRegistry.register(EKBlockEntities.OARSCRIBE.get()) { ctx ->
             OarscribeRenderer(ctx)
         }
+
+        BlockEntityRendererRegistry.register(EKBlockEntities.QUIESCENT_CRADLE.get()) { ctx ->
+            QuiescentCradleRenderer(ctx)
+        }
+        QuiescentCradleGlyphs.init()
+        QuiescentCradleDrag.init()
 
         BlockEntityRendererRegistry.register(EKBlockEntities.SHULKER_STRUT.get()) { ctx ->
             ShulkerStrutRenderer(ctx)
@@ -683,6 +695,7 @@ object EnderkinesisModClient {
         ClientTickEvent.CLIENT_LEVEL_POST.register { level -> VineThrowClient.tick(level) }
 
         SselithEclipseClient.init()
+        initWoodHeartsClient()
         SselithEclipseSounds.init()
         OwlSightTracker.init()
         SselithMadnessAfflicted.init()

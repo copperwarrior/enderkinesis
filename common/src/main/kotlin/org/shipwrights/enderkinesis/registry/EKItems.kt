@@ -159,6 +159,14 @@ object EKItems {
     val COOKED_KEKHEKH: RegistrySupplier<Item> = ITEMS.register("cooked_kekhekh") {
         Item(props().food(FoodProperties.Builder().nutrition(6).saturationMod(0.8f).build()))
     }
+    val VENISON: RegistrySupplier<Item> = ITEMS.register("venison") {
+        Item(props().food(FoodProperties.Builder().nutrition(3).saturationMod(0.3f).meat().build()))
+    }
+    val COOKED_VENISON: RegistrySupplier<Item> = ITEMS.register("cooked_venison") {
+        Item(props().food(FoodProperties.Builder().nutrition(7).saturationMod(0.8f).meat().build()))
+    }
+    val ANTLER: RegistrySupplier<Item> = ITEMS.register("antler") { Item(props()) }
+    val FROG_LIVER: RegistrySupplier<Item> = ITEMS.register("frog_liver") { Item(props()) }
     val KEKHEKH_BUCKET: RegistrySupplier<Item> = ITEMS.register("kekhekh_bucket") {
         ArchitecturyMobBucketItem(
             EKEntities.KEKHEKH,
@@ -434,6 +442,9 @@ object EKItems {
     val BLESSED_RAZOR: RegistrySupplier<Item> =
         ITEMS.register("blessed_razor") { BlessedRazorItem(props().stacksTo(1)) }
 
+    val ANTLERED_CROWN: RegistrySupplier<Item> =
+        ITEMS.register("antlered_crown") { org.shipwrights.enderkinesis.item.AntleredCrownItem(props().stacksTo(1)) }
+
     val WOGGAK_VINE: RegistrySupplier<Item> =
         ITEMS.register("woggak_vine") { org.shipwrights.enderkinesis.vine.WoggakVineItem(props()) }
 
@@ -471,6 +482,7 @@ object EKItems {
     val SCRIBES_DESK_ITEM = blockItem("scribes_desk", EKBlocks.SCRIBES_DESK)
     val DRAFTING_TABLE_ITEM = blockItem("drafting_table", EKBlocks.DRAFTING_TABLE)
     val OARSCRIBE_ITEM = blockItem("oarscribe", EKBlocks.OARSCRIBE)
+    val QUIESCENT_CRADLE_ITEM = blockItem("quiescent_cradle", EKBlocks.QUIESCENT_CRADLE)
     val JAR_RECEPTACLE_ITEM = blockItem("jar_receptacle", EKBlocks.JAR_RECEPTACLE)
 
     val FORGOTTEN_ITEM_ITEM: RegistrySupplier<Item> = ITEMS.register("forgotten_item") {
@@ -586,6 +598,8 @@ object EKItems {
         ITEMS.register("wohlon_lily_pad") { PlaceOnWaterBlockItem(EKBlocks.WOHLON_LILY_PAD.get(), props()) }
     val WOHLON_DUCKWEED_ITEM =
         ITEMS.register("wohlon_duckweed") { PlaceOnWaterBlockItem(EKBlocks.WOHLON_DUCKWEED.get(), props()) }
+    val HORNED_FROGSPAWN_ITEM =
+        ITEMS.register("horned_frogspawn") { PlaceOnWaterBlockItem(EKBlocks.HORNED_FROGSPAWN.get(), props()) }
     val WOHLON_LEAF_LITTER_ITEM = blockItem("wohlon_leaf_litter", EKBlocks.WOHLON_LEAF_LITTER)
     val HEARTFIRE_ITEM = blockItem("heartfire", EKBlocks.HEARTFIRE)
     val WOHLON_HANGING_ROOTS_ITEM = blockItem("wohlon_hanging_roots", EKBlocks.WOHLON_HANGING_ROOTS)
@@ -744,6 +758,18 @@ object EKItems {
     val KEKHEKH_SPAWN_EGG: RegistrySupplier<Item> =
         ITEMS.register("kekhekh_spawn_egg") {
             ArchitecturySpawnEggItem(EKEntities.KEKHEKH, 0x56260F, 0x347096, props())
+        }
+
+    /** Teal skin over olive spots, sampled from the Horned Frog texture. */
+    val HORNED_FROG_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("horned_frog_spawn_egg") {
+            ArchitecturySpawnEggItem(EKEntities.HORNED_FROG, 0x04706B, 0x6F8D0D, props())
+        }
+
+    /** Teal fly body and white wings, sampled from the swarm fly sheet. */
+    val SWARM_FLY_SPAWN_EGG: RegistrySupplier<Item> =
+        ITEMS.register("swarm_fly_spawn_egg") {
+            ArchitecturySpawnEggItem(EKEntities.SWARM_FLY, 0x006E62, 0xF5F5F5, props())
         }
 
     /** Yellow-green halo and white-yellow core of the flame. */

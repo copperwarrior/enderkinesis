@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
+    "enderkinesis:wood_statue",
     "enderkinesis:scribes_desk",
     "enderkinesis:drafting_table",
     "enderkinesis:stripped_wogor_log",

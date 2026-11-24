@@ -306,6 +306,10 @@
     "mass": 2750.0
   },
   {
+    "block": "enderkinesis:quiescent_cradle",
+    "mass": 2750.0
+  },
+  {
     "block": "enderkinesis:jar_receptacle",
     "mass": 2750.0
   },

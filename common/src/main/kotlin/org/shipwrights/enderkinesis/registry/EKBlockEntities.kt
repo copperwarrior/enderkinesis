@@ -12,6 +12,7 @@ import org.shipwrights.enderkinesis.blockentity.ConstriliarPlatformBlockEntity
 import org.shipwrights.enderkinesis.blockentity.UlderBeamAnchorBlockEntity
 import org.shipwrights.enderkinesis.blockentity.DraftingTableBlockEntity
 import org.shipwrights.enderkinesis.blockentity.OarscribeBlockEntity
+import org.shipwrights.enderkinesis.blockentity.QuiescentCradleBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrepusculiteLatticeBlockEntity
 import org.shipwrights.enderkinesis.blockentity.CrystalExplosiveBlockEntity
 import org.shipwrights.enderkinesis.blockentity.FountainOfBlessingBlockEntity
@@ -40,6 +41,7 @@ import org.shipwrights.enderkinesis.blockentity.RuneBlockEntity
 import org.shipwrights.enderkinesis.blockentity.ScribesDeskBlockEntity
 import org.shipwrights.enderkinesis.blockentity.VoidHookBlockEntity
 import org.shipwrights.enderkinesis.blockentity.WillfaerFlameBlockEntity
+import org.shipwrights.enderkinesis.blockentity.WoodStatueBlockEntity
 
 object EKBlockEntities {
     val BLOCK_ENTITIES: DeferredRegister<BlockEntityType<*>> =
@@ -234,6 +236,11 @@ object EKBlockEntities {
             ).build()
         }
 
+    val WOOD_STATUE: RegistrySupplier<BlockEntityType<WoodStatueBlockEntity>> =
+        BLOCK_ENTITIES.register("wood_statue") {
+            BlockEntityType.Builder.of(::WoodStatueBlockEntity, EKBlocks.WOOD_STATUE.get()).build()
+        }
+
     val SCRIBES_DESK: RegistrySupplier<BlockEntityType<ScribesDeskBlockEntity>> =
         BLOCK_ENTITIES.register("scribes_desk") {
             BlockEntityType.Builder.of(::ScribesDeskBlockEntity, EKBlocks.SCRIBES_DESK.get())
@@ -244,6 +251,11 @@ object EKBlockEntities {
         BLOCK_ENTITIES.register("drafting_table") {
             BlockEntityType.Builder.of(::DraftingTableBlockEntity, EKBlocks.DRAFTING_TABLE.get())
                 .build()
+        }
+
+    val QUIESCENT_CRADLE: RegistrySupplier<BlockEntityType<QuiescentCradleBlockEntity>> =
+        BLOCK_ENTITIES.register("quiescent_cradle") {
+            BlockEntityType.Builder.of(::QuiescentCradleBlockEntity, EKBlocks.QUIESCENT_CRADLE.get()).build()
         }
 
     val OARSCRIBE: RegistrySupplier<BlockEntityType<OarscribeBlockEntity>> =

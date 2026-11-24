@@ -18,6 +18,7 @@ import org.shipwrights.enderkinesis.entity.ArchiveEntity
 import org.shipwrights.enderkinesis.entity.BlessedGoatEntity
 import org.shipwrights.enderkinesis.entity.Cataloger
 import org.shipwrights.enderkinesis.entity.EauhorranaEntity
+import org.shipwrights.enderkinesis.entity.HornedFrogEntity
 import org.shipwrights.enderkinesis.entity.KekhekhEntity
 import org.shipwrights.enderkinesis.entity.MoskuoEntity
 import org.shipwrights.enderkinesis.entity.ConstriliarEntity
@@ -28,6 +29,7 @@ import org.shipwrights.enderkinesis.entity.SingularityEntity
 import org.shipwrights.enderkinesis.entity.SpellBoltEntity
 import org.shipwrights.enderkinesis.entity.PlayerCorpseEntity
 import org.shipwrights.enderkinesis.entity.SselithMothEntity
+import org.shipwrights.enderkinesis.entity.SwarmFlyEntity
 import org.shipwrights.enderkinesis.entity.RaisedSkeletonEntity
 import org.shipwrights.enderkinesis.entity.ShilleagkDeerEntity
 import org.shipwrights.enderkinesis.entity.ShulkonautEntity
@@ -277,6 +279,22 @@ object EKEntities {
                 .build(MoskuoEntity.ID_PATH)
         }
 
+    val HORNED_FROG: RegistrySupplier<EntityType<HornedFrogEntity>> =
+        ENTITIES.register(HornedFrogEntity.ID_PATH) {
+            EntityType.Builder.of(::HornedFrogEntity, MobCategory.CREATURE)
+                .sized(HornedFrogEntity.WIDTH, HornedFrogEntity.HEIGHT)
+                .clientTrackingRange(8)
+                .build(HornedFrogEntity.ID_PATH)
+        }
+
+    val SWARM_FLY: RegistrySupplier<EntityType<SwarmFlyEntity>> =
+        ENTITIES.register(SwarmFlyEntity.ID_PATH) {
+            EntityType.Builder.of(::SwarmFlyEntity, MobCategory.AMBIENT)
+                .sized(SwarmFlyEntity.WIDTH, SwarmFlyEntity.HEIGHT)
+                .clientTrackingRange(6)
+                .build(SwarmFlyEntity.ID_PATH)
+        }
+
     val WILL_O_THE_WISP: RegistrySupplier<EntityType<WillOTheWispEntity>> =
         ENTITIES.register(WillOTheWispEntity.ID_PATH) {
             EntityType.Builder.of(::WillOTheWispEntity, MobCategory.AMBIENT)
@@ -321,6 +339,8 @@ object EKEntities {
         EntityAttributeRegistry.register(KEKHEKH) { AbstractFish.createAttributes() }
         EntityAttributeRegistry.register(EAUHORRANA) { EauhorranaEntity.createAttributes() }
         EntityAttributeRegistry.register(MOSKUO) { MoskuoEntity.createAttributes() }
+        EntityAttributeRegistry.register(HORNED_FROG) { HornedFrogEntity.createAttributes() }
+        EntityAttributeRegistry.register(SWARM_FLY) { SwarmFlyEntity.createAttributes() }
         EntityAttributeRegistry.register(WILL_O_THE_WISP) { WillOTheWispEntity.createAttributes() }
         EntityAttributeRegistry.register(WEHELO_STONE_CREATURE) { WeheloStoneCreature.createAttributes() }
         EntityAttributeRegistry.register(BLESSED_GOAT) { BlessedGoatEntity.createAttributes() }
@@ -359,6 +379,10 @@ object EKEntities {
         place(WILL_O_THE_WISP, SpawnPlacements.Type.NO_RESTRICTIONS, WillOTheWispEntity::canSpawn)
         place(MOSKUO, SpawnPlacements.Type.NO_RESTRICTIONS, MoskuoEntity::canSpawn)
         place(EAUHORRANA, SpawnPlacements.Type.IN_WATER, EauhorranaEntity::canSpawn)
+        placeOnGround(HORNED_FROG) { type, level, spawnType, pos, random ->
+            isWohlonAnimalGround(type, level, spawnType, pos, random) && HornedFrogEntity.isNearWater(level, pos)
+        }
+        place(SWARM_FLY, SpawnPlacements.Type.NO_RESTRICTIONS, SwarmFlyEntity::canSpawn)
     }
 
     @Suppress("UNUSED_PARAMETER") // Shape fixed by SpawnPlacements.SpawnPredicate.

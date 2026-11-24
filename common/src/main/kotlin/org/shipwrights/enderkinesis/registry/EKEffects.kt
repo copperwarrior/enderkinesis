@@ -69,6 +69,9 @@ object EKEffects {
     val TRYPOEMIA: RegistrySupplier<MobEffect> =
         EFFECTS.register("trypoemia") { TrypoemiaEffect() }
 
+    val PHYLLOBATIC_TOXICITY: RegistrySupplier<MobEffect> =
+        EFFECTS.register("phyllobatic_toxicity") { org.shipwrights.enderkinesis.effect.PhyllobaticToxicityEffect() }
+
     val CRYSTALLIZED: RegistrySupplier<MobEffect> =
         EFFECTS.register("crystallized") { CrystallizedEffect() }
 

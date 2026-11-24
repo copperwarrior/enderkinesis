@@ -119,6 +119,7 @@ object EKCreativeTab {
             for (statue in EKItems.STATUE_ITEMS) output.accept(statue.get())
             output.accept(EKItems.SCRIBES_DESK_ITEM.get())
             output.accept(EKItems.OARSCRIBE_ITEM.get())
+            output.accept(EKItems.QUIESCENT_CRADLE_ITEM.get())
             output.accept(EKItems.ICHAERIC_INK_JAR_ITEM.get())
             output.accept(EKItems.INEGRIC_RETORT_ITEM.get())
             output.accept(EKItems.JAR_RECEPTACLE_ITEM.get())
@@ -193,6 +194,7 @@ object EKCreativeTab {
             output.accept(EKItems.WOHLON_REED_ITEM.get())
             output.accept(EKItems.WOHLON_LILY_PAD_ITEM.get())
             output.accept(EKItems.WOHLON_DUCKWEED_ITEM.get())
+            output.accept(EKItems.HORNED_FROGSPAWN_ITEM.get())
             output.accept(EKItems.WOHLON_LEAF_LITTER_ITEM.get())
             output.accept(EKItems.WOHLON_HANGING_ROOTS_ITEM.get())
             output.accept(EKItems.WEJE_VINE_ITEM.get())
@@ -223,6 +225,7 @@ object EKCreativeTab {
             output.accept(EKItems.STAFF_OF_SUNDERING.get())
             output.accept(EKItems.GRAND_STAFF_OF_DECAY.get())
             output.accept(EKItems.INCANTATION_OF_THE_RIVER.get())
+            output.accept(EKItems.ANTLERED_CROWN.get())
             output.accept(EKItems.BLUE_WITCH_HAT.get())
             output.accept(EKItems.BLUE_WITCH_ROBES.get())
             output.accept(EKItems.BLUE_WITCH_ROBE_BOTTOMS.get())
@@ -231,6 +234,10 @@ object EKCreativeTab {
             output.accept(EKItems.RAW_KEKHEKH.get())
             output.accept(EKItems.COOKED_KEKHEKH.get())
             output.accept(EKItems.KEKHEKH_BUCKET.get())
+            output.accept(EKItems.VENISON.get())
+            output.accept(EKItems.COOKED_VENISON.get())
+            output.accept(EKItems.ANTLER.get())
+            output.accept(EKItems.FROG_LIVER.get())
             // One stack for each cave instrument. The instruments are datapack-loaded, so the NBT is a plain id string.
             for (idx in 1..19) {
                 val stack = ItemStack(EKItems.BLESSED_GOAT_HORN.get())
@@ -274,6 +281,8 @@ object EKCreativeTab {
             output.accept(EKItems.KEKHEKH_SPAWN_EGG.get())
             output.accept(EKItems.EAUHORRANA_SPAWN_EGG.get())
             output.accept(EKItems.MOSKUO_SPAWN_EGG.get())
+            output.accept(EKItems.HORNED_FROG_SPAWN_EGG.get())
+            output.accept(EKItems.SWARM_FLY_SPAWN_EGG.get())
             output.accept(EKItems.WILL_O_THE_WISP_SPAWN_EGG.get())
         }
     }

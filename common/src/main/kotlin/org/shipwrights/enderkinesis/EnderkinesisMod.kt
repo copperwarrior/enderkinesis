@@ -83,6 +83,7 @@ object EnderkinesisMod {
             AxeItemHooks.addStrippable(EKBlocks.WOGOR_WOOD.get(), EKBlocks.STRIPPED_WOGOR_WOOD.get())
             (Blocks.FIRE as FireBlockInvoker).`enderkinesis$setFlammable`(EKBlocks.WEJE_VINE.get(), 15, 100)
             ComposterBlock.COMPOSTABLES.put(EKItems.WEJE_VINE_ITEM.get(), 0.5f)
+            org.shipwrights.enderkinesis.registry.EKPotions.registerBrewing()
         }
         EKSounds.register()
         // Instruments resolve their sound-event holder at construction time, so must come after sounds.
@@ -100,6 +101,8 @@ object EnderkinesisMod {
         EKFeatures.register()
         EKParticles.register()
         EKEffects.register()
+        // Potions read their effects, so they come after.
+        org.shipwrights.enderkinesis.registry.EKPotions.register()
         org.shipwrights.enderkinesis.registry.EKEnchantments.register()
         EKProcessors.register()
         org.shipwrights.enderkinesis.registry.EKLootFunctions.register()
@@ -121,6 +124,12 @@ object EnderkinesisMod {
         // Transient: only live while the player is actively holding the tome.
         vsCore.registerAttachment(
             vsCore.newAttachmentRegistrationBuilder(WyllandTomeForceInducer::class.java)
+                .useTransientSerializer()
+                .build()
+        )
+        // Transient: the cradle block entity republishes its target and refreshes it each server tick.
+        vsCore.registerAttachment(
+            vsCore.newAttachmentRegistrationBuilder(org.shipwrights.enderkinesis.physics.QuiescentCradleHold::class.java)
                 .useTransientSerializer()
                 .build()
         )
@@ -238,6 +247,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.spell.SpellNetwork.init()
         org.shipwrights.enderkinesis.spell.ElementalEnvironment.init()
         org.shipwrights.enderkinesis.item.MundaneIncubation.init()
+        org.shipwrights.enderkinesis.item.initAntleredCrown()
         org.shipwrights.enderkinesis.spell.SelfCasts.init()
         org.shipwrights.enderkinesis.block.HeartOfTheWildManager.init()
         org.shipwrights.enderkinesis.block.WohlonnogondoniaPortalManager.init()
@@ -268,6 +278,7 @@ object EnderkinesisMod {
         YgannAbyssGuard.init()
         YgannAbyssBlockSweeper.init()
         YgannAbyssVoidFade.init()
+        org.shipwrights.enderkinesis.entity.registerToxicThorns()
         YgannMadnessOnExit.init()
         YgannMadnessBehavior.init()
         org.shipwrights.enderkinesis.dimension.WohlonDeathWisp.init()
@@ -278,6 +289,7 @@ object EnderkinesisMod {
         org.shipwrights.enderkinesis.command.SselithCommands.init()
         org.shipwrights.enderkinesis.command.ElementCommands.init()
         org.shipwrights.enderkinesis.block.ScribesDeskNetwork.init()
+        org.shipwrights.enderkinesis.block.QuiescentCradleNetwork.init()
         org.shipwrights.enderkinesis.item.SatchelOfShelvingNetwork.init()
         SselithMadness.init()
         org.shipwrights.enderkinesis.possession.Possession.init()

@@ -677,6 +677,12 @@ object EKBlocks {
         )
     }
 
+    val QUIESCENT_CRADLE: RegistrySupplier<Block> = BLOCKS.register("quiescent_cradle") {
+        org.shipwrights.enderkinesis.block.QuiescentCradleBlock(
+            BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES).noOcclusion()
+        )
+    }
+
     val OARSCRIBE: RegistrySupplier<Block> = BLOCKS.register("oarscribe") {
         OarscribeBlock(
             BlockBehaviour.Properties.copy(Blocks.DEEPSLATE_TILES).noOcclusion()
@@ -1060,6 +1066,9 @@ object EKBlocks {
     val MOSKUO_LARVAE: RegistrySupplier<Block> = BLOCKS.register("moskuo_larvae") {
         org.shipwrights.enderkinesis.block.MoskuoLarvaeBlock(BlockBehaviour.Properties.copy(Blocks.FROGSPAWN))
     }
+    val HORNED_FROGSPAWN: RegistrySupplier<Block> = BLOCKS.register("horned_frogspawn") {
+        org.shipwrights.enderkinesis.block.HornedFrogspawnBlock(BlockBehaviour.Properties.copy(Blocks.FROGSPAWN))
+    }
     // noOcclusion: a carpet culls the top face of the block under it, which shows through the leaf gaps.
     val WOHLON_LEAF_LITTER: RegistrySupplier<Block> = BLOCKS.register("wohlon_leaf_litter") {
         CarpetBlock(
@@ -1204,6 +1213,13 @@ object EKBlocks {
     }
     val STATUE_OWL: RegistrySupplier<Block> = BLOCKS.register("statue_owl") {
         StatueBlock(StatueKind.OWL, statueProps())
+    }
+
+    // The block entity holds dropped player items, so it resists explosions and pistons.
+    val WOOD_STATUE: RegistrySupplier<Block> = BLOCKS.register("wood_statue") {
+        org.shipwrights.enderkinesis.block.WoodStatueBlock(
+            wogorWoodProps().explosionResistance(1200f).noOcclusion().pushReaction(PushReaction.BLOCK),
+        )
     }
 
     /** All statue block suppliers in registration order, for the shared
