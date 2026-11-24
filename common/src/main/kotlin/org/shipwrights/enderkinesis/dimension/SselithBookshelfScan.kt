@@ -25,21 +25,27 @@ object SselithBookshelfScan {
     }
 
     /**
-     * Counts the Sselith bookshelves in the 7×5×7 box around the position, in the world and on VS2 ships.
-     * The count stops at [limit]. [found] receives the WORLD-frame center of each counted bookshelf.
+     * Counts the blocks that [accept] passes (by default Sselith bookshelves) in the box of [radiusH] × [radiusV]
+     * around the position, in the world and on VS2 ships. The count stops at [limit]. [found] receives the
+     * WORLD-frame center of each counted block.
      */
-    fun collect(level: Level, x: Double, y: Double, z: Double, limit: Int, found: MutableList<Vec3>?): Int {
+    @Suppress("LongParameterList") // The defaults keep the teleport callers short.
+    fun collect(
+        level: Level, x: Double, y: Double, z: Double, limit: Int, found: MutableList<Vec3>?,
+        radiusH: Int = RADIUS_H, radiusV: Int = RADIUS_V, accept: Predicate<BlockState> = IS_BOOKSHELF,
+    ): Int {
         require(limit > 0) { "limit must be positive" }
+        require(radiusH >= 0 && radiusV >= 0) { "radii must not be negative" }
         val px = Mth.floor(x)
         val py = Mth.floor(y)
         val pz = Mth.floor(z)
         val tally = Tally(limit, found)
-        val worldMin = Vector3d((px - RADIUS_H).toDouble(), (py - RADIUS_V).toDouble(), (pz - RADIUS_H).toDouble())
-        val worldMax = Vector3d(px + RADIUS_H + 1.0, py + RADIUS_V + 1.0, pz + RADIUS_H + 1.0)
+        val worldMin = Vector3d((px - radiusH).toDouble(), (py - radiusV).toDouble(), (pz - radiusH).toDouble())
+        val worldMax = Vector3d(px + radiusH + 1.0, py + radiusV + 1.0, pz + radiusH + 1.0)
 
         scanBox(
-            level, null, worldMin, worldMax, tally,
-            px - RADIUS_H, py - RADIUS_V, pz - RADIUS_H, px + RADIUS_H, py + RADIUS_V, pz + RADIUS_H,
+            level, null, worldMin, worldMax, tally, accept,
+            px - radiusH, py - radiusV, pz - radiusH, px + radiusH, py + radiusV, pz + radiusH,
         )
         if (tally.full) return tally.count
 
@@ -65,7 +71,7 @@ object SselithBookshelfScan {
                 shipMax.max(corner)
             }
             scanBox(
-                level, ship, worldMin, worldMax, tally,
+                level, ship, worldMin, worldMax, tally, accept,
                 Mth.floor(shipMin.x), Mth.floor(shipMin.y), Mth.floor(shipMin.z),
                 Mth.floor(shipMax.x), Mth.floor(shipMax.y), Mth.floor(shipMax.z),
             )
@@ -77,10 +83,9 @@ object SselithBookshelfScan {
     /** Scans a block box in the frame of [ship], or in the world frame when [ship] is null. */
     @Suppress("LongParameterList", "NestedBlockDepth", "CyclomaticComplexMethod") // One flat loop nest keeps the scan free of allocation.
     private fun scanBox(
-        level: Level, ship: Ship?, worldMin: Vector3d, worldMax: Vector3d, tally: Tally,
+        level: Level, ship: Ship?, worldMin: Vector3d, worldMax: Vector3d, tally: Tally, accept: Predicate<BlockState>,
         x0: Int, y0: Int, z0: Int, x1: Int, y1: Int, z1: Int,
     ) {
-        val bookshelf = EKBlocks.SSELITH_BOOKSHELF.get()
         val center = Vector3d()
         for (cx in (x0 shr 4)..(x1 shr 4)) {
             for (cz in (z0 shr 4)..(z1 shr 4)) {
@@ -89,11 +94,11 @@ object SselithBookshelfScan {
                 val chunk = level.chunkSource.getChunkNow(cx, cz) ?: continue
                 for (sy in maxOf(y0 shr 4, chunk.minSection)..minOf(y1 shr 4, chunk.maxSection - 1)) {
                     val section = chunk.getSection(chunk.getSectionIndexFromSectionY(sy))
-                    if (section.hasOnlyAir() || !section.maybeHas(IS_BOOKSHELF)) continue
+                    if (section.hasOnlyAir() || !section.maybeHas(accept)) continue
                     for (x in maxOf(x0, cx shl 4)..minOf(x1, (cx shl 4) + 15)) {
                         for (y in maxOf(y0, sy shl 4)..minOf(y1, (sy shl 4) + 15)) {
                             for (z in maxOf(z0, cz shl 4)..minOf(z1, (cz shl 4) + 15)) {
-                                if (!section.getBlockState(x and 15, y and 15, z and 15).`is`(bookshelf)) continue
+                                if (!accept.test(section.getBlockState(x and 15, y and 15, z and 15))) continue
                                 center.set(x + 0.5, y + 0.5, z + 0.5)
                                 if (ship != null) {
                                     ship.transform.shipToWorld.transformPosition(center)

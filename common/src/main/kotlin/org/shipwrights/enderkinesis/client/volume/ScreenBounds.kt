@@ -2,6 +2,7 @@ package org.shipwrights.enderkinesis.client.volume
 
 import com.mojang.blaze3d.systems.RenderSystem
 import net.minecraft.util.Mth
+import org.joml.Matrix4fc
 import org.joml.Vector4f
 
 /** The screen rectangle that holds a set of camera-relative boxes, in NDC. Render thread only. */
@@ -26,9 +27,15 @@ class ScreenBounds {
     @Suppress("LongParameterList") // Mirrors VolumeView.boxVisible.
     fun addBox(view: VolumeView, x0: Float, y0: Float, z0: Float, x1: Float, y1: Float, z1: Float) {
         if (!view.boxVisible(x0, y0, z0, x1, y1, z1)) return
+        addProjectedBox(view.viewProj, x0, y0, z0, x1, y1, z1)
+    }
+
+    /** Like [addBox] for a box the caller already culled, through its own [viewProj]. */
+    @Suppress("LongParameterList") // A matrix and a box.
+    fun addProjectedBox(viewProj: Matrix4fc, x0: Float, y0: Float, z0: Float, x1: Float, y1: Float, z1: Float) {
         for (i in 0 until CORNERS) {
             corner.set(if (i and 1 == 0) x0 else x1, if (i and 2 == 0) y0 else y1, if (i and 4 == 0) z0 else z1, 1f)
-            corner.mul(view.viewProj)
+            corner.mul(viewProj)
             // A corner at or behind the eye has no screen position: the box can cover the whole screen.
             if (corner.w <= MIN_W) {
                 minX = -1f

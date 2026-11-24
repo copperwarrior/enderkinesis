@@ -31,6 +31,10 @@ class DepthTextureCopy(private val colourFormat: Int = 0) {
         private set
     var colourTextureId = -1
         private set
+
+    /** The attachment point that fits [textureId], for another framebuffer that shares it. */
+    var attachment = GL30.GL_DEPTH_ATTACHMENT
+        private set
     private var width = 0
     private var height = 0
     private var internalFormat = 0
@@ -70,7 +74,7 @@ class DepthTextureCopy(private val colourFormat: Int = 0) {
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE)
         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, mainFormat, main.width, main.height, 0, format, type, null as ByteBuffer?)
         GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo)
-        val attachment = if (stencil) GL30.GL_DEPTH_STENCIL_ATTACHMENT else GL30.GL_DEPTH_ATTACHMENT
+        attachment = if (stencil) GL30.GL_DEPTH_STENCIL_ATTACHMENT else GL30.GL_DEPTH_ATTACHMENT
         GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, attachment, GL11.GL_TEXTURE_2D, textureId, 0)
         if (colourFormat > 0) {
             if (colourTextureId == -1) colourTextureId = GlStateManager._genTexture()
