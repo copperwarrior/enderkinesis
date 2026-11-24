@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "half=lower": { "model": "enderkinesis:block/wood_statue" },
+    "half=upper": { "model": "enderkinesis:block/wood_statue" }
+  }
+}

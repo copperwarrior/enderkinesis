@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.fabric.compat.trinkets
 import dev.architectury.platform.Platform
 import dev.emi.trinkets.api.client.TrinketRendererRegistry
 import net.minecraft.client.model.HumanoidModel
+import org.shipwrights.enderkinesis.client.AntleredCrownRenderer
 import org.shipwrights.enderkinesis.client.SatchelOfShelvingRenderer
 import org.shipwrights.enderkinesis.registry.EKItems
 
@@ -15,6 +16,11 @@ object TrinketsClientCompat {
                 _, _, contextModel, matrices, buffers, light, entity, _, _, _, _, _, _ ->
             val model = contextModel as? HumanoidModel<*> ?: return@registerRenderer
             SatchelOfShelvingRenderer.render(matrices, buffers, light, entity, model.body)
+        }
+        TrinketRendererRegistry.registerRenderer(EKItems.ANTLERED_CROWN.get()) {
+                stack, _, contextModel, matrices, buffers, light, _, _, _, _, _, _, _ ->
+            val model = contextModel as? HumanoidModel<*> ?: return@registerRenderer
+            AntleredCrownRenderer.render(matrices, buffers, light, stack, model.head)
         }
     }
 }

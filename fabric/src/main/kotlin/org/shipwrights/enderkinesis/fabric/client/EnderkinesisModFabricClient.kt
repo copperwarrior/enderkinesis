@@ -14,6 +14,7 @@ import net.fabricmc.fabric.api.resource.ResourcePackActivationType
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.network.chat.Component
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.client.AntleredCrownRenderer
 import org.shipwrights.enderkinesis.client.CrownUntestedArmorRenderer
 import org.shipwrights.enderkinesis.client.EnderkinesisModClient
 import org.shipwrights.enderkinesis.client.TightRobeArmorRenderer
@@ -66,6 +67,12 @@ class EnderkinesisModFabricClient : ClientModInitializer {
                 CrownUntestedArmorRenderer.INSTANCE.render(matrices, consumers, stack, slot, light, model)
             },
             EKItems.CROWN_UNTESTED.get(),
+        )
+        ArmorRenderer.register(
+            { matrices, consumers, stack, _, _, light, model ->
+                AntleredCrownRenderer.render(matrices, consumers, light, stack, model.head)
+            },
+            EKItems.ANTLERED_CROWN.get(),
         )
 
         registerCommonDimensionEffects(DimensionRenderingRegistry::registerDimensionEffects)

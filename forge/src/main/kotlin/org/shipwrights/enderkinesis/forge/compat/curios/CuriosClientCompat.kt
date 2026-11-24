@@ -8,6 +8,7 @@ import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.entity.RenderLayerParent
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.item.ItemStack
+import org.shipwrights.enderkinesis.client.AntleredCrownRenderer
 import org.shipwrights.enderkinesis.client.SatchelOfShelvingRenderer
 import org.shipwrights.enderkinesis.registry.EKItems
 import top.theillusivec4.curios.api.SlotContext
@@ -20,6 +21,7 @@ object CuriosClientCompat {
     fun init() {
         if (!Platform.isModLoaded("curios")) return
         CuriosRendererRegistry.register(EKItems.SATCHEL_OF_SHELVING.get()) { SatchelCurioRenderer }
+        CuriosRendererRegistry.register(EKItems.ANTLERED_CROWN.get()) { AntleredCrownCurioRenderer }
     }
 
     private object SatchelCurioRenderer : ICurioRenderer {
@@ -31,6 +33,18 @@ object CuriosClientCompat {
         ) {
             val model = renderLayerParent.model as? HumanoidModel<*> ?: return
             SatchelOfShelvingRenderer.render(matrixStack, renderTypeBuffer, light, slotContext.entity(), model.body)
+        }
+    }
+
+    private object AntleredCrownCurioRenderer : ICurioRenderer {
+        override fun <T : LivingEntity, M : EntityModel<T>> render(
+            stack: ItemStack, slotContext: SlotContext, matrixStack: PoseStack,
+            renderLayerParent: RenderLayerParent<T, M>, renderTypeBuffer: MultiBufferSource, light: Int,
+            limbSwing: Float, limbSwingAmount: Float, partialTicks: Float, ageInTicks: Float,
+            netHeadYaw: Float, headPitch: Float,
+        ) {
+            val model = renderLayerParent.model as? HumanoidModel<*> ?: return
+            AntleredCrownRenderer.render(matrixStack, renderTypeBuffer, light, stack, model.head)
         }
     }
 }

@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": { "layer0": "enderkinesis:item/antlered_crown" },
+  "display": {
+    "head": { "scale": [0, 0, 0] }
+  }
+}
