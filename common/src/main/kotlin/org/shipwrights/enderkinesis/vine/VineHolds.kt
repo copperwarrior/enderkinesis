@@ -840,11 +840,16 @@ private fun WoggakVineData.gripGap(count: Int, grip: Double, node: Int): Double 
 private fun ServerLevel.placeGrip(data: WoggakVineData, player: ServerPlayer, hold: VineHold, nodes: Int, grip: Double): GripStep {
     if (grip == hold.grip) return GripStep.STILL
     val link = gripLink(grip, nodes)
-    if (link == gripLink(hold.grip, nodes)) {
-        hold.pair.weight = grip - link
+    val oldLink = gripLink(hold.grip, nodes)
+    if (link == oldLink) {
+        hold.pair.glideTo(grip - link)
     } else {
         val chain = liveChain(hold.chain, link) ?: return GripStep.LOST
-        hold.pair = gripPair(chain.nodeIds, hold.particle, grip)
+        // The new link starts at the node that the grip crossed, so the glide goes on from there.
+        hold.pair = gripPair(chain.nodeIds, hold.particle, grip).also {
+            it.weight = if (link > oldLink) 0.0 else 1.0
+            it.glideTo(grip - link)
+        }
         data.jointsDirty = true
     }
     hold.grip = grip

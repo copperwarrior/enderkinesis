@@ -8,6 +8,7 @@ import org.valkyrienskies.core.api.particles.QueryableParticleData
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /**
  * Maps client wall time (System.nanoTime) to the VS physics tick that the vines show. The physics tick of each frame
@@ -177,6 +178,15 @@ internal class VineFrames {
     private var revision = Long.MIN_VALUE
     private var head = 0
     private var size = 0
+    // In blocks per physics tick squared.
+    private var gravity = 0.0
+    // Position and velocity offsets that take the late path of [lateTick]'s frame back onto its Hermite span.
+    private var lateOffset = DoubleArray(0)
+    private var lateVelocity = DoubleArray(0)
+    private var scratch = DoubleArray(0)
+    private var scratchVelocity = DoubleArray(0)
+    private var lateTick = Long.MIN_VALUE
+    private var lateFrom = 0.0
 
     var nodeCount = 0
         private set
@@ -185,27 +195,46 @@ internal class VineFrames {
     /** The physics tick of the newest chain frame, or -1 when there is none. */
     val newestTick: Long get() = if (size == 0 || frozen) -1L else ticks[head]
 
-    /** Keeps [chain]'s current frame when it is newer than the newest kept; returns its tick, or -1 when not new. */
-    fun push(chain: ClientChain, particles: QueryableParticleData<ClientVsParticle>?): Long {
+    /**
+     * Keeps [chain]'s current frame when it is newer than the newest kept; returns its tick, or -1 when not new.
+     * [shown] and [horizon] are the clock's shown tick and horizon now; [gravityMps2] is the dimension's gravity.
+     */
+    fun push(
+        chain: ClientChain, particles: QueryableParticleData<ClientVsParticle>?, shown: Double, horizon: Double, gravityMps2: Double,
+    ): Long {
         val status = chain.status
         val tick = status.physicsTick
         if (size > 0 && tick <= ticks[head]) return -1L
         val ids = chain.nodeIds
         val count = ids.size
         if (count == 0) return -1L
+        gravity = gravityMps2 * SECONDS_PER_PHYSICS_TICK * SECONDS_PER_PHYSICS_TICK
         if (size == 0 || frozen || count != nodeCount || status.topologyRevision != revision) {
             if (size == 0 || frozen || !remap(ids, count)) size = 0
             revision = status.topologyRevision
             nodeCount = count
             ensureCapacity(count)
             for (i in 0 until count) nodeIds[i] = ids[i].value
+            lateTick = Long.MIN_VALUE
         }
+        // The shown tick already ran past the newest frame, so the drawn rope is on the ballistic path from it.
+        val late = size > 0 && shown > ticks[head] && shown < tick
+        if (late) ballistic(0, shown - ticks[head], horizon, lateOffset, lateVelocity)
         val slot = if (size == 0) 0 else (head + 1) % CAPACITY
         if (chain.copyNodePositions(positions, slot * count * 3) != count) return -1L
         hasVelocity[slot] = particles != null && copyVelocities(ids, particles, slot * count * 3)
         head = slot
         if (size < CAPACITY) size++
         ticks[head] = tick
+        if (late) {
+            hermite(1, shown, scratch, scratchVelocity)
+            for (i in 0 until count * 3) {
+                lateOffset[i] -= scratch[i]
+                lateVelocity[i] -= scratchVelocity[i]
+            }
+            lateTick = tick
+            lateFrom = shown
+        }
         return tick
     }
 
@@ -220,11 +249,12 @@ internal class VineFrames {
         size = 1
         ticks[0] = Long.MIN_VALUE
         hasVelocity[0] = false
+        lateTick = Long.MIN_VALUE
     }
 
     /**
      * Writes the nodes at physics tick [at] into [out]: a cubic Hermite blend between the two frames around it, or on
-     * from the newest frame by its velocity, which fades over about [horizon] ticks. Returns the node count.
+     * from the newest frame along a ballistic path that fades over about [horizon] ticks. Returns the node count.
      */
     fun sample(at: Double, horizon: Double, out: DoubleArray): Int {
         if (size == 0) return 0
@@ -237,7 +267,12 @@ internal class VineFrames {
         for (age in 0 until size) {
             val slot = slotOf(age)
             if (ticks[slot] <= at) {
-                if (age == 0) extrapolate(at - ticks[slot], horizon, out) else hermite(age, at, out)
+                if (age == 0) {
+                    ballistic(0, at - ticks[slot], horizon, out, null)
+                } else {
+                    hermite(age, at, out, null)
+                    if (ticks[slotOf(age - 1)] == lateTick && at > lateFrom) blendLate(at, out)
+                }
                 return nodeCount
             }
         }
@@ -255,6 +290,12 @@ internal class VineFrames {
             velocities = DoubleArray(need)
         }
         if (nodeIds.size < count) nodeIds = LongArray(count)
+        if (scratch.size < count * 3) {
+            lateOffset = DoubleArray(count * 3)
+            lateVelocity = DoubleArray(count * 3)
+            scratch = DoubleArray(count * 3)
+            scratchVelocity = DoubleArray(count * 3)
+        }
     }
 
     // VS publishes each node particle's velocity with the frame, in blocks per second.
@@ -316,7 +357,11 @@ internal class VineFrames {
         }
     }
 
-    private fun hermite(olderAge: Int, at: Double, out: DoubleArray) {
+    /**
+     * With VS's end velocities this cubic follows a constant-acceleration arc exactly, so gravity between frames needs
+     * no extra term. [velocityOut], when given, gets the curve's velocity at [at].
+     */
+    private fun hermite(olderAge: Int, at: Double, out: DoubleArray, velocityOut: DoubleArray?) {
         val a = slotOf(olderAge)
         val b = slotOf(olderAge - 1)
         val h = (ticks[b] - ticks[a]).toDouble()
@@ -326,19 +371,64 @@ internal class VineFrames {
         val h10 = (s3 - 2 * s2 + s) * h
         val h01 = -2 * s3 + 3 * s2
         val h11 = (s3 - s2) * h
+        val d00 = (6 * s2 - 6 * s) / h
+        val d10 = 3 * s2 - 4 * s + 1
+        val d11 = 3 * s2 - 2 * s
         val oa = a * nodeCount * 3
         val ob = b * nodeCount * 3
         for (i in 0 until nodeCount * 3) {
-            out[i] = h00 * positions[oa + i] + h10 * tangent(olderAge, i) +
-                h01 * positions[ob + i] + h11 * tangent(olderAge - 1, i)
+            val ma = tangent(olderAge, i)
+            val mb = tangent(olderAge - 1, i)
+            out[i] = h00 * positions[oa + i] + h10 * ma + h01 * positions[ob + i] + h11 * mb
+            if (velocityOut != null) velocityOut[i] = d00 * (positions[oa + i] - positions[ob + i]) + d10 * ma + d11 * mb
         }
     }
 
-    private fun extrapolate(dt: Double, horizon: Double, out: DoubleArray) {
+    /** Adds the late offset, faded by a Hermite ease from [lateFrom] to zero at [lateTick]'s frame: C1, no pop. */
+    private fun blendLate(at: Double, out: DoubleArray) {
+        val length = lateTick - lateFrom
+        val s = (at - lateFrom) / length
+        val s2 = s * s; val s3 = s2 * s
+        val h00 = 2 * s3 - 3 * s2 + 1
+        val h10 = (s3 - 2 * s2 + s) * length
+        for (i in 0 until nodeCount * 3) out[i] += h00 * lateOffset[i] + h10 * lateVelocity[i]
+    }
+
+    /**
+     * The nodes [dt] ticks on from the frame at [age]: p + v·r + a·r²/2 on the faded time r, so a stall levels off.
+     * The acceleration is gravity plus the link and contact share seen across the last frame gap. That share is held
+     * to at most gravity: it can hold a hanging node up, but an impact spike does not go on pushing.
+     */
+    private fun ballistic(age: Int, dt: Double, horizon: Double, out: DoubleArray, velocityOut: DoubleArray?) {
         val tau = horizon * EXTRAPOLATE_FADE
-        val run = tau * (1.0 - exp(-dt / tau))
-        val o = head * nodeCount * 3
-        for (i in 0 until nodeCount * 3) out[i] = positions[o + i] + tangent(0, i) * run
+        val fade = exp(-dt / tau)
+        val run = tau * (1.0 - fade)
+        val o = slotOf(age) * nodeCount * 3
+        val hasOlder = age + 1 < size
+        val gap = if (hasOlder) (ticks[slotOf(age)] - ticks[slotOf(age + 1)]).toDouble() else 1.0
+        for (j in 0 until nodeCount) {
+            val k = j * 3
+            val vx = tangent(age, k); val vy = tangent(age, k + 1); val vz = tangent(age, k + 2)
+            // Without an older frame nothing shows the node falls, so take it as held: no net acceleration.
+            var cx = 0.0; var cy = gravity; var cz = 0.0
+            if (hasOlder) {
+                cx = (vx - tangent(age + 1, k)) / gap
+                cy = (vy - tangent(age + 1, k + 1)) / gap + gravity
+                cz = (vz - tangent(age + 1, k + 2)) / gap
+            }
+            val c2 = cx * cx + cy * cy + cz * cz
+            val hold = if (c2 > gravity * gravity) gravity / sqrt(c2) else 1.0
+            val ax = cx * hold; val ay = cy * hold - gravity; val az = cz * hold
+            val half = 0.5 * run * run
+            out[k] = positions[o + k] + vx * run + ax * half
+            out[k + 1] = positions[o + k + 1] + vy * run + ay * half
+            out[k + 2] = positions[o + k + 2] + vz * run + az * half
+            if (velocityOut != null) {
+                velocityOut[k] = (vx + ax * run) * fade
+                velocityOut[k + 1] = (vy + ay * run) * fade
+                velocityOut[k + 2] = (vz + az * run) * fade
+            }
+        }
     }
 
     /** Value [i] of the frame at [age]'s velocity: VS's own, or a difference of its kept neighbour frames. */

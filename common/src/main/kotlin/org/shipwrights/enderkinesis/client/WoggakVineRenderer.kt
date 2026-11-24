@@ -55,6 +55,7 @@ import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_FADE_TICKS
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_FORGET
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_PUSH
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_SYNC
+import org.shipwrights.enderkinesis.util.gravity
 import org.valkyrienskies.core.api.chains.ChainId
 import org.valkyrienskies.core.api.chains.ClientChain
 import org.valkyrienskies.core.api.chains.QueryableChainData
@@ -489,7 +490,7 @@ object WoggakVineRenderer {
         clientVineCollider.particles = world.allParticles
         copiedTarget = null
         val now = System.nanoTime()
-        captureFrames(chains, world.allParticles, now)
+        captureFrames(chains, world.allParticles, now, level.gravity())
         clock.advance(now)
         // The stamp is the wall time at which the sample is drawn, so the hang's lead adds nothing before then.
         val shownAt = now + COLLIDER_LEAD_NANOS
@@ -519,17 +520,19 @@ object WoggakVineRenderer {
 
     /** Keeps each vine's new chain frame at its first sight, so the clock sees true arrival times. */
     private fun captureFrames(
-        chains: QueryableChainData<ClientChain>, particles: QueryableParticleData<ClientVsParticle>, now: Long,
+        chains: QueryableChainData<ClientChain>, particles: QueryableParticleData<ClientVsParticle>, now: Long, gravity: Double,
     ) {
         var newest = -1L
+        val shown = clock.at(now)
+        val horizon = clock.horizon
         for (i in vines.indices) {
             val chain = chains.getById(vines[i].id) ?: continue
-            newest = maxOf(newest, vines[i].frames.push(chain, particles))
+            newest = maxOf(newest, vines[i].frames.push(chain, particles, shown, horizon, gravity))
         }
         for (i in retiring.indices) {
             val vine = retiring[i].vine
             val chain = chains.getById(vine.id) ?: continue
-            newest = maxOf(newest, vine.frames.push(chain, particles))
+            newest = maxOf(newest, vine.frames.push(chain, particles, shown, horizon, gravity))
         }
         if (newest >= 0) clock.observe(newest, now)
     }
@@ -568,7 +571,7 @@ object WoggakVineRenderer {
         swayTicks = time
         for (s in beardStashes) s.clear()
         val now = System.nanoTime()
-        captureFrames(chains, level.shipObjectWorld.allParticles, now)
+        captureFrames(chains, level.shipObjectWorld.allParticles, now, level.gravity())
         settleRetiring(chains)
         val at = clock.advance(now)
         drawAt = at

@@ -19,6 +19,7 @@ import org.valkyrienskies.core.api.world.properties.DimensionId
 import org.valkyrienskies.mod.api.vsApi
 import org.valkyrienskies.mod.common.dimensionId
 import org.valkyrienskies.mod.common.shipObjectWorld
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 // Fake joint until VS exposes a chain-node endpoint: the joined end is free, and each physics tick equal and
@@ -64,7 +65,38 @@ internal fun JointPair.restoreContacts(level: ServerLevel) {
  */
 class JointPair(val follower: ParticleId, val target: ParticleId, val second: ParticleId? = null) {
     @Volatile var broken = false
-    @Volatile var weight = 0.0
+    @Volatile private var rate = 0.0
+    @Volatile private var goal = 0.0
+    @Volatile private var start = 0.0
+    // Physics thread only; NaN until the first physics tick takes the start.
+    private var shown = Double.NaN
+
+    /** Server: puts the point at [value] at once. */
+    var weight: Double
+        get() = goal
+        set(value) {
+            rate = 0.0
+            start = value
+            goal = value
+        }
+
+    /**
+     * Server: moves the point to [value] over one game tick. A step of the point once per game tick shakes a taut
+     * vine under the heavy hold particle until it blows up, so the physics thread moves it a little each physics tick.
+     */
+    fun glideTo(value: Double) {
+        rate = abs(value - goal) / SECONDS_PER_TICK
+        goal = value
+    }
+
+    /** Physics thread: the point for a step of [dt] seconds. */
+    internal fun stepWeight(dt: Double): Double {
+        val target = goal
+        val step = rate * dt
+        val from = if (shown.isNaN()) start else shown
+        shown = if (step <= 0.0) target else from + (target - from).coerceIn(-step, step)
+        return shown
+    }
 }
 
 // Server thread publishes, physics thread reads; each array is replaced, never changed.
@@ -152,7 +184,7 @@ private fun PhysLevel.solveJoints(dt: Double) {
         val b = getParticleById(pair.target) ?: continue
         val secondId = pair.second
         val c = if (secondId == null) null else getParticleById(secondId) ?: continue
-        val wc = if (c == null) 0.0 else pair.weight.coerceIn(0.0, 1.0)
+        val wc = if (c == null) 0.0 else pair.stepWeight(dt).coerceIn(0.0, 1.0)
         val wb = 1.0 - wc
         val pa = a.position; val va = a.velocity
         val pb = b.position; val vb = b.velocity

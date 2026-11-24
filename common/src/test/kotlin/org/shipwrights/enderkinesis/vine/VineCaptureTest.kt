@@ -13,46 +13,57 @@ class VineCaptureTest {
     private fun spacings(n: Int, spacing: Double = 0.4) = DoubleArray(n) { spacing }
 
     @Test
-    fun `each strand weaves to its two nearest strands by direction, each pair once`() {
+    fun `each strand ties its nearest strand, and some of its next two, each pair once`() {
         val dirs = captureDirections(16, java.util.Random(5L))
-        val pairs = weavePairs(dirs)
+        val pairs = weavePairs(dirs, java.util.Random(5L))
         pairs.toSet().size shouldBe pairs.size
         for ((a, b) in pairs) (a < b) shouldBe true
         for (i in dirs.indices) {
-            val nearest = dirs.indices.filter { it != i }.sortedBy { dirs[i].angle(dirs[it]) }.take(WEAVE_NEIGHBOURS)
-            for (j in nearest) (minOf(i, j) to maxOf(i, j) in pairs) shouldBe true
+            val nearest = dirs.indices.filter { it != i }.minBy { dirs[i].angle(dirs[it]) }
+            (minOf(i, nearest) to maxOf(i, nearest) in pairs) shouldBe true
         }
-        // Neighbours only: no pair reaches across the ship.
-        for ((a, b) in pairs) (dirs[a].angle(dirs[b]) < Math.toRadians(60.0)) shouldBe true
-        (pairs.size in 16..32) shouldBe true
+        for ((a, b) in pairs) {
+            val third = dirs.indices.filter { it != a }.sortedBy { dirs[a].angle(dirs[it]) }.take(WEAVE_REACH)
+            val thirdOfB = dirs.indices.filter { it != b }.sortedBy { dirs[b].angle(dirs[it]) }.take(WEAVE_REACH)
+            (b in third || a in thirdOfB) shouldBe true
+        }
+        (pairs.size in 16..40) shouldBe true
     }
 
     @Test
-    fun `cross-links zig-zag every 3_2 blocks from 1_2 blocks under the tips`() {
-        val plan = weavePlan(intArrayOf(40, 40, -1), spacings(3), listOf(0 to 1, 1 to 2))
-        // k even leaves strand 0, k odd leaves strand 1; each reaches the other strand 8 nodes (3.2 blocks) lower.
-        plan.map { listOf(it.strandA, it.nodeA, it.strandB, it.nodeB) } shouldBe listOf(
-            listOf(0, 37, 1, 29),
-            listOf(1, 29, 0, 21),
-            listOf(0, 21, 1, 13),
-            listOf(1, 13, 0, 5),
-        )
-        plan.map { it.step } shouldBe (0..3).toList()
+    fun `cross-links slant down from strand to strand at irregular depths`() {
+        val drops = HashSet<Int>()
+        for (seed in 0L until 20L) {
+            val plan = weavePlan(intArrayOf(80, 80), spacings(2), listOf(0 to 1), java.util.Random(seed))
+            for (link in plan) {
+                val drop = (80 - link.nodeB) - (80 - link.nodeA)
+                (drop.toDouble() in CROSS_DROP_MIN / 0.4 - 1..CROSS_DROP_MAX / 0.4 + 1) shouldBe true
+                (80 - link.nodeA >= round(CROSS_FIRST_MIN / 0.4).toInt()) shouldBe true
+                drops += drop
+            }
+            plan.map { it.step } shouldBe plan.map { it.step }.sorted()
+        }
+        (drops.size > 3) shouldBe true
     }
 
     @Test
-    fun `the zig-zag counts blocks, so a wide strand with longer links gets fewer nodes per step`() {
-        val plan = weavePlan(intArrayOf(100, 100), doubleArrayOf(0.4, 0.6), listOf(0 to 1))
-        val first = plan.first()
-        first.nodeA shouldBe 97
-        // 4.4 blocks down a strand of 0.6 links.
-        first.nodeB shouldBe 100 - 7
+    fun `the depths count blocks, so a wide strand with longer links gets fewer nodes per step`() {
+        for (seed in 0L until 20L) {
+            for (link in weavePlan(intArrayOf(100, 100), doubleArrayOf(0.4, 0.6), listOf(0 to 1), java.util.Random(seed))) {
+                val nodesUnder = if (link.strandB == 1) 100 - link.nodeB else 100 - link.nodeA
+                (nodesUnder * 0.6 <= CROSS_FIRST_MAX + MAX_CROSS_PER_PAIR * (CROSS_DROP_MAX + CROSS_GAP_MAX) + 0.3) shouldBe true
+            }
+        }
     }
 
     @Test
     fun `a cross-link never ties on the anchor node or the node next to it`() {
         for (links in 2..120) {
-            for (link in weavePlan(intArrayOf(links, links + 3, links - 1), doubleArrayOf(0.4, 0.4875, 0.585), listOf(0 to 1, 1 to 2, 0 to 2))) {
+            val plan = weavePlan(
+                intArrayOf(links, links + 3, links - 1), doubleArrayOf(0.4, 0.4875, 0.585), listOf(0 to 1, 1 to 2, 0 to 2),
+                java.util.Random(links.toLong()),
+            )
+            for (link in plan) {
                 (link.nodeA >= 2) shouldBe true
                 (link.nodeB >= 2) shouldBe true
             }
@@ -61,26 +72,41 @@ class VineCaptureTest {
 
     @Test
     fun `a strand that does not hold the ship gets no cross-links, and short strands get none`() {
-        val plan = weavePlan(intArrayOf(40, -1, 40, 40), spacings(4), listOf(0 to 1, 1 to 2, 2 to 3, 0 to 3))
-        plan.none { it.strandA == 1 || it.strandB == 1 } shouldBe true
-        plan.any { setOf(it.strandA, it.strandB) == setOf(2, 3) } shouldBe true
-        plan.any { setOf(it.strandA, it.strandB) == setOf(0, 3) } shouldBe true
-        weavePlan(intArrayOf(8, 8, 8), spacings(3), listOf(0 to 1, 1 to 2)).isEmpty() shouldBe true
-        weavePlan(intArrayOf(40), spacings(1), emptyList()).isEmpty() shouldBe true
+        val plans = (0L until 20L).map { weavePlan(intArrayOf(40, -1, 40, 40), spacings(4), listOf(0 to 1, 1 to 2, 2 to 3, 0 to 3), java.util.Random(it)) }
+        plans.all { plan -> plan.none { it.strandA == 1 || it.strandB == 1 } } shouldBe true
+        plans.any { plan -> plan.any { setOf(it.strandA, it.strandB) == setOf(2, 3) } } shouldBe true
+        plans.any { plan -> plan.any { setOf(it.strandA, it.strandB) == setOf(0, 3) } } shouldBe true
+        weavePlan(intArrayOf(6, 6, 6), spacings(3), listOf(0 to 1, 1 to 2), java.util.Random(1L)).isEmpty() shouldBe true
+        weavePlan(intArrayOf(40), spacings(1), emptyList(), java.util.Random(1L)).isEmpty() shouldBe true
     }
 
     @Test
-    fun `each pair has a hard cap of four cross-links, a quarter of the first weave's`() {
-        weavePlan(intArrayOf(10_000, 10_000), spacings(2), listOf(0 to 1)).size shouldBe MAX_CROSS_PER_PAIR
+    fun `each pair has a hard cap of four cross-links, and some are skipped`() {
+        val sizes = (0L until 40L).map { weavePlan(intArrayOf(10_000, 10_000), spacings(2), listOf(0 to 1), java.util.Random(it)).size }
+        sizes.all { it <= MAX_CROSS_PER_PAIR } shouldBe true
+        sizes.any { it < MAX_CROSS_PER_PAIR } shouldBe true
         MAX_CROSS_PER_PAIR shouldBe 4
-        CROSS_STEP_BLOCKS shouldBe (2 * 1.6 plusOrMinus 1e-12)
     }
 
     @Test
     fun `the wave goes from the tips down`() {
         val dirs = captureDirections(16, java.util.Random(2L))
-        val steps = weavePlan(IntArray(16) { 120 }, spacings(16), weavePairs(dirs)).map { it.step }
+        val random = java.util.Random(2L)
+        val steps = weavePlan(IntArray(16) { 120 }, spacings(16), weavePairs(dirs, random), random).map { it.step }
         steps shouldBe steps.sorted()
+    }
+
+    @Test
+    fun `cross-link width stays in whole pixels from the thinnest strand up to the thinner tied strand, and sag stays in range`() {
+        for (i in 0 until 200) {
+            val hash = crossLinkHash(i.toLong(), CrossLinkPlan(i % 16, 20 + i, (i + 3) % 16, 30 + i, i % 4))
+            for (px in MIN_STRAND_PX..MAX_STRAND_PX) {
+                val width = crossLinkWidth(hash, px / 16.0)
+                (width * 16 in MIN_STRAND_PX.toDouble()..px.toDouble()) shouldBe true
+                abs(width * 16 - round(width * 16)) shouldBe (0.0 plusOrMinus 1e-9)
+            }
+            (crossLinkSag(hash) in CROSS_SAG_MIN..CROSS_SAG_MAX) shouldBe true
+        }
     }
 
     @Test
@@ -480,7 +506,8 @@ class VineCaptureTest {
     @Test
     fun `a refused cross-link waits, so every planned link is made once and in plan order`() {
         val dirs = captureDirections(16, java.util.Random(2L))
-        val plan = weavePlan(IntArray(16) { 120 }, spacings(16), weavePairs(dirs))
+        val random = java.util.Random(2L)
+        val plan = weavePlan(IntArray(16) { 120 }, spacings(16), weavePairs(dirs, random), random)
         val budget = VineBuildBudget(CAPTURE_LINK_NODES_PER_TICK, CAPTURE_LINKS_PER_TICK)
         val built = ArrayList<CrossLinkPlan>()
         var cursor = 0

@@ -39,16 +39,26 @@ import kotlin.math.sqrt
 /** Twice the speed of the first capture preview, for a vine of [FIRST_LINK] spacing; wider vines pay out the same blocks a second. */
 internal const val CAPTURE_NODES_PER_SECOND = 24.0
 private const val TIGHTEN_NODES_PER_SECOND = 4.0
-/** Cross-links start this far under each tip, then one every [CROSS_STEP_BLOCKS] down the pair, in a zig-zag. */
-internal const val CROSS_FIRST_BLOCKS = 1.2
-/** Twice the first capture weave's 1.6 blocks, for a softer weave. */
+/** Mean drop of one cross-link down the pair: twice the first capture weave's 1.6 blocks, for a softer weave. */
 internal const val CROSS_STEP_BLOCKS = 3.2
 internal const val MAX_CROSS_PER_PAIR = 4
+/** Random ranges (blocks) so the weave reads grown, not a ladder: first tie under the tip, drop along a link, gap to the next. */
+internal const val CROSS_FIRST_MIN = 0.6
+internal const val CROSS_FIRST_MAX = 2.4
+internal const val CROSS_DROP_MIN = 1.6
+internal const val CROSS_DROP_MAX = 4.8
+internal const val CROSS_GAP_MAX = 1.0
+internal const val CROSS_SKIP_CHANCE = 0.15
+/** Chance that the next link leaves the same strand again, so the links do not always zig-zag. */
+internal const val CROSS_SAME_SIDE_CHANCE = 0.3
+/** Sag as a fraction of the span; 0.10 to 0.24 gives about 3 % to 15 % more rope than the straight line. */
+internal const val CROSS_SAG_MIN = 0.10
+internal const val CROSS_SAG_MAX = 0.24
 /** Cross-link chains and their nodes that all captures together may make in one tick; the rest wait for the next tick. */
 internal const val CAPTURE_LINKS_PER_TICK = 8
 internal const val CAPTURE_LINK_NODES_PER_TICK = 256
-/** Each strand weaves to this many strands nearest it by direction. */
-internal const val WEAVE_NEIGHBOURS = 2
+/** Each strand weaves to some of this many strands nearest it by direction; see [weaveTieChance]. */
+internal const val WEAVE_REACH = 3
 private const val MIN_CROSS_GAP = 0.8
 /** Over one particle diameter, so a new cross-link end does not overlap the strand node it ties to. */
 private const val CROSS_END_GAP = 0.25
@@ -432,39 +442,72 @@ internal class VineCapture(val shipId: Long, val strands: List<CaptureStrand>) {
 
 private fun sq(d: Double) = d * d
 
-/** Each strand with its [WEAVE_NEIGHBOURS] nearest strands by direction, as index pairs (lower first), each pair once. */
-internal fun weavePairs(dirs: List<Vector3dc>): List<Pair<Int, Int>> {
+/** Chance that a strand ties to its nearest strand of [rank] (0 = nearest), so the neighbour pattern differs strand to strand. */
+internal fun weaveTieChance(rank: Int): Double = when (rank) {
+    0 -> 1.0
+    1 -> 0.75
+    else -> 0.2
+}
+
+/** Each strand with some of its [WEAVE_REACH] nearest strands by direction, as index pairs (lower first), each pair once. */
+internal fun weavePairs(dirs: List<Vector3dc>, random: Random): List<Pair<Int, Int>> {
     val pairs = sortedSetOf(compareBy<Pair<Int, Int>>({ it.first }, { it.second }))
     for (i in dirs.indices) {
-        val nearest = dirs.indices.filter { it != i }.sortedBy { dirs[i].angle(dirs[it]) }.take(WEAVE_NEIGHBOURS)
-        for (j in nearest) pairs += min(i, j) to max(i, j)
+        val nearest = dirs.indices.filter { it != i }.sortedBy { dirs[i].angle(dirs[it]) }.take(WEAVE_REACH)
+        for ((rank, j) in nearest.withIndex()) if (random.nextDouble() < weaveTieChance(rank)) pairs += min(i, j) to max(i, j)
     }
     return pairs.toList()
 }
 
+private fun Random.between(lo: Double, hi: Double) = lo + nextDouble() * (hi - lo)
+
 /**
- * Cross-links for each of [pairs]: link k leaves one strand [CROSS_FIRST_BLOCKS] + k * [CROSS_STEP_BLOCKS] under its
- * tip and reaches the other [CROSS_STEP_BLOCKS] lower, the two strands in turn, so the links zig-zag. [links] holds
- * each strand's link count, or -1 for a strand that does not hold the ship; [spacings] its link length. Nodes count
- * from the start (the anchor); the tip is node `links`.
+ * Cross-links for each of [pairs], at most [MAX_CROSS_PER_PAIR]: each leaves one strand at a random depth under its
+ * tip and reaches the other a random drop lower, so it runs at a slant. Each next link starts a random gap under the
+ * last end; some leave the same strand again, some are skipped. [links] holds each strand's link count, or -1 for a
+ * strand that does not hold the ship; [spacings] its link length. Nodes count from the anchor; the tip is node `links`.
  */
-internal fun weavePlan(links: IntArray, spacings: DoubleArray, pairs: List<Pair<Int, Int>>): List<CrossLinkPlan> {
+internal fun weavePlan(links: IntArray, spacings: DoubleArray, pairs: List<Pair<Int, Int>>, random: Random): List<CrossLinkPlan> {
     require(links.size == spacings.size) { "links ${links.size}, spacings ${spacings.size}" }
     val out = ArrayList<CrossLinkPlan>()
     for ((a, b) in pairs) {
         if (a !in links.indices || b !in links.indices || links[a] < 0 || links[b] < 0) continue
         if (!(spacings[a] > 0.0 && spacings[b] > 0.0)) continue
+        var upper = if (random.nextBoolean()) a else b
+        var along = random.between(CROSS_FIRST_MIN, CROSS_FIRST_MAX)
         for (k in 0 until MAX_CROSS_PER_PAIR) {
-            val upper = if (k % 2 == 0) a else b
-            val lower = if (k % 2 == 0) b else a
-            val t0 = ((CROSS_FIRST_BLOCKS + k * CROSS_STEP_BLOCKS) / spacings[upper]).roundToInt()
-            val t1 = ((CROSS_FIRST_BLOCKS + (k + 1) * CROSS_STEP_BLOCKS) / spacings[lower]).roundToInt()
+            val lower = if (upper == a) b else a
+            val drop = random.between(CROSS_DROP_MIN, CROSS_DROP_MAX)
+            val skip = random.nextDouble() < CROSS_SKIP_CHANCE
+            val t0 = (along / spacings[upper]).roundToInt()
+            val t1 = ((along + drop) / spacings[lower]).roundToInt()
             if (links[upper] < t0 + 2 || links[lower] < t1 + 2) break
-            out += CrossLinkPlan(upper, links[upper] - t0, lower, links[lower] - t1, k)
+            if (!skip) out += CrossLinkPlan(upper, links[upper] - t0, lower, links[lower] - t1, k)
+            along += drop + random.nextDouble() * CROSS_GAP_MAX
+            if (random.nextDouble() >= CROSS_SAME_SIDE_CHANCE) upper = lower
         }
     }
     return out.sortedBy { it.step }
 }
+
+/** A mix of the capture and the link's fields: the same link gets the same width and sag after a load. */
+internal fun crossLinkHash(shipId: Long, link: CrossLinkPlan): Long {
+    var h = shipId * SEED_MIX
+    h = (h xor link.strandA.toLong()) * SEED_MIX
+    h = (h xor link.nodeA.toLong()) * SEED_MIX
+    h = (h xor link.strandB.toLong()) * SEED_MIX
+    h = (h xor link.nodeB.toLong()) * SEED_MIX
+    return h xor (h ushr 31)
+}
+
+/** Whole pixels from [MIN_STRAND_PX] up to the thinner strand, so a tie is never heavier than what it ties. */
+internal fun crossLinkWidth(hash: Long, thinner: Double): Double {
+    val maxPx = max(MIN_STRAND_PX, (thinner * 16).roundToInt())
+    return (MIN_STRAND_PX + Math.floorMod(hash ushr 40, maxPx - MIN_STRAND_PX + 1)) / 16.0
+}
+
+internal fun crossLinkSag(hash: Long): Double =
+    CROSS_SAG_MIN + (hash ushr 11).toDouble() / (1L shl 53) * (CROSS_SAG_MAX - CROSS_SAG_MIN)
 
 /** Pay-out nodes a second for a vine of [spacing]: the same blocks a second as at [FIRST_LINK]. */
 internal fun captureNodeRate(spacing: Double): Double = CAPTURE_NODES_PER_SECOND * FIRST_LINK / spacing
@@ -646,7 +689,7 @@ private fun ServerLevel.aimStrands(ship: ServerShip, count: Int, random: Random)
 private fun ServerLevel.aimStrand(
     ship: ServerShip, box: AABBic, dir: Vector3dc, random: Random, taken: List<Aimed>,
 ): Pair<CaptureAim, VinePoint>? {
-    val half = Vector3d((box.maxX() - box.minX() + 1) * 0.5, (box.maxY() - box.minY() + 1) * 0.5, (box.maxZ() - box.minZ() + 1) * 0.5)
+    val half = Vector3d((box.maxX() - box.minX()) * 0.5, (box.maxY() - box.minY()) * 0.5, (box.maxZ() - box.minZ()) * 0.5)
     val centre = Vector3d(box.minX() + half.x, box.minY() + half.y, box.minZ() + half.z)
     val takenHulls = taken.map { it.hull }
     val from = Vector3d()
@@ -664,7 +707,7 @@ private fun ServerLevel.aimStrand(
     val target = aim.target(Vector3d())
     val solid = { pos: BlockPos -> isLoaded(pos) && !getBlockState(pos).getCollisionShape(this, pos).isEmpty }
     val cell = nearestSolidCell(
-        BlockPos(box.minX(), box.minY(), box.minZ()), BlockPos(box.maxX(), box.maxY(), box.maxZ()), target, solid,
+        BlockPos(box.minX(), box.minY(), box.minZ()), BlockPos(box.maxX() - 1, box.maxY() - 1, box.maxZ() - 1), target, solid,
     ) { pos -> freeOf(takenHulls, faceLatch(ship, pos, target, solid)) }
     val hull = cell?.let { faceLatch(ship, it, target, solid) }
     return hull?.let { aim to it }
@@ -733,7 +776,7 @@ internal fun clipToBox(from: Vector3d, to: Vector3d, boxMin: Vector3dc, boxMax: 
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.traceHull(ship: ServerShip, box: AABBic, from: Vector3d, to: Vector3d): VinePoint? {
     val boxMin = Vector3d(box.minX() - 1.0, box.minY() - 1.0, box.minZ() - 1.0)
-    val boxMax = Vector3d(box.maxX() + 2.0, box.maxY() + 2.0, box.maxZ() + 2.0)
+    val boxMax = Vector3d(box.maxX() + 1.0, box.maxY() + 1.0, box.maxZ() + 1.0)
     if (!clipToBox(from, to, boxMin, boxMax)) return null
     val fromV = Vec3(from.x, from.y, from.z)
     val toV = Vec3(to.x, to.y, to.z)
@@ -1098,7 +1141,7 @@ private fun ServerLevel.capLatch(
     val taken = capture.strands.filter { it !== strand && !it.lost }.map { it.hull }
     val solid = { pos: BlockPos -> isLoaded(pos) && !getBlockState(pos).getCollisionShape(this, pos).isEmpty }
     val cell = nearestSolidCell(
-        BlockPos(box.minX(), box.minY(), box.minZ()), BlockPos(box.maxX(), box.maxY(), box.maxZ()), tip, solid,
+        BlockPos(box.minX(), box.minY(), box.minZ()), BlockPos(box.maxX() - 1, box.maxY() - 1, box.maxZ() - 1), tip, solid,
     ) { pos -> freeOf(taken, faceLatch(ship, pos, tip, solid)) }
     if (cell == null) return false
     strand.hull = faceLatch(ship, cell, tip, solid)
@@ -1226,7 +1269,8 @@ private fun ServerLevel.planWeave(data: WoggakVineData, capture: VineCapture): B
         val status = hanging[i]?.status
         if (status == null || links[i] < 1) 0.0 else status.currentRestLength / links[i]
     }
-    capture.plan = weavePlan(links, spacings, weavePairs(capture.strands.map { it.aim.dir }))
+    val random = Random(capture.strands.fold(capture.shipId * SEED_MIX) { h, s -> (h xor s.vineId) * SEED_MIX })
+    capture.plan = weavePlan(links, spacings, weavePairs(capture.strands.map { it.aim.dir }, random), random)
     capture.planCursor = 0
     capture.planned = true
     capture.phaseTicks = 0
@@ -1269,7 +1313,7 @@ private fun ServerLevel.strandNode(data: WoggakVineData, capture: VineCapture, i
 }
 
 /**
- * A cross-link from strand to strand, as wide as the thinner of the two; none where it would lie through the hull.
+ * A cross-link from strand to strand, with some slack; none where it would lie through the hull.
  * False only when [budget] refuses it; the link then waits.
  */
 @OptIn(GameTickOnly::class)
@@ -1285,10 +1329,14 @@ private fun ServerLevel.makeCrossLink(
     val from = strandNode(data, capture, link.strandA, link.nodeA) ?: return true
     val to = strandNode(data, capture, link.strandB, link.nodeB) ?: return true
     if (from.distance(to) < MIN_CROSS_GAP + 2 * CROSS_END_GAP) return true
+    val hash = crossLinkHash(capture.shipId, link)
     // The link's end nodes start clear of the strand nodes; on top of them, contacts push both apart until the joint masks them.
-    val path = sagPath(Vector3d(to).sub(from).normalize().mul(CROSS_END_GAP).add(from), Vector3d(from).sub(to).normalize().mul(CROSS_END_GAP).add(to))
+    val path = sagPath(
+        Vector3d(to).sub(from).normalize().mul(CROSS_END_GAP).add(from), Vector3d(from).sub(to).normalize().mul(CROSS_END_GAP).add(to),
+        crossLinkSag(hash),
+    )
     if (box != null && pathHitsHull(ship, box, path)) return true
-    val width = min(vineA.width, vineB.width)
+    val width = crossLinkWidth(hash, min(vineA.width, vineB.width))
     val spacing = vineSpacing(width)
     if (!budget.take(crossLinkNodes(path, spacing))) return false
     val chain = makeVineChain(path, ChainEndpoint.Free, ChainEndpoint.Free, Vector3d(), MASS_PER_LENGTH, spacing, width) ?: return true

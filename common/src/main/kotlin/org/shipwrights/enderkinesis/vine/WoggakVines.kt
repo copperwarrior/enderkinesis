@@ -413,9 +413,9 @@ fun ServerLevel.createWoggakVine(a: VinePoint, b: VinePoint, available: Int): Vi
     return VineResult(null, cost)
 }
 
-/** The laid-out path of a new vine from [a] to [b]: a parabola that sags by [SAG_FRACTION] of the span. */
-internal fun sagPath(a: Vector3dc, b: Vector3dc): List<Vector3dc> {
-    val sag = a.distance(b) * SAG_FRACTION
+/** The laid-out path of a new vine from [a] to [b]: a parabola that sags by [fraction] of the span. */
+internal fun sagPath(a: Vector3dc, b: Vector3dc, fraction: Double = SAG_FRACTION): List<Vector3dc> {
+    val sag = a.distance(b) * fraction
     return List(PATH_POINTS) { i ->
         val t = i / (PATH_POINTS - 1.0)
         Vector3d(a).lerp(b, t).sub(0.0, 4.0 * sag * t * (1.0 - t), 0.0)
