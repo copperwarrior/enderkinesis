@@ -405,9 +405,9 @@ object BindingRootsMerger {
         val ab = ship.shipAABB ?: return false
         val target = EKBlocks.SHULKER_STRUT_TOP.get()
         val cursor = BlockPos.MutableBlockPos()
-        for (x in ab.minX()..ab.maxX()) {
-            for (y in ab.minY()..ab.maxY()) {
-                for (z in ab.minZ()..ab.maxZ()) {
+        for (x in ab.minX() until ab.maxX()) {
+            for (y in ab.minY() until ab.maxY()) {
+                for (z in ab.minZ() until ab.maxZ()) {
                     cursor.set(x, y, z)
                     if (level.getBlockState(cursor).`is`(target)) return true
                 }
@@ -451,9 +451,9 @@ object BindingRootsMerger {
 
         val blocks = mutableSetOf<BlockPos>()
         val cursor = BlockPos.MutableBlockPos()
-        for (x in aabb.minX()..aabb.maxX()) {
-            for (y in aabb.minY()..aabb.maxY()) {
-                for (z in aabb.minZ()..aabb.maxZ()) {
+        for (x in aabb.minX() until aabb.maxX()) {
+            for (y in aabb.minY() until aabb.maxY()) {
+                for (z in aabb.minZ() until aabb.maxZ()) {
                     cursor.set(x, y, z)
                     if (!level.getBlockState(cursor).isAir) blocks.add(cursor.immutable())
                 }
@@ -472,11 +472,11 @@ object BindingRootsMerger {
                 // update packets. `floorDiv` (not `/`) because the centroid formula 2N+1 needs
                 // floor rounding for negative-shipyard-coord ships, not truncate-toward-zero.
                 val minStructurePos = BlockPos(aabb.minX(), aabb.minY(), aabb.minZ())
-                val maxStructurePos = BlockPos(aabb.maxX(), aabb.maxY(), aabb.maxZ())
+                val maxStructurePos = BlockPos(aabb.maxX() - 1, aabb.maxY() - 1, aabb.maxZ() - 1)
                 val toCenter = Vector3i(
-                    Math.floorDiv(aabb.minX() + aabb.maxX() + 1, 2) + (hostPos.x - candidatePos.x),
-                    Math.floorDiv(aabb.minY() + aabb.maxY() + 1, 2) + (hostPos.y - candidatePos.y),
-                    Math.floorDiv(aabb.minZ() + aabb.maxZ() + 1, 2) + (hostPos.z - candidatePos.z),
+                    Math.floorDiv(aabb.minX() + aabb.maxX(), 2) + (hostPos.x - candidatePos.x),
+                    Math.floorDiv(aabb.minY() + aabb.maxY(), 2) + (hostPos.y - candidatePos.y),
+                    Math.floorDiv(aabb.minZ() + aabb.maxZ(), 2) + (hostPos.z - candidatePos.z),
                 )
                 val result = ShipAssembler.moveBlocksFromTo(
                     level, blocks, candidate, hostShip,

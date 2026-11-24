@@ -106,9 +106,9 @@ object MothClothClientPositions {
         for (ship in level.shipObjectWorld.loadedShips) {
             val aabb = ship.shipAABB ?: continue
             val minCX = aabb.minX() shr 4
-            val maxCX = aabb.maxX() shr 4
+            val maxCX = (aabb.maxX() - 1) shr 4
             val minCZ = aabb.minZ() shr 4
-            val maxCZ = aabb.maxZ() shr 4
+            val maxCZ = (aabb.maxZ() - 1) shr 4
             for (cx in minCX..maxCX) for (cz in minCZ..maxCZ) {
                 val chunk = level.getChunk(cx, cz, ChunkStatus.FULL, false) as? LevelChunk ?: continue
                 scanChunkInto(chunk, fresh)

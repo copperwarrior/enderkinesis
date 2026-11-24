@@ -77,11 +77,10 @@ object VoidHarnessParticles {
         repeat(CrepusculitePortalParticles.count(power, SHIP_MAX_PER_TICK)) {
             @Suppress("UnusedPrivateProperty") // A bounded loop that breaks early; detekt reads the counter as a property.
             for (attempt in 0 until SHIP_BLOCK_ATTEMPTS) {
-                // The shipAABB max is inclusive.
                 blockPos.set(
-                    aabb.minX() + rand.nextInt(aabb.maxX() - aabb.minX() + 1),
-                    aabb.minY() + rand.nextInt(aabb.maxY() - aabb.minY() + 1),
-                    aabb.minZ() + rand.nextInt(aabb.maxZ() - aabb.minZ() + 1),
+                    aabb.minX() + rand.nextInt(aabb.maxX() - aabb.minX()),
+                    aabb.minY() + rand.nextInt(aabb.maxY() - aabb.minY()),
+                    aabb.minZ() + rand.nextInt(aabb.maxZ() - aabb.minZ()),
                 )
                 if (level.getBlockState(blockPos).isAir) continue
                 CrepusculitePortalParticles.spawnOnShip(

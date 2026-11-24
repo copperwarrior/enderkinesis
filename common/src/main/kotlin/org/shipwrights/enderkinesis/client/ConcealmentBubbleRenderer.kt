@@ -140,16 +140,15 @@ object ConcealmentBubbleRenderer {
             val ship = (level.shipObjectWorld.allShips.getById(shipId) as? ClientShip) ?: continue
             val aabb = ship.shipAABB ?: continue
 
-            // Ship-local AABB centre + circumscribed half-extents (the shipAABB's max
-            // is inclusive on the high side per VS2 convention, so add 1 before halving).
+            // Ship-local AABB centre + circumscribed half-extents (shipAABB max is exclusive).
             // Half-extents × √3 so the eight AABB corners lie exactly on the ellipsoid
             // surface and the ship is fully contained.
-            val cxL = (aabb.minX() + aabb.maxX() + 1.0) * 0.5
-            val cyL = (aabb.minY() + aabb.maxY() + 1.0) * 0.5
-            val czL = (aabb.minZ() + aabb.maxZ() + 1.0) * 0.5
-            val hxL = (aabb.maxX() + 1 - aabb.minX()) * 0.5 * CIRCUMSCRIBE
-            val hyL = (aabb.maxY() + 1 - aabb.minY()) * 0.5 * CIRCUMSCRIBE
-            val hzL = (aabb.maxZ() + 1 - aabb.minZ()) * 0.5 * CIRCUMSCRIBE
+            val cxL = (aabb.minX() + aabb.maxX()).toDouble() * 0.5
+            val cyL = (aabb.minY() + aabb.maxY()).toDouble() * 0.5
+            val czL = (aabb.minZ() + aabb.maxZ()).toDouble() * 0.5
+            val hxL = (aabb.maxX() - aabb.minX()) * 0.5 * CIRCUMSCRIBE
+            val hyL = (aabb.maxY() - aabb.minY()) * 0.5 * CIRCUMSCRIBE
+            val hzL = (aabb.maxZ() - aabb.minZ()) * 0.5 * CIRCUMSCRIBE
 
             val s2w = ship.renderTransform.shipToWorld
             // Mask channels encode PER-PIXEL data so each ship's bubble

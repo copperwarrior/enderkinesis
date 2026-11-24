@@ -12,16 +12,16 @@ import org.valkyrienskies.core.api.ships.Ship
  *  columns are hollow or the read budget runs out. */
 fun Ship.solidAnchor(level: Level): BlockPos? {
     val aabb = shipAABB ?: return null
-    val cx = (aabb.minX() + aabb.maxX()) / 2
-    val cy = (aabb.minY() + aabb.maxY()) / 2
-    val cz = (aabb.minZ() + aabb.maxZ()) / 2
+    val cx = (aabb.minX() + aabb.maxX() - 1) / 2
+    val cy = (aabb.minY() + aabb.maxY() - 1) / 2
+    val cz = (aabb.minZ() + aabb.maxZ() - 1) / 2
     val cursor = BlockPos.MutableBlockPos()
     var budget = SCAN_BUDGET
-    val span = aabb.maxY() - aabb.minY() + 1
+    val span = aabb.maxY() - aabb.minY()
     for (step in 0 until span) {
         // 0, -1, +1, -2, +2, … — hull body first, extremities last.
         val y = cy + (if (step % 2 == 1) -(step + 1) / 2 else step / 2)
-        if (y < aabb.minY() || y > aabb.maxY()) continue
+        if (y < aabb.minY() || y >= aabb.maxY()) continue
         for (dx in -1..1) {
             for (dz in -1..1) {
                 if (budget-- <= 0) return null

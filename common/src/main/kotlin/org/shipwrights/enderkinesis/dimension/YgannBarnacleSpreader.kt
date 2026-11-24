@@ -38,7 +38,7 @@ object YgannBarnacleSpreader {
                 if (ship.chunkClaimDimension != dimId) continue
                 if (level.random.nextFloat() > ATTACH_CHANCE) continue
                 val aabb = ship.shipAABB ?: continue
-                tryAttach(level, ship, BoundingBox(aabb.minX(), aabb.minY(), aabb.minZ(), aabb.maxX(), aabb.maxY(), aabb.maxZ()))
+                tryAttach(level, ship, BoundingBox(aabb.minX(), aabb.minY(), aabb.minZ(), aabb.maxX() - 1, aabb.maxY() - 1, aabb.maxZ() - 1))
             }
         }
     }
@@ -51,8 +51,8 @@ object YgannBarnacleSpreader {
         val aabb = ship.shipAABB ?: return
         val region = BoundingBox(
             Math.max(aabb.minX(), pos.x - SEED_RADIUS), Math.max(aabb.minY(), pos.y - SEED_RADIUS),
-            Math.max(aabb.minZ(), pos.z - SEED_RADIUS), Math.min(aabb.maxX(), pos.x + SEED_RADIUS),
-            Math.min(aabb.maxY(), pos.y + SEED_RADIUS), Math.min(aabb.maxZ(), pos.z + SEED_RADIUS),
+            Math.max(aabb.minZ(), pos.z - SEED_RADIUS), Math.min(aabb.maxX() - 1, pos.x + SEED_RADIUS),
+            Math.min(aabb.maxY() - 1, pos.y + SEED_RADIUS), Math.min(aabb.maxZ() - 1, pos.z + SEED_RADIUS),
         )
         tryAttach(level, ship, region)
     }
@@ -62,9 +62,9 @@ object YgannBarnacleSpreader {
         val aabb = ship.shipAABB ?: return
         // Only ships that are at least MIN_SHIP_AXIS blocks long in some axis — small
         // skiffs don't collect barnacles (and wouldn't survive their drag).
-        val lenX = aabb.maxX() - aabb.minX() + 1
-        val lenY = aabb.maxY() - aabb.minY() + 1
-        val lenZ = aabb.maxZ() - aabb.minZ() + 1
+        val lenX = aabb.maxX() - aabb.minX()
+        val lenY = aabb.maxY() - aabb.minY()
+        val lenZ = aabb.maxZ() - aabb.minZ()
         if (Math.max(lenX, Math.max(lenY, lenZ)) < MIN_SHIP_AXIS) return
         val census = hullCensus(level, ship) ?: return
         if (census.warded || census.barnacles >= MAX_PER_SHIP) return

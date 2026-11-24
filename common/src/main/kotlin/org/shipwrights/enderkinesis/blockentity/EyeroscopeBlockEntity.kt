@@ -612,8 +612,8 @@ class EyeroscopeBlockEntity(pos: BlockPos, state: BlockState) :
      *  *comparator* output is capped separately — see [comparatorDeadZoneSq]. */
     private fun computeDeadZoneSq(ship: Ship?): Double {
         val sb = ship?.shipAABB ?: return WORLD_FALLBACK_DEADZONE_SQ
-        val dx = (sb.maxX() + 1 - sb.minX()).toDouble()
-        val dz = (sb.maxZ() + 1 - sb.minZ()).toDouble()
+        val dx = (sb.maxX() - sb.minX()).toDouble()
+        val dz = (sb.maxZ() - sb.minZ()).toDouble()
         val length = Math.max(dx, dz)
         val r = SHIP_LENGTH_DEADZONE_FACTOR * length
         return r * r

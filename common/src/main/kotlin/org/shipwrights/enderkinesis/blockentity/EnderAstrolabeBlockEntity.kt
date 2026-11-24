@@ -443,9 +443,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
         var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
         val corner = Vector3d()
-        for (cxI in intArrayOf(sb.minX(), sb.maxX() + 1)) {
-            for (cyI in intArrayOf(sb.minY(), sb.maxY() + 1)) {
-                for (czI in intArrayOf(sb.minZ(), sb.maxZ() + 1)) {
+        for (cxI in intArrayOf(sb.minX(), sb.maxX())) {
+            for (cyI in intArrayOf(sb.minY(), sb.maxY())) {
+                for (czI in intArrayOf(sb.minZ(), sb.maxZ())) {
                     corner.set(cxI.toDouble(), cyI.toDouble(), czI.toDouble())
                     s2w.transformPosition(corner)
                     if (corner.x < minX) minX = corner.x; if (corner.x > maxX) maxX = corner.x
@@ -532,9 +532,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
      *  14×3×14 and would have charged ~40 % longer just because of orientation.) */
     private fun computeShipRadius(ship: LoadedServerShip): Double {
         val sb = ship.shipAABB ?: return 0.0
-        val dx = (sb.maxX() + 1 - sb.minX()).toDouble()
-        val dy = (sb.maxY() + 1 - sb.minY()).toDouble()
-        val dz = (sb.maxZ() + 1 - sb.minZ()).toDouble()
+        val dx = (sb.maxX() - sb.minX()).toDouble()
+        val dy = (sb.maxY() - sb.minY()).toDouble()
+        val dz = (sb.maxZ() - sb.minZ()).toDouble()
         return sqrt(dx * dx + dy * dy + dz * dz) / 2.0
     }
 
@@ -589,9 +589,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var minZ = Double.MAX_VALUE
         var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE; var maxZ = -Double.MAX_VALUE
         val corner = Vector3d()
-        for (cxI in intArrayOf(sb.minX(), sb.maxX() + 1)) {
-            for (cyI in intArrayOf(sb.minY(), sb.maxY() + 1)) {
-                for (czI in intArrayOf(sb.minZ(), sb.maxZ() + 1)) {
+        for (cxI in intArrayOf(sb.minX(), sb.maxX())) {
+            for (cyI in intArrayOf(sb.minY(), sb.maxY())) {
+                for (czI in intArrayOf(sb.minZ(), sb.maxZ())) {
                     corner.set(cxI.toDouble(), cyI.toDouble(), czI.toDouble())
                     s2w.transformPosition(corner)
                     if (corner.x < minX) minX = corner.x; if (corner.x > maxX) maxX = corner.x
@@ -644,9 +644,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
             info != null && info.lastShipStoodOn == shipId && info.isEntityBeingDraggedByAShip()
         }
         val worldToShip = ship.transform.worldToShip
-        val sbMinX = sb.minX().toDouble(); val sbMaxX = (sb.maxX() + 1).toDouble()
-        val sbMinY = sb.minY().toDouble(); val sbMaxY = (sb.maxY() + 1).toDouble()
-        val sbMinZ = sb.minZ().toDouble(); val sbMaxZ = (sb.maxZ() + 1).toDouble()
+        val sbMinX = sb.minX().toDouble(); val sbMaxX = sb.maxX().toDouble()
+        val sbMinY = sb.minY().toDouble(); val sbMaxY = sb.maxY().toDouble()
+        val sbMinZ = sb.minZ().toDouble(); val sbMaxZ = sb.maxZ().toDouble()
         val draggedSet = draggedRiders.toSet()
         val obbRiders = level.getEntitiesOfClass(Entity::class.java, riderRegion) { e ->
             if (e in draggedSet) return@getEntitiesOfClass false
@@ -899,9 +899,9 @@ class EnderAstrolabeBlockEntity(pos: BlockPos, state: BlockState) :
         val sb = ship.shipAABB ?: return
         val s2w = ship.transform.shipToWorld
         val rng = level.random
-        val sizeX = (sb.maxX() + 1 - sb.minX()).coerceAtLeast(1)
-        val sizeY = (sb.maxY() + 1 - sb.minY()).coerceAtLeast(1)
-        val sizeZ = (sb.maxZ() + 1 - sb.minZ()).coerceAtLeast(1)
+        val sizeX = (sb.maxX() - sb.minX()).coerceAtLeast(1)
+        val sizeY = (sb.maxY() - sb.minY()).coerceAtLeast(1)
+        val sizeZ = (sb.maxZ() - sb.minZ()).coerceAtLeast(1)
         val volume = sizeX.toLong() * sizeY * sizeZ
         val particleCount = (volume / OBB_VOLUME_PER_PARTICLE).toInt()
             .coerceIn(OBB_PARTICLES_MIN, OBB_PARTICLES_MAX)

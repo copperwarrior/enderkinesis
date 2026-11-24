@@ -479,9 +479,9 @@ object WyllandTomeClient {
         val aabb = ship.shipAABB ?: return
         val s2w = ship.renderTransform.shipToWorld
         val rand = level.random
-        val spanX = (aabb.maxX() + 1 - aabb.minX()).toDouble()
-        val spanY = (aabb.maxY() + 1 - aabb.minY()).toDouble()
-        val spanZ = (aabb.maxZ() + 1 - aabb.minZ()).toDouble()
+        val spanX = (aabb.maxX() - aabb.minX()).toDouble()
+        val spanY = (aabb.maxY() - aabb.minY()).toDouble()
+        val spanZ = (aabb.maxZ() - aabb.minZ()).toDouble()
         val local = org.joml.Vector3d()
         repeat(WyllandTomeItem.SHIP_GLYPHS_PER_TICK) {
             local.set(

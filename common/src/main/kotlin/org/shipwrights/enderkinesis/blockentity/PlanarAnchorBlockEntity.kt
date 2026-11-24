@@ -477,9 +477,9 @@ class PlanarAnchorBlockEntity(pos: BlockPos, state: BlockState) :
             // and the spherical fallback's cloud).
             val s2w = ship.transform.shipToWorld
             val cloudDistance = ship.shipAABB?.let { sb ->
-                val dx = (sb.maxX() - sb.minX() + 1).toDouble()
-                val dy = (sb.maxY() - sb.minY() + 1).toDouble()
-                val dz = (sb.maxZ() - sb.minZ() + 1).toDouble()
+                val dx = (sb.maxX() - sb.minX()).toDouble()
+                val dy = (sb.maxY() - sb.minY()).toDouble()
+                val dz = (sb.maxZ() - sb.minZ()).toDouble()
                 (Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5).coerceAtMost(CLOUD_MAX_DISTANCE)
             } ?: CLOUD_MAX_DISTANCE
             val com = ship.transform.positionInShip

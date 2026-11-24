@@ -74,8 +74,8 @@ object SafeTeleporter {
         for (ship in ships.take(MAX_TRIES)) {
             val box = ship.shipAABB ?: continue
             repeat(MAX_TRIES) {
-                val x = box.minX() + rand.nextInt(box.maxX() - box.minX() + 1)
-                val z = box.minZ() + rand.nextInt(box.maxZ() - box.minZ() + 1)
+                val x = box.minX() + rand.nextInt(box.maxX() - box.minX())
+                val z = box.minZ() + rand.nextInt(box.maxZ() - box.minZ())
                 // The heightmap is read in shipyard coords: the shipyard chunks are ordinary chunks.
                 val top = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)
                 val feet = BlockPos(x, top, z)

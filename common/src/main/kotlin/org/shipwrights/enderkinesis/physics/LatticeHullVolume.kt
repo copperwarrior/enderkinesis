@@ -202,9 +202,9 @@ object LatticeHullVolume {
         val minX = Math.floorDiv(box.minX() - 1, 16) * 16
         val minY = Math.floorDiv(box.minY() - 1, 16) * 16
         val minZ = Math.floorDiv(box.minZ() - 1, 16) * 16
-        val w = (Math.floorDiv(box.maxX() + 1, 16) + 1) * 16 - minX
-        val h = (Math.floorDiv(box.maxY() + 1, 16) + 1) * 16 - minY
-        val d = (Math.floorDiv(box.maxZ() + 1, 16) + 1) * 16 - minZ
+        val w = (Math.floorDiv(box.maxX(), 16) + 1) * 16 - minX
+        val h = (Math.floorDiv(box.maxY(), 16) + 1) * 16 - minY
+        val d = (Math.floorDiv(box.maxZ(), 16) + 1) * 16 - minZ
         if (minX != volume.minX || minY != volume.minY || minZ != volume.minZ ||
             w != volume.w || h != volume.h || d != volume.d
         ) {

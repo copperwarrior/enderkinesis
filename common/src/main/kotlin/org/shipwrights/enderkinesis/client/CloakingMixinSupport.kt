@@ -24,7 +24,7 @@ import org.valkyrienskies.core.api.util.GameTickOnly
 @OptIn(GameTickOnly::class)
 object CloakingMixinSupport {
 
-    /** ship id → shipyard-coord AABB (inclusive on both sides). */
+    /** ship id → shipyard-coord `shipAABB` (max exclusive). */
     private val concealed: ConcurrentHashMap<Long, ShipBox> = ConcurrentHashMap()
 
     /** Ships whose bubble currently contains the camera. Updated once per frame
@@ -95,12 +95,12 @@ object CloakingMixinSupport {
                 as? org.valkyrienskies.core.api.ships.ClientShip) ?: continue
             val v = org.joml.Vector3d(x, y, z)
             ship.renderTransform.worldToShip.transformPosition(v)
-            val cx = (box.minX + box.maxX + 1.0) * 0.5
-            val cy = (box.minY + box.maxY + 1.0) * 0.5
-            val cz = (box.minZ + box.maxZ + 1.0) * 0.5
-            val hx = (box.maxX + 1 - box.minX) * 0.5 * BUBBLE_CIRCUMSCRIBE
-            val hy = (box.maxY + 1 - box.minY) * 0.5 * BUBBLE_CIRCUMSCRIBE
-            val hz = (box.maxZ + 1 - box.minZ) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val cx = (box.minX + box.maxX.toDouble()) * 0.5
+            val cy = (box.minY + box.maxY.toDouble()) * 0.5
+            val cz = (box.minZ + box.maxZ.toDouble()) * 0.5
+            val hx = (box.maxX - box.minX) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val hy = (box.maxY - box.minY) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val hz = (box.maxZ - box.minZ) * 0.5 * BUBBLE_CIRCUMSCRIBE
             val nx = (v.x - cx) / hx
             val ny = (v.y - cy) / hy
             val nz = (v.z - cz) / hz
@@ -178,15 +178,14 @@ object CloakingMixinSupport {
             val box = concealed[shipId] ?: continue
             val v = org.joml.Vector3d(x, y, z)
             ship.renderTransform.worldToShip.transformPosition(v)
-            // VS2 shipAABB convention: maxX/Y/Z are INCLUSIVE — match
-            // [ConcealmentBubbleRenderer]'s `+1` in the centre + half-extent math
-            // so the ellipsoid here is identical to the one drawn to the mask FB.
-            val cx = (box.minX + box.maxX + 1.0) * 0.5
-            val cy = (box.minY + box.maxY + 1.0) * 0.5
-            val cz = (box.minZ + box.maxZ + 1.0) * 0.5
-            val hx = (box.maxX + 1 - box.minX) * 0.5 * BUBBLE_CIRCUMSCRIBE
-            val hy = (box.maxY + 1 - box.minY) * 0.5 * BUBBLE_CIRCUMSCRIBE
-            val hz = (box.maxZ + 1 - box.minZ) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            // Same centre and half-extent math as [ConcealmentBubbleRenderer], so the
+            // ellipsoid matches the one drawn to the mask FB.
+            val cx = (box.minX + box.maxX.toDouble()) * 0.5
+            val cy = (box.minY + box.maxY.toDouble()) * 0.5
+            val cz = (box.minZ + box.maxZ.toDouble()) * 0.5
+            val hx = (box.maxX - box.minX) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val hy = (box.maxY - box.minY) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val hz = (box.maxZ - box.minZ) * 0.5 * BUBBLE_CIRCUMSCRIBE
             val nx = (v.x - cx) / hx
             val ny = (v.y - cy) / hy
             val nz = (v.z - cz) / hz
@@ -219,12 +218,12 @@ object CloakingMixinSupport {
             val box = concealed[shipId] ?: continue
             val v = org.joml.Vector3d(x, y, z)
             ship.renderTransform.worldToShip.transformPosition(v)
-            val cx = (box.minX + box.maxX + 1.0) * 0.5
-            val cy = (box.minY + box.maxY + 1.0) * 0.5
-            val cz = (box.minZ + box.maxZ + 1.0) * 0.5
-            val hx = (box.maxX + 1 - box.minX) * 0.5 * BUBBLE_CIRCUMSCRIBE
-            val hy = (box.maxY + 1 - box.minY) * 0.5 * BUBBLE_CIRCUMSCRIBE
-            val hz = (box.maxZ + 1 - box.minZ) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val cx = (box.minX + box.maxX.toDouble()) * 0.5
+            val cy = (box.minY + box.maxY.toDouble()) * 0.5
+            val cz = (box.minZ + box.maxZ.toDouble()) * 0.5
+            val hx = (box.maxX - box.minX) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val hy = (box.maxY - box.minY) * 0.5 * BUBBLE_CIRCUMSCRIBE
+            val hz = (box.maxZ - box.minZ) * 0.5 * BUBBLE_CIRCUMSCRIBE
             val nx = (v.x - cx) / hx
             val ny = (v.y - cy) / hy
             val nz = (v.z - cz) / hz

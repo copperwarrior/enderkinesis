@@ -955,9 +955,9 @@ object WohlonnogondoniaSpreader {
             if (ship.chunkClaimDimension != dimId) continue
             val aabb = ship.shipAABB ?: continue
             repeat(samples) {
-                val sx = aabb.minX() + random.nextInt(aabb.maxX() - aabb.minX() + 1)
-                val sy = aabb.minY() + random.nextInt(aabb.maxY() - aabb.minY() + 1)
-                val sz = aabb.minZ() + random.nextInt(aabb.maxZ() - aabb.minZ() + 1)
+                val sx = aabb.minX() + random.nextInt(aabb.maxX() - aabb.minX())
+                val sy = aabb.minY() + random.nextInt(aabb.maxY() - aabb.minY())
+                val sz = aabb.minZ() + random.nextInt(aabb.maxZ() - aabb.minZ())
                 val qx = sx shr 2
                 val qy = sy shr 2
                 val qz = sz shr 2

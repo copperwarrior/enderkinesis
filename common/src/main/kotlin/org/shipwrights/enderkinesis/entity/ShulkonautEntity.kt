@@ -369,14 +369,14 @@ class ShulkonautEntity(type: EntityType<out ShulkonautEntity>, level: Level) : M
         val aabb = ship.shipAABB ?: return
         val dim = server.dimension().location()
         var added = 0
-        for (cx in (aabb.minX() shr 4)..(aabb.maxX() shr 4)) {
-            for (cz in (aabb.minZ() shr 4)..(aabb.maxZ() shr 4)) {
+        for (cx in (aabb.minX() shr 4)..((aabb.maxX() - 1) shr 4)) {
+            for (cz in (aabb.minZ() shr 4)..((aabb.maxZ() - 1) shr 4)) {
                 val chunk = server.getChunk(cx, cz, ChunkStatus.FULL, false) as? LevelChunk ?: continue
                 for ((pos, be) in chunk.blockEntities) {
                     if (be !is Commandable) continue
-                    if (pos.x < aabb.minX() || pos.x > aabb.maxX() ||
-                        pos.y < aabb.minY() || pos.y > aabb.maxY() ||
-                        pos.z < aabb.minZ() || pos.z > aabb.maxZ()
+                    if (pos.x < aabb.minX() || pos.x >= aabb.maxX() ||
+                        pos.y < aabb.minY() || pos.y >= aabb.maxY() ||
+                        pos.z < aabb.minZ() || pos.z >= aabb.maxZ()
                     ) {
                         continue
                     }

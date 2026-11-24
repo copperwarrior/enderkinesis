@@ -72,8 +72,8 @@ object Wake {
         // transformDirection of (dirX, 0, dirZ), without a scratch vector: callers are on three threads.
         val absX = Math.abs(worldToShip.m00() * dirX + worldToShip.m20() * dirZ)
         val absZ = Math.abs(worldToShip.m02() * dirX + worldToShip.m22() * dirZ)
-        val xExt = (aabb.maxX() - aabb.minX() + 1).toDouble()
-        val zExt = (aabb.maxZ() - aabb.minZ() + 1).toDouble()
+        val xExt = (aabb.maxX() - aabb.minX()).toDouble()
+        val zExt = (aabb.maxZ() - aabb.minZ()).toDouble()
         return WakeSource(
             centerX = position.x(),
             centerZ = position.z(),

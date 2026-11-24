@@ -179,9 +179,9 @@ object FieldSignatures {
         val pos = BlockPos.MutableBlockPos()
         for (ship in ships) {
             val box = ship.shipAABB ?: continue
-            val volume = (box.maxX() - box.minX() + 1).toLong() * (box.maxY() - box.minY() + 1) * (box.maxZ() - box.minZ() + 1)
+            val volume = (box.maxX() - box.minX()).toLong() * (box.maxY() - box.minY()) * (box.maxZ() - box.minZ())
             if (volume > SHIP_SCAN_LIMIT) continue
-            for (x in box.minX()..box.maxX()) for (y in box.minY()..box.maxY()) for (z in box.minZ()..box.maxZ()) {
+            for (x in box.minX() until box.maxX()) for (y in box.minY() until box.maxY()) for (z in box.minZ() until box.maxZ()) {
                 pos.set(x, y, z)
                 val state = level.getBlockState(pos)
                 if (state.isAir || !test(state)) continue

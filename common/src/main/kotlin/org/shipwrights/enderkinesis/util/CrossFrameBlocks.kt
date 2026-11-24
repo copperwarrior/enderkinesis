@@ -70,9 +70,9 @@ class CrossFrameBlocks(val level: Level, centre: Vec3, reach: Double, shipsNear:
             val si = (if (minScale > 0.0) Math.ceil(r / minScale).toInt() else ri).coerceAtMost(MAX_SHIP_SPAN)
             // Only the ship's block bounds plus one cell: cells farther out hold no ship block and no face of one.
             val box = ship.shipAABB ?: continue
-            val x0 = maxOf(cx - si, box.minX() - 1); val x1 = minOf(cx + si, box.maxX() + 1)
-            val y0 = maxOf(cy - si, box.minY() - 1); val y1 = minOf(cy + si, box.maxY() + 1)
-            val z0 = maxOf(cz - si, box.minZ() - 1); val z1 = minOf(cz + si, box.maxZ() + 1)
+            val x0 = maxOf(cx - si, box.minX() - 1); val x1 = minOf(cx + si, box.maxX())
+            val y0 = maxOf(cy - si, box.minY() - 1); val y1 = minOf(cy + si, box.maxY())
+            val z0 = maxOf(cz - si, box.minZ() - 1); val z1 = minOf(cz + si, box.maxZ())
             for (x in x0..x1) for (y in y0..y1) for (z in z0..z1) {
                 cursor.set(x, y, z)
                 if (uniform && scaleSq * shipPoint.distanceSquared(cursor.x + 0.5, cursor.y + 0.5, cursor.z + 0.5) > outSq) continue
