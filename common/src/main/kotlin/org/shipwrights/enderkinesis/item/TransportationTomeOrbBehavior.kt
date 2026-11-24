@@ -17,24 +17,20 @@ object TransportationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
 
     override val tomeKind: ResourceLocation = EnderkinesisMod.id("tome_of_transportation")
 
-    /** Pull one item from the active-face container, honouring the SEND orb's filter
-     *  (empty filter = pull anything; set filter = only matching items). Returns null if
-     *  there's no container or nothing filter-eligible. */
-    override fun pullSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
+    override fun pullSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState,
+    ): ItemStack? {
         val sourceFacing = sendBe.facing
-        val sourcePos = sendBe.blockPos.relative(sourceFacing)
-        val source = resolveContainer(level, sourcePos) ?: return null
-        return pullOneItem(source, sourceFacing.opposite, sendBe.filter)
+        val source = resolveContainer(level, sendBe.blockPos.relative(sourceFacing)) ?: return null
+        return pullOneItem(source, sourceFacing.opposite, sendBe.filter, state)
     }
 
-    /** Peek the next item *without* removing it — feeds the dispatch-time receiver filter
-     *  so we don't dispatch a stack the destination can't actually take. Honours the SEND
-     *  filter the same way [pullSourceStack] does. */
-    override fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
+    override fun peekSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState, from: Int,
+    ): ItemStack? {
         val sourceFacing = sendBe.facing
-        val sourcePos = sendBe.blockPos.relative(sourceFacing)
-        val source = resolveContainer(level, sourcePos) ?: return null
-        return peekOneItem(source, sourceFacing.opposite, sendBe.filter)
+        val source = resolveContainer(level, sendBe.blockPos.relative(sourceFacing)) ?: return null
+        return peekOneItem(source, sourceFacing.opposite, sendBe.filter, state, from)
     }
 
     // pushBackToSource is the base default — push into the active-face container, which is

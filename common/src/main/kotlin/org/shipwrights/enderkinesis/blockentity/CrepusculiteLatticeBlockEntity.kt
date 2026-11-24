@@ -170,6 +170,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
      * Compute the world-space catch zone for this lattice and publish it to the registry.
      *
      *  Failure modes that *unregister* (so the probe doesn't keep a stale zone):
+     *   - the lattice is redstone-off (density 0).
      *   - ship resolves to null (BE in shipyard chunk but ship gone, or in world with no
      *     managing ship — the latter happens briefly during cross-dim teleport).
      *   - shipAABB is null (ship has no contributing blocks yet).
@@ -177,31 +178,32 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
      *   - inflated ellipsoid extents collapse to non-positive (degenerate ship).
      */
     private fun publishZone(level: Level, pos: BlockPos) {
+        if (!isActive(this)) return withdrawZone(level)
         val ship = level.getLoadedShipManagingPos(pos)
-        if (ship == null) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
+        if (ship == null) return withdrawZone(level)
         val sb = ship.shipAABB
-        if (sb == null) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
+        if (sb == null) return withdrawZone(level)
         val waterLineY = seaLevel
-        if (waterLineY == null) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
+        if (waterLineY == null) return withdrawZone(level)
 
         // SHIP-LOCAL AABB drives the ellipse: extents come from the hull's own box, so
         // the ocean's size/shape is constant — a world AABB balloons up to √2 on yawed
         // ships and breathes as they turn. Centre is the local centre in world space.
         val s2w = ship.transform.shipToWorld
         val centre = zoneCentre.set(
-            (sb.minX() + sb.maxX() + 1) * 0.5,
-            (sb.minY() + sb.maxY() + 1) * 0.5,
-            (sb.minZ() + sb.maxZ() + 1) * 0.5,
+            (sb.minX() + sb.maxX()) * 0.5,
+            (sb.minY() + sb.maxY()) * 0.5,
+            (sb.minZ() + sb.maxZ()) * 0.5,
         )
         s2w.transformPosition(centre)
         val cx = centre.x; val cy = centre.y; val cz = centre.z
-        val hx = (sb.maxX() + 1 - sb.minX()) * 0.5
-        val hz = (sb.maxZ() + 1 - sb.minZ()) * 0.5
+        val hx = (sb.maxX() - sb.minX()) * 0.5
+        val hz = (sb.maxZ() - sb.minZ()) * 0.5
         val margin = marginFor(hx, hz)
         val ax = hx + margin
-        val ay = (sb.maxY() + 1 - sb.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val ay = (sb.maxY() - sb.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
         val az = hz + margin
-        if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) { publishedZone = null; LatticeRegistry.unregister(level, this); return }
+        if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) return withdrawZone(level)
         // Ellipse orientation = ship yaw (local X axis in world, horizontal part).
         val xAxis = zoneAxis.set(1.0, 0.0, 0.0)
         s2w.transformDirection(xAxis)
@@ -250,14 +252,15 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // particles, the fluid probe and the float effect all read the registry.
         for ((other, otherZone) in LatticeRegistry.entries(level)) {
             if (other === this || otherZone.shipId != ship.id || other.isRemoved) continue
-            if (comparePos(other.blockPos, blockPos) > 0) {
-                publishedZone = null
-                LatticeRegistry.unregister(level, this)
-                return
-            }
+            if (comparePos(other.blockPos, blockPos) > 0) return withdrawZone(level)
         }
         publishedZone = zone
         LatticeRegistry.publish(level, this, zone)
+    }
+
+    private fun withdrawZone(level: Level) {
+        publishedZone = null
+        LatticeRegistry.unregister(level, this)
     }
 
     /** Depth-driven wave intensity: wave plane height vs the terrain beneath the lattice's
@@ -847,19 +850,19 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         // build): a world AABB balloons up to √2 on yawed ships and breathes as they
         // turn. Centre is the local centre transformed to world.
         val centreL = zoneCentre.set(
-            (box.minX() + box.maxX() + 1) * 0.5,
-            (box.minY() + box.maxY() + 1) * 0.5,
-            (box.minZ() + box.maxZ() + 1) * 0.5,
+            (box.minX() + box.maxX()) * 0.5,
+            (box.minY() + box.maxY()) * 0.5,
+            (box.minZ() + box.maxZ()) * 0.5,
         )
         shipToWorld.transformPosition(centreL)
         val cx = centreL.x
         val cy = centreL.y
         val cz = centreL.z
-        val hx = (box.maxX() + 1 - box.minX()) * 0.5
-        val hz = (box.maxZ() + 1 - box.minZ()) * 0.5
+        val hx = (box.maxX() - box.minX()) * 0.5
+        val hz = (box.maxZ() - box.minZ()) * 0.5
         val margin = marginFor(hx, hz)
         val ax = hx + margin
-        val ay = (box.maxY() + 1 - box.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
+        val ay = (box.maxY() - box.minY()) * 0.5 * AABB_INFLATE + AABB_MARGIN
         val az = hz + margin
         if (ax <= 0.0 || ay <= 0.0 || az <= 0.0) return 0
         // Same yaw the zone publishes — emission points rotate with the hull.
@@ -975,18 +978,18 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
 
     private fun scanShipBlocks(level: ServerLevel, box: org.joml.primitives.AABBic?): IntArray? {
         if (box == null) return null
-        val volume = (box.maxX() - box.minX() + 1).toLong() *
-            (box.maxY() - box.minY() + 1).toLong() *
-            (box.maxZ() - box.minZ() + 1).toLong()
+        val volume = (box.maxX() - box.minX()).toLong() *
+            (box.maxY() - box.minY()).toLong() *
+            (box.maxZ() - box.minZ()).toLong()
         if (volume > MAX_SCAN_VOLUME) {
             return IntArray(0)
         }
 
         val out = it.unimi.dsi.fastutil.ints.IntArrayList()
         val cursor = BlockPos.MutableBlockPos()
-        for (x in box.minX()..box.maxX()) {
-            for (y in box.minY()..box.maxY()) {
-                for (z in box.minZ()..box.maxZ()) {
+        for (x in box.minX() until box.maxX()) {
+            for (y in box.minY() until box.maxY()) {
+                for (z in box.minZ() until box.maxZ()) {
                     if (!level.getBlockState(cursor.set(x, y, z)).isAir) {
                         out.add(x); out.add(y); out.add(z)
                     }
@@ -1119,6 +1122,8 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
     override fun getUpdateTag(): CompoundTag {
         val tag = CompoundTag()
         saveAdditional(tag)
+        // Vanilla drops an empty update tag, so a cleared sea level would stay stale on the client.
+        tag.putBoolean(NBT_SYNC, true)
         return tag
     }
 
@@ -1137,6 +1142,7 @@ class CrepusculiteLatticeBlockEntity(pos: BlockPos, state: BlockState) :
         private const val NBT_SEA_LEVEL_DIM = "EkSeaLevelDim"
         private const val NBT_PARKED = "EkParkedForWorldgen"
         private const val NBT_TINT = "EkTint"
+        private const val NBT_SYNC = "EkSync"
 
         private const val RESCAN_INTERVAL_TICKS = 40
         /** Each scan opportunity (one for each tick after the interval) counts. About 60 s. */

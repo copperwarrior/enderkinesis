@@ -76,6 +76,6 @@ object OrbClientGeometry {
     /** Render transform, so carried items stay on the drawn beam. */
     object RenderAnchorPoints : BeamAnchorPoints {
         override fun anchorPoint(level: Level, pos: BlockPos, out: Vector3d): Boolean =
-            level is ClientLevel && anchorPoint(level, pos, out) != null
+            level is ClientLevel && OrbClientGeometry.anchorPoint(level, pos, out) != null
     }
 }

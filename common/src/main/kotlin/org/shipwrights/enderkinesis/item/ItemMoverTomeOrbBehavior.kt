@@ -40,6 +40,11 @@ import org.shipwrights.enderkinesis.registry.EKSounds
  */
 abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
 
+    private companion object {
+        /** Hard cap on candidates examined per dispatch; covers a double chest. */
+        const val MAX_SOURCE_SCAN = 64
+    }
+
     /** Server ticks of flight for each block of separation. */
     protected open val ticksPerBlock: Double = 10.0
     /** Floor on travel time so adjacent or sub-block links still take a visible beat. */
@@ -60,6 +65,8 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
      *  queue + per-block mining progress) without losing the base mover bookkeeping. */
     open class MoverState {
         var cursor: Int = 0
+        /** Position of the candidate the last [peekSourceStack] returned; the matching pull takes it. */
+        var scanPos: Int = 0
         val pending: MutableList<PendingDelivery> = mutableListOf()
         internal val route = AnchoredBeamPath()
 
@@ -111,9 +118,11 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
     // ---------------------------------------------------------------------------------------
     // Subclass hooks
 
-    /** Acquire the next stack to dispatch this tick. Returning null skips the dispatch (no
-     *  source available — empty container, no items in range, etc.). */
-    protected abstract fun pullSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack?
+    /** Take the candidate at [MoverState.scanPos], the one the last [peekSourceStack] returned.
+     *  Returning null skips the dispatch (the source changed or emptied). */
+    protected abstract fun pullSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState,
+    ): ItemStack?
 
     /** Look at the next stack we *would* pull from the source — without removing it. Used by
      *  [tryDispatch] to pre-check destination compatibility (so a chest full of items that
@@ -123,8 +132,13 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
      *  Returns null if there's nothing extractable right now. The returned stack is for
      *  inspection only; subclasses don't need to guarantee that a later [pullSourceStack]
      *  pulls the exact same stack (the source could change between calls in the same tick),
-     *  but they should return something representative of "what we'd pull *now*". */
-    protected abstract fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack?
+     *  but they should return something representative of "what we'd pull *now*".
+     *
+     *  [from] is the scan position to start at, so [tryDispatch] can step past candidates that no
+     *  receiver accepts. Implementations set [MoverState.scanPos] to the position they return. */
+    protected abstract fun peekSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState, from: Int,
+    ): ItemStack?
 
     /** Place a bounced-back stack at the SEND end. Return the leftover that couldn't fit
      *  into the SEND-end container (empty = fully accepted; [processReturn] will drop any
@@ -324,41 +338,20 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         val sendCentre = sendBe.worldCenter() ?: return false
         val startIdx = state.cursor % receivers.size
 
-        // Peek what we'd actually dispatch — destination filtering has to be item-aware so
-        // a "full chest of unrelated items" is recognised as having no room for *this*
-        // stack (the false-positive that was driving the bounce loop).
-        val candidate = peekSourceStack(level, sendBe) ?: return false    // nothing to send this tick
-
-        // Filter priority: if any receiver in this SEND's set has a filter that *specifies*
-        // this candidate's item type, only those filter-matching receivers are eligible —
-        // never fall through to a catch-all (empty-filter) receiver while a dedicated
-        // receiver exists. If the dedicated receivers are all full, this tick is a no-op
-        // (the catch-all is genuinely a fallback for *unmatched* items, not an overflow).
-        val onlyFiltered = receivers.any { pos ->
-            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, pos) ?: return@any false
-            !recvBe.filter.isEmpty && matchesFilter(recvBe.filter, candidate)
-        }
-
-        // Walk receivers in round-robin order from the cursor; pick the first whose
-        // destination can take this specific item, respecting the filter-priority rule.
+        // A candidate that no receiver accepts must not block the ones behind it, so step on.
         var chosenIdx = -1
-        var chosenPos: BlockPos? = null
-        var chosenRecvCentre: net.minecraft.world.phys.Vec3? = null
-        for (offset in receivers.indices) {
-            val idx = (startIdx + offset) % receivers.size
-            val pos = receivers[idx]
-            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, pos) ?: continue
-            val recvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, pos) ?: continue
-            if (onlyFiltered && recvBe.filter.isEmpty) continue     // skip catch-alls
-            if (!canReceiverAccept(level, recvBe, candidate)) continue
-            chosenIdx = idx
-            chosenPos = pos
-            chosenRecvCentre = recvCentre
-            break
+        var from = 0
+        for (attempt in 0 until MAX_SOURCE_SCAN) {
+            val candidate = peekSourceStack(level, sendBe, state, from) ?: return false
+            chosenIdx = chooseReceiver(level, receivers, startIdx, candidate)
+            if (chosenIdx >= 0) break
+            from = state.scanPos + 1
         }
-        if (chosenPos == null || chosenRecvCentre == null) return false  // no receiver wants it
+        if (chosenIdx < 0) return false                                    // no receiver wants any candidate
+        val chosenPos = receivers[chosenIdx]
+        val chosenRecvCentre = OrbOfLinkingBlockEntity.orbWorldCenter(level, chosenPos) ?: return false
 
-        val pulled = pullSourceStack(level, sendBe) ?: return false       // raced — source emptied
+        val pulled = pullSourceStack(level, sendBe, state) ?: return false  // raced — source emptied
         state.cursor = (chosenIdx + 1) % receivers.size
 
         val travelTicks = pathTravelTicks(level, state, sendBe.blockPos, sendCentre, chosenPos, chosenRecvCentre)
@@ -383,6 +376,27 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
             OrbOfLinkingSounds.play(level, sendBe.blockPos, EKSounds.ORB_OF_LINKING_SEND)
         }
         return true
+    }
+
+    /** Index of the first receiver, in round-robin order from [startIdx], that takes [candidate].
+     *  A receiver whose filter names the item beats every catch-all (empty filter) receiver,
+     *  and a catch-all never takes the overflow of a full dedicated receiver. -1 when none fits. */
+    private fun chooseReceiver(
+        level: ServerLevel, receivers: List<BlockPos>, startIdx: Int, candidate: ItemStack,
+    ): Int {
+        val onlyFiltered = receivers.any { pos ->
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, pos) ?: return@any false
+            !recvBe.filter.isEmpty && matchesFilter(recvBe.filter, candidate)
+        }
+        for (offset in receivers.indices) {
+            val idx = (startIdx + offset) % receivers.size
+            val pos = receivers[idx]
+            val recvBe = OrbOfLinkingBlockEntity.loadedAt(level, pos) ?: continue
+            if (OrbOfLinkingBlockEntity.orbWorldCenter(level, pos) == null) continue
+            if (onlyFiltered && recvBe.filter.isEmpty) continue
+            if (canReceiverAccept(level, recvBe, candidate)) return idx
+        }
+        return -1
     }
 
     /** True iff [candidate] passes [filter] — empty filter matches
@@ -462,52 +476,48 @@ abstract class ItemMoverTomeOrbBehavior : TomeOrbBehavior {
         return be
     }
 
-    /** Look at the first item [pullOneItem] *would* pull, without modifying [container].
-     *  Same scan order and same eligibility check as [pullOneItem] — used by [tryDispatch]
-     *  to feed [canReceiverAccept] an item-aware test before committing to a pull. Returns
-     *  a 1-count copy (the SAME shape [pullOneItem] would return).
-     *
-     *  When [filter] is non-empty, only slots whose stack matches the filter are eligible. */
-    protected fun peekOneItem(
-        container: Container, side: Direction, filter: ItemStack = ItemStack.EMPTY,
-    ): ItemStack? {
-        val slots: IntArray = if (container is WorldlyContainer) container.getSlotsForFace(side)
-        else IntArray(container.containerSize) { it }
-        for (slot in slots) {
+    /** Position in the accessible-slot list of the first eligible stack at or after [from], or -1.
+     *  Eligible = non-empty, takeable through [side], and passing [filter]. */
+    protected fun findPullPos(
+        container: Container, side: Direction, filter: ItemStack, from: Int,
+    ): Int {
+        val worldly = container as? WorldlyContainer
+        val slots: IntArray? = worldly?.getSlotsForFace(side)
+        val count = slots?.size ?: container.containerSize
+        for (pos in from until count) {
+            val slot = slots?.get(pos) ?: pos
             val stack = container.getItem(slot)
             if (stack.isEmpty) continue
-            if (container is WorldlyContainer &&
-                !container.canTakeItemThroughFace(slot, stack, side)) continue
-            if (!matchesFilter(filter, stack)) continue
-            return stack.copy().also { it.count = 1 }
+            if (worldly != null && !worldly.canTakeItemThroughFace(slot, stack, side)) continue
+            if (matchesFilter(filter, stack)) return pos
         }
-        return null
+        return -1
     }
 
-    /** Pull **one item** from [container] through its [side] face. First non-empty
-     *  accessible slot wins (vanilla-hopper scan order), and a single item is split off via
-     *  [ItemStack.split] — the slot keeps the remainder. Returns null if no slot is eligible.
-     *  One-per-tick is the standard for the item-mover tomes; full-stack moves would empty a
-     *  chest in a couple of ticks and make the visual incoherent.
-     *
-     *  When [filter] is non-empty, only slots whose stack matches the filter are eligible —
-     *  used by the SEND-side filter on Transportation. */
-    protected fun pullOneItem(
-        container: Container, side: Direction, filter: ItemStack = ItemStack.EMPTY,
+    /** Look at the first eligible item at or after [from] without modifying [container], as a
+     *  1-count copy. Writes the slot-list position to [state] for the matching [pullOneItem]. */
+    protected fun peekOneItem(
+        container: Container, side: Direction, filter: ItemStack, state: MoverState, from: Int,
     ): ItemStack? {
-        val slots: IntArray = if (container is WorldlyContainer) container.getSlotsForFace(side)
-        else IntArray(container.containerSize) { it }
-        for (slot in slots) {
-            val stack = container.getItem(slot)
-            if (stack.isEmpty) continue
-            if (container is WorldlyContainer &&
-                !container.canTakeItemThroughFace(slot, stack, side)) continue
-            if (!matchesFilter(filter, stack)) continue
-            val pulled = stack.split(1)         // mutates `stack` in place; returns a 1-count copy
-            container.setChanged()
-            return pulled
-        }
-        return null
+        val pos = findPullPos(container, side, filter, from)
+        if (pos < 0) return null
+        state.scanPos = pos
+        val slots = (container as? WorldlyContainer)?.getSlotsForFace(side)
+        return container.getItem(slots?.get(pos) ?: pos).copy().also { it.count = 1 }
+    }
+
+    /** Pull one item from the slot at [state]'s scan position. One per tick: full-stack moves
+     *  would empty a chest in a few ticks and make the visual incoherent. Null if that slot
+     *  no longer qualifies. */
+    protected fun pullOneItem(
+        container: Container, side: Direction, filter: ItemStack, state: MoverState,
+    ): ItemStack? {
+        val pos = findPullPos(container, side, filter, state.scanPos)
+        if (pos != state.scanPos) return null
+        val slots = (container as? WorldlyContainer)?.getSlotsForFace(side)
+        val pulled = container.getItem(slots?.get(pos) ?: pos).split(1)
+        container.setChanged()
+        return pulled
     }
 
     /** Push [stack] into [container] through its [side] face, vanilla-hopper merge rules.

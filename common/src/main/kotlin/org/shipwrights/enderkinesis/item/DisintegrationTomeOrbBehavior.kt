@@ -751,20 +751,24 @@ object DisintegrationTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
     // -----------------------------------------------------------------------------------------
     // ItemMover hooks — queue-backed source
 
-    override fun pullSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
-        val state = sendBe.tomeState(this) as? DisintegrationState ?: return null
+    override fun pullSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState,
+    ): ItemStack? {
+        val queue = (state as? DisintegrationState)?.dropQueue ?: return null
         // The whole stack in one flight. One item for each flight needed a tick for each item,
         // and the queue lives for one tick.
-        return state.dropQueue.removeFirstOrNull()
+        return if (state.scanPos in queue.indices) queue.removeAt(state.scanPos) else null
     }
 
     /** A burst of drops in one tick must not hit the base cap of 16 flights. */
     override val maxInFlightPerSend: Int = 4096
     override val transferSounds: Boolean = false
 
-    override fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
-        val state = sendBe.tomeState(this) as? DisintegrationState ?: return null
-        val head = state.dropQueue.firstOrNull() ?: return null
+    override fun peekSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState, from: Int,
+    ): ItemStack? {
+        val head = (state as? DisintegrationState)?.dropQueue?.getOrNull(from) ?: return null
+        state.scanPos = from
         return head.copy().also { it.count = 1 }
     }
 

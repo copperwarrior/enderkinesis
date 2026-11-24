@@ -48,13 +48,15 @@ object VacuumTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
     private var peekedOrb: OrbOfLinkingBlockEntity? = null
     private var peekedTick: Long = Long.MIN_VALUE
 
-    override fun pullSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
+    override fun pullSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState,
+    ): ItemStack? {
         val remembered = peeked?.takeIf {
             peekedOrb === sendBe && peekedTick == level.gameTime && it.isAlive && !it.item.isEmpty
         }
         peeked = null
         peekedOrb = null
-        val target = remembered ?: firstSuctionCandidate(level, sendBe) ?: return null
+        val target = remembered ?: suctionCandidate(level, sendBe, state.scanPos) ?: return null
         // Split one item off and re-set so the entity-data watcher syncs the new count to
         // tracking clients (mutating the returned stack in place wouldn't trigger the data
         // watcher). The entity stays alive as long as the stack has count > 0, so a stack
@@ -71,8 +73,11 @@ object VacuumTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
 
     /** Peek the next item we'd suck up — without modifying the entity. Lets [tryDispatch]
      *  ask the destination "do you specifically want this?" before committing to a pull. */
-    override fun peekSourceStack(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemStack? {
-        val target = firstSuctionCandidate(level, sendBe) ?: return null
+    override fun peekSourceStack(
+        level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, state: MoverState, from: Int,
+    ): ItemStack? {
+        val target = suctionCandidate(level, sendBe, from) ?: return null
+        state.scanPos = from
         peeked = target
         peekedOrb = sendBe
         peekedTick = level.gameTime
@@ -82,14 +87,14 @@ object VacuumTomeOrbBehavior : ItemMoverTomeOrbBehavior() {
     /** Candidate filter: alive, off cooldown, non-empty, and (if the SEND orb has a filter
      *  set) matching that filter — so a Vacuum orb filtered to dragon's breath ignores all
      *  other dropped items in its suction box. */
-    private fun firstSuctionCandidate(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity): ItemEntity? {
+    private fun suctionCandidate(level: ServerLevel, sendBe: OrbOfLinkingBlockEntity, from: Int): ItemEntity? {
         val centre = sendBe.worldCenter() ?: return null
         val box = suctionBox(centre, sendBe.facing)
         val filter = sendBe.filter
         return level.getEntitiesOfClass(ItemEntity::class.java, box) { entity ->
             entity.isAlive && !entity.hasPickUpDelay() && !entity.item.isEmpty &&
                 matchesFilter(filter, entity.item)
-        }.firstOrNull()
+        }.getOrNull(from)
     }
 
     /** Axis-aligned suction box centred on the orb. The 3-deep axis is aligned with FACING;
