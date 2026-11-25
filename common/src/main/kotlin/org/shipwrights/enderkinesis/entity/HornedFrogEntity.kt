@@ -10,7 +10,6 @@ import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.util.Mth
@@ -38,6 +37,7 @@ import kotlin.math.sqrt
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.block.scanForBlock
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Wohlon frog. It lazes on land beside water, hops along the shore, swims for fun and eats Moskuo and swarm flies.
@@ -173,13 +173,13 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         spawnCooldown = tag.getInt(SPAWN_KEY)
     }
 
-    override fun getAmbientSound(): SoundEvent = SoundEvents.FROG_AMBIENT
+    override fun getAmbientSound(): SoundEvent = EKSounds.HORNED_FROG_AMBIENT.get()
 
-    override fun getHurtSound(source: DamageSource): SoundEvent = SoundEvents.FROG_HURT
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.HORNED_FROG_HURT.get()
 
-    override fun getDeathSound(): SoundEvent = SoundEvents.FROG_DEATH
+    override fun getDeathSound(): SoundEvent = EKSounds.HORNED_FROG_DEATH.get()
 
-    override fun playStepSound(pos: BlockPos, state: BlockState) = playSound(SoundEvents.FROG_STEP, STEP_VOLUME, 1f)
+    override fun playStepSound(pos: BlockPos, state: BlockState) = playSound(EKSounds.HORNED_FROG_STEP.get(), STEP_VOLUME, 1f)
 
     private fun wetSides(pos: BlockPos, scratch: BlockPos.MutableBlockPos): Int {
         var wet = 0
@@ -272,7 +272,7 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         if (crowded != null) return
         val at = findLaySpot(level, block.defaultBlockState()) ?: return
         if (!level.setBlock(at, block.defaultBlockState(), Block.UPDATE_ALL)) return
-        playSound(SoundEvents.FROG_LAY_SPAWN, 1f, 1f)
+        playSound(EKSounds.HORNED_FROG_LAY_SPAWN.get(), 1f, 1f)
         spawnCooldown = LAY_MIN_TICKS + random.nextInt(LAY_MAX_TICKS - LAY_MIN_TICKS)
     }
 
@@ -342,7 +342,7 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         hasImpulse = true
         leapTicks = plan.ticks + LEAP_GRACE_TICKS
         leapElapsed = 0
-        playSound(SoundEvents.FROG_LONG_JUMP, 1f, voicePitch)
+        playSound(EKSounds.HORNED_FROG_JUMP.get(), 1f, voicePitch)
         return true
     }
 
@@ -466,6 +466,7 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
                 strikeTicks = 0
                 entityData.set(DATA_TONGUE_TARGET, target.id)
                 level().broadcastEntityEvent(this@HornedFrogEntity, EntityEvent.START_ATTACKING)
+                playSound(EKSounds.HORNED_FROG_TONGUE.get(), 1f, voicePitch)
             } else if (horizontal in PREY_LEAP_MIN..PREY_LEAP_MAX && tickCount >= nextLeapTick &&
                 leapTowardAndRecord(target, horizontal)
             ) {
@@ -486,7 +487,7 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
             if (!target.isAlive || !inTongueReach(target, TONGUE_SLACK)) return
             val ate = if (target is SwarmFlyEntity) target.eatFly() else target.eatWhole(this@HornedFrogEntity)
             if (!ate) return
-            playSound(SoundEvents.FROG_EAT, 1f, voicePitch)
+            playSound(EKSounds.HORNED_FROG_EAT.get(), 1f, voicePitch)
             mealCooldown = if (target is SwarmFlyEntity) {
                 FLY_MEAL_MIN_TICKS + random.nextInt(FLY_MEAL_MAX_TICKS - FLY_MEAL_MIN_TICKS)
             } else {

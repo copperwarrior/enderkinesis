@@ -10,6 +10,8 @@ import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.util.RandomSource
@@ -44,7 +46,9 @@ import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.CollisionContext
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.block.MoskuoLarvaeBlock
+import org.shipwrights.enderkinesis.client.tickFlyLoop
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Wohlon mosquito. It waits inside leaves and plants, bursts out to sting anything alive, and spreads Trypoemia.
@@ -110,6 +114,12 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
 
     override fun shouldDespawnInPeaceful(): Boolean = true
 
+    override fun getSoundSource(): SoundSource = SoundSource.HOSTILE
+
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.MOSKUO_HURT.get()
+
+    override fun getDeathSound(): SoundEvent = (if (isFed) EKSounds.MOSKUO_DEATH_FED else EKSounds.MOSKUO_DEATH).get()
+
     override fun getDimensions(pose: Pose): EntityDimensions = if (isFed) FAT_DIMENSIONS else super.getDimensions(pose)
 
     override fun onSyncedDataUpdated(key: EntityDataAccessor<*>) {
@@ -136,9 +146,15 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
 
     override fun aiStep() {
         super.aiStep()
-        if (level().isClientSide) return
+        if (level().isClientSide) {
+            tickFlyLoop()
+            return
+        }
         if (stingCooldown > 0) stingCooldown--
-        if (isFed && action == Action.NONE && --digestTicks <= 0) setAction(Action.DIGEST)
+        if (isFed && action == Action.NONE && --digestTicks <= 0) {
+            setAction(Action.DIGEST)
+            playSound(EKSounds.MOSKUO_DIGEST.get(), 1f, voicePitch)
+        }
         if (action == Action.DIGEST && ++actionTicks >= DIGEST_TICKS) {
             setFed(false)
             heal(maxHealth)
@@ -227,6 +243,13 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
             stinging = false
             chaseTicks = 0
             settledInCover = false
+            playSound(EKSounds.MOSKUO_BURST.get(), 1f, voicePitch)
+            val pos = blockPosition()
+            val cover = level().getBlockState(pos)
+            if (cover.`is`(HIDES_IN)) {
+                val type = cover.soundType
+                level().playSound(null, pos, type.hitSound, SoundSource.HOSTILE, (type.volume + 1f) / 2f, type.pitch * HIT_PITCH)
+            }
         }
 
         override fun tick() {
@@ -239,19 +262,21 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
                     stinging = true
                     navigation.stop()
                     setAction(Action.STING)
+                    playSound(EKSounds.MOSKUO_STING.get(), 1f, voicePitch)
                 }
                 return
             }
             deltaMovement = Vec3.ZERO
             actionTicks++
             // A miss stops the clip before its body swap, so the Moskuo stays skinny.
-            if (actionTicks == STING_HIT_TICK &&
-                !(victim.boundingBox.inflate(STING_REACH).contains(position()) && stingVictim(victim))
-            ) {
-                stinging = false
-                setAction(Action.NONE)
-                target = null
-                return
+            if (actionTicks == STING_HIT_TICK) {
+                if (!(victim.boundingBox.inflate(STING_REACH).contains(position()) && stingVictim(victim))) {
+                    stinging = false
+                    setAction(Action.NONE)
+                    target = null
+                    return
+                }
+                playSound(EKSounds.MOSKUO_ENGORGE.get(), 1f, voicePitch)
             }
             if (actionTicks >= STING_TICKS) {
                 setFed(true)
@@ -479,6 +504,7 @@ class MoskuoEntity(type: EntityType<out MoskuoEntity>, level: Level) : Pathfinde
         private const val STING_REACH = 0.4
         // SSting: the proboscis lands at 0.46 s and the body swaps at 0.54 s.
         private const val STING_HIT_TICK = 9
+        private const val HIT_PITCH = 0.8f
         private const val STING_TICKS = 20
         private const val STING_COOLDOWN_TICKS = 40
         private const val STING_DAMAGE = 1f

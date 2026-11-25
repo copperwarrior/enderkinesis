@@ -16,11 +16,13 @@ import org.shipwrights.enderkinesis.blockentity.WillfaerFlameBlockEntity
 class WillfaerTorchBlock(properties: Properties) : TorchBlock(properties, ParticleTypes.FLAME), EntityBlock {
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = WillfaerFlameBlockEntity(pos, state)
 
-    override fun animateTick(state: BlockState, level: Level, pos: BlockPos, random: RandomSource) = Unit
+    override fun animateTick(state: BlockState, level: Level, pos: BlockPos, random: RandomSource) =
+        level.playWillfaerFlame(pos, random)
 }
 
 class WillfaerWallTorchBlock(properties: Properties) : WallTorchBlock(properties, ParticleTypes.FLAME), EntityBlock {
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = WillfaerFlameBlockEntity(pos, state)
 
-    override fun animateTick(state: BlockState, level: Level, pos: BlockPos, random: RandomSource) = Unit
+    override fun animateTick(state: BlockState, level: Level, pos: BlockPos, random: RandomSource) =
+        level.playWillfaerFlame(pos, random)
 }

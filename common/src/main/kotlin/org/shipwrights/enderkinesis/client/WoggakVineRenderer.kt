@@ -501,7 +501,7 @@ object WoggakVineRenderer {
             val count = level.shapeNodes(vine, chains, at, clock.horizon, drawn = false)
             if (count >= 2) clientVineCollider.add(chain, positions, count, vine.joinedEnds, shownAt, vine.halfWidth)
             if (count >= 3) level.maybeDrip(vine, chain, count)
-            if (count >= 2 && vine.burning.isNotEmpty()) VineBurnClient.effects(level, positions, count, vine.burning)
+            if (count >= 2 && vine.burning.isNotEmpty()) VineBurnClient.effects(level, vine.id.value, positions, count, vine.burning)
         }
     }
 

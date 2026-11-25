@@ -8,7 +8,7 @@ import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.util.Mth
@@ -41,6 +41,7 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.phys.Vec3
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Wohlon predator fish. When hungry it hunts anything edible in the water: small fish go down in one bite,
@@ -141,6 +142,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
         if (++latchTicks % CHEW_INTERVAL_TICKS != 0) return
         // Return value ignored: a chew into invulnerability frames just misses this second.
         target.hurt(damageSources().mobAttack(this), CHEW_DAMAGE)
+        playSound(EKSounds.EAUHORRANA_CHEW.get(), soundVolume, voicePitch)
         if (!target.isAlive) {
             sate()
             release()
@@ -155,6 +157,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
         latchTicks = 0
         dryTicks = 0
         entityData.set(DATA_LATCH_ID, target.id)
+        playSound(EKSounds.EAUHORRANA_LATCH.get(), soundVolume, voicePitch)
     }
 
     private fun release() {
@@ -208,7 +211,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
             )
             setOnGround(false)
             hasImpulse = true
-            playSound(SoundEvents.SALMON_FLOP, soundVolume, voicePitch)
+            playSound(EKSounds.EAUHORRANA_FLOP.get(), soundVolume, voicePitch)
         }
         super.aiStep()
         if (level().isClientSide) return
@@ -230,9 +233,11 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
         if (tag.contains(HUNGER_KEY)) hungerTicks = tag.getInt(HUNGER_KEY)
     }
 
-    override fun getDeathSound(): SoundEvent = SoundEvents.SALMON_DEATH
+    override fun getDeathSound(): SoundEvent = EKSounds.EAUHORRANA_DEATH.get()
 
-    override fun getHurtSound(source: DamageSource): SoundEvent = SoundEvents.SALMON_HURT
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.EAUHORRANA_HURT.get()
+
+    override fun getSoundSource(): SoundSource = SoundSource.HOSTILE
 
     private inner class HuntGoal : Goal() {
         private var prey: LivingEntity? = null
@@ -294,6 +299,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
                 navigation.stop()
                 if (airborne) lungeAt(target)
                 biteTicks = 0
+                playSound(EKSounds.EAUHORRANA_BITE.get(), soundVolume, voicePitch)
                 level().broadcastEntityEvent(this@EauhorranaEntity, EntityEvent.START_ATTACKING)
             } else if (--repathTicks <= 0) {
                 repathTicks = REPATH_TICKS
@@ -313,6 +319,7 @@ class EauhorranaEntity(type: EntityType<out EauhorranaEntity>, level: Level) : W
             val length = Mth.sqrt((dx * dx + dy * dy + dz * dz).toFloat()).coerceAtLeast(MIN_LUNGE_LENGTH)
             deltaMovement = Vec3(dx / length * LUNGE_SPEED, dy / length * LUNGE_SPEED, dz / length * LUNGE_SPEED)
             hasImpulse = true
+            playSound(EKSounds.EAUHORRANA_LUNGE.get(), soundVolume, voicePitch)
         }
 
         private fun isAirborneMoskuo(target: LivingEntity): Boolean = target is MoskuoEntity && !target.isInWater

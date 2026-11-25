@@ -837,16 +837,20 @@ object EKBlocks {
             BlockBehaviour.Properties.copy(Blocks.LANTERN)
                 .lightLevel { 15 }
                 .noOcclusion()
+                .sound(EKSounds.WILLFAER_LANTERN_SOUND_TYPE)
         )
     }
 
     val WILLFAER_TORCH: RegistrySupplier<Block> = BLOCKS.register("willfaer_torch") {
-        org.shipwrights.enderkinesis.block.WillfaerTorchBlock(BlockBehaviour.Properties.copy(Blocks.TORCH))
+        org.shipwrights.enderkinesis.block.WillfaerTorchBlock(
+            BlockBehaviour.Properties.copy(Blocks.TORCH).sound(EKSounds.WILLFAER_TORCH_SOUND_TYPE)
+        )
     }
 
     val WILLFAER_WALL_TORCH: RegistrySupplier<Block> = BLOCKS.register("willfaer_wall_torch") {
         org.shipwrights.enderkinesis.block.WillfaerWallTorchBlock(
-            BlockBehaviour.Properties.copy(Blocks.WALL_TORCH).dropsLike(WILLFAER_TORCH.get())
+            BlockBehaviour.Properties.copy(Blocks.WALL_TORCH).sound(EKSounds.WILLFAER_TORCH_SOUND_TYPE)
+                .dropsLike(WILLFAER_TORCH.get())
         )
     }
 

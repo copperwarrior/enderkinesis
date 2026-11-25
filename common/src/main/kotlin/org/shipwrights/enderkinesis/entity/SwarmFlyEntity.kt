@@ -9,6 +9,7 @@ import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.tags.DamageTypeTags
 import net.minecraft.tags.FluidTags
+import net.minecraft.sounds.SoundEvent
 import net.minecraft.util.Mth
 import net.minecraft.util.RandomSource
 import net.minecraft.world.DifficultyInstance
@@ -30,6 +31,8 @@ import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.phys.AABB
+import org.shipwrights.enderkinesis.client.tickSwarmLoops
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -120,6 +123,7 @@ class SwarmFlyEntity(type: EntityType<out SwarmFlyEntity>, level: Level) : Ambie
     private fun disperse(attacker: LivingEntity) {
         val pieces = swarmDispersePieces(flyCount) { SWARM_DISPERSE_MIN + random.nextInt(SWARM_DISPERSE_MAX - SWARM_DISPERSE_MIN + 1) }
         if (pieces.isEmpty()) return
+        playSound(EKSounds.SWARM_FLY_SCATTER.get(), 1f, 1f)
         for (index in 1 until pieces.size) {
             val child = type.create(level()) as? SwarmFlyEntity ?: continue
             child.moveTo(x, y, z, random.nextFloat() * FULL_TURN, 0f)
@@ -160,6 +164,17 @@ class SwarmFlyEntity(type: EntityType<out SwarmFlyEntity>, level: Level) : Ambie
         if (count == 1) discard()
         return true
     }
+
+    override fun aiStep() {
+        super.aiStep()
+        if (level().isClientSide) tickSwarmLoops()
+    }
+
+    override fun getAmbientSound(): SoundEvent? = null
+
+    override fun getHurtSound(source: DamageSource): SoundEvent? = null
+
+    override fun getDeathSound(): SoundEvent? = null
 
     override fun customServerAiStep() {
         super.customServerAiStep()

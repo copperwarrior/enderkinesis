@@ -5,18 +5,14 @@ import dev.architectury.event.events.common.InteractionEvent
 import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.particles.ParticleTypes
-import net.minecraft.sounds.SoundEvents
-import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.FlintAndSteelItem
 
-/** Flames, smoke and the fire sound at the burning links of the drawn vines. */
+/** Flames, smoke and the fire loop at the burning links of the drawn vines. */
 object VineBurnClient {
     private const val MAX_FRONTS_PER_TICK = 12
     private const val EFFECT_DISTANCE = 48.0
     private const val FLAME_CHANCE = 2
     private const val SMOKE_CHANCE = 3
-    /** Vanilla fire's ambient sound chance per tick. */
-    private const val AMBIENT_CHANCE = 24
     private const val JITTER = 0.15
     private const val RISE = 0.02
 
@@ -33,14 +29,18 @@ object VineBurnClient {
 
     fun beginTick() {
         budget = MAX_FRONTS_PER_TICK
+        pruneBurnLoops()
     }
 
-    /** Effects at the [burning] links of one vine, whose [count] chain nodes are in [p]. */
-    fun effects(level: ClientLevel, p: DoubleArray, count: Int, burning: IntArray) {
+    fun clear() = clearBurnLoops()
+
+    /** Effects at the [burning] links of vine [chainId], whose [count] chain nodes are in [p]. */
+    fun effects(level: ClientLevel, chainId: Long, p: DoubleArray, count: Int, burning: IntArray) {
         val camera = Minecraft.getInstance().gameRenderer.mainCamera.position
         val random = level.random
-        for (link in burning) {
+        for (front in burning.indices) {
             if (budget <= 0) return
+            val link = burning[front]
             if (link !in 0 until count - 1) continue
             val k = link * 3
             val x = (p[k] + p[k + 3]) * 0.5
@@ -54,11 +54,7 @@ object VineBurnClient {
             if (random.nextInt(SMOKE_CHANCE) == 0) {
                 level.addParticle(ParticleTypes.SMOKE, x + jitter(level), y + JITTER, z + jitter(level), 0.0, RISE, 0.0)
             }
-            if (random.nextInt(AMBIENT_CHANCE) == 0) {
-                level.playLocalSound(
-                    x, y, z, SoundEvents.FIRE_AMBIENT, SoundSource.BLOCKS, 1f + random.nextFloat(), random.nextFloat() * 0.7f + 0.3f, false,
-                )
-            }
+            level.keepBurnLoop(chainId, front, x, y, z)
         }
     }
 

@@ -6,6 +6,9 @@ import net.minecraft.nbt.NbtUtils
 import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
+import net.minecraft.sounds.SoundEvent
+import net.minecraft.sounds.SoundSource
+import net.minecraft.world.damagesource.DamageSource
 import net.minecraft.tags.FluidTags
 import net.minecraft.util.RandomSource
 import net.minecraft.world.DifficultyInstance
@@ -21,7 +24,9 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.LevelAccessor
 import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.phys.Vec3
+import org.shipwrights.enderkinesis.client.tickWispLoop
 import org.shipwrights.enderkinesis.registry.EKEffects
+import org.shipwrights.enderkinesis.registry.EKSounds
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -55,18 +60,31 @@ class WillOTheWispEntity(type: EntityType<out WillOTheWispEntity>, level: Level)
 
     override fun tick() {
         super.tick()
+        if (level().isClientSide) tickWispLoop()
         if (level().isClientSide || isDeadOrDying) return
         val now = level().gameTime
         if (entityData.get(BORN) == UNSET) {
             entityData.set(BORN, now)
             entityData.set(ENDS, now + LIFE_MIN + random.nextInt(LIFE_SPREAD))
+            playSound(EKSounds.WISP_KINDLE.get())
         }
         if (isPersistenceRequired || requiresCustomPersistence()) {
             entityData.set(ENDS, Long.MAX_VALUE)
         } else if (now >= entityData.get(ENDS)) {
             discard()
+        } else if (now == entityData.get(ENDS) - FADE_TICKS.toLong()) {
+            // Exact tick match plays once and cannot repeat after a reload mid-fade.
+            playSound(EKSounds.WISP_GUTTER.get())
         }
     }
+
+    override fun getSoundSource(): SoundSource = SoundSource.AMBIENT
+
+    override fun getAmbientSound(): SoundEvent = EKSounds.WISP_AMBIENT.get()
+
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.WISP_HURT.get()
+
+    override fun getDeathSound(): SoundEvent = EKSounds.WISP_DEATH.get()
 
     override fun canBeAffected(effect: MobEffectInstance): Boolean =
         effect.effect != EKEffects.TRYPOEMIA.get() && super.canBeAffected(effect)

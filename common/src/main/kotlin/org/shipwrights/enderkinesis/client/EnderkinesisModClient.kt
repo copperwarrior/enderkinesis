@@ -706,6 +706,7 @@ object EnderkinesisModClient {
             WoggakVineRenderer.clear()
             VineHoldClient.clear()
             VineThrowClient.clear()
+            VineBurnClient.clear()
             SselithAmbience.onDisconnect()
             SselithEclipseSounds.onDisconnect()
             SselithVoidSounds.onDisconnect()
@@ -767,6 +768,8 @@ object EnderkinesisModClient {
             MothClothClientPositions.clear()
             WoggakVineRenderer.clear()
             VineThrowClient.clear()
+            VineBurnClient.clear()
+            clearReelLoops()
             clearClientSession()
         }
         ClientTickEvent.CLIENT_POST.register { mc -> WohlonBiomePresenceScanner.tick(mc) }

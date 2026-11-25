@@ -3,6 +3,7 @@ package org.shipwrights.enderkinesis.block
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.FluidTags
 import net.minecraft.util.RandomSource
 import net.minecraft.world.entity.Entity
@@ -24,6 +25,7 @@ import org.shipwrights.enderkinesis.dimension.Wohlonnogondonia
 import org.shipwrights.enderkinesis.entity.MoskuoEntity
 import org.shipwrights.enderkinesis.registry.EKBlocks
 import org.shipwrights.enderkinesis.registry.EKEntities
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /**
  * Moskuo eggs and larvae on still water, after vanilla FrogspawnBlock. They hatch into Moskuo unless fish eat them.
@@ -141,12 +143,15 @@ class MoskuoLarvaeBlock(properties: Properties) : Block(properties) {
             val at = water.above()
             val block = EKBlocks.MOSKUO_LARVAE.get()
             val state = level.getBlockState(at)
-            if (state.`is`(block)) {
+            val laid = if (state.`is`(block)) {
                 val larvae = (state.getValue(LARVAE) + count).coerceAtMost(MAX_LARVAE)
-                return level.setBlock(at, state.setValue(LARVAE, larvae), Block.UPDATE_CLIENTS)
+                level.setBlock(at, state.setValue(LARVAE, larvae), Block.UPDATE_CLIENTS)
+            } else {
+                state.isAir && areaAllows(level, at) &&
+                    level.setBlock(at, block.defaultBlockState().setValue(LARVAE, count.coerceIn(1, MAX_LARVAE)), Block.UPDATE_ALL)
             }
-            if (!state.isAir || !areaAllows(level, at)) return false
-            return level.setBlock(at, block.defaultBlockState().setValue(LARVAE, count.coerceIn(1, MAX_LARVAE)), Block.UPDATE_ALL)
+            if (laid) level.playSound(null, at, EKSounds.MOSKUO_LAY.get(), SoundSource.HOSTILE, 1f, 1f)
+            return laid
         }
 
         private fun areaAllows(level: ServerLevel, at: BlockPos): Boolean {

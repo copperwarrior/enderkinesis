@@ -6,8 +6,6 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
-import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.ItemStack
 import org.joml.Vector3d
 import org.shipwrights.enderkinesis.EnderkinesisMod
@@ -30,6 +28,8 @@ import kotlin.math.sin
 val WOGGAK_VINE_SHORTEN: ResourceLocation = EnderkinesisMod.id("woggak_vine/shorten")
 /** S2C: the server ended the player's reel, so the client stops the swing and waits for a new press. */
 val WOGGAK_VINE_REEL_END: ResourceLocation = EnderkinesisMod.id("woggak_vine/reel_end")
+/** S2C to the reeler and its trackers when a held reel starts or ends: entity id, reeling flag. */
+val WOGGAK_VINE_REELER: ResourceLocation = EnderkinesisMod.id("woggak_vine/reeler")
 
 /** Vanilla's right-click delay: one reel start per click, even when packets come fast. */
 private const val SHORTEN_COOLDOWN_TICKS = 4L
@@ -41,7 +41,7 @@ internal const val REEL_FORCE = 2000.0
 internal const val REEL_SPEED = 2.5
 /** VS refuses a link under one particle diameter; the margin keeps the squeezed nodes off each other. */
 internal const val MIN_REEL_SPACING = 2 * PARTICLE_RADIUS * 1.25
-/** Reeled length paid at one time, so the reel sound plays about once for each link, not each tick. */
+/** Reeled length paid at one time: about one link, not a part of a link each tick. */
 private const val PAY_STEP = VINE_TARGET_SPACING
 private const val LENGTH_EPS = 1e-6
 
@@ -72,6 +72,8 @@ internal fun paidRestAfter(paidRest: Double, rest: Double): Double =
  */
 internal class VineReel(val player: UUID, var chain: ChainId, var paidRest: Double) {
     var held = true
+    /** The reeling flag last sent to the clients. */
+    var announced = false
     /** The target length last sent to VS; NaN when none was sent to this chain. */
     var target = Double.NaN
     var failure: String? = null
@@ -97,7 +99,7 @@ internal fun ServerPlayer.reelVine(start: Boolean) {
     data.lastPlayerShorten[uuid] = level.gameTime
     val reel = VineReel(uuid, pick.vine.chain, status.currentRestLength)
     data.reels.put(id, reel)
-    if (!level.stepReel(data, id, reel, pick.chain, this)) level.stopReel(data, reel, this, true)
+    if (level.stepReel(data, id, reel, pick.chain, this)) level.announceReel(reel, true) else level.stopReel(data, reel, this, true)
 }
 
 /** Pays the reels' links as they come in, steps the held ones and ends those that can no longer reel. */
@@ -108,6 +110,7 @@ internal fun ServerLevel.tickVineReels(data: WoggakVineData) {
     while (iterator.hasNext()) {
         val entry = iterator.next()
         if (tickReel(data, entry.longKey, entry.value)) continue
+        announceReel(entry.value, false)
         endReel(entry.value)
         iterator.remove()
     }
@@ -238,6 +241,7 @@ private fun WoggakVineData.heldReelOf(player: UUID): VineReel? = reels.values.fi
 @OptIn(GameTickOnly::class)
 private fun ServerLevel.stopReel(data: WoggakVineData, reel: VineReel, player: ServerPlayer, tellClient: Boolean) {
     reel.held = false
+    announceReel(reel, false)
     val vine = data.vines.firstOrNull { it.chain == reel.chain }
     val status = shipObjectWorld.allChains.getById(reel.chain)?.status
     if (vine != null && status != null) player.payReelArrival(data, vine, reel, status, 0.0)
@@ -245,11 +249,23 @@ private fun ServerLevel.stopReel(data: WoggakVineData, reel: VineReel, player: S
     if (tellClient) player.sendReelEnd()
 }
 
+/** Tells the reeler and its trackers when [reel] starts or ends, so each client plays the reel loop there. */
+private fun ServerLevel.announceReel(reel: VineReel, reeling: Boolean) {
+    if (reel.announced == reeling) return
+    reel.announced = reeling
+    // A reeler that left this level is gone on these clients, and its loop stops with the entity.
+    val player = getPlayerByUUID(reel.player) as? ServerPlayer ?: return
+    val buf = FriendlyByteBuf(Unpooled.buffer()).apply {
+        writeVarInt(player.id)
+        writeBoolean(reeling)
+    }
+    chunkSource.broadcastAndSend(player, NetworkManager.toPacket(NetworkManager.Side.S2C, WOGGAK_VINE_REELER, buf))
+}
+
 internal fun ServerPlayer.sendReelEnd() = NetworkManager.sendToPlayer(this, WOGGAK_VINE_REEL_END, FriendlyByteBuf(Unpooled.buffer()))
 
 /** Pays [reeled] blocks of [vine] through its credit: one Woggak Vine for each full [BLOCKS_PER_ITEM] blocks. */
 internal fun ServerPlayer.payReel(data: WoggakVineData, vine: WoggakVine, reeled: Double) {
-    serverLevel().playSound(null, x, y, z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
     // Creative reels give nothing and keep no credit, so a creative reel cannot pay a survival player later.
     if (isCreative) return
     val items = reelItems(vine.reelCredit, reeled)

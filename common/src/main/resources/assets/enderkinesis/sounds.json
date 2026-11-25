@@ -11442,5 +11442,866 @@
       }
     ],
     "subtitle": "subtitles.entity.shilleagk_deer.freaky"
+  },
+  "entity.swarm_fly.sparse_loop": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/swarm_fly/sparse_loop"
+      }
+    ],
+    "subtitle": "subtitles.entity.swarm_fly.sparse_loop"
+  },
+  "entity.swarm_fly.dense_loop": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/swarm_fly/dense_loop"
+      }
+    ],
+    "subtitle": "subtitles.entity.swarm_fly.dense_loop"
+  },
+  "entity.swarm_fly.scatter": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/swarm_fly/scatter1"
+      },
+      {
+        "name": "enderkinesis:entity/swarm_fly/scatter2"
+      }
+    ],
+    "subtitle": "subtitles.entity.swarm_fly.scatter"
+  },
+  "entity.moskuo.fly": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/fly"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.fly"
+  },
+  "entity.moskuo.fly_fat": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/fly_fat"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.fly_fat"
+  },
+  "entity.moskuo.burst": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/burst1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/burst2"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.burst"
+  },
+  "entity.moskuo.sting": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/sting1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/sting2"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/sting3"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.sting"
+  },
+  "entity.moskuo.engorge": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/engorge1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/engorge2"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.engorge"
+  },
+  "entity.moskuo.digest": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/digest1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/digest2"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.digest"
+  },
+  "entity.moskuo.lay": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/lay1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/lay2"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.lay"
+  },
+  "entity.moskuo.hurt": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/hurt2"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/hurt3"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.hurt"
+  },
+  "entity.moskuo.death": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/death1"
+      },
+      {
+        "name": "enderkinesis:entity/moskuo/death2"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.death"
+  },
+  "entity.moskuo.death_fed": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/moskuo/death_fed"
+      }
+    ],
+    "subtitle": "subtitles.entity.moskuo.death_fed"
+  },
+  "entity.horned_frog.ambient": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/ambient1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/ambient2"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/ambient3"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/ambient4"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.ambient"
+  },
+  "entity.horned_frog.hurt": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/hurt2"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/hurt3"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.hurt"
+  },
+  "entity.horned_frog.death": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/death1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/death2"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.death"
+  },
+  "entity.horned_frog.tongue": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/tongue1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/tongue2"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/tongue3"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.tongue"
+  },
+  "entity.horned_frog.eat": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/eat1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/eat2"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.eat"
+  },
+  "entity.horned_frog.jump": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/jump1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/jump2"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.jump"
+  },
+  "entity.horned_frog.step": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/step1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/step2"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/step3"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/step4"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.step"
+  },
+  "entity.horned_frog.lay_spawn": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/horned_frog/lay_spawn1"
+      },
+      {
+        "name": "enderkinesis:entity/horned_frog/lay_spawn2"
+      }
+    ],
+    "subtitle": "subtitles.entity.horned_frog.lay_spawn"
+  },
+  "entity.eauhorrana.bite": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/bite1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/bite2"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/bite3"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.bite"
+  },
+  "entity.eauhorrana.latch": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/latch1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/latch2"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.latch"
+  },
+  "entity.eauhorrana.chew": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/chew1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/chew2"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/chew3"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.chew"
+  },
+  "entity.eauhorrana.lunge": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/lunge1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/lunge2"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.lunge"
+  },
+  "entity.eauhorrana.flop": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/flop1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/flop2"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/flop3"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.flop"
+  },
+  "entity.eauhorrana.hurt": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/hurt2"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/hurt3"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.hurt"
+  },
+  "entity.eauhorrana.death": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/eauhorrana/death1"
+      },
+      {
+        "name": "enderkinesis:entity/eauhorrana/death2"
+      }
+    ],
+    "subtitle": "subtitles.entity.eauhorrana.death"
+  },
+  "entity.kekhekh.flop": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/kekhekh/flop1"
+      },
+      {
+        "name": "enderkinesis:entity/kekhekh/flop2"
+      },
+      {
+        "name": "enderkinesis:entity/kekhekh/flop3"
+      }
+    ],
+    "subtitle": "subtitles.entity.kekhekh.flop"
+  },
+  "entity.kekhekh.hurt": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/kekhekh/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/kekhekh/hurt2"
+      }
+    ],
+    "subtitle": "subtitles.entity.kekhekh.hurt"
+  },
+  "entity.kekhekh.death": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/kekhekh/death1"
+      },
+      {
+        "name": "enderkinesis:entity/kekhekh/death2"
+      }
+    ],
+    "subtitle": "subtitles.entity.kekhekh.death"
+  },
+  "item.woggak_vine.throw": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/throw1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/throw2"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.throw"
+  },
+  "item.woggak_vine.attach": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/attach1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/attach2"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/attach3"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.attach"
+  },
+  "item.woggak_vine.extend": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/extend1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/extend2"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.extend"
+  },
+  "item.woggak_vine.reel_loop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/reel_loop"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.reel_loop"
+  },
+  "item.woggak_vine.reel_stop": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/reel_stop"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.reel_stop"
+  },
+  "item.woggak_vine.cut": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/cut1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/cut2"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/cut3"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.cut"
+  },
+  "item.woggak_vine.grab": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/grab1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/grab2"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.grab"
+  },
+  "item.woggak_vine.climb": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/climb1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/climb2"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/climb3"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/climb4"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.climb"
+  },
+  "item.woggak_vine.ignite": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/ignite"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.ignite"
+  },
+  "item.woggak_vine.burn_loop": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/burn_loop"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.burn_loop"
+  },
+  "item.woggak_vine.strain": {
+    "category": "block",
+    "sounds": [
+      {
+        "name": "enderkinesis:item/woggak_vine/strain1"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/strain2"
+      },
+      {
+        "name": "enderkinesis:item/woggak_vine/strain3"
+      }
+    ],
+    "subtitle": "subtitles.item.woggak_vine.strain"
+  },
+  "entity.blessed_goat.ambient": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/ambient1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/ambient2"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/ambient3"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/ambient4"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.ambient"
+  },
+  "entity.blessed_goat.growl": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/growl1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/growl2"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/growl3"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.growl"
+  },
+  "entity.blessed_goat.hurt": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/hurt2"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/hurt3"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.hurt"
+  },
+  "entity.blessed_goat.death": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/death1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/death2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.death"
+  },
+  "entity.blessed_goat.step": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/step1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/step2"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/step3"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/step4"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.step"
+  },
+  "entity.blessed_goat.charge": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/charge1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/charge2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.charge"
+  },
+  "entity.blessed_goat.bite": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/bite1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/bite2"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/bite3"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.bite"
+  },
+  "entity.blessed_goat.eat": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/eat1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/eat2"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/eat3"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/eat4"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.eat"
+  },
+  "entity.blessed_goat.jump": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/jump1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/jump2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.jump"
+  },
+  "entity.blessed_goat.ram_impact": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/ram_impact1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/ram_impact2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.ram_impact"
+  },
+  "entity.blessed_goat.horn_break": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/horn_break1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/horn_break2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.horn_break"
+  },
+  "entity.blessed_goat.stamp": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/stamp1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/stamp2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.stamp"
+  },
+  "entity.blessed_goat.head_shake": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/blessed_goat/head_shake1"
+      },
+      {
+        "name": "enderkinesis:entity/blessed_goat/head_shake2"
+      }
+    ],
+    "subtitle": "subtitles.entity.blessed_goat.head_shake"
+  },
+  "entity.will_o_the_wisp.ambient": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/ambient1"
+      },
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/ambient2"
+      },
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/ambient3"
+      },
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/ambient4"
+      }
+    ],
+    "subtitle": "subtitles.entity.will_o_the_wisp.ambient"
+  },
+  "entity.will_o_the_wisp.hurt": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/hurt1"
+      },
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/hurt2"
+      }
+    ],
+    "subtitle": "subtitles.entity.will_o_the_wisp.hurt"
+  },
+  "entity.will_o_the_wisp.death": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/death1"
+      },
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/death2"
+      }
+    ],
+    "subtitle": "subtitles.entity.will_o_the_wisp.death"
+  },
+  "entity.will_o_the_wisp.kindle": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/kindle"
+      }
+    ],
+    "subtitle": "subtitles.entity.will_o_the_wisp.kindle"
+  },
+  "entity.will_o_the_wisp.gutter": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/gutter"
+      }
+    ],
+    "subtitle": "subtitles.entity.will_o_the_wisp.gutter"
+  },
+  "entity.will_o_the_wisp.hover_loop": {
+    "category": "ambient",
+    "sounds": [
+      {
+        "name": "enderkinesis:entity/will_o_the_wisp/hover_loop"
+      }
+    ],
+    "subtitle": "subtitles.entity.will_o_the_wisp.hover_loop"
+  },
+  "block.willfaer_lantern.place": {
+    "category": "block",
+    "subtitle": "subtitles.enderkinesis.block.willfaer_lantern.place",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/willfaer/lantern_place1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/lantern_place2",
+        "stream": false
+      }
+    ]
+  },
+  "block.willfaer_lantern.break": {
+    "category": "block",
+    "subtitle": "subtitles.enderkinesis.block.willfaer_lantern.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/willfaer/lantern_break1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/lantern_break2",
+        "stream": false
+      }
+    ]
+  },
+  "block.willfaer_torch.place": {
+    "category": "block",
+    "subtitle": "subtitles.enderkinesis.block.willfaer_torch.place",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/willfaer/torch_place1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/torch_place2",
+        "stream": false
+      }
+    ]
+  },
+  "block.willfaer_torch.break": {
+    "category": "block",
+    "subtitle": "subtitles.enderkinesis.block.willfaer_torch.break",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/willfaer/torch_break1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/torch_break2",
+        "stream": false
+      }
+    ]
+  },
+  "block.willfaer.flame": {
+    "category": "block",
+    "subtitle": "subtitles.enderkinesis.block.willfaer.flame",
+    "sounds": [
+      {
+        "name": "enderkinesis:block/willfaer/flame1",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/flame2",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/flame3",
+        "stream": false
+      },
+      {
+        "name": "enderkinesis:block/willfaer/flame4",
+        "stream": false
+      }
+    ]
   }
 }

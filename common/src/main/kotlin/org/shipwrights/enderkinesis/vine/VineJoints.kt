@@ -3,9 +3,11 @@ package org.shipwrights.enderkinesis.vine
 import java.util.concurrent.ConcurrentHashMap
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.sounds.SoundSource
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.physics.physicsStepSeconds
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.pointVelocity
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.chains.ChainEnd
@@ -27,6 +29,10 @@ import kotlin.math.sqrt
 
 /** Share of the position error removed in one physics tick; low enough that the correction does not overshoot. */
 private const val POSITION_CORRECTION = 0.2
+/** Share of the break impulse where a joined end starts to creak; the volume goes from this share to 1 at the break. */
+private const val STRAIN_SOUND_SHARE = 0.6
+private const val STRAIN_SOUND_GAP_TICKS = 60L
+private const val STRAIN_SOUND_SPREAD_TICKS = 20
 
 /** A joint to node [node] of vine [vine] (a WoggakVine id); [home] is that vine's chunk, where it waits while unloaded. */
 class VineJoint(vine: Long, node: Int, home: Long) {
@@ -70,6 +76,33 @@ class JointPair(val follower: ParticleId, val target: ParticleId, val second: Pa
     @Volatile private var start = 0.0
     // Physics thread only; NaN until the first physics tick takes the start.
     private var shown = Double.NaN
+    // The physics thread writes the place before the volatile strain, so a read of strain sees that place or a newer one.
+    private var strainX = 0.0
+    private var strainY = 0.0
+    private var strainZ = 0.0
+    /** Highest share of the break impulse since the server last took it; 0 when none passed [STRAIN_SOUND_SHARE]. */
+    @Volatile private var strain = 0.0
+
+    /** Physics thread: keeps the highest [share] since the last [takeStrain], at the joint point. */
+    internal fun recordStrain(share: Double, x: Double, y: Double, z: Double) {
+        if (share <= strain) return
+        strainX = x; strainY = y; strainZ = z
+        strain = share
+    }
+
+    /** Server: plays the creak of the strain that the physics thread kept, unless [vine] creaked a short time ago. */
+    internal fun takeStrain(level: ServerLevel, vine: WoggakVine) {
+        val share = strain
+        if (share <= 0.0) return
+        // A share that the physics thread writes between these two lines is lost; the next one creaks.
+        strain = 0.0
+        if (level.gameTime < vine.nextStrainTick) return
+        vine.nextStrainTick = level.gameTime + STRAIN_SOUND_GAP_TICKS + level.random.nextInt(STRAIN_SOUND_SPREAD_TICKS)
+        level.playSound(
+            null, strainX, strainY, strainZ, EKSounds.WOGGAK_VINE_STRAIN.get(), SoundSource.BLOCKS,
+            share.coerceIn(STRAIN_SOUND_SHARE, 1.0).toFloat(), 1f,
+        )
+    }
 
     /** Server: puts the point at [value] at once. */
     var weight: Double
@@ -151,6 +184,15 @@ internal fun ServerLevel.followJoint(chain: ServerChain, end: ChainEnd, anchor: 
 /** VS lays a rebuilt target out again, so its node count can change by one; the joint then holds its last node. */
 internal fun jointNode(joint: VineJoint, nodes: Int): Int = joint.node.coerceIn(0, nodes - 1)
 
+/**
+ * Creaks the joined ends of [vine] near their break. Player holds and riders are not read: a player is about 78 kg,
+ * far below the share, so only a ship or other heavy load on a vine joint creaks.
+ */
+internal fun ServerLevel.creakJoinedEnds(vine: WoggakVine) {
+    if (vine.start.isJoined) vine.start.pair?.takeStrain(this, vine)
+    if (vine.end.isJoined) vine.end.pair?.takeStrain(this, vine)
+}
+
 /** Sends the live joint pairs of this level to the physics thread when they changed. */
 internal fun ServerLevel.publishJointPairs(data: WoggakVineData) {
     if (!data.jointsDirty) return
@@ -201,6 +243,7 @@ private fun PhysLevel.solveJoints(dt: Double) {
         if (!size.isFinite() || size <= 0.0) continue
         // The same strength as a vine link; past it the joint lets go, as a link would.
         if (size > maxImpulse) { pair.broken = true; continue }
+        if (size >= maxImpulse * STRAIN_SOUND_SHARE) pair.recordStrain(size / maxImpulse, pa.x(), pa.y(), pa.z())
         if (a.isSleeping) a.wake()
         if (b.isSleeping) b.wake()
         a.applyWorldImpulse(Vector3d(jx, jy, jz))

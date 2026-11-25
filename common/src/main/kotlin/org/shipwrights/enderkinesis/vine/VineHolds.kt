@@ -6,6 +6,7 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.RelativeMovement
 import net.minecraft.world.entity.player.Player
@@ -14,6 +15,7 @@ import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.gravity
 import org.shipwrights.enderkinesis.util.hitboxMass
 import org.valkyrienskies.core.api.chains.ChainId
@@ -56,6 +58,7 @@ const val CLIMB_MASK = CLIMB_UP or CLIMB_DOWN
 // give 0.1176 blocks per tick; a slide clamps the fall to 0.15 blocks per tick.
 private const val CLIMB_UP_SPEED = (0.2 - 0.08) * 0.98
 private const val CLIMB_DOWN_SPEED = 0.15
+private const val CLIMB_STEP_BLOCKS = 0.5
 /** Shown grip catch-up: a multiple of the climb rate, plus a minimum step in node units per tick. */
 private const val GRIP_CATCH_UP = 1.5
 private const val MIN_GRIP_STEP = 0.05
@@ -142,6 +145,8 @@ internal class VineHold(
     var previousChain: ChainId? = null
     var syncedNode = -1
     var syncedTick = 0L
+    /** Climbed blocks since the last climb step sound. */
+    var climbed = 0.0
 }
 
 /** A mantle pull in progress: the client eases the body to [feet]; the server enforces [feet] if it does not arrive. */
@@ -512,6 +517,7 @@ private fun ServerPlayer.holdVine(grab: Boolean, chainId: ChainId, node: Int, in
     } else {
         data.holds[uuid] = hold
         syncHolder(hold)
+        level.playSound(null, x, y, z, EKSounds.WOGGAK_VINE_GRAB.get(), SoundSource.PLAYERS, 1f, 1f)
     }
 }
 
@@ -749,7 +755,18 @@ private fun ServerLevel.climb(
     val wishZ = wz * CLIMB_STEER_SHARE
     if (way != 0 && hold.climbDir != way) hold.climbDir = way
     if (hold.climbDir == 0) hold.climbDir = climbDirection(data.scratch, nodes, hold.grip, wishX, wishY, wishZ)
-    return moveGrip(data, player, hold, nodes, if (up) CLIMB_UP_SPEED else CLIMB_DOWN_SPEED, wishX, wishY, wishZ, CLIMB_MIN_COS)
+    val speed = if (up) CLIMB_UP_SPEED else CLIMB_DOWN_SPEED
+    val step = moveGrip(data, player, hold, nodes, speed, wishX, wishY, wishZ, CLIMB_MIN_COS)
+    if (step == GripStep.MOVED) player.climbStep(hold, speed)
+    return step
+}
+
+/** One climb step sound for each [CLIMB_STEP_BLOCKS] that the grip moves, as a ladder gives. */
+private fun ServerPlayer.climbStep(hold: VineHold, moved: Double) {
+    hold.climbed += moved
+    if (hold.climbed < CLIMB_STEP_BLOCKS) return
+    hold.climbed -= CLIMB_STEP_BLOCKS
+    serverLevel().playSound(null, x, y, z, EKSounds.WOGGAK_VINE_CLIMB.get(), SoundSource.PLAYERS, 1f, 1f)
 }
 
 private fun VineHold.keepWay(dir: Int, wx: Double, wy: Double, wz: Double) {

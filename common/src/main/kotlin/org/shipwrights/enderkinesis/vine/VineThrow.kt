@@ -10,6 +10,7 @@ import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.HumanoidArm
@@ -28,6 +29,7 @@ import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.physics.physicsStepSeconds
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.blockLoaded
 import org.valkyrienskies.core.api.VsBeta
 import org.valkyrienskies.core.api.chains.ChainEnd
@@ -364,6 +366,7 @@ internal fun ServerLevel.throwWoggakVine(player: ServerPlayer, hand: Interaction
     throwDrives[chain.id] = drive
     woggakVines.throws.put(thrown.id, thrown)
     sendThrowStart(thrown, player.id, side)
+    playSound(null, player.x, player.y, player.z, EKSounds.WOGGAK_VINE_THROW.get(), SoundSource.PLAYERS, 1f, 1f)
     if (!creative) stack.shrink(items)
     return true
 }
@@ -482,6 +485,11 @@ private fun ServerLevel.settle(data: WoggakVineData, thrown: VineThrow, chain: S
     val back = if (thrown.creative) 0 else thrown.items - spent
     giveBack(thrown, back)
     sendThrowEnd(thrown, chain.id.value)
+    if (contact != null) {
+        // On a hit the flight stopped its tip on the anchor point.
+        val tip = thrown.flight.tip
+        playSound(null, tip.x, tip.y, tip.z, EKSounds.WOGGAK_VINE_ATTACH.get(), SoundSource.PLAYERS, 1f, 1f)
+    }
 }
 
 /** Gives [count] vine items back to the thrower, or drops them at the tip when the thrower is gone. */

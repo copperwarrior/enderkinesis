@@ -7,7 +7,6 @@ import net.minecraft.core.particles.BlockParticleOption
 import net.minecraft.core.particles.ParticleTypes
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.entity.player.Player
@@ -17,6 +16,7 @@ import net.minecraft.world.level.ClipContext
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.shipwrights.enderkinesis.registry.EKBlocks
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.shipwrights.enderkinesis.util.pointVelocity
 import org.valkyrienskies.core.api.chains.ChainEndpoint
 import org.valkyrienskies.core.api.chains.ServerChain
@@ -392,7 +392,7 @@ internal fun cutWoggakVine(player: Player, hand: InteractionHand): CompoundEvent
     data.anchorsDirty = true
     data.jointsDirty = true
     data.setDirty()
-    level.playSound(null, pick.hit.x, pick.hit.y, pick.hit.z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
+    level.playSound(null, pick.hit.x, pick.hit.y, pick.hit.z, EKSounds.WOGGAK_VINE_CUT.get(), SoundSource.PLAYERS, 1f, 1f)
     stack.hurtAndBreak(1, player) { it.broadcastBreakEvent(hand) }
     (player as? ServerPlayer)?.swing(hand, true)
     return CompoundEventResult.interruptTrue(stack)

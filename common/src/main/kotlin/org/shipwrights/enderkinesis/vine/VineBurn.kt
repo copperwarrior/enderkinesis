@@ -8,7 +8,6 @@ import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.stats.Stats
 import net.minecraft.tags.BlockTags
@@ -27,6 +26,7 @@ import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Vector3d
 import org.joml.primitives.AABBd
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.chains.ChainLifecycle
 import org.valkyrienskies.core.api.chains.ServerChain
 import org.valkyrienskies.core.api.ships.Ship
@@ -135,7 +135,7 @@ private fun lightWoggakVine(player: Player, hand: InteractionHand): Boolean {
     level.collectShips(burns, burns.positions, nodes)
     if (!level.igniteLink(data, pick.vine, pick.link, burns.positions)) return true
     level.playSound(
-        null, pick.hit.x, pick.hit.y, pick.hit.z, SoundEvents.FLINTANDSTEEL_USE, SoundSource.BLOCKS, 1f, level.random.nextFloat() * 0.4f + 0.8f,
+        null, pick.hit.x, pick.hit.y, pick.hit.z, EKSounds.WOGGAK_VINE_IGNITE.get(), SoundSource.BLOCKS, 1f, level.random.nextFloat() * 0.4f + 0.8f,
     )
     player.awardStat(Stats.ITEM_USED.get(item))
     stack.hurtAndBreak(1, player) { it.broadcastBreakEvent(hand) }

@@ -127,6 +127,8 @@ class WoggakVine(
     internal var natural = false
     /** Fire fronts on this vine; a save keeps them as ticks left, so a fire goes on after a reload. */
     internal var burns: List<VineBurnFront> = emptyList()
+    /** Game time before which a joined end of this vine does not creak again; not saved. */
+    internal var nextStrainTick = 0L
 
     /** Bit 0: the start is joined to another vine; bit 1: the end is. */
     val joinedEnds: Int
@@ -530,6 +532,7 @@ private fun ServerLevel.tickWoggakVines() {
                 continue
             }
             followHome(data, vine, chain)
+            creakJoinedEnds(vine)
         }
         if (!data.collider.add(chain, vine.joinedEnds, vine.width * 0.5)) {
             LOG.warn("Woggak Vine {} has a position that is not finite; it is removed", vine.chain.value)

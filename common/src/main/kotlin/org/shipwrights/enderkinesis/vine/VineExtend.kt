@@ -2,10 +2,10 @@ package org.shipwrights.enderkinesis.vine
 
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.world.item.ItemStack
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 import org.valkyrienskies.core.api.chains.ChainAttachmentState
 import org.valkyrienskies.core.api.chains.ChainEnd
 import org.valkyrienskies.core.api.chains.ChainReelControl
@@ -81,7 +81,7 @@ internal fun ServerPlayer.extendVine(stack: ItemStack): Boolean {
     if (!grew) return true
     data.setDirty()
     if (!creative) stack.shrink(1)
-    level.playSound(null, x, y, z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
+    level.playSound(null, x, y, z, EKSounds.WOGGAK_VINE_EXTEND.get(), SoundSource.PLAYERS, 1f, 1f)
     return true
 }
 
@@ -118,7 +118,7 @@ internal fun ServerPlayer.dropVineAt(stack: ItemStack, point: VinePoint): Boolea
     if (items <= 0 || !payOutBlocks(vine, chain, end, creative, items)) return true
     data.setDirty()
     if (!creative) stack.shrink(items)
-    level.playSound(null, x, y, z, SoundEvents.GROWING_PLANT_CROP, SoundSource.PLAYERS, 1f, 1f)
+    level.playSound(null, x, y, z, EKSounds.WOGGAK_VINE_EXTEND.get(), SoundSource.PLAYERS, 1f, 1f)
     return true
 }
 

@@ -14,7 +14,6 @@ import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.sounds.SoundSource
 import net.minecraft.tags.BlockTags
 import net.minecraft.tags.FluidTags
@@ -55,6 +54,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.pathfinder.BlockPathTypes
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 /** Wohlon predator of the Shilleagk deer. It hunts only when hungry, eats and rests after a kill, and keeps a home range. */
 class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) : Animal(type, level) {
@@ -149,13 +149,14 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         targetSelector.addGoal(2, HuntPreyGoal())
     }
 
-    override fun getAmbientSound(): SoundEvent = SoundEvents.GOAT_AMBIENT
+    override fun getAmbientSound(): SoundEvent =
+        (if (isFairlyHungry || target != null) EKSounds.BLESSED_GOAT_GROWL else EKSounds.BLESSED_GOAT_AMBIENT).get()
 
-    override fun getHurtSound(source: DamageSource): SoundEvent = SoundEvents.GOAT_HURT
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.BLESSED_GOAT_HURT.get()
 
-    override fun getDeathSound(): SoundEvent = SoundEvents.GOAT_DEATH
+    override fun getDeathSound(): SoundEvent = EKSounds.BLESSED_GOAT_DEATH.get()
 
-    override fun playStepSound(pos: BlockPos, state: BlockState) = playSound(SoundEvents.GOAT_STEP, STEP_VOLUME, 1f)
+    override fun playStepSound(pos: BlockPos, state: BlockState) = playSound(EKSounds.BLESSED_GOAT_STEP.get(), STEP_VOLUME, 1f)
 
     // Vanilla Goat: long jumps drop it several blocks.
     override fun calculateFallDamage(fallDistance: Float, multiplier: Float): Int =
@@ -174,7 +175,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         player.useOneHeld(hand)
         satietyTicks = (maxOf(satietyTicks, 0) + HAND_FED_SATIETY_TICKS).coerceAtMost(SATED_TICKS)
         heal(HAND_FED_HEAL)
-        playSound(SoundEvents.GOAT_EAT, 1f, 1f)
+        playSound(EKSounds.BLESSED_GOAT_EAT.get(), 1f, 1f)
         if (feedTicks <= 0) feedTicks = HAND_FEED_TICKS
         return InteractionResult.CONSUME
     }
@@ -262,6 +263,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         if (action == Action.FEED && (!feedAnimationState.isStarted || tickCount >= clientFeedRestartTick)) {
             feedAnimationState.start(tickCount)
             clientFeedRestartTick = tickCount + BITE_TICKS
+            playLocalSound(EKSounds.BLESSED_GOAT_EAT.get())
         }
         tickClientIdle()
     }
@@ -281,8 +283,16 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             else -> idleEarFlickAnimationState to IDLE_EAR_FLICK_TICKS
         }
         state.start(tickCount)
+        when (state) {
+            idleStampAnimationState -> playLocalSound(EKSounds.BLESSED_GOAT_STAMP.get())
+            idleHeadShakeAnimationState -> playLocalSound(EKSounds.BLESSED_GOAT_HEAD_SHAKE.get(), voicePitch)
+        }
         clientIdle = state
         clientIdleEndTick = tickCount + ticks
+    }
+
+    private fun playLocalSound(sound: SoundEvent, pitch: Float = 1f) {
+        if (!isSilent) level().playLocalSound(x, y, z, sound, SoundSource.NEUTRAL, 1f, pitch, false)
     }
 
     private fun stopClientIdle() {
@@ -390,6 +400,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         nextBiteTick = tickCount + BITE_COOLDOWN_TICKS
         biteEndTick = tickCount + BITE_TICKS
         setAction(Action.BITE)
+        playSound(EKSounds.BLESSED_GOAT_BITE.get(), 1f, voicePitch)
         val killingBite = isPrey(victim) && victim.health <= getAttributeValue(Attributes.ATTACK_DAMAGE)
         if (killingBite && victim.eatWhole(this)) {
             startFeeding(victim)
@@ -531,7 +542,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         deltaMovement = velocity
         hasImpulse = true
         longJumpTicks = 1
-        playSound(SoundEvents.GOAT_LONG_JUMP, 1f, 1f)
+        playSound(EKSounds.BLESSED_GOAT_JUMP.get(), 1f, voicePitch)
         return true
     }
 
@@ -731,7 +742,7 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         private fun startCharge(victim: LivingEntity) {
             pursuit = Pursuit.CHARGE
             setAction(Action.CHARGE)
-            playSound(SoundEvents.GOAT_PREPARE_RAM, 1f, 1f)
+            playSound(EKSounds.BLESSED_GOAT_CHARGE.get(), 1f, voicePitch)
             chargeTravel = 0.0
             lastX = x
             lastZ = z
@@ -764,8 +775,8 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
 
         // Vanilla RamTarget ends the ram on a horn-breaking block; here only the charge ends, and the hunt goes on.
         private fun ramBlock() {
-            playSound(SoundEvents.GOAT_RAM_IMPACT, 1f, 1f)
-            if (dropHorn()) level().playSound(null, this@BlessedGoatEntity, SoundEvents.GOAT_HORN_BREAK, SoundSource.NEUTRAL, 1f, 1f)
+            playSound(EKSounds.BLESSED_GOAT_RAM_IMPACT.get(), 1f, 1f)
+            if (dropHorn()) level().playSound(null, this@BlessedGoatEntity, EKSounds.BLESSED_GOAT_HORN_BREAK.get(), SoundSource.NEUTRAL, 1f, 1f)
             endCharge()
             navigation.stop()
             recoverUntil = tickCount + HORN_SNAP_RECOVER_TICKS
@@ -920,7 +931,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
             }
             if (hasSpot) faceMeal()
             feedTicks--
-            if (feedTicks % FEED_SOUND_INTERVAL == 0) playSound(SoundEvents.GOAT_EAT, 1f, 1f)
             if (feedTicks <= 0) finishMeal(fullMeal = true)
         }
 
@@ -1015,7 +1025,6 @@ class BlessedGoatEntity(type: EntityType<out BlessedGoatEntity>, level: Level) :
         private const val KILL_SATIETY_TICKS = 18_000
         private const val OPPORTUNITY_SATIETY_TICKS = 18_000
         private const val FEED_TICKS = 60
-        private const val FEED_SOUND_INTERVAL = 40
         private const val EAT_APPROACH_TICKS = 100
         private const val EAT_REACH = 1.0
         private const val FACE_MIN_DISTANCE = 0.2

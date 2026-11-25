@@ -9,7 +9,6 @@ import net.minecraft.network.syncher.EntityDataAccessor
 import net.minecraft.network.syncher.EntityDataSerializers
 import net.minecraft.network.syncher.SynchedEntityData
 import net.minecraft.sounds.SoundEvent
-import net.minecraft.sounds.SoundEvents
 import net.minecraft.tags.FluidTags
 import net.minecraft.tags.TagKey
 import net.minecraft.world.DifficultyInstance
@@ -28,6 +27,7 @@ import net.minecraft.world.level.ServerLevelAccessor
 import net.minecraft.world.level.block.Block
 import org.shipwrights.enderkinesis.EnderkinesisMod
 import org.shipwrights.enderkinesis.registry.EKItems
+import org.shipwrights.enderkinesis.registry.EKSounds
 
 class KekhekhEntity(type: EntityType<out KekhekhEntity>, level: Level) : AbstractFish(type, level) {
 
@@ -96,13 +96,13 @@ class KekhekhEntity(type: EntityType<out KekhekhEntity>, level: Level) : Abstrac
 
     override fun getBucketItemStack(): ItemStack = ItemStack(EKItems.KEKHEKH_BUCKET.get())
 
-    override fun getAmbientSound(): SoundEvent = SoundEvents.SALMON_AMBIENT
+    override fun getAmbientSound(): SoundEvent? = null
 
-    override fun getDeathSound(): SoundEvent = SoundEvents.SALMON_DEATH
+    override fun getDeathSound(): SoundEvent = EKSounds.KEKHEKH_DEATH.get()
 
-    override fun getHurtSound(source: DamageSource): SoundEvent = SoundEvents.SALMON_HURT
+    override fun getHurtSound(source: DamageSource): SoundEvent = EKSounds.KEKHEKH_HURT.get()
 
-    override fun getFlopSound(): SoundEvent = SoundEvents.SALMON_FLOP
+    override fun getFlopSound(): SoundEvent = EKSounds.KEKHEKH_FLOP.get()
 
     /** Flees an Eauhorrana that hunts this fish into the nearest refuge cell, then waits there. */
     private inner class RefugeGoal : Goal() {

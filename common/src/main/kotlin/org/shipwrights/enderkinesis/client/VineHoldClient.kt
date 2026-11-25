@@ -25,6 +25,7 @@ import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_HOLD
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_HOLDER
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_LET_GO
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_REEL_END
+import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_REELER
 import org.shipwrights.enderkinesis.vine.WOGGAK_VINE_SHORTEN
 import org.shipwrights.enderkinesis.vine.canHoldVine
 import org.shipwrights.enderkinesis.vine.clientVineCollider
@@ -107,6 +108,11 @@ object VineHoldClient {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_REEL_END) { _, ctx ->
             ctx.queue { reeling = false }
         }
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_REELER) { buf, ctx ->
+            val entityId = buf.readVarInt()
+            val start = buf.readBoolean()
+            ctx.queue { Minecraft.getInstance().level?.setReelLoop(entityId, start) }
+        }
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, WOGGAK_VINE_GRIP) { buf, ctx ->
             val chainId = buf.readLong()
             val previousChainId = buf.readLong()
@@ -124,6 +130,7 @@ object VineHoldClient {
 
     fun clear() {
         reeling = false
+        clearReelLoops()
         clientVineHold.clear()
         clientVineHold.mantle.cancel()
         clientVineHold.clearGrace()
