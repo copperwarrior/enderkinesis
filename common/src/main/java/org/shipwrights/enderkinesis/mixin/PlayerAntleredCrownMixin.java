@@ -4,6 +4,9 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.player.Player;
 import org.shipwrights.enderkinesis.duck.AntleredCrownHolder;
@@ -24,6 +27,28 @@ public abstract class PlayerAntleredCrownMixin implements AntleredCrownHolder {
 
     @Unique
     private final WoodHearts enderkinesis$woodHearts = new WoodHearts();
+
+    // Synched data reaches every tracking client, also players who start tracking later.
+    @Unique
+    private static final EntityDataAccessor<Float> enderkinesis$VEIN_GROWTH =
+        SynchedEntityData.defineId(Player.class, EntityDataSerializers.FLOAT);
+
+    @Inject(method = "defineSynchedData", at = @At("TAIL"))
+    private void enderkinesis$defineVeinGrowth(CallbackInfo ci) {
+        ((Player) (Object) this).getEntityData().define(enderkinesis$VEIN_GROWTH, 0f);
+    }
+
+    @Override
+    @Unique
+    public float enderkinesis$veinGrowth() {
+        return ((Player) (Object) this).getEntityData().get(enderkinesis$VEIN_GROWTH);
+    }
+
+    @Override
+    @Unique
+    public void enderkinesis$setVeinGrowth(float growth) {
+        ((Player) (Object) this).getEntityData().set(enderkinesis$VEIN_GROWTH, growth);
+    }
 
     @Override
     @Unique

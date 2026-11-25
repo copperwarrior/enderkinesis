@@ -7,7 +7,6 @@ import net.minecraft.client.Minecraft
 import net.minecraft.client.model.PlayerModel
 import net.minecraft.client.model.geom.ModelLayers
 import net.minecraft.client.renderer.MultiBufferSource
-import net.minecraft.client.renderer.RenderType
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider
 import net.minecraft.client.renderer.texture.OverlayTexture
@@ -28,6 +27,9 @@ class WoodStatueRenderer(ctx: BlockEntityRendererProvider.Context) : BlockEntity
     ) {
         val skin = be.skin ?: resolveSkin(be) ?: return
         val model = if (be.slimSkin) slim else wide
+        // EntityModel.young defaults to true; with no entity to copy from, set both flags here.
+        model.young = false
+        model.riding = false
         model.head.yRot = Math.toRadians(be.headYaw.toDouble()).toFloat()
         model.head.xRot = Math.toRadians(be.headPitch.toDouble()).toFloat()
         model.hat.copyFrom(model.head)
@@ -39,8 +41,7 @@ class WoodStatueRenderer(ctx: BlockEntityRendererProvider.Context) : BlockEntity
         pose.scale(-PLAYER_SCALE, -PLAYER_SCALE, PLAYER_SCALE)
         pose.translate(0.0, MODEL_DROP, 0.0)
         model.renderToBuffer(
-            pose, buffers.getBuffer(RenderType.entityCutoutNoCull(skin)), packedLight, OverlayTexture.NO_OVERLAY,
-            WOOD_RED, WOOD_GREEN, WOOD_BLUE, 1f,
+            pose, buffers.getBuffer(WoodStatueRenderType.of(skin)), packedLight, OverlayTexture.NO_OVERLAY, 1f, 1f, 1f, 1f,
         )
         pose.popPose()
     }
@@ -63,10 +64,5 @@ class WoodStatueRenderer(ctx: BlockEntityRendererProvider.Context) : BlockEntity
     private companion object {
         const val PLAYER_SCALE = 0.9375f
         const val MODEL_DROP = -1.501
-
-        // Placeholder wogor wood tint over the skin; no carved-wood art exists.
-        const val WOOD_RED = 0.62f
-        const val WOOD_GREEN = 0.45f
-        const val WOOD_BLUE = 0.30f
     }
 }

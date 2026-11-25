@@ -61,6 +61,9 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
 
     private var mealCooldown = random.nextInt(FLY_MEAL_MAX_TICKS)
     private var spawnCooldown = random.nextInt(LAY_MIN_TICKS)
+    private var lastMealTick = NEVER_FED
+    private var isPregnant = false
+    private var layChecks = 0
     private var leapTicks = 0
     private var leapElapsed = 0
     private var unreachablePrey = NO_TARGET
@@ -109,7 +112,10 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
             leapTicks--
             if (++leapElapsed >= LEAP_MIN_AIR_TICKS && (onGround() || isInWater)) leapTicks = 0
         }
-        if (spawnCooldown > 0) spawnCooldown-- else if ((tickCount + id) % LAY_CHECK_TICKS == 0) tryLaySpawn()
+        if (spawnCooldown > 0) spawnCooldown--
+        if ((tickCount + id) % LAY_CHECK_TICKS == 0) {
+            if (isPregnant) pregnantLayCheck() else tryBreed()
+        }
     }
 
     override fun tick() {
@@ -165,12 +171,16 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         super.addAdditionalSaveData(tag)
         tag.putInt(MEAL_KEY, mealCooldown)
         tag.putInt(SPAWN_KEY, spawnCooldown)
+        tag.putLong(LAST_MEAL_KEY, lastMealTick)
+        tag.putBoolean(PREGNANT_KEY, isPregnant)
     }
 
     override fun readAdditionalSaveData(tag: CompoundTag) {
         super.readAdditionalSaveData(tag)
         mealCooldown = tag.getInt(MEAL_KEY)
         spawnCooldown = tag.getInt(SPAWN_KEY)
+        lastMealTick = if (tag.contains(LAST_MEAL_KEY)) tag.getLong(LAST_MEAL_KEY) else NEVER_FED
+        isPregnant = tag.getBoolean(PREGNANT_KEY)
     }
 
     override fun getAmbientSound(): SoundEvent = EKSounds.HORNED_FROG_AMBIENT.get()
@@ -256,13 +266,42 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         return null
     }
 
-    /** An adult on the shore lays one frogspawn on still water beside it, unless the area holds enough frogs or spawn. */
+    private fun isFed(): Boolean = isRecentlyFed(lastMealTick, level().gameTime)
+
+    private fun canBreedNow(): Boolean = isAlive && !isBaby && !isPregnant && spawnCooldown <= 0 && isFed()
+
+    /** Three fed, ready adults within [GROUP_RADIUS] breed: all lose their fed state and wait; one becomes pregnant. */
+    private fun tryBreed() {
+        val level = level() as? ServerLevel ?: return
+        if (!canBreedNow()) return
+        val partners = level.getEntitiesOfClass(HornedFrogEntity::class.java, boundingBox.inflate(GROUP_RADIUS)) {
+            it !== this && it.canBreedNow()
+        }.sortedBy { it.distanceToSqr(this) }
+        val trio = frogBreedingTrio(this, partners) { random.nextInt(it) } ?: return
+        val cooldown = LAY_MIN_TICKS + random.nextInt(LAY_MAX_TICKS - LAY_MIN_TICKS)
+        for (frog in trio.members) {
+            frog.lastMealTick = NEVER_FED
+            frog.spawnCooldown = cooldown
+        }
+        trio.mother.isPregnant = true
+        trio.mother.layChecks = 0
+    }
+
+    // Every check for the first EAGER_LAY_CHECKS, then once per RETRY_LAY_CHECKS, until the clutch is laid.
+    private fun pregnantLayCheck() {
+        layChecks++
+        if (layChecks <= EAGER_LAY_CHECKS || layChecks % RETRY_LAY_CHECKS == 0) tryLaySpawn()
+    }
+
+    /**
+     * A pregnant frog on the shore lays its one frogspawn on still water beside it, unless the area holds enough
+     * frogs or spawn. The WaterlineGoal brings a frog that is off the shore back to it.
+     */
     private fun tryLaySpawn() {
         val level = level() as? ServerLevel ?: return
-        if (isBaby || isInWater || !onGround()) return
+        if (isInWater || !onGround()) return
         val scratch = BlockPos.MutableBlockPos()
         if (!isWaterline(standingCell(), scratch)) return
-        spawnCooldown = LAY_RETRY_TICKS
         if (level.getEntitiesOfClass(HornedFrogEntity::class.java, boundingBox.inflate(CROWD_RADIUS)).size >= MAX_CROWD) return
         val block = EKBlocks.HORNED_FROGSPAWN.get()
         var spawnNear = 0
@@ -273,7 +312,7 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         val at = findLaySpot(level, block.defaultBlockState()) ?: return
         if (!level.setBlock(at, block.defaultBlockState(), Block.UPDATE_ALL)) return
         playSound(EKSounds.HORNED_FROG_LAY_SPAWN.get(), 1f, 1f)
-        spawnCooldown = LAY_MIN_TICKS + random.nextInt(LAY_MAX_TICKS - LAY_MIN_TICKS)
+        isPregnant = false
     }
 
     /** Air over a still water source within [LAY_REACH] blocks, where the spawn can survive. */
@@ -488,6 +527,7 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
             val ate = if (target is SwarmFlyEntity) target.eatFly() else target.eatWhole(this@HornedFrogEntity)
             if (!ate) return
             playSound(EKSounds.HORNED_FROG_EAT.get(), 1f, voicePitch)
+            lastMealTick = level().gameTime
             mealCooldown = if (target is SwarmFlyEntity) {
                 FLY_MEAL_MIN_TICKS + random.nextInt(FLY_MEAL_MAX_TICKS - FLY_MEAL_MIN_TICKS)
             } else {
@@ -597,6 +637,11 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         private val DATA_TONGUE_TARGET: EntityDataAccessor<Int> =
             SynchedEntityData.defineId(HornedFrogEntity::class.java, EntityDataSerializers.INT)
         private const val SPAWN_KEY = "SpawnCooldown"
+        private const val LAST_MEAL_KEY = "LastMeal"
+        private const val PREGNANT_KEY = "Pregnant"
+        // 2 minutes of checks every 5 s, then one a minute.
+        private const val EAGER_LAY_CHECKS = 24
+        private const val RETRY_LAY_CHECKS = 12
 
         /** A frog lays no spawn, and spawn hatches no frogs, past [MAX_CROWD] frogs in this radius. */
         const val CROWD_RADIUS = 16.0
@@ -604,8 +649,8 @@ class HornedFrogEntity(type: EntityType<out HornedFrogEntity>, level: Level) : A
         private const val SPAWN_CAP_RADIUS = 12
         private const val SPAWN_CAP_RADIUS_Y = 3
         private const val MAX_SPAWN_NEAR = 2
+        private const val GROUP_RADIUS = 8.0
         private const val LAY_CHECK_TICKS = 100
-        private const val LAY_RETRY_TICKS = 1200
         private const val LAY_MIN_TICKS = 12000
         private const val LAY_MAX_TICKS = 24000
         private const val LAY_REACH = 2

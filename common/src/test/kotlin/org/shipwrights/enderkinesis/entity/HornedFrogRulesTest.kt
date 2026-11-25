@@ -11,6 +11,31 @@ import org.junit.jupiter.api.Test
 class HornedFrogRulesTest {
 
     @Test
+    fun `a frog is fed for five minutes after a meal`() {
+        isRecentlyFed(NEVER_FED, 10_000).shouldBeFalse()
+        isRecentlyFed(1_000, 1_000).shouldBeTrue()
+        isRecentlyFed(1_000, 1_000 + FED_WINDOW_TICKS).shouldBeTrue()
+        isRecentlyFed(1_000, 1_001 + FED_WINDOW_TICKS).shouldBeFalse()
+        isRecentlyFed(2_000, 1_000).shouldBeFalse()
+    }
+
+    @Test
+    fun `breeding needs the frog and two partners`() {
+        frogBreedingTrio("a", emptyList()) { 0 }.shouldBeNull()
+        frogBreedingTrio("a", listOf("b")) { 0 }.shouldBeNull()
+    }
+
+    @Test
+    fun `the trio is the frog and its two nearest partners, and exactly one of them is the mother`() {
+        for (pick in 0 until FROG_GROUP_SIZE) {
+            val trio = frogBreedingTrio("a", listOf("b", "c", "d")) { pick }.shouldNotBeNull()
+            trio.members shouldBe listOf("a", "b", "c")
+            trio.members.count { it == trio.mother } shouldBe 1
+            trio.mother shouldBe trio.members[pick]
+        }
+    }
+
+    @Test
     fun `the tongue reaches a swarm hovering above water from the bank`() {
         // Swarm centre 2.2 blocks above the mouth, 2 blocks out, with a 0.9-block cloud.
         tongueCanReach(horizontal = 2.0, rise = 2.2, reach = 2.5 + 0.9).shouldBeTrue()

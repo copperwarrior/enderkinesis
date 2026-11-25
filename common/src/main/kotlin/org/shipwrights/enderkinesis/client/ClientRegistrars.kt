@@ -100,6 +100,8 @@ fun captureAdditionalModel(id: ResourceLocation, model: BakedModel?) {
 fun registerCoreShaders(register: (ResourceLocation, VertexFormat, (ShaderInstance) -> Unit) -> Unit) {
     register(EnderkinesisMod.id("moth_cloth"), DefaultVertexFormat.BLOCK) { MothClothRenderType.shader = it }
     register(EnderkinesisMod.id("moth_camo"), DefaultVertexFormat.NEW_ENTITY) { MothCamoRenderType.shader = it }
+    register(EnderkinesisMod.id("wood_statue"), DefaultVertexFormat.NEW_ENTITY) { WoodStatueRenderType.shader = it }
+    register(EnderkinesisMod.id("wood_veins"), DefaultVertexFormat.NEW_ENTITY) { WoodVeins.shader = it }
     register(EnderkinesisMod.id("owl_sight"), DefaultVertexFormat.POSITION) { OwlSightPasses.shader = it }
     register(EnderkinesisMod.id("strike_sketch"), DefaultVertexFormat.POSITION_TEX) { StrikeSketch.shader = it }
     register(EnderkinesisMod.id("strike_normals"), DefaultVertexFormat.NEW_ENTITY) { StrikeSketchRenderTypes.normalsShader = it }

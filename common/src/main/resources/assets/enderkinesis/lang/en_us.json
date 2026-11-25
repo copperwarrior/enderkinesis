@@ -167,8 +167,6 @@
   "block.enderkinesis.quasar_of_purity": "Quasar of Purity",
   "book.enderkinesis.witch_journal.page.1": "[PLACEHOLDER] The Witch Journal. Q will write the text of this page.",
   "death.attack.brink": "%1$s succumbed to the brink",
-  "death.attack.petrified": "%1$s turned to wood",
-  "death.attack.petrified.player": "%1$s turned to wood while fighting %2$s",
   "death.attack.gamylan_light": "%2$s brought light into %1$s's lair",
   "death.attack.godly_intervention": "%1$s woke up",
   "death.attack.irreverent_remnant": "%1$s was consumed by the Irreverent Remnant",

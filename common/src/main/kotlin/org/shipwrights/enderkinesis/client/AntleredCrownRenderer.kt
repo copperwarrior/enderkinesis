@@ -17,24 +17,18 @@ import org.shipwrights.enderkinesis.EnderkinesisMod
 /** Draws the worn crown on a head part, for the helmet slot and for the Curios / Trinkets head slot. */
 object AntleredCrownRenderer {
 
-    private val TEXTURE = EnderkinesisMod.id("textures/entity/antlered_crown/antlered_crown.png")
+    private val TEXTURE = EnderkinesisMod.id("textures/entity/antlered_crown.png")
 
     private val root: ModelPart by lazy { bake() }
-    private val wreath: ModelPart by lazy { root.getChild("wreath") }
-    private val antlers: ModelPart by lazy { root.getChild("antlers") }
 
+    // No cull: the wreath's far inside shows through its open top, and each antler's back shows its front
+    // mirrored, as in Blockbench. The antler back-face UVs are empty, so the cutout drops them and nothing z-fights.
     fun render(poseStack: PoseStack, buffers: MultiBufferSource, light: Int, stack: ItemStack, head: ModelPart) {
         poseStack.pushPose()
         head.translateAndRotate(poseStack)
-        val foil = stack.hasFoil()
-        // No cull so the far inside of the wreath shows through its open top.
-        wreath.render(
-            poseStack, ItemRenderer.getArmorFoilBuffer(buffers, RenderType.armorCutoutNoCull(TEXTURE), false, foil),
-            light, OverlayTexture.NO_OVERLAY,
-        )
-        // Culled: each antler is a zero-depth box whose front and back faces lie in one plane.
-        antlers.render(
-            poseStack, ItemRenderer.getArmorFoilBuffer(buffers, RenderType.entityCutout(TEXTURE), false, foil),
+        root.render(
+            poseStack,
+            ItemRenderer.getArmorFoilBuffer(buffers, RenderType.armorCutoutNoCull(TEXTURE), false, stack.hasFoil()),
             light, OverlayTexture.NO_OVERLAY,
         )
         poseStack.popPose()

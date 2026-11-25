@@ -11,6 +11,27 @@ private const val WET_SIDE_WEIGHT = 16
 fun waterlineScore(wetSides: Int, distanceSq: Int): Int =
     if (wetSides <= 0) NOT_WATERLINE else wetSides * WET_SIDE_WEIGHT - distanceSq
 
+const val FROG_GROUP_SIZE = 3
+const val NEVER_FED = Long.MIN_VALUE
+// Five in-game minutes.
+const val FED_WINDOW_TICKS = 6000L
+
+/** True when the last tongue meal at game tick [lastMeal] is at most [FED_WINDOW_TICKS] before [now]. */
+fun isRecentlyFed(lastMeal: Long, now: Long): Boolean =
+    lastMeal != NEVER_FED && now >= lastMeal && now - lastMeal <= FED_WINDOW_TICKS
+
+data class FrogTrio<T>(val members: List<T>, val mother: T)
+
+/**
+ * The trio [self] breeds with: itself and its two nearest fed, ready partners ([partnersNearestFirst]),
+ * and the one of the three that becomes pregnant, picked by [pickIndex] (0 until 3). Null with fewer than three.
+ */
+fun <T> frogBreedingTrio(self: T, partnersNearestFirst: List<T>, pickIndex: (Int) -> Int): FrogTrio<T>? {
+    if (partnersNearestFirst.size < FROG_GROUP_SIZE - 1) return null
+    val members = listOf(self) + partnersNearestFirst.take(FROG_GROUP_SIZE - 1)
+    return FrogTrio(members, members[pickIndex(FROG_GROUP_SIZE).coerceIn(0, FROG_GROUP_SIZE - 1)])
+}
+
 const val TONGUE_MAX_PITCH_DEGREES = 60.0
 private const val TONGUE_LOWEST_RISE = -0.5
 // Prey right overhead still counts as this far out, so a swarm sitting on the frog's head can be licked.
