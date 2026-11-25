@@ -10,7 +10,7 @@ The abyss stirs. Waking nightmares roam parallel worlds that man was never meant
 ## Requirements
 
 - **Valkyrien Skies 2** — the `1.20.1/playtest` branch (until it is merged), pinned in
-  `gradle.properties` to `vs2_version=2.4.13+5eb3756661` / `vscore_version=1.1.0+ca7ba86676`
+  `gradle.properties` to `vs2_version=2.4.13+2f5a51cc8b` / `vscore_version=1.1.0+305092273a`
   (the playtest HEAD on the Valkyrien Skies maven). Bump instructions are in `gradle.properties`.
 - Architectury, Fabric API + fabric-language-kotlin (Fabric), Kotlin for Forge (Forge).
 
