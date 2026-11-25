@@ -187,11 +187,11 @@ object WohlonnogondoniaSpreader {
     // Ecology of the spread: each frontier candidate is accepted with the product of these factors.
     // The floor keeps every cell reachable: the infection slows, but it never stops.
     private const val ACCEPT_FLOOR = 0.05f
-    private const val DRY_TARGET = 0.55f
-    private const val UPHILL = 0.45f
-    private const val LEVEL_GROUND = 0.85f
+    private const val DRY_TARGET = 0.8f
+    private const val UPHILL = 0.6f
+    private const val LEVEL_GROUND = 0.95f
     private const val FROZEN = 0.35f
-    private const val ARID = 0.4f
+    private const val ARID = 0.7f
     // Blocks above sea level where high ground starts to resist, and resists more.
     private const val HIGH_GROUND = 48
     private const val HIGHER_GROUND = 96
@@ -201,7 +201,7 @@ object WohlonnogondoniaSpreader {
     private const val FROZEN_TEMPERATURE = 0.15f
     // Water to water: always taken level or downstream, slower upstream; then a hop along the water run.
     private const val UPSTREAM = 0.6f
-    private const val WATER_HOP_MAX = 3
+    private const val WATER_HOP_MAX = 1
 
     // Succession at the front: chance per random tick on a frontier cell that a pioneer plant takes a free spot.
     private const val PIONEER_CHANCE = 0.12
