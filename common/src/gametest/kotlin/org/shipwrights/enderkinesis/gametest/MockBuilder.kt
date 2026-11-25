@@ -5,6 +5,8 @@ import io.netty.channel.embedded.EmbeddedChannel
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.network.Connection
+import net.minecraft.network.PacketSendListener
+import net.minecraft.network.protocol.Packet
 import net.minecraft.network.ConnectionProtocol
 import net.minecraft.network.protocol.PacketFlow
 import net.minecraft.server.level.ServerLevel
@@ -20,15 +22,15 @@ import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.Vec3
 import java.util.UUID
 
-/**
- * A player in the player list, so VS2 loads and simulates the ships near it, and the build has an online owner.
- * Its packets go to an embedded channel that [drainPackets] empties; vanilla's mock player keeps them all in memory.
- */
-internal class MockBuilder private constructor(val player: ServerPlayer, private val channel: EmbeddedChannel) {
+/** Drops every packet before netty sees it: an EmbeddedChannel claims every thread as its event loop, so concurrent sends corrupt its queue. */
+private class DiscardingConnection : Connection(PacketFlow.SERVERBOUND) {
+    override fun send(packet: Packet<*>) = Unit
 
-    fun drainPackets() {
-        channel.releaseOutbound()
-    }
+    override fun send(packet: Packet<*>, listener: PacketSendListener?) = Unit
+}
+
+/** A player in the player list, so VS2 loads and simulates the ships near it, and the build has an online owner. */
+internal class MockBuilder private constructor(val player: ServerPlayer, private val channel: EmbeddedChannel) {
 
     /** A right-click with [item] on [face] of the block at [cell], through the item's own use path. */
     fun useItemOn(item: Item, cell: BlockPos, face: Direction): InteractionResult {
@@ -55,7 +57,7 @@ internal class MockBuilder private constructor(val player: ServerPlayer, private
 
         fun join(level: ServerLevel, at: Vec3): MockBuilder {
             val player = ServerPlayer(level.server, level, GameProfile(UUID.randomUUID(), NAME))
-            val connection = Connection(PacketFlow.SERVERBOUND)
+            val connection = DiscardingConnection()
             val channel = EmbeddedChannel(connection)
             channel.attr(Connection.ATTRIBUTE_PROTOCOL).set(ConnectionProtocol.PLAY)
             level.server.playerList.placeNewPlayer(connection, player)

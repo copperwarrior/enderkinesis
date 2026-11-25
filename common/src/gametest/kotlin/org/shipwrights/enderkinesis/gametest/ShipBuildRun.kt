@@ -45,6 +45,7 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
     private var job: BuildJob? = null
     private var buildStartTick = 0L
     private var ended: String? = null
+    private var watchdog: Thread? = null
 
     // One instance: the wait throws it each tick, and the message is built only when the test reports it.
     private val stillRunning = object : GameTestAssertException("the build is still running") {
@@ -59,6 +60,7 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
             gameTestFail("VS2 did not start its ship world on the GameTest server")
         }
         for (x in 0 until Yard.SIZE_X) for (z in 0 until Yard.SIZE_Z) helper.setBlock(x, Yard.FLOOR_Y, z, Blocks.STONE)
+        startWatchdog()
         builder = MockBuilder.join(level, helper.absoluteVec(Yard.BUILDER))
         builder.useItemOn(EKItems.DRAFTING_TABLE_ITEM.get(), tablePos.below(), Direction.UP)
         if (table() == null) gameTestFail("the drafting table item placed no table at ${tablePos.toShortString()}")
@@ -66,6 +68,23 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
         loadPlan()
         stockSupplies()
         walker = animateWalker()
+    }
+
+    private fun startWatchdog() {
+        val serverThread = Thread.currentThread()
+        val watchdog = Thread({
+            try {
+                Thread.sleep(WALL_CLOCK_LIMIT_SECONDS * MILLIS_PER_SECOND)
+            } catch (_: InterruptedException) {
+                return@Thread
+            }
+            val stack = serverThread.stackTrace.joinToString("\n  ") { it.toString() }
+            LOG.error("[EkGameTest] no result after {} s; server thread:\n  {}", WALL_CLOCK_LIMIT_SECONDS, stack)
+            Runtime.getRuntime().halt(WATCHDOG_EXIT_CODE)
+        }, "ek-gametest-watchdog")
+        watchdog.isDaemon = true
+        watchdog.start()
+        this.watchdog = watchdog
     }
 
     private fun table(): DraftingTableBlockEntity? = level.getBlockEntity(tablePos) as? DraftingTableBlockEntity
@@ -123,7 +142,6 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
     }
 
     fun awaitWalkerShip() {
-        builder.drainPackets()
         if (!walker.hasBackShip()) throw GameTestAssertException("the walker has no VS2 back ship yet")
     }
 
@@ -144,7 +162,6 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
     /** Waits on the job's own completion; a job that leaves the job list unfinished, or a lost walker, ends the wait. */
     fun awaitBuildEnd() {
         val job = job ?: return
-        builder.drainPackets()
         try {
             when {
                 job.isFinished -> return
@@ -173,6 +190,7 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
             if (cells.wrong > 0) gameTestFail("the job reports complete, but the world does not match the plan\n${report()}")
             LOG.info("[EkGameTest] {} built in {} ticks", plan.name, helper.tick - buildStartTick)
         } finally {
+            watchdog?.interrupt()
             logTail?.uninstall()
             builder.leave()
         }
@@ -205,5 +223,7 @@ internal class ShipBuildRun(private val helper: GameTestHelper) {
 
     private companion object {
         val LOG = LogUtils.getLogger()
+        const val MILLIS_PER_SECOND = 1000L
+        const val WATCHDOG_EXIT_CODE = 3
     }
 }

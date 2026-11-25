@@ -11,6 +11,9 @@ import net.minecraft.world.phys.Vec3
 /** The only time limit of the ship build test: 20 in-game minutes, set-up included. */
 const val BUILD_TIME_LIMIT_TICKS = 20 * 60 * 20
 
+/** Real-time limit. Ticks cannot catch a server thread that stalls inside one tick. */
+const val WALL_CLOCK_LIMIT_SECONDS = 30L * 60
+
 private const val TEMPLATE = "enderkinesis_gametest:build_yard"
 
 /**
